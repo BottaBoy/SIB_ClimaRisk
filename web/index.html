@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SIB | Demo Climat Risques</title>
+    <meta name="description" content="Maquette interactive de valorisation des analyses climat: exposition, pertes attendues et indice de risque par scénario et horizon." />
+    <style>
+      :root {
+        --bg-deep: #08131b;
+        --bg-mid: #10242f;
+        --panel: rgba(9, 23, 31, 0.82);
+        --panel-strong: #122f3c;
+        --text: #eef4ee;
+        --muted: #a8bbb3;
+        --line: rgba(175, 205, 188, 0.22);
+        --accent-water: #2f9fbe;
+        --accent-earth: #d0b55a;
+        --accent-risk: #d76d43;
+        --ok: #5fbf8e;
+        --shadow: 0 20px 46px rgba(2, 8, 12, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Manrope", sans-serif;
+        color: var(--text);
+        min-height: 100vh;
+        background:
+          radial-gradient(1100px 460px at -6% -12%, rgba(48, 119, 149, 0.36), transparent 72%),
+          radial-gradient(900px 420px at 115% 8%, rgba(168, 145, 77, 0.24), transparent 68%),
+          linear-gradient(160deg, var(--bg-deep), #0d1d28 42%, var(--bg-mid));
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: "Fraunces", serif;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .page {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 26px 22px 34px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 10px;
+      }
+
+      .hero h1 {
+        font-size: clamp(28px, 4vw, 42px);
+        letter-spacing: 0.02em;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        max-width: 860px;
+        line-height: 1.5;
+      }
+
+      .meta-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(18, 47, 60, 0.42);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .badge::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--ok);
+        box-shadow: 0 0 10px rgba(95, 191, 142, 0.75);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+      }
+
+      .controls {
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field label {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .field select,
+      .field input {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: rgba(9, 23, 31, 0.84);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        width: 100%;
+      }
+
+      .field select:focus,
+      .field input:focus,
+      .reset-btn:focus {
+        outline: 2px solid rgba(47, 159, 190, 0.48);
+        outline-offset: 2px;
+      }
+
+      .error-banner {
+        border: 1px solid rgba(215, 109, 67, 0.5);
+        background: rgba(215, 109, 67, 0.14);
+        color: #ffd8ca;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 14px;
+      }
+
+      .kpi-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(3, minmax(190px, 1fr));
+      }
+
+      .kpi-card {
+        padding: 16px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .kpi-card .label {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .kpi-card .value {
+        font-size: clamp(24px, 2.6vw, 34px);
+        font-weight: 600;
+      }
+
+      .kpi-card .delta {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .delta.positive {
+        color: #ffc8af;
+      }
+
+      .delta.negative {
+        color: #8bddb8;
+      }
+
+      .chart-wrap,
+      .map-wrap {
+        padding: 16px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .chart-head,
+      .map-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: baseline;
+      }
+
+      .chart-note {
+        margin: 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      #comparison-chart {
+        height: 340px;
+        width: 100%;
+      }
+
+      .map-filter {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .filter-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(18, 47, 60, 0.4);
+      }
+
+      .reset-btn {
+        border: 1px solid var(--line);
+        background: rgba(9, 23, 31, 0.84);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .reset-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      #territory-map {
+        width: 100%;
+        height: 380px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        overflow: hidden;
+      }
+
+      .map-fallback {
+        border: 1px dashed rgba(175, 205, 188, 0.3);
+        color: var(--muted);
+        border-radius: 12px;
+        padding: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .map-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+      }
+
+      .legend-dot.low {
+        background: #3ea98f;
+      }
+
+      .legend-dot.mid {
+        background: #d0b55a;
+      }
+
+      .legend-dot.high {
+        background: #e57a2f;
+      }
+
+      .legend-dot.vhigh {
+        background: #d94832;
+      }
+
+      .leaflet-container {
+        font-family: "Manrope", sans-serif;
+        background: #0f1f2a;
+      }
+
+      .leaflet-control-attribution {
+        background: rgba(8, 19, 27, 0.78);
+        color: #c0d2cb;
+      }
+
+      .leaflet-control-attribution a {
+        color: #a7d1de;
+      }
+
+      .insights {
+        padding: 16px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .insights ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .table-wrap {
+        padding: 16px;
+        overflow-x: auto;
+      }
+
+      .table-head {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .table-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      table {
+        width: 100%;
+        min-width: 640px;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid rgba(175, 205, 188, 0.18);
+        padding: 11px 8px;
+        text-align: left;
+        font-size: 14px;
+      }
+
+      th {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        font-size: 11px;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .footer {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 2px 4px;
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(12px);
+        transition: opacity 0.45s ease, transform 0.45s ease;
+      }
+
+      .reveal.ready {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 1023px) {
+        .controls {
+          grid-template-columns: repeat(2, minmax(150px, 1fr));
+        }
+
+        .kpi-grid {
+          grid-template-columns: repeat(2, minmax(190px, 1fr));
+        }
+      }
+
+      @media (max-width: 767px) {
+        .page {
+          padding: 20px 14px 26px;
+        }
+
+        .controls,
+        .kpi-grid {
+          grid-template-columns: 1fr;
+        }
+
+        #comparison-chart {
+          height: 300px;
+        }
+
+        #territory-map {
+          height: 280px;
+        }
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero reveal">
+        <h1>SIB | Climat & Risques</h1>
+        <p class="subtitle">
+          Maquette interactive orientee DOM-TOM, centree sur la Guadeloupe et le bassin antillais. Comparez rapidement scenarios, horizons et territoires via trois indicateurs cles.
+        </p>
+        <div class="meta-row">
+          <div class="badge" id="source-badge">Données: chargement</div>
+          <div class="badge" id="updated-badge">Mise à jour: —</div>
+        </div>
+      </header>
+
+      <section class="panel controls reveal" aria-label="Filtres">
+        <div class="field">
+          <label for="scenario-select">Scénario</label>
+          <select id="scenario-select"></select>
+        </div>
+        <div class="field">
+          <label for="horizon-select">Horizon</label>
+          <select id="horizon-select"></select>
+        </div>
+        <div class="field">
+          <label for="metric-select">Métrique du comparateur</label>
+          <select id="metric-select">
+            <option value="exposure_meur">Exposition (M€)</option>
+            <option value="expected_loss_meur">Pertes attendues (M€)</option>
+            <option value="risk_index">Indice de risque</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="geo-search">Recherche géographie</label>
+          <input id="geo-search" type="search" placeholder="Ex: Basse-Terre" autocomplete="off" />
+        </div>
+      </section>
+
+      <div class="error-banner" id="error-banner" hidden></div>
+
+      <section class="kpi-grid" id="kpi-grid" aria-live="polite"></section>
+
+      <section class="panel chart-wrap reveal" aria-labelledby="chart-title">
+        <div class="chart-head">
+          <h2 id="chart-title">Comparateur Antilles DOM-TOM / horizons</h2>
+          <p class="chart-note" id="chart-note">Agrégation globale par scénario et horizon</p>
+        </div>
+        <div id="comparison-chart" role="img" aria-label="Graphique comparatif des scénarios"></div>
+      </section>
+
+      <section class="panel map-wrap reveal" aria-labelledby="map-title">
+        <div class="map-head">
+          <div>
+            <h2 id="map-title">Carto territoriale Antilles DOM-TOM</h2>
+            <p class="chart-note">Couleur = indice de risque, taille = exposition (M€), clic pour filtrer tous les blocs.</p>
+          </div>
+          <div class="map-filter">
+            <span class="filter-badge" id="territory-filter-badge">Filtre territorial: aucun</span>
+            <button class="reset-btn" type="button" id="clear-territory-btn" disabled>Réinitialiser</button>
+          </div>
+        </div>
+
+        <div class="map-fallback" id="map-fallback" hidden></div>
+        <div id="territory-map" role="img" aria-label="Carte des territoires DOM-TOM"></div>
+
+        <div class="map-legend" aria-label="Légende cartographique">
+          <span class="legend-item"><span class="legend-dot low"></span>Risque faible</span>
+          <span class="legend-item"><span class="legend-dot mid"></span>Risque moyen</span>
+          <span class="legend-item"><span class="legend-dot high"></span>Risque élevé</span>
+          <span class="legend-item"><span class="legend-dot vhigh"></span>Risque très élevé</span>
+          <span class="legend-item">Taille du point = exposition</span>
+        </div>
+      </section>
+
+      <section class="panel insights reveal" aria-labelledby="insights-title">
+        <h2 id="insights-title">Insights clés</h2>
+        <ul id="insights-list"></ul>
+      </section>
+
+      <section class="panel table-wrap reveal" aria-labelledby="table-title">
+        <div class="table-head">
+          <h2 id="table-title">Détail territorial DOM-TOM</h2>
+          <p id="table-meta">0 zones</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Zone</th>
+              <th class="num">Exposition (M€)</th>
+              <th class="num">Pertes attendues (M€)</th>
+              <th class="num">Indice de risque</th>
+            </tr>
+          </thead>
+          <tbody id="geo-table-body"></tbody>
+        </table>
+      </section>
+
+      <footer class="footer">
+        Focus de la maquette: Guadeloupe et Antilles francaises. Reference KPI fixe: scenario Central, horizon 2030. Remplacez <code>/data/sib-demo.json</code> pour brancher les donnees reelles du notebook.
+      </footer>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+      const state = {
+        data: null,
+        selectedScenarioId: 'central',
+        selectedHorizon: 2050,
+        selectedMetric: 'expected_loss_meur',
+        searchText: '',
+        selectedGeographyId: null,
+        mapReady: false,
+        mapError: ''
+      };
+
+      const chartRef = {
+        instance: null
+      };
+
+      const mapRef = {
+        instance: null,
+        markersLayer: null,
+        hasFitted: false
+      };
+
+      const scenarioColors = {
+        optimiste: '#3ea98f',
+        central: '#d0b55a',
+        stress: '#d76d43'
+      };
+
+      const metricLabels = {
+        exposure_meur: 'Exposition (M€)',
+        expected_loss_meur: 'Pertes attendues (M€)',
+        risk_index: 'Indice de risque'
+      };
+
+      const numberFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+      const percentFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+
+      const scenarioSelect = document.getElementById('scenario-select');
+      const horizonSelect = document.getElementById('horizon-select');
+      const metricSelect = document.getElementById('metric-select');
+      const geoSearch = document.getElementById('geo-search');
+      const clearTerritoryBtn = document.getElementById('clear-territory-btn');
+      const territoryFilterBadge = document.getElementById('territory-filter-badge');
+      const mapFallback = document.getElementById('map-fallback');
+      const mapContainer = document.getElementById('territory-map');
+
+      function formatNumber(value) {
+        return numberFormatter.format(value);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+
+      function formatDelta(value, base) {
+        if (!Number.isFinite(value) || !Number.isFinite(base) || base === 0) {
+          return { text: 'vs Central 2030: n/a', cls: '' };
+        }
+        const abs = value - base;
+        const pct = (abs / base) * 100;
+        const sign = abs >= 0 ? '+' : '';
+        const cls = abs >= 0 ? 'positive' : 'negative';
+        const text = `vs Central 2030: ${sign}${formatNumber(abs)} (${sign}${percentFormatter.format(pct)}%)`;
+        return { text, cls };
+      }
+
+      function formatIsoDate(value) {
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return '—';
+        return dt.toLocaleString('fr-FR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+
+      function showError(message) {
+        const banner = document.getElementById('error-banner');
+        banner.hidden = false;
+        banner.textContent = message;
+      }
+
+      function clearError() {
+        const banner = document.getElementById('error-banner');
+        banner.hidden = true;
+        banner.textContent = '';
+      }
+
+      function normalizeData(data) {
+        if (!data || typeof data !== 'object') {
+          throw new Error('Format JSON invalide.');
+        }
+
+        const scenarios = Array.isArray(data.scenarios) ? data.scenarios : [];
+        const horizons = Array.isArray(data.horizons) ? data.horizons : [];
+        const records = Array.isArray(data.records) ? data.records : [];
+
+        if (!scenarios.length || !horizons.length || !records.length) {
+          throw new Error('Le fichier JSON ne contient pas assez de données exploitables.');
+        }
+
+        const scenarioMap = new Map();
+        scenarios.forEach((scenario) => {
+          if (!scenario || typeof scenario.id !== 'string' || typeof scenario.label !== 'string') {
+            return;
+          }
+          scenarioMap.set(scenario.id, scenario);
+        });
+
+        if (!scenarioMap.size) {
+          throw new Error('Aucun scénario valide dans le JSON.');
+        }
+
+        const horizonSet = new Set(horizons.filter((h) => Number.isInteger(h)));
+        if (!horizonSet.size) {
+          throw new Error('Aucun horizon valide dans le JSON.');
+        }
+
+        const geographiesRaw = Array.isArray(data.geographies) ? data.geographies : [];
+        const geographiesById = new Map();
+
+        geographiesRaw.forEach((geo) => {
+          if (!geo || typeof geo.id !== 'string' || typeof geo.label !== 'string') return;
+          if (!Number.isFinite(geo.lat) || !Number.isFinite(geo.lon)) return;
+          if (geo.lat < -90 || geo.lat > 90 || geo.lon < -180 || geo.lon > 180) return;
+          if (geographiesById.has(geo.id)) return;
+          geographiesById.set(geo.id, {
+            id: geo.id,
+            label: geo.label,
+            lat: geo.lat,
+            lon: geo.lon
+          });
+        });
+
+        const validRecords = records.filter((record) => {
+          if (!record || typeof record !== 'object') return false;
+          if (typeof record.geography_id !== 'string' || typeof record.geography_label !== 'string') return false;
+          if (!scenarioMap.has(record.scenario_id)) return false;
+          if (!horizonSet.has(record.horizon)) return false;
+          if (!Number.isFinite(record.exposure_meur) || !Number.isFinite(record.expected_loss_meur) || !Number.isFinite(record.risk_index)) return false;
+          return true;
+        });
+
+        if (!validRecords.length) {
+          throw new Error('Aucun enregistrement valide dans le JSON.');
+        }
+
+        const missingGeoRefs = new Set();
+        validRecords.forEach((record) => {
+          if (!geographiesById.has(record.geography_id)) {
+            missingGeoRefs.add(record.geography_id);
+          }
+        });
+
+        let mapError = '';
+        if (!geographiesById.size) {
+          mapError = 'Carto indisponible: section geographies[] manquante ou invalide dans le JSON.';
+        } else if (missingGeoRefs.size) {
+          mapError = `Carto partielle: coordonnées absentes pour ${missingGeoRefs.size} territoire(s).`;
+        }
+
+        const sortedHorizons = Array.from(horizonSet).sort((a, b) => a - b);
+        return {
+          meta: data.meta || {},
+          scenarios: Array.from(scenarioMap.values()),
+          scenarioMap,
+          horizons: sortedHorizons,
+          records: validRecords,
+          geographies: Array.from(geographiesById.values()),
+          geographiesById,
+          mapError,
+          insightNotes: Array.isArray(data.insight_notes) ? data.insight_notes.filter((x) => typeof x === 'string') : []
+        };
+      }
+
+      function getRecords(scenarioId, horizon) {
+        return state.data.records.filter((record) => (
+          record.scenario_id === scenarioId && record.horizon === horizon
+        ));
+      }
+
+      function filterRecordsByTerritory(records) {
+        if (!state.selectedGeographyId) return records;
+        return records.filter((record) => record.geography_id === state.selectedGeographyId);
+      }
+
+      function aggregate(records) {
+        const exposure = records.reduce((sum, rec) => sum + rec.exposure_meur, 0);
+        const loss = records.reduce((sum, rec) => sum + rec.expected_loss_meur, 0);
+        const weightedRiskNumerator = records.reduce((sum, rec) => sum + (rec.risk_index * rec.exposure_meur), 0);
+        const risk = exposure > 0 ? weightedRiskNumerator / exposure : 0;
+        return { exposure, loss, risk };
+      }
+
+      function summarizeByGeography(records) {
+        const grouped = new Map();
+
+        records.forEach((rec) => {
+          const key = rec.geography_id;
+          if (!grouped.has(key)) {
+            grouped.set(key, {
+              geography_id: rec.geography_id,
+              geography_label: rec.geography_label,
+              exposure: 0,
+              loss: 0,
+              riskNumerator: 0
+            });
+          }
+          const row = grouped.get(key);
+          row.exposure += rec.exposure_meur;
+          row.loss += rec.expected_loss_meur;
+          row.riskNumerator += rec.risk_index * rec.exposure_meur;
+        });
+
+        return Array.from(grouped.values()).map((row) => ({
+          geography_id: row.geography_id,
+          geography_label: row.geography_label,
+          exposure: row.exposure,
+          loss: row.loss,
+          risk: row.exposure > 0 ? row.riskNumerator / row.exposure : 0
+        }));
+      }
+
+      function getSelectedTerritoryLabel() {
+        if (!state.selectedGeographyId) return null;
+        return state.data.geographiesById.get(state.selectedGeographyId)?.label || state.selectedGeographyId;
+      }
+
+      function renderTerritoryFilterBadge() {
+        const label = getSelectedTerritoryLabel();
+        territoryFilterBadge.textContent = label
+          ? `Filtre territorial actif: ${label}`
+          : 'Filtre territorial: aucun';
+        clearTerritoryBtn.disabled = !label;
+      }
+
+      function populateControls() {
+        scenarioSelect.innerHTML = state.data.scenarios
+          .map((scenario) => `<option value="${escapeHtml(scenario.id)}">${escapeHtml(scenario.label)}</option>`)
+          .join('');
+
+        horizonSelect.innerHTML = state.data.horizons
+          .map((horizon) => `<option value="${horizon}">${horizon}</option>`)
+          .join('');
+
+        if (!state.data.scenarioMap.has(state.selectedScenarioId)) {
+          state.selectedScenarioId = state.data.scenarios[0].id;
+        }
+
+        if (!state.data.horizons.includes(state.selectedHorizon)) {
+          state.selectedHorizon = state.data.horizons.includes(2050) ? 2050 : state.data.horizons[0];
+        }
+
+        scenarioSelect.value = state.selectedScenarioId;
+        horizonSelect.value = String(state.selectedHorizon);
+        metricSelect.value = state.selectedMetric;
+      }
+
+      function renderMeta() {
+        const sourceBadge = document.getElementById('source-badge');
+        const updatedBadge = document.getElementById('updated-badge');
+        const source = state.data.meta.source === 'notebook' ? 'notebook' : 'mock';
+        sourceBadge.textContent = `Données: ${source}`;
+        updatedBadge.textContent = `Mise à jour: ${formatIsoDate(state.data.meta.updated_at)}`;
+      }
+
+      function renderKpiCards(selectedAgg, baselineAgg) {
+        const cards = [
+          {
+            label: 'Exposition totale',
+            value: `${formatNumber(selectedAgg.exposure)} M€`,
+            delta: formatDelta(selectedAgg.exposure, baselineAgg.exposure)
+          },
+          {
+            label: 'Pertes attendues',
+            value: `${formatNumber(selectedAgg.loss)} M€`,
+            delta: formatDelta(selectedAgg.loss, baselineAgg.loss)
+          },
+          {
+            label: 'Indice de risque',
+            value: formatNumber(selectedAgg.risk),
+            delta: formatDelta(selectedAgg.risk, baselineAgg.risk)
+          }
+        ];
+
+        const container = document.getElementById('kpi-grid');
+        container.innerHTML = cards.map((card, idx) => (
+          `<article class="panel kpi-card reveal" style="transition-delay:${idx * 50}ms">` +
+            `<div class="label">${escapeHtml(card.label)}</div>` +
+            `<div class="value">${escapeHtml(card.value)}</div>` +
+            `<div class="delta ${card.delta.cls}">${escapeHtml(card.delta.text)}</div>` +
+          `</article>`
+        )).join('');
+      }
+
+      function getRiskColor(risk) {
+        if (risk >= 80) return '#d94832';
+        if (risk >= 70) return '#e57a2f';
+        if (risk >= 60) return '#d0b55a';
+        return '#3ea98f';
+      }
+
+      function getRadius(value, min, max) {
+        if (!Number.isFinite(value)) return 8;
+        if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return 12;
+        return 8 + ((value - min) / (max - min)) * 20;
+      }
+
+      function ensureMap() {
+        if (mapRef.instance) return true;
+        if (!window.L) return false;
+        if (!mapContainer) return false;
+
+        mapRef.instance = L.map(mapContainer, {
+          zoomControl: true,
+          attributionControl: true
+        }).setView([16.35, -61.55], 8);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 12,
+          minZoom: 6,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(mapRef.instance);
+
+        mapRef.markersLayer = L.layerGroup().addTo(mapRef.instance);
+        state.mapReady = true;
+        return true;
+      }
+
+      function renderMap(baseRecords) {
+        renderTerritoryFilterBadge();
+
+        if (!window.L) {
+          mapFallback.hidden = false;
+          mapFallback.textContent = 'Carto indisponible: la librairie Leaflet n\'a pas pu etre chargee.';
+          mapContainer.hidden = true;
+          state.mapReady = false;
+          return;
+        }
+
+        if (state.data.mapError) {
+          mapFallback.hidden = false;
+          mapFallback.textContent = state.data.mapError;
+        } else {
+          mapFallback.hidden = true;
+          mapFallback.textContent = '';
+        }
+
+        if (!state.data.geographies.length) {
+          mapContainer.hidden = true;
+          state.mapReady = false;
+          return;
+        }
+
+        mapContainer.hidden = false;
+
+        if (!ensureMap()) {
+          mapFallback.hidden = false;
+          mapFallback.textContent = 'Carto indisponible: initialisation de la carte impossible.';
+          mapContainer.hidden = true;
+          return;
+        }
+
+        mapRef.markersLayer.clearLayers();
+
+        const rows = summarizeByGeography(baseRecords)
+          .map((row) => ({
+            ...row,
+            geo: state.data.geographiesById.get(row.geography_id)
+          }))
+          .filter((row) => Boolean(row.geo));
+
+        const exposures = rows.map((row) => row.exposure);
+        const minExposure = exposures.length ? Math.min(...exposures) : 0;
+        const maxExposure = exposures.length ? Math.max(...exposures) : 0;
+
+        const latLngs = [];
+
+        rows.forEach((row) => {
+          const isActive = state.selectedGeographyId === row.geography_id;
+          const marker = L.circleMarker([row.geo.lat, row.geo.lon], {
+            radius: getRadius(row.exposure, minExposure, maxExposure),
+            color: isActive ? '#ffffff' : 'rgba(8, 19, 27, 0.75)',
+            weight: isActive ? 2.8 : 1.3,
+            fillColor: getRiskColor(row.risk),
+            fillOpacity: isActive ? 0.95 : 0.82
+          });
+
+          const tooltip = [
+            `<strong>${escapeHtml(row.geography_label)}</strong>`,
+            `Exposition: ${formatNumber(row.exposure)} M€`,
+            `Pertes: ${formatNumber(row.loss)} M€`,
+            `Indice: ${formatNumber(row.risk)}`
+          ].join('<br/>');
+
+          marker.bindTooltip(tooltip, { sticky: true, direction: 'top' });
+
+          marker.on('click', () => {
+            state.selectedGeographyId = state.selectedGeographyId === row.geography_id ? null : row.geography_id;
+            render();
+          });
+
+          marker.addTo(mapRef.markersLayer);
+          latLngs.push([row.geo.lat, row.geo.lon]);
+        });
+
+        if (!mapRef.hasFitted && latLngs.length) {
+          mapRef.instance.fitBounds(latLngs, {
+            padding: [24, 24],
+            maxZoom: 9
+          });
+          mapRef.hasFitted = true;
+        }
+
+        setTimeout(() => {
+          if (mapRef.instance) mapRef.instance.invalidateSize();
+        }, 0);
+      }
+
+      function renderGeoTable(records) {
+        const tbody = document.getElementById('geo-table-body');
+        const tableMeta = document.getElementById('table-meta');
+        const filtered = summarizeByGeography(records)
+          .filter((row) => {
+            if (!state.searchText) return true;
+            const query = state.searchText.toLowerCase();
+            return row.geography_label.toLowerCase().includes(query) || row.geography_id.toLowerCase().includes(query);
+          })
+          .sort((a, b) => b.risk - a.risk);
+
+        const scopeLabel = getSelectedTerritoryLabel();
+        tableMeta.textContent = scopeLabel
+          ? `${filtered.length} zone affichée · filtre: ${scopeLabel}`
+          : `${filtered.length} zones affichées`;
+
+        if (!filtered.length) {
+          tbody.innerHTML = '<tr><td colspan="4">Aucune zone ne correspond au filtre.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = filtered.map((row) => (
+          `<tr>` +
+            `<td>${escapeHtml(row.geography_label)}</td>` +
+            `<td class="num">${formatNumber(row.exposure)}</td>` +
+            `<td class="num">${formatNumber(row.loss)}</td>` +
+            `<td class="num">${formatNumber(row.risk)}</td>` +
+          `</tr>`
+        )).join('');
+      }
+
+      function renderInsights(selectedAgg, baselineAgg, selectedRecords) {
+        const insights = [];
+
+        if (!selectedRecords.length) {
+          insights.push('Aucune donnée disponible pour la combinaison de filtres actuelle.');
+          const list = document.getElementById('insights-list');
+          list.innerHTML = insights.map((text) => `<li>${escapeHtml(text)}</li>`).join('');
+          return;
+        }
+
+        const scopeLabel = getSelectedTerritoryLabel();
+        if (scopeLabel) {
+          insights.push(`Filtre territorial actif: ${scopeLabel}. Les indicateurs consolidés sont calculés uniquement sur cette zone.`);
+        }
+
+        const byGeo = summarizeByGeography(selectedRecords).sort((a, b) => b.risk - a.risk);
+        const topGeo = byGeo[0];
+        if (topGeo) {
+          insights.push(`${topGeo.geography_label} presente l'indice de risque le plus eleve (${formatNumber(topGeo.risk)}), pour ${formatNumber(topGeo.exposure)} M€ exposes dans le perimetre Antilles-DOM.`);
+        }
+
+        if (selectedAgg.exposure > 0) {
+          const ratio = (selectedAgg.loss / selectedAgg.exposure) * 100;
+          insights.push(`Le ratio pertes/exposition atteint ${percentFormatter.format(ratio)}% sur la selection courante autour de la Guadeloupe.`);
+        }
+
+        const deltaLoss = selectedAgg.loss - baselineAgg.loss;
+        const deltaSign = deltaLoss >= 0 ? '+' : '';
+        insights.push(`Par rapport à Central 2030, les pertes agrégées évoluent de ${deltaSign}${formatNumber(deltaLoss)} M€.`);
+
+        if (state.data.insightNotes.length) {
+          insights.push(state.data.insightNotes[0]);
+        }
+
+        const list = document.getElementById('insights-list');
+        list.innerHTML = insights.slice(0, 4).map((text) => `<li>${escapeHtml(text)}</li>`).join('');
+      }
+
+      function buildChartSeries(metricKey) {
+        return state.data.scenarios.map((scenario) => {
+          const color = scenarioColors[scenario.id] || '#8aa69f';
+          const isSelectedScenario = scenario.id === state.selectedScenarioId;
+
+          const data = state.data.horizons.map((horizon) => {
+            const records = filterRecordsByTerritory(getRecords(scenario.id, horizon));
+            const agg = aggregate(records);
+            let value = 0;
+
+            if (metricKey === 'exposure_meur') value = agg.exposure;
+            if (metricKey === 'expected_loss_meur') value = agg.loss;
+            if (metricKey === 'risk_index') value = agg.risk;
+
+            const isSelectedBar = isSelectedScenario && horizon === state.selectedHorizon;
+            return {
+              value,
+              itemStyle: {
+                color,
+                opacity: isSelectedScenario ? 1 : 0.62,
+                borderColor: isSelectedBar ? '#ffffff' : 'transparent',
+                borderWidth: isSelectedBar ? 1.4 : 0
+              }
+            };
+          });
+
+          return {
+            name: scenario.label,
+            type: 'bar',
+            barMaxWidth: 30,
+            emphasis: { focus: 'series' },
+            data
+          };
+        });
+      }
+
+      function renderChart() {
+        if (!window.echarts) return;
+        const chartEl = document.getElementById('comparison-chart');
+        if (!chartRef.instance) {
+          chartRef.instance = echarts.init(chartEl, null, { renderer: 'canvas' });
+          window.addEventListener('resize', () => chartRef.instance && chartRef.instance.resize());
+        }
+
+        const axisData = state.data.horizons.map((horizon) => String(horizon));
+        const series = buildChartSeries(state.selectedMetric);
+        const territoryLabel = getSelectedTerritoryLabel();
+        const scopeNote = territoryLabel
+          ? `Filtre territorial actif: ${territoryLabel}.`
+          : 'Sans filtre territorial.';
+
+        document.getElementById('chart-note').textContent = `Métrique affichée: ${metricLabels[state.selectedMetric]}. ${scopeNote}`;
+
+        chartRef.instance.setOption({
+          backgroundColor: 'transparent',
+          tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            formatter: (params) => {
+              if (!params || !params.length) return '';
+              const title = `<strong>Horizon ${params[0].axisValue}</strong>`;
+              const rows = params.map((param) => (
+                `<div style="display:flex;gap:8px;justify-content:space-between;">` +
+                  `<span style="color:${param.color}">● ${escapeHtml(param.seriesName)}</span>` +
+                  `<strong>${formatNumber(param.value)}${state.selectedMetric === 'risk_index' ? '' : ' M€'}</strong>` +
+                `</div>`
+              ));
+              return [title, ...rows].join('');
+            }
+          },
+          legend: {
+            top: 0,
+            textStyle: { color: '#a8bbb3' }
+          },
+          grid: {
+            left: 10,
+            right: 14,
+            top: 36,
+            bottom: 22,
+            containLabel: true
+          },
+          xAxis: {
+            type: 'category',
+            data: axisData,
+            axisLine: { lineStyle: { color: 'rgba(175,205,188,0.3)' } },
+            axisLabel: { color: '#a8bbb3' },
+            axisTick: { show: false }
+          },
+          yAxis: {
+            type: 'value',
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { color: '#a8bbb3' },
+            splitLine: { lineStyle: { color: 'rgba(175,205,188,0.14)' } }
+          },
+          series
+        }, true);
+      }
+
+      function render() {
+        const baseRecords = getRecords(state.selectedScenarioId, state.selectedHorizon);
+
+        if (state.selectedGeographyId && !baseRecords.some((record) => record.geography_id === state.selectedGeographyId)) {
+          state.selectedGeographyId = null;
+        }
+
+        const selectedRecords = filterRecordsByTerritory(baseRecords);
+        const baselineRecords = filterRecordsByTerritory(getRecords('central', 2030));
+        const selectedAgg = aggregate(selectedRecords);
+        const baselineAgg = aggregate(baselineRecords);
+
+        renderKpiCards(selectedAgg, baselineAgg);
+        renderChart();
+        renderMap(baseRecords);
+        renderGeoTable(selectedRecords);
+        renderInsights(selectedAgg, baselineAgg, selectedRecords);
+        runRevealAnimation();
+      }
+
+      function runRevealAnimation() {
+        const nodes = Array.from(document.querySelectorAll('.reveal'));
+        nodes.forEach((node, index) => {
+          node.style.transitionDelay = `${Math.min(index * 40, 280)}ms`;
+          requestAnimationFrame(() => node.classList.add('ready'));
+        });
+      }
+
+      function bindEvents() {
+        scenarioSelect.addEventListener('change', (event) => {
+          state.selectedScenarioId = event.target.value;
+          render();
+        });
+
+        horizonSelect.addEventListener('change', (event) => {
+          state.selectedHorizon = Number(event.target.value);
+          render();
+        });
+
+        metricSelect.addEventListener('change', (event) => {
+          state.selectedMetric = event.target.value;
+          renderChart();
+        });
+
+        geoSearch.addEventListener('input', (event) => {
+          state.searchText = event.target.value.trim();
+          const records = filterRecordsByTerritory(getRecords(state.selectedScenarioId, state.selectedHorizon));
+          renderGeoTable(records);
+        });
+
+        clearTerritoryBtn.addEventListener('click', () => {
+          state.selectedGeographyId = null;
+          render();
+        });
+      }
+
+      async function fetchJson() {
+        const urls = ['/data/sib-demo.json', 'data/sib-demo.json'];
+        let lastError = null;
+
+        for (const url of urls) {
+          try {
+            const response = await fetch(url, { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return await response.json();
+          } catch (err) {
+            lastError = err;
+          }
+        }
+
+        throw lastError || new Error('Impossible de charger les données.');
+      }
+
+      async function bootstrap() {
+        try {
+          clearError();
+          const json = await fetchJson();
+          state.data = normalizeData(json);
+          populateControls();
+          renderMeta();
+          bindEvents();
+          render();
+        } catch (err) {
+          showError(`Erreur de chargement des données: ${err.message}. Vérifiez /data/sib-demo.json.`);
+          console.error(err);
+        }
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>

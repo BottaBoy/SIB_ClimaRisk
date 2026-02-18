@@ -1,0 +1,909 @@
+{
+  "meta": {
+    "title": "SIB - Demo Climat Risques DOM-TOM (Guadeloupe)",
+    "updated_at": "2026-02-14T00:00:00Z",
+    "source": "mock",
+    "unit_currency": "MEUR"
+  },
+  "scenarios": [
+    {
+      "id": "optimiste",
+      "label": "Optimiste",
+      "technical_label": "SSP1-2.6"
+    },
+    {
+      "id": "central",
+      "label": "Central",
+      "technical_label": "SSP2-4.5"
+    },
+    {
+      "id": "stress",
+      "label": "Stress",
+      "technical_label": "SSP5-8.5"
+    }
+  ],
+  "horizons": [
+    2030,
+    2050,
+    2100
+  ],
+  "records": [
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 983.9,
+      "expected_loss_meur": 90.9,
+      "risk_index": 59.4
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 974.1,
+      "expected_loss_meur": 102.7,
+      "risk_index": 63
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 944.6,
+      "expected_loss_meur": 121.6,
+      "risk_index": 67.6
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 983.9,
+      "expected_loss_meur": 103.3,
+      "risk_index": 63.4
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 983.9,
+      "expected_loss_meur": 131.1,
+      "risk_index": 69.9
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 954.4,
+      "expected_loss_meur": 165.3,
+      "risk_index": 78.6
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 993.8,
+      "expected_loss_meur": 127.3,
+      "risk_index": 68.4
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 983.9,
+      "expected_loss_meur": 172.6,
+      "risk_index": 75.9
+    },
+    {
+      "geography_id": "gp-basse-terre",
+      "geography_label": "Guadeloupe - Basse-Terre",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 964.2,
+      "expected_loss_meur": 234.7,
+      "risk_index": 86.6
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 1122.7,
+      "expected_loss_meur": 84,
+      "risk_index": 57.2
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 1111.5,
+      "expected_loss_meur": 96.1,
+      "risk_index": 60.8
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 1077.8,
+      "expected_loss_meur": 115,
+      "risk_index": 65.4
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 1122.7,
+      "expected_loss_meur": 95.4,
+      "risk_index": 61.2
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 1122.7,
+      "expected_loss_meur": 122.6,
+      "risk_index": 67.8
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 1089,
+      "expected_loss_meur": 156.3,
+      "risk_index": 76.4
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 1133.9,
+      "expected_loss_meur": 117.6,
+      "risk_index": 66.2
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 1122.7,
+      "expected_loss_meur": 161.4,
+      "risk_index": 73.8
+    },
+    {
+      "geography_id": "gp-grande-terre",
+      "geography_label": "Guadeloupe - Grande-Terre",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 1100.2,
+      "expected_loss_meur": 222,
+      "risk_index": 84.4
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 420,
+      "expected_loss_meur": 20.3,
+      "risk_index": 54
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 415.8,
+      "expected_loss_meur": 24.1,
+      "risk_index": 57.6
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 403.2,
+      "expected_loss_meur": 29.7,
+      "risk_index": 62.2
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 420,
+      "expected_loss_meur": 23.1,
+      "risk_index": 58
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 420,
+      "expected_loss_meur": 30.7,
+      "risk_index": 64.6
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 407.4,
+      "expected_loss_meur": 40.4,
+      "risk_index": 73.2
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 424.2,
+      "expected_loss_meur": 28.5,
+      "risk_index": 63
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 420,
+      "expected_loss_meur": 40.5,
+      "risk_index": 70.6
+    },
+    {
+      "geography_id": "gp-marie-galante",
+      "geography_label": "Guadeloupe - Marie-Galante",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 411.6,
+      "expected_loss_meur": 57.4,
+      "risk_index": 81.2
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 310.2,
+      "expected_loss_meur": 17.7,
+      "risk_index": 55.1
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 307.1,
+      "expected_loss_meur": 20.7,
+      "risk_index": 58.7
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 297.8,
+      "expected_loss_meur": 25.2,
+      "risk_index": 63.3
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 310.2,
+      "expected_loss_meur": 20.2,
+      "risk_index": 59.1
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 310.2,
+      "expected_loss_meur": 26.4,
+      "risk_index": 65.7
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 300.9,
+      "expected_loss_meur": 34.3,
+      "risk_index": 74.3
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 313.4,
+      "expected_loss_meur": 24.8,
+      "risk_index": 64.1
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 310.2,
+      "expected_loss_meur": 34.8,
+      "risk_index": 71.7
+    },
+    {
+      "geography_id": "gp-les-saintes",
+      "geography_label": "Guadeloupe - Les Saintes",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 304,
+      "expected_loss_meur": 48.7,
+      "risk_index": 82.3
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 259.8,
+      "expected_loss_meur": 10.3,
+      "risk_index": 52.9
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 257.2,
+      "expected_loss_meur": 12.5,
+      "risk_index": 56.5
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 249.4,
+      "expected_loss_meur": 15.6,
+      "risk_index": 61.1
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 259.8,
+      "expected_loss_meur": 11.7,
+      "risk_index": 56.9
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 259.8,
+      "expected_loss_meur": 15.9,
+      "risk_index": 63.5
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 252,
+      "expected_loss_meur": 21.3,
+      "risk_index": 72.1
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 262.4,
+      "expected_loss_meur": 14.4,
+      "risk_index": 61.9
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 259.8,
+      "expected_loss_meur": 20.9,
+      "risk_index": 69.5
+    },
+    {
+      "geography_id": "gp-la-desirade",
+      "geography_label": "Guadeloupe - La Desirade",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 254.6,
+      "expected_loss_meur": 30.2,
+      "risk_index": 80.1
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 543,
+      "expected_loss_meur": 59.7,
+      "risk_index": 61.5
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 537.6,
+      "expected_loss_meur": 66.9,
+      "risk_index": 65.1
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 521.3,
+      "expected_loss_meur": 78.6,
+      "risk_index": 69.7
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 543,
+      "expected_loss_meur": 67.9,
+      "risk_index": 65.5
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 543,
+      "expected_loss_meur": 85.4,
+      "risk_index": 72.1
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 526.7,
+      "expected_loss_meur": 106.8,
+      "risk_index": 80.7
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 548.5,
+      "expected_loss_meur": 83.6,
+      "risk_index": 70.5
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 543,
+      "expected_loss_meur": 112.4,
+      "risk_index": 78.1
+    },
+    {
+      "geography_id": "gp-cul-de-sac-marin",
+      "geography_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 532.2,
+      "expected_loss_meur": 151.6,
+      "risk_index": 88.7
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 765.5,
+      "expected_loss_meur": 97.7,
+      "risk_index": 63.6
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 757.8,
+      "expected_loss_meur": 108.7,
+      "risk_index": 67.2
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 734.9,
+      "expected_loss_meur": 126.9,
+      "risk_index": 71.8
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 765.5,
+      "expected_loss_meur": 111,
+      "risk_index": 67.6
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 765.5,
+      "expected_loss_meur": 138.7,
+      "risk_index": 74.2
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 742.5,
+      "expected_loss_meur": 172.5,
+      "risk_index": 82.8
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 773.1,
+      "expected_loss_meur": 136.8,
+      "risk_index": 72.6
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 765.5,
+      "expected_loss_meur": 182.6,
+      "risk_index": 80.2
+    },
+    {
+      "geography_id": "mf-saint-martin",
+      "geography_label": "Saint-Martin",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 750.2,
+      "expected_loss_meur": 245,
+      "risk_index": 90.8
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 644.1,
+      "expected_loss_meur": 76.5,
+      "risk_index": 62.6
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 637.7,
+      "expected_loss_meur": 85.4,
+      "risk_index": 66.2
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 618.3,
+      "expected_loss_meur": 100,
+      "risk_index": 70.8
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 644.1,
+      "expected_loss_meur": 87,
+      "risk_index": 66.6
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 644.1,
+      "expected_loss_meur": 109,
+      "risk_index": 73.2
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 624.8,
+      "expected_loss_meur": 135.9,
+      "risk_index": 81.8
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 650.5,
+      "expected_loss_meur": 107.1,
+      "risk_index": 71.6
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 644.1,
+      "expected_loss_meur": 143.5,
+      "risk_index": 79.2
+    },
+    {
+      "geography_id": "bl-saint-barthelemy",
+      "geography_label": "Saint-Barthelemy",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 631.2,
+      "expected_loss_meur": 193,
+      "risk_index": 89.8
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 832.7,
+      "expected_loss_meur": 69.6,
+      "risk_index": 58.3
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 824.3,
+      "expected_loss_meur": 79.1,
+      "risk_index": 61.9
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 799.3,
+      "expected_loss_meur": 94.1,
+      "risk_index": 66.5
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 832.7,
+      "expected_loss_meur": 79.1,
+      "risk_index": 62.3
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 832.7,
+      "expected_loss_meur": 100.9,
+      "risk_index": 68.9
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 807.7,
+      "expected_loss_meur": 127.9,
+      "risk_index": 77.5
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 841,
+      "expected_loss_meur": 97.5,
+      "risk_index": 67.3
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 832.7,
+      "expected_loss_meur": 132.9,
+      "risk_index": 74.9
+    },
+    {
+      "geography_id": "mq-nord-atlantique",
+      "geography_label": "Martinique - Nord Atlantique",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 816,
+      "expected_loss_meur": 181.6,
+      "risk_index": 85.5
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "optimiste",
+      "horizon": 2030,
+      "exposure_meur": 911.5,
+      "expected_loss_meur": 60.2,
+      "risk_index": 56.1
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "optimiste",
+      "horizon": 2050,
+      "exposure_meur": 902.3,
+      "expected_loss_meur": 69.4,
+      "risk_index": 59.7
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "optimiste",
+      "horizon": 2100,
+      "exposure_meur": 875,
+      "expected_loss_meur": 83.7,
+      "risk_index": 64.3
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "central",
+      "horizon": 2030,
+      "exposure_meur": 911.5,
+      "expected_loss_meur": 68.4,
+      "risk_index": 60.1
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "central",
+      "horizon": 2050,
+      "exposure_meur": 911.5,
+      "expected_loss_meur": 88.6,
+      "risk_index": 66.7
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "central",
+      "horizon": 2100,
+      "exposure_meur": 884.1,
+      "expected_loss_meur": 113.8,
+      "risk_index": 75.3
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "stress",
+      "horizon": 2030,
+      "exposure_meur": 920.6,
+      "expected_loss_meur": 84.2,
+      "risk_index": 65.1
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "stress",
+      "horizon": 2050,
+      "exposure_meur": 911.5,
+      "expected_loss_meur": 116.6,
+      "risk_index": 72.7
+    },
+    {
+      "geography_id": "mq-centre-sud",
+      "geography_label": "Martinique - Centre-Sud",
+      "scenario_id": "stress",
+      "horizon": 2100,
+      "exposure_meur": 893.2,
+      "expected_loss_meur": 161.6,
+      "risk_index": 83.3
+    }
+  ],
+  "insight_notes": [
+    "Le perimetre de demonstration est centre sur la Guadeloupe et les territoires antillais francais voisins.",
+    "Le scenario Stress amplifie fortement les pertes attendues sur les zones insulaires exposees aux cyclones.",
+    "Le remplacement du JSON mock par un export notebook suffit pour basculer vers les donnees reelles."
+  ],
+  "geographies": [
+    {
+      "id": "gp-basse-terre",
+      "label": "Guadeloupe - Basse-Terre",
+      "lat": 16.001,
+      "lon": -61.726
+    },
+    {
+      "id": "gp-grande-terre",
+      "label": "Guadeloupe - Grande-Terre",
+      "lat": 16.304,
+      "lon": -61.434
+    },
+    {
+      "id": "gp-marie-galante",
+      "label": "Guadeloupe - Marie-Galante",
+      "lat": 15.93,
+      "lon": -61.27
+    },
+    {
+      "id": "gp-les-saintes",
+      "label": "Guadeloupe - Les Saintes",
+      "lat": 15.861,
+      "lon": -61.593
+    },
+    {
+      "id": "gp-la-desirade",
+      "label": "Guadeloupe - La Desirade",
+      "lat": 16.307,
+      "lon": -61.084
+    },
+    {
+      "id": "gp-cul-de-sac-marin",
+      "label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "lat": 16.273,
+      "lon": -61.566
+    },
+    {
+      "id": "mf-saint-martin",
+      "label": "Saint-Martin",
+      "lat": 18.075,
+      "lon": -63.06
+    },
+    {
+      "id": "bl-saint-barthelemy",
+      "label": "Saint-Barthelemy",
+      "lat": 17.896,
+      "lon": -62.85
+    },
+    {
+      "id": "mq-nord-atlantique",
+      "label": "Martinique - Nord Atlantique",
+      "lat": 14.77,
+      "lon": -61.08
+    },
+    {
+      "id": "mq-centre-sud",
+      "label": "Martinique - Centre-Sud",
+      "lat": 14.61,
+      "lon": -61.01
+    }
+  ]
+}
