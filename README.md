@@ -5,7 +5,7 @@ Mini-site statique de demonstration pour valoriser une etude de risques climatiq
 ## Objectif
 - Presenter rapidement la valeur d'une interface graphique interactive a partir d'analyses issues d'un notebook.
 - Public cible: decideurs non techniques.
-- Domaine vise: `https://sib.mc2-sarl.com`.
+- Domaine vise: `https://sib.dev.elio.bottagisio.com`.
 
 ## Stack
 - Frontend statique: `HTML + CSS + JS` (sans backend)
@@ -27,10 +27,10 @@ Mini-site statique de demonstration pour valoriser une etude de risques climatiq
 - `web/assets/`: medias statiques optionnels
 - `scripts/validate-data.mjs`: validation du contrat JSON
 - `scripts/notebook-json-template.md`: guide de mapping notebook -> JSON
-- `config/nginx/sib.mc2-sarl.com`: vhost nginx
+- `config/nginx/sib.dev.elio.bottagisio.com`: vhost nginx
 
 ## Contrat de donnees
-Le frontend charge `https://sib.mc2-sarl.com/data/sib-demo.json`.
+Le frontend charge `https://sib.dev.elio.bottagisio.com/data/sib-demo.json`.
 
 Champs attendus:
 - `meta.title` (string)
@@ -79,21 +79,21 @@ Puis ouvrir:
 - Le JSON est servi sur `http://localhost:8080/data/sib-demo.json`
 
 ## Deploiement web
-Copier le contenu de `web/` vers `/var/www/sib.mc2-sarl.com/`.
+Copier le contenu de `web/` vers `/var/www/sib.dev.elio.bottagisio.com/`.
 
 ```bash
-sudo mkdir -p /var/www/sib.mc2-sarl.com
-sudo rsync -av --delete web/ /var/www/sib.mc2-sarl.com/
+sudo mkdir -p /var/www/sib.dev.elio.bottagisio.com
+sudo rsync -av --delete web/ /var/www/sib.dev.elio.bottagisio.com/
 ```
 
 ## Deploiement nginx
-1. Copier `config/nginx/sib.mc2-sarl.com` vers `/etc/nginx/sites-available/`.
+1. Copier `config/nginx/sib.dev.elio.bottagisio.com` vers `/etc/nginx/sites-available/`.
 2. Creer le symlink dans `/etc/nginx/sites-enabled/`.
 3. Verifier et recharger nginx.
 
 ```bash
-sudo cp config/nginx/sib.mc2-sarl.com /etc/nginx/sites-available/sib.mc2-sarl.com
-sudo ln -s /etc/nginx/sites-available/sib.mc2-sarl.com /etc/nginx/sites-enabled/sib.mc2-sarl.com
+sudo cp config/nginx/sib.dev.elio.bottagisio.com /etc/nginx/sites-available/sib.dev.elio.bottagisio.com
+sudo ln -s /etc/nginx/sites-available/sib.dev.elio.bottagisio.com /etc/nginx/sites-enabled/sib.dev.elio.bottagisio.com
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -102,7 +102,7 @@ sudo systemctl reload nginx
 Si DNS deja propage:
 
 ```bash
-sudo certbot --nginx -d sib.mc2-sarl.com
+sudo certbot --nginx -d sib.dev.elio.bottagisio.com
 ```
 
 ## Remplacer les donnees mock par celles du notebook

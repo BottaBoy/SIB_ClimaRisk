@@ -134,4 +134,4 @@ node scripts/validate-data.mjs /chemin/vers/sib-demo.json
 
 ## 6) Intégration au site
 - Remplacer `web/data/sib-demo.json` par le JSON exporté.
-- Redéployer le dossier `web/` vers `/var/www/sib.mc2-sarl.com/`.
+- Redéployer le dossier `web/` vers `/var/www/sib.dev.elio.bottagisio.com/`.
