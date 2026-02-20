@@ -81,6 +81,9 @@ Puis ouvrir:
 ## Deploiement web
 Copier le contenu de `web/` vers `/var/www/sib.dev.elio.bottagisio.com/`.
 
+Procedure detaillee:
+- `DEPLOIEMENT.md`
+
 ```bash
 sudo mkdir -p /var/www/sib.dev.elio.bottagisio.com
 sudo rsync -av --delete web/ /var/www/sib.dev.elio.bottagisio.com/
