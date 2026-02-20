@@ -273,6 +273,51 @@
         color: var(--muted);
       }
 
+      .draw-lab {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(9, 23, 31, 0.62);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .draw-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .draw-head h3 {
+        font-size: 18px;
+      }
+
+      .draw-note {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+        max-width: 800px;
+      }
+
+      .draw-summary {
+        margin: 0;
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.45;
+      }
+
+      .draw-details {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
       .legend-item {
         display: inline-flex;
         align-items: center;
@@ -313,6 +358,18 @@
 
       .leaflet-control-attribution a {
         color: #a7d1de;
+      }
+
+      .leaflet-draw-toolbar a,
+      .leaflet-draw-toolbar a:hover {
+        background-color: rgba(9, 23, 31, 0.95);
+        border-color: rgba(175, 205, 188, 0.3);
+      }
+
+      .leaflet-draw-actions a {
+        background: rgba(9, 23, 31, 0.96);
+        color: var(--text);
+        border-left: 1px solid rgba(175, 205, 188, 0.22);
       }
 
       .insights {
@@ -430,6 +487,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
   </head>
   <body>
     <main class="page">
@@ -501,6 +559,18 @@
           <span class="legend-item"><span class="legend-dot vhigh"></span>Risque très élevé</span>
           <span class="legend-item">Taille du point = exposition</span>
         </div>
+
+        <div class="draw-lab" aria-live="polite">
+          <div class="draw-head">
+            <div>
+              <h3>Simulation par dessin</h3>
+              <p class="draw-note">Ajoutez des points, lignes ou polygones sur la carte pour tester une exposition et des pertes potentielles sur la zone dessinée.</p>
+            </div>
+            <button class="reset-btn" type="button" id="clear-drawings-btn" disabled>Supprimer les dessins</button>
+          </div>
+          <p class="draw-summary" id="draw-summary">Dessinez sur la carte pour lancer une estimation locale.</p>
+          <ul class="draw-details" id="draw-details"></ul>
+        </div>
       </section>
 
       <section class="panel insights reveal" aria-labelledby="insights-title">
@@ -533,6 +603,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
     <script>
       const state = {
         data: null,
@@ -552,6 +623,8 @@
       const mapRef = {
         instance: null,
         markersLayer: null,
+        drawnItems: null,
+        drawControl: null,
         hasFitted: false
       };
 
@@ -569,15 +642,20 @@
 
       const numberFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
       const percentFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+      const DRAW_POINT_RADIUS_KM = 35;
+      const DRAW_LINE_BUFFER_KM = 18;
 
       const scenarioSelect = document.getElementById('scenario-select');
       const horizonSelect = document.getElementById('horizon-select');
       const metricSelect = document.getElementById('metric-select');
       const geoSearch = document.getElementById('geo-search');
       const clearTerritoryBtn = document.getElementById('clear-territory-btn');
+      const clearDrawingsBtn = document.getElementById('clear-drawings-btn');
       const territoryFilterBadge = document.getElementById('territory-filter-badge');
       const mapFallback = document.getElementById('map-fallback');
       const mapContainer = document.getElementById('territory-map');
+      const drawSummary = document.getElementById('draw-summary');
+      const drawDetails = document.getElementById('draw-details');
 
       function formatNumber(value) {
         return numberFormatter.format(value);
@@ -848,6 +926,229 @@
         return 8 + ((value - min) / (max - min)) * 20;
       }
 
+      function toRadians(value) {
+        return (value * Math.PI) / 180;
+      }
+
+      function haversineKm(latA, lonA, latB, lonB) {
+        const dLat = toRadians(latB - latA);
+        const dLon = toRadians(lonB - lonA);
+        const a = (
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRadians(latA)) * Math.cos(toRadians(latB)) * Math.sin(dLon / 2) ** 2
+        );
+        return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+      }
+
+      function toLocalMeters(lat, lon, refLat, refLon) {
+        const earthRadius = 6371000;
+        const x = earthRadius * toRadians(lon - refLon) * Math.cos(toRadians(refLat));
+        const y = earthRadius * toRadians(lat - refLat);
+        return { x, y };
+      }
+
+      function distancePointToSegmentKm(point, start, end) {
+        const refLat = (point.lat + start.lat + end.lat) / 3;
+        const refLon = (point.lon + start.lng + end.lng) / 3;
+        const p = toLocalMeters(point.lat, point.lon, refLat, refLon);
+        const a = toLocalMeters(start.lat, start.lng, refLat, refLon);
+        const b = toLocalMeters(end.lat, end.lng, refLat, refLon);
+        const abx = b.x - a.x;
+        const aby = b.y - a.y;
+        const lengthSq = (abx * abx) + (aby * aby);
+        let t = 0;
+        if (lengthSq > 0) {
+          t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq;
+          t = Math.max(0, Math.min(1, t));
+        }
+        const closestX = a.x + (t * abx);
+        const closestY = a.y + (t * aby);
+        const dx = p.x - closestX;
+        const dy = p.y - closestY;
+        return Math.sqrt((dx * dx) + (dy * dy)) / 1000;
+      }
+
+      function getFirstRingLatLngs(latLngs) {
+        let ring = latLngs;
+        while (Array.isArray(ring) && ring.length && Array.isArray(ring[0])) {
+          ring = ring[0];
+        }
+        return Array.isArray(ring) ? ring : [];
+      }
+
+      function isInsidePolygon(lat, lon, polygonLatLngs) {
+        if (!polygonLatLngs.length) return false;
+        let inside = false;
+        for (let i = 0, j = polygonLatLngs.length - 1; i < polygonLatLngs.length; j = i, i += 1) {
+          const xi = polygonLatLngs[i].lng;
+          const yi = polygonLatLngs[i].lat;
+          const xj = polygonLatLngs[j].lng;
+          const yj = polygonLatLngs[j].lat;
+          const intersects = ((yi > lat) !== (yj > lat))
+            && (lon < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi);
+          if (intersects) inside = !inside;
+        }
+        return inside;
+      }
+
+      function distanceToPolylineKm(lat, lon, polylineLatLngs) {
+        const line = getFirstRingLatLngs(polylineLatLngs);
+        if (!line.length) return Infinity;
+        if (line.length === 1) return haversineKm(lat, lon, line[0].lat, line[0].lng);
+
+        let minDistance = Infinity;
+        for (let i = 0; i < line.length - 1; i += 1) {
+          const segDistance = distancePointToSegmentKm(
+            { lat, lon },
+            line[i],
+            line[i + 1]
+          );
+          minDistance = Math.min(minDistance, segDistance);
+        }
+        return minDistance;
+      }
+
+      function getLayerInfluenceWeight(layer, lat, lon) {
+        if (!window.L) return 0;
+
+        if (layer instanceof L.Circle) {
+          const center = layer.getLatLng();
+          const radiusKm = layer.getRadius() / 1000;
+          const distanceKm = haversineKm(lat, lon, center.lat, center.lng);
+          if (!Number.isFinite(radiusKm) || radiusKm <= 0 || distanceKm > radiusKm) return 0;
+          return Math.max(0, 1 - (distanceKm / radiusKm));
+        }
+
+        if (layer instanceof L.Marker) {
+          const center = layer.getLatLng();
+          const distanceKm = haversineKm(lat, lon, center.lat, center.lng);
+          if (distanceKm > DRAW_POINT_RADIUS_KM) return 0;
+          return Math.max(0, 1 - (distanceKm / DRAW_POINT_RADIUS_KM));
+        }
+
+        if (layer instanceof L.Polygon) {
+          const ring = getFirstRingLatLngs(layer.getLatLngs());
+          return isInsidePolygon(lat, lon, ring) ? 1 : 0;
+        }
+
+        if (layer instanceof L.Polyline) {
+          const distanceKm = distanceToPolylineKm(lat, lon, layer.getLatLngs());
+          if (distanceKm > DRAW_LINE_BUFFER_KM) return 0;
+          return Math.max(0, 1 - (distanceKm / DRAW_LINE_BUFFER_KM));
+        }
+
+        return 0;
+      }
+
+      function estimateDrawnExposure(baseRecords) {
+        if (!mapRef.drawnItems) return null;
+        const layers = mapRef.drawnItems.getLayers();
+        if (!layers.length) return null;
+
+        const rows = summarizeByGeography(baseRecords)
+          .map((row) => ({
+            ...row,
+            geo: state.data.geographiesById.get(row.geography_id)
+          }))
+          .filter((row) => Boolean(row.geo));
+
+        const impacted = [];
+        let exposure = 0;
+        let loss = 0;
+        let riskNumerator = 0;
+
+        rows.forEach((row) => {
+          let weight = 0;
+          layers.forEach((layer) => {
+            weight = Math.max(weight, getLayerInfluenceWeight(layer, row.geo.lat, row.geo.lon));
+          });
+          if (weight <= 0) return;
+
+          const weightedExposure = row.exposure * weight;
+          const weightedLoss = row.loss * weight;
+
+          exposure += weightedExposure;
+          loss += weightedLoss;
+          riskNumerator += row.risk * weightedExposure;
+
+          impacted.push({
+            geography_label: row.geography_label,
+            weight,
+            weightedExposure,
+            weightedLoss
+          });
+        });
+
+        impacted.sort((a, b) => b.weightedExposure - a.weightedExposure);
+
+        return {
+          layerCount: layers.length,
+          impacted,
+          exposure,
+          loss,
+          risk: exposure > 0 ? riskNumerator / exposure : 0
+        };
+      }
+
+      function renderDrawAnalysis(baseRecords) {
+        if (!drawSummary || !drawDetails) return;
+
+        if (!window.L || !state.mapReady) {
+          drawSummary.textContent = 'La carte doit être chargée pour utiliser la simulation par dessin.';
+          drawDetails.innerHTML = '';
+          if (clearDrawingsBtn) clearDrawingsBtn.disabled = true;
+          return;
+        }
+
+        if (!window.L.Control || !window.L.Control.Draw) {
+          drawSummary.textContent = 'Outils de dessin indisponibles: la librairie Leaflet.draw n\'a pas pu être chargée.';
+          drawDetails.innerHTML = '';
+          if (clearDrawingsBtn) clearDrawingsBtn.disabled = true;
+          return;
+        }
+
+        const estimate = estimateDrawnExposure(baseRecords);
+        if (!estimate) {
+          drawSummary.textContent = 'Dessinez sur la carte pour lancer une estimation locale.';
+          drawDetails.innerHTML = '';
+          if (clearDrawingsBtn) clearDrawingsBtn.disabled = true;
+          return;
+        }
+
+        if (clearDrawingsBtn) clearDrawingsBtn.disabled = false;
+
+        const scenarioLabel = state.data.scenarioMap.get(state.selectedScenarioId)?.label || state.selectedScenarioId;
+        if (!estimate.impacted.length) {
+          drawSummary.textContent = `Aucun territoire de référence couvert par votre dessin (${scenarioLabel} ${state.selectedHorizon}).`;
+          drawDetails.innerHTML = '<li>Essayez une zone plus large ou plus proche des territoires affichés.</li>';
+          return;
+        }
+
+        drawSummary.textContent = (
+          `${estimate.layerCount} dessin(s) actifs · ${scenarioLabel} ${state.selectedHorizon} · ` +
+          `Exposition estimée: ${formatNumber(estimate.exposure)} M€ · ` +
+          `Pertes estimées: ${formatNumber(estimate.loss)} M€ · ` +
+          `Indice de risque estimé: ${formatNumber(estimate.risk)}`
+        );
+
+        const topImpacted = estimate.impacted.slice(0, 5);
+        const remaining = estimate.impacted.length - topImpacted.length;
+        const rows = topImpacted.map((row) => (
+          `<li>${escapeHtml(row.geography_label)} · poids ${percentFormatter.format(row.weight * 100)}% · ` +
+          `exposition ${formatNumber(row.weightedExposure)} M€ · pertes ${formatNumber(row.weightedLoss)} M€</li>`
+        ));
+        if (remaining > 0) {
+          rows.push(`<li>+ ${remaining} autre(s) territoire(s) contributif(s).</li>`);
+        }
+        drawDetails.innerHTML = rows.join('');
+      }
+
+      function refreshDrawAnalysisFromState() {
+        if (!state.data) return;
+        const baseRecords = getRecords(state.selectedScenarioId, state.selectedHorizon);
+        renderDrawAnalysis(baseRecords);
+      }
+
       function ensureMap() {
         if (mapRef.instance) return true;
         if (!window.L) return false;
@@ -865,6 +1166,44 @@
         }).addTo(mapRef.instance);
 
         mapRef.markersLayer = L.layerGroup().addTo(mapRef.instance);
+        mapRef.drawnItems = L.featureGroup().addTo(mapRef.instance);
+
+        if (window.L.Control && window.L.Control.Draw) {
+          mapRef.drawControl = new L.Control.Draw({
+            edit: {
+              featureGroup: mapRef.drawnItems
+            },
+            draw: {
+              polygon: {
+                allowIntersection: false,
+                shapeOptions: { color: '#2f9fbe', weight: 2, fillOpacity: 0.12 }
+              },
+              rectangle: {
+                shapeOptions: { color: '#2f9fbe', weight: 2, fillOpacity: 0.12 }
+              },
+              polyline: {
+                shapeOptions: { color: '#d0b55a', weight: 3, opacity: 0.9 }
+              },
+              marker: true,
+              circle: {
+                shapeOptions: { color: '#d76d43', weight: 2, fillOpacity: 0.1 }
+              },
+              circlemarker: false
+            }
+          });
+          mapRef.instance.addControl(mapRef.drawControl);
+          mapRef.instance.on(L.Draw.Event.CREATED, (event) => {
+            mapRef.drawnItems.addLayer(event.layer);
+            refreshDrawAnalysisFromState();
+          });
+          mapRef.instance.on(L.Draw.Event.EDITED, () => {
+            refreshDrawAnalysisFromState();
+          });
+          mapRef.instance.on(L.Draw.Event.DELETED, () => {
+            refreshDrawAnalysisFromState();
+          });
+        }
+
         state.mapReady = true;
         return true;
       }
@@ -1142,6 +1481,7 @@
         renderKpiCards(selectedAgg, baselineAgg);
         renderChart();
         renderMap(baseRecords);
+        renderDrawAnalysis(baseRecords);
         renderGeoTable(selectedRecords);
         renderInsights(selectedAgg, baselineAgg, selectedRecords);
         runRevealAnimation();
@@ -1180,6 +1520,12 @@
         clearTerritoryBtn.addEventListener('click', () => {
           state.selectedGeographyId = null;
           render();
+        });
+
+        clearDrawingsBtn.addEventListener('click', () => {
+          if (!mapRef.drawnItems) return;
+          mapRef.drawnItems.clearLayers();
+          refreshDrawAnalysisFromState();
         });
       }
 
