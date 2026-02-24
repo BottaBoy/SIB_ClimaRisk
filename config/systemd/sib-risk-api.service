@@ -1,0 +1,23 @@
+[Unit]
+Description=SIB Cyclone Risk API (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/sib-work/backend
+EnvironmentFile=-/home/ubuntu/sib-work/config/systemd/sib-risk-api.env
+Environment=SIB_RISK_JOB_ROOT=/var/lib/sib-risk/jobs
+Environment=SIB_RISK_JOB_TTL_HOURS=24
+Environment=SIB_RISK_MAX_UPLOAD_MB=50
+ExecStart=/home/ubuntu/sib-work/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/sib-risk/jobs
+
+[Install]
+WantedBy=multi-user.target

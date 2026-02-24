@@ -1,0 +1,465 @@
+{
+  "meta": {
+    "title": "SIB Cyclone Risk Thesis Demo",
+    "source": "demo",
+    "job_id": null,
+    "updated_at": "2026-02-24T00:00:00+00:00",
+    "unit_currency": "EUR",
+    "currency_display_unit": "MEUR",
+    "sampling_spacing_m": 100,
+    "impact_function": "Eberenz_2021_TC",
+    "hazards": [
+      "STORM",
+      "STORM_CMCC"
+    ],
+    "engine": "demo_seed_from_mock"
+  },
+  "exposure_summary": {
+    "asset_count_original": 10,
+    "asset_count_points": 800,
+    "total_exposure_eur": 6793400000.0,
+    "source_name": "sib-demo.json (transformed)",
+    "source_format": "json",
+    "geometry_type_counts": {
+      "Point": 10
+    },
+    "metric_crs": "EPSG:3857"
+  },
+  "territory_results": [
+    {
+      "territory_id": "gp-basse-terre",
+      "territory_label": "Guadeloupe - Basse-Terre",
+      "lat": 16.001,
+      "lon": -61.726,
+      "exposure_eur": 983900000.0,
+      "eai_storm_eur": 131100000.0,
+      "eai_cmcc_eur": 234700000.0,
+      "risk_index_storm": 69.9,
+      "risk_index_cmcc": 86.6
+    },
+    {
+      "territory_id": "gp-grande-terre",
+      "territory_label": "Guadeloupe - Grande-Terre",
+      "lat": 16.304,
+      "lon": -61.434,
+      "exposure_eur": 1122700000.0,
+      "eai_storm_eur": 122600000.0,
+      "eai_cmcc_eur": 222000000.0,
+      "risk_index_storm": 67.8,
+      "risk_index_cmcc": 84.4
+    },
+    {
+      "territory_id": "gp-marie-galante",
+      "territory_label": "Guadeloupe - Marie-Galante",
+      "lat": 15.93,
+      "lon": -61.27,
+      "exposure_eur": 420000000.0,
+      "eai_storm_eur": 30700000.0,
+      "eai_cmcc_eur": 57400000.0,
+      "risk_index_storm": 64.6,
+      "risk_index_cmcc": 81.2
+    },
+    {
+      "territory_id": "gp-les-saintes",
+      "territory_label": "Guadeloupe - Les Saintes",
+      "lat": 15.861,
+      "lon": -61.593,
+      "exposure_eur": 310200000.0,
+      "eai_storm_eur": 26400000.0,
+      "eai_cmcc_eur": 48700000.0,
+      "risk_index_storm": 65.7,
+      "risk_index_cmcc": 82.3
+    },
+    {
+      "territory_id": "gp-la-desirade",
+      "territory_label": "Guadeloupe - La Desirade",
+      "lat": 16.307,
+      "lon": -61.084,
+      "exposure_eur": 259800000.0,
+      "eai_storm_eur": 15900000.0,
+      "eai_cmcc_eur": 30200000.0,
+      "risk_index_storm": 63.5,
+      "risk_index_cmcc": 80.1
+    },
+    {
+      "territory_id": "gp-cul-de-sac-marin",
+      "territory_label": "Guadeloupe - Petit Cul-de-Sac Marin",
+      "lat": 16.273,
+      "lon": -61.566,
+      "exposure_eur": 543000000.0,
+      "eai_storm_eur": 85400000.0,
+      "eai_cmcc_eur": 151600000.0,
+      "risk_index_storm": 72.1,
+      "risk_index_cmcc": 88.7
+    },
+    {
+      "territory_id": "mf-saint-martin",
+      "territory_label": "Saint-Martin",
+      "lat": 18.075,
+      "lon": -63.06,
+      "exposure_eur": 765500000.0,
+      "eai_storm_eur": 138700000.0,
+      "eai_cmcc_eur": 245000000.0,
+      "risk_index_storm": 74.2,
+      "risk_index_cmcc": 90.8
+    },
+    {
+      "territory_id": "bl-saint-barthelemy",
+      "territory_label": "Saint-Barthelemy",
+      "lat": 17.896,
+      "lon": -62.85,
+      "exposure_eur": 644100000.0,
+      "eai_storm_eur": 109000000.0,
+      "eai_cmcc_eur": 193000000.0,
+      "risk_index_storm": 73.2,
+      "risk_index_cmcc": 89.8
+    },
+    {
+      "territory_id": "mq-nord-atlantique",
+      "territory_label": "Martinique - Nord Atlantique",
+      "lat": 14.77,
+      "lon": -61.08,
+      "exposure_eur": 832700000.0,
+      "eai_storm_eur": 100900000.0,
+      "eai_cmcc_eur": 181600000.0,
+      "risk_index_storm": 68.9,
+      "risk_index_cmcc": 85.5
+    },
+    {
+      "territory_id": "mq-centre-sud",
+      "territory_label": "Martinique - Centre-Sud",
+      "lat": 14.61,
+      "lon": -61.01,
+      "exposure_eur": 911500000.0,
+      "eai_storm_eur": 88600000.0,
+      "eai_cmcc_eur": 161600000.0,
+      "risk_index_storm": 66.7,
+      "risk_index_cmcc": 83.3
+    }
+  ],
+  "portfolio_results": {
+    "storm": {
+      "eai_eur": 849300000.0,
+      "aai_agg_eur": 849300000.0,
+      "max_event_loss_eur": 3567060000.0
+    },
+    "storm_cmcc": {
+      "eai_eur": 1525800000.0,
+      "aai_agg_eur": 1525800000.0,
+      "max_event_loss_eur": 7018680000.0
+    },
+    "delta": {
+      "eai_eur": 676500000.0,
+      "eai_pct": 79.65
+    }
+  },
+  "graphs": {
+    "storm": {
+      "wind_year_hist": {
+        "title": "STORM - Max wind per year",
+        "bins_mps": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80
+        ],
+        "percent": [
+          7,
+          16,
+          23,
+          21,
+          17,
+          10,
+          6
+        ]
+      },
+      "wind_track_hist": {
+        "title": "STORM - Max wind per track",
+        "bins_mps": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80
+        ],
+        "percent": [
+          5,
+          14,
+          22,
+          22,
+          18,
+          12,
+          7
+        ]
+      },
+      "annual_fec": {
+        "title": "STORM - Annual frequency-exceedance curve",
+        "return_period_years": [
+          1,
+          2,
+          5,
+          10,
+          20,
+          30,
+          50,
+          75,
+          100,
+          150,
+          200
+        ],
+        "damage_eur": [
+          849300000.0,
+          600545789.26,
+          379818506.66,
+          268572241.68,
+          189909253.33,
+          155060256.03,
+          120109157.85,
+          98068716.72,
+          84930000.0,
+          69345054.62,
+          60054578.93
+        ],
+        "y_scale": "linear"
+      },
+      "lifetime_fec": {
+        "title": "STORM - Lifetime FEC (30y / 50y)",
+        "series": [
+          {
+            "name": "30-year FEC",
+            "return_period_years": [
+              1,
+              2,
+              5,
+              10,
+              20,
+              30,
+              50,
+              75,
+              100,
+              150,
+              200
+            ],
+            "damage_eur": [
+              942723000.0,
+              666605826.08,
+              421598542.39,
+              298115188.26,
+              210799271.2,
+              172116884.19,
+              133321165.22,
+              108856275.56,
+              94272300.0,
+              76973010.63,
+              66660582.61
+            ]
+          },
+          {
+            "name": "50-year FEC",
+            "return_period_years": [
+              1,
+              2,
+              5,
+              10,
+              20,
+              30,
+              50,
+              75,
+              100,
+              150,
+              200
+            ],
+            "damage_eur": [
+              1036146000.0,
+              732665862.9,
+              463378578.12,
+              327658134.85,
+              231689289.06,
+              189173512.36,
+              146533172.58,
+              119643834.4,
+              103614600.0,
+              84600966.63,
+              73266586.29
+            ]
+          }
+        ],
+        "y_scale": "log"
+      }
+    },
+    "storm_cmcc": {
+      "wind_year_hist": {
+        "title": "STORM_CMCC - Max wind per year",
+        "bins_mps": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80
+        ],
+        "percent": [
+          4,
+          13,
+          22,
+          24,
+          19,
+          11,
+          7
+        ]
+      },
+      "wind_track_hist": {
+        "title": "STORM_CMCC - Max wind per track",
+        "bins_mps": [
+          20,
+          30,
+          40,
+          50,
+          60,
+          70,
+          80
+        ],
+        "percent": [
+          3,
+          11,
+          20,
+          24,
+          21,
+          13,
+          8
+        ]
+      },
+      "annual_fec": {
+        "title": "STORM_CMCC - Annual frequency-exceedance curve",
+        "return_period_years": [
+          1,
+          2,
+          5,
+          10,
+          20,
+          30,
+          50,
+          75,
+          100,
+          150,
+          200
+        ],
+        "damage_eur": [
+          1525800000.0,
+          1078903526.73,
+          682358504.01,
+          482500325.39,
+          341179252.01,
+          278571692.75,
+          215780705.35,
+          176184208.15,
+          152580000.0,
+          124581048.32,
+          107890352.67
+        ],
+        "y_scale": "linear"
+      },
+      "lifetime_fec": {
+        "title": "STORM_CMCC - Lifetime FEC (30y / 50y)",
+        "series": [
+          {
+            "name": "30-year FEC",
+            "return_period_years": [
+              1,
+              2,
+              5,
+              10,
+              20,
+              30,
+              50,
+              75,
+              100,
+              150,
+              200
+            ],
+            "damage_eur": [
+              1693638000.0,
+              1197582914.68,
+              757417939.46,
+              535575361.18,
+              378708969.73,
+              309214578.95,
+              239516582.94,
+              195564471.04,
+              169363800.0,
+              138284963.63,
+              119758291.47
+            ]
+          },
+          {
+            "name": "50-year FEC",
+            "return_period_years": [
+              1,
+              2,
+              5,
+              10,
+              20,
+              30,
+              50,
+              75,
+              100,
+              150,
+              200
+            ],
+            "damage_eur": [
+              1861476000.0,
+              1316262302.62,
+              832477374.9,
+              588650396.97,
+              416238687.45,
+              339857465.15,
+              263252460.52,
+              214944733.94,
+              186147600.0,
+              151988878.95,
+              131626230.26
+            ]
+          }
+        ],
+        "y_scale": "log"
+      }
+    },
+    "comparison": {
+      "side_by_side": {
+        "hazards": [
+          "STORM",
+          "STORM_CMCC"
+        ],
+        "metrics": [
+          "annual_eai",
+          "max_event_loss"
+        ],
+        "values": {
+          "annual_eai": [
+            849300000.0,
+            1525800000.0
+          ],
+          "max_event_loss": [
+            3567060000.0,
+            7018680000.0
+          ]
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "plots_png": [],
+    "downloads": []
+  },
+  "notes": [
+    "Demo payload generated on February 24, 2026 from the legacy mock JSON to match the new thesis result schema.",
+    "Production runs should replace these values with CLIMADA results from the SIB example exposure and user uploads.",
+    "The website UI and backend API now use a unified result contract for demo and user runs."
+  ]
+}

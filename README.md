@@ -1,120 +1,88 @@
-# SIB Demo
+# SIB Thesis Cyclone Risk Demo
 
-Mini-site statique de demonstration pour valoriser une etude de risques climatiques, avec focus DOM-TOM autour de la Guadeloupe.
+Website + backend scaffold for presenting cyclone risk results over water infrastructure (SIB example exposure) and enabling future user exposure testing.
 
-## Objectif
-- Presenter rapidement la valeur d'une interface graphique interactive a partir d'analyses issues d'un notebook.
-- Public cible: decideurs non techniques.
-- Domaine vise: `https://sib.dev.elio.bottagisio.com`.
+## What is implemented
 
-## Stack
-- Frontend statique: `HTML + CSS + JS` (sans backend)
-- Visualisations: `ECharts` + `Leaflet` (OpenStreetMap)
-- Donnees: fichier JSON unique `web/data/sib-demo.json`
+### Frontend (`web/`)
+- Thesis-mode interface focused on `STORM` vs `STORM_CMCC`
+- Unified result schema (`web/data/sib-thesis-demo.json`)
+- Interactive map + drawing tools (Leaflet + Leaflet.draw)
+- Interactive chart panels (ECharts) for the notebook graph families (web replicas)
+- Upload and drawn-exposure async job workflow UI (`/api/v1/runs`)
+- Demo reset and job result reload by job ID
 
-## Fonctionnalites principales
-- KPI synthese (exposition, pertes attendues, indice de risque)
-- Comparateur scenarios/horizons
-- Carto interactive DOM-TOM:
-  - points proportionnels (taille = exposition)
-  - couleur = indice de risque
-  - clic sur territoire = filtre global (KPI + comparateur + table + insights)
-- Tableau territorial filtrable
+### Backend scaffold (`backend/`)
+- FastAPI API with async file-backed job queue (single worker)
+- Endpoints:
+  - `GET /api/v1/health`
+  - `POST /api/v1/runs`
+  - `GET /api/v1/runs/{job_id}`
+  - `GET /api/v1/runs/{job_id}/result`
+  - `GET /api/v1/runs/{job_id}/artifacts/{name}`
+- Ephemeral job storage (24h TTL) + cleanup script
+- Modular risk-engine package with explicit modules for:
+  - hazard loading / frequency normalization design
+  - exposure ingestion
+  - disaggregation summary (metric CRS aware)
+  - impact function (Eberenz 2021 curve)
+  - impact computation (fallback engine until CLIMADA env is installed)
+  - result/artifact export
 
-## Structure
-- `web/index.html`: interface complete (UI + logique JS)
-- `web/data/sib-demo.json`: donnees mock (puis donnees reelles)
-- `web/assets/`: medias statiques optionnels
-- `scripts/validate-data.mjs`: validation du contrat JSON
-- `scripts/notebook-json-template.md`: guide de mapping notebook -> JSON
-- `config/nginx/sib.dev.elio.bottagisio.com`: vhost nginx
+## Important note (current server runtime)
 
-## Contrat de donnees
-Le frontend charge `https://sib.dev.elio.bottagisio.com/data/sib-demo.json`.
+The server Python environment currently does **not** include `pip`, `pandas`, `geopandas`, `CLIMADA`, etc.
 
-Champs attendus:
-- `meta.title` (string)
-- `meta.updated_at` (date ISO string)
-- `meta.source` (`mock` ou `notebook`)
-- `meta.unit_currency` (string, ex: `MEUR`)
-- `scenarios[]` avec `{ id, label, technical_label }`
-- `horizons[]` (entiers, ex: `2030, 2050, 2100`)
-- `geographies[]` avec:
-  - `id` (string)
-  - `label` (string)
-  - `lat` (number, -90..90)
-  - `lon` (number, -180..180)
-- `records[]` avec:
-  - `geography_id` (string, doit exister dans `geographies[].id`)
-  - `geography_label` (string)
-  - `scenario_id` (string)
-  - `horizon` (number)
-  - `exposure_meur` (number)
-  - `expected_loss_meur` (number)
-  - `risk_index` (number)
-- `insight_notes[]` (strings)
+Because of that, the backend currently executes a deterministic **fallback engine** (same API/result schema) until a dedicated Python environment is installed.
 
-## Validation des donnees
-Depuis la racine du repo:
+The production path should use the provided backend module structure and replace the fallback in `backend/app/risk_engine/impact_runner.py` with the full CLIMADA pipeline.
+
+## Thesis result schema (new)
+
+- Demo file: `web/data/sib-thesis-demo.json`
+- Validator: `scripts/validate-thesis-result.mjs`
+
+Validation:
 
 ```bash
-node scripts/validate-data.mjs
+node scripts/validate-thesis-result.mjs web/data/sib-thesis-demo.json
 ```
 
-Ou avec un fichier explicite:
+Legacy validator is still available for the old demo schema:
 
 ```bash
 node scripts/validate-data.mjs web/data/sib-demo.json
 ```
 
-## Execution locale (apercu)
-Depuis `sib_demo/web`:
+## Backend local run (after installing dependencies)
 
 ```bash
-python3 -m http.server 8080
+cd backend
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Puis ouvrir:
-- `http://localhost:8080/`
-- Le JSON est servi sur `http://localhost:8080/data/sib-demo.json`
+## Backend scripts
 
-## Deploiement web
-Copier le contenu de `web/` vers `/var/www/sib.dev.elio.bottagisio.com/`.
-
-Procedure detaillee:
-- `DEPLOIEMENT.md`
+From `backend/`:
 
 ```bash
-sudo mkdir -p /var/www/sib.dev.elio.bottagisio.com
-sudo rsync -av --delete web/ /var/www/sib.dev.elio.bottagisio.com/
+python scripts/cleanup_expired_jobs.py
+python scripts/run_backoffice_sample.py --file /path/to/exposure.csv --value-field value_eur
 ```
 
-## Deploiement nginx
-1. Copier `config/nginx/sib.dev.elio.bottagisio.com` vers `/etc/nginx/sites-available/`.
-2. Creer le symlink dans `/etc/nginx/sites-enabled/`.
-3. Verifier et recharger nginx.
+## Nginx / systemd artifacts (templates)
 
-```bash
-sudo cp config/nginx/sib.dev.elio.bottagisio.com /etc/nginx/sites-available/sib.dev.elio.bottagisio.com
-sudo ln -s /etc/nginx/sites-available/sib.dev.elio.bottagisio.com /etc/nginx/sites-enabled/sib.dev.elio.bottagisio.com
-sudo nginx -t
-sudo systemctl reload nginx
-```
+- Nginx vhost with `/api/` proxy: `config/nginx/sib.dev.elio.bottagisio.com`
+- systemd service/timer examples:
+  - `config/systemd/sib-risk-api.service`
+  - `config/systemd/sib-risk-cleanup.service`
+  - `config/systemd/sib-risk-cleanup.timer`
+  - `config/systemd/sib-risk-api.env.example`
 
-## Certificat TLS
-Si DNS deja propage:
+## Web deploy (static assets only)
 
-```bash
-sudo certbot --nginx -d sib.dev.elio.bottagisio.com
-```
+See `DEPLOIEMENT.md`.
 
-## Remplacer les donnees mock par celles du notebook
-1. Exporter le JSON depuis le notebook selon `scripts/notebook-json-template.md`.
-2. Remplacer `web/data/sib-demo.json`.
-3. Revalider:
-
-```bash
-node scripts/validate-data.mjs web/data/sib-demo.json
-```
-
-4. Redeployer `web/`.

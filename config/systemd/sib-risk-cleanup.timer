@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SIB Cyclone Risk cleanup every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=sib-risk-cleanup.service
+
+[Install]
+WantedBy=timers.target

@@ -65,3 +65,15 @@ Apres chaque modification du site, proposer systematiquement:
 Contraintes:
 - ne pas faire de commit/push sauf demande explicite
 - ne pas deployer automatiquement sans validation explicite utilisateur
+
+## Note backend API (nouveau perimetre)
+
+Le projet contient maintenant un backend FastAPI (templates systemd/nginx dans `config/systemd/` et `config/nginx/`).
+
+Cette procedure reste orientee **deploiement web statique** uniquement.
+
+Pour le backend, prevoir en plus:
+- creation d'un environnement Python dedie (`backend/.venv`) avec dependances geospatiales/CLIMADA
+- activation du service `sib-risk-api.service`
+- activation du timer `sib-risk-cleanup.timer`
+- verification de `GET /api/v1/health` (via le proxy nginx `/api/` ou directement en local)

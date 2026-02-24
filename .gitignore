@@ -1,2 +1,8 @@
 .DS_Store
 node_modules/
+backend/.venv/
+backend/.venv-test/
+backend/**/__pycache__/
+*.pyc
+config/systemd/sib-risk-api.env
+/data/
