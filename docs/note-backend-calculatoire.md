@@ -237,6 +237,29 @@ Role:
 - produit:
   - `web/data/guadeloupe-water-infra.geojson`
 
+### d) Hypotheses de valorisation monetaire (cas Guadeloupe)
+
+Les valeurs monetaires ci-dessous sont des **hypotheses prudentes** utilisees pour le cas de reference Guadeloupe dans:
+- `scripts/build_guadeloupe_complete_analysis.py`
+
+Elles n'ont pas ete fournies par un barème officiel unique dans les donnees sources; elles servent donc de base de calcul coherente en attendant des couts metier valides par type d'actif.
+
+| Type d'actif | Regle de valorisation | Valeur retenue |
+|---|---|---|
+| Elec BT aerien | EUR par km | 180 000 EUR/km |
+| Elec BT souterrain | EUR par km | 320 000 EUR/km |
+| Elec HTA aerien | EUR par km | 260 000 EUR/km |
+| Elec HTA souterrain | EUR par km | 520 000 EUR/km |
+| AEP canalisations | EUR par km | 280 000 EUR/km |
+| EU canalisations | EUR par km | 340 000 EUR/km |
+| EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR |
+| EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR |
+| AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR |
+
+Details techniques:
+- pour les lineaires: `value_eur = max(5000, longueur_km * cout_km)`
+- pour les ouvrages points: valeur fixe par actif/type.
+
 ---
 
 ## 11) Ce que la page web affiche

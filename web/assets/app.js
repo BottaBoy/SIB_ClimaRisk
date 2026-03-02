@@ -51,9 +51,6 @@ const WATER_LAYER_LABEL = {
 };
 
 const WIND_PADDING_CELLS = 6;
-const WIND_RELATIVE_PADDING = 0.6;
-const WIND_MIN_PAD_DEG = 0.9;
-const WIND_RECT_EPS_FRACTION = 0.08;
 
 const GUA_VALUATION_RULES = [
   'Elec BT aerien: 180 kEUR/km',
@@ -662,7 +659,39 @@ function nearestWindCellValue(i, j, knownCells, fallbackValue) {
   return { mean_wind_mps: best.mean_wind_mps, sample_count: best.sample_count, extrapolated: true };
 }
 
-function renderWindMap(hazardKey, payload, meta) {
+function buildSharedWindGridSpec(payload, meta) {
+  const cellDeg = Number(meta?.grid_cell_deg || 0.05);
+  const cells = Array.isArray(payload?.cells) ? payload.cells : [];
+  if (!cells.length || !Number.isFinite(cellDeg) || cellDeg <= 0) return null;
+
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  let minLon = Number.POSITIVE_INFINITY;
+  let maxLon = Number.NEGATIVE_INFINITY;
+  cells.forEach((cell) => {
+    const lat = Number(cell.lat);
+    const lon = Number(cell.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+    minLon = Math.min(minLon, lon);
+    maxLon = Math.max(maxLon, lon);
+  });
+  if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLon) || !Number.isFinite(maxLon)) {
+    return null;
+  }
+
+  const half = cellDeg / 2.0;
+  const south = minLat - half - (WIND_PADDING_CELLS * cellDeg);
+  const north = maxLat + half + (WIND_PADDING_CELLS * cellDeg);
+  const west = minLon - half - (WIND_PADDING_CELLS * cellDeg);
+  const east = maxLon + half + (WIND_PADDING_CELLS * cellDeg);
+  const nLat = Math.max(1, Math.round((north - south) / cellDeg));
+  const nLon = Math.max(1, Math.round((east - west) / cellDeg));
+  return { cellDeg, south, north, west, east, nLat, nLon };
+}
+
+function renderWindMap(hazardKey, payload, meta, options = {}) {
   if (!payload || !Array.isArray(payload.cells)) return;
   const ref = ensureWindMap(hazardKey);
   if (!ref || !ref.cellsLayer) return;
@@ -671,79 +700,41 @@ function renderWindMap(hazardKey, payload, meta) {
   const cells = payload.cells || [];
   if (!cells.length) return;
 
-  const bbox = meta?.bbox || {};
-  const cellDeg = Number(meta?.grid_cell_deg || 0.05);
-  const latMinRaw = Number(bbox.lat_min);
-  const latMaxRaw = Number(bbox.lat_max);
-  const lonMinRaw = Number(bbox.lon_min);
-  const lonMaxRaw = Number(bbox.lon_max);
+  const grid = options.gridSpec || buildSharedWindGridSpec(payload, meta);
+  if (!grid) return;
 
-  const min = Number(payload.mean_wind_min_mps || 0);
-  const max = Number(payload.mean_wind_max_mps || 0);
+  const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(payload.mean_wind_min_mps || 0);
+  const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(payload.mean_wind_max_mps || 0);
   const knownCells = [];
   const knownByIndex = new Map();
-
-  const latSpan = Math.max(cellDeg, latMaxRaw - latMinRaw);
-  const lonSpan = Math.max(cellDeg, lonMaxRaw - lonMinRaw);
-  const padLat = Math.max(WIND_PADDING_CELLS * cellDeg, latSpan * WIND_RELATIVE_PADDING, WIND_MIN_PAD_DEG);
-  const padLon = Math.max(WIND_PADDING_CELLS * cellDeg, lonSpan * WIND_RELATIVE_PADDING, WIND_MIN_PAD_DEG);
-  const coreLatMin = latMinRaw - padLat;
-  const coreLatMax = latMaxRaw + padLat;
-  const coreLonMin = lonMinRaw - padLon;
-  const coreLonMax = lonMaxRaw + padLon;
-
-  let targetLatMin = coreLatMin;
-  let targetLatMax = coreLatMax;
-  let targetLonMin = coreLonMin;
-  let targetLonMax = coreLonMax;
-  const size = ref.instance.getSize && ref.instance.getSize();
-  if (size && Number(size.x) > 0 && Number(size.y) > 0) {
-    const mapRatio = Number(size.x) / Number(size.y);
-    let spanLat = Math.max(cellDeg, coreLatMax - coreLatMin);
-    let spanLon = Math.max(cellDeg, coreLonMax - coreLonMin);
-    const spanRatio = spanLon / spanLat;
-    if (Number.isFinite(mapRatio) && mapRatio > 0) {
-      if (spanRatio < mapRatio) spanLon = spanLat * mapRatio;
-      else spanLat = spanLon / mapRatio;
-      const cLat = (coreLatMin + coreLatMax) / 2.0;
-      const cLon = (coreLonMin + coreLonMax) / 2.0;
-      targetLatMin = cLat - (spanLat / 2.0);
-      targetLatMax = cLat + (spanLat / 2.0);
-      targetLonMin = cLon - (spanLon / 2.0);
-      targetLonMax = cLon + (spanLon / 2.0);
-    }
-  }
+  const cellDeg = grid.cellDeg;
+  const latMin = grid.south;
+  const latMax = grid.north;
+  const lonMin = grid.west;
+  const lonMax = grid.east;
+  const nLat = grid.nLat;
+  const nLon = grid.nLon;
+  const centerLat0 = latMin + (cellDeg / 2.0);
+  const centerLon0 = lonMin + (cellDeg / 2.0);
 
   if (
     !ref.hasFitted
-    && Number.isFinite(targetLatMin)
-    && Number.isFinite(targetLatMax)
-    && Number.isFinite(targetLonMin)
-    && Number.isFinite(targetLonMax)
+    && Number.isFinite(latMin)
+    && Number.isFinite(latMax)
+    && Number.isFinite(lonMin)
+    && Number.isFinite(lonMax)
   ) {
-    ref.instance.fitBounds([[targetLatMin, targetLonMin], [targetLatMax, targetLonMax]], { padding: [0, 0], maxZoom: 9 });
+    ref.instance.fitBounds([[latMin, lonMin], [latMax, lonMax]], { padding: [0, 0], maxZoom: 9 });
     ref.hasFitted = true;
-  }
-
-  let latMin = targetLatMin;
-  let latMax = targetLatMax;
-  let lonMin = targetLonMin;
-  let lonMax = targetLonMax;
-  const viewBounds = ref.instance.getBounds && ref.instance.getBounds();
-  if (viewBounds && viewBounds.isValid()) {
-    latMin = Math.min(latMin, viewBounds.getSouth() - cellDeg);
-    latMax = Math.max(latMax, viewBounds.getNorth() + cellDeg);
-    lonMin = Math.min(lonMin, viewBounds.getWest() - cellDeg);
-    lonMax = Math.max(lonMax, viewBounds.getEast() + cellDeg);
   }
 
   cells.forEach((cell) => {
     const lat = Number(cell.lat);
     const lon = Number(cell.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    if (!Number.isFinite(latMin) || !Number.isFinite(lonMin) || !Number.isFinite(cellDeg)) return;
-    const i = Math.round(((lat - latMin) / cellDeg) - 0.5);
-    const j = Math.round(((lon - lonMin) / cellDeg) - 0.5);
+    if (!Number.isFinite(centerLat0) || !Number.isFinite(centerLon0) || !Number.isFinite(cellDeg)) return;
+    const i = Math.round((lat - centerLat0) / cellDeg);
+    const j = Math.round((lon - centerLon0) / cellDeg);
     const key = `${i}|${j}`;
     const observed = {
       i,
@@ -758,16 +749,12 @@ function renderWindMap(hazardKey, payload, meta) {
   if (
     Number.isFinite(latMin) && Number.isFinite(latMax) && Number.isFinite(lonMin) && Number.isFinite(lonMax) && Number.isFinite(cellDeg)
   ) {
-    const nLat = Math.max(1, Math.ceil((latMax - latMin) / cellDeg));
-    const nLon = Math.max(1, Math.ceil((lonMax - lonMin) / cellDeg));
-    const eps = cellDeg * WIND_RECT_EPS_FRACTION;
-
     for (let i = 0; i < nLat; i += 1) {
       for (let j = 0; j < nLon; j += 1) {
-        const south = latMin + i * cellDeg - (eps / 2);
-        const north = south + cellDeg + eps;
-        const west = lonMin + j * cellDeg - (eps / 2);
-        const east = west + cellDeg + eps;
+        const south = latMin + i * cellDeg;
+        const north = south + cellDeg;
+        const west = lonMin + j * cellDeg;
+        const east = west + cellDeg;
         const key = `${i}|${j}`;
         const observed = knownByIndex.get(key);
         const data = observed || nearestWindCellValue(i, j, knownCells, min);
@@ -805,13 +792,30 @@ function renderWindMaps() {
   const meta = payload.meta || {};
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
+
+  const sharedCells = [
+    ...((storm && Array.isArray(storm.cells)) ? storm.cells : []),
+    ...((cmcc && Array.isArray(cmcc.cells)) ? cmcc.cells : [])
+  ];
+  const sharedGrid = buildSharedWindGridSpec({ cells: sharedCells }, meta);
+  const sharedMin = Math.min(
+    Number(storm?.mean_wind_min_mps ?? Number.POSITIVE_INFINITY),
+    Number(cmcc?.mean_wind_min_mps ?? Number.POSITIVE_INFINITY)
+  );
+  const sharedMax = Math.max(
+    Number(storm?.mean_wind_max_mps ?? Number.NEGATIVE_INFINITY),
+    Number(cmcc?.mean_wind_max_mps ?? Number.NEGATIVE_INFINITY)
+  );
+  const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
+  const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
+
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
-    renderWindMap('storm', storm, meta);
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · echelle commune ${numberFmt.format(colorMin)}-${numberFmt.format(colorMax)} m/s`;
+    renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
-    renderWindMap('storm_cmcc', cmcc, meta);
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · echelle commune ${numberFmt.format(colorMin)}-${numberFmt.format(colorMax)} m/s`;
+    renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
 }
 
