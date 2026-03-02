@@ -48,6 +48,10 @@ The production path should use the provided backend module structure and replace
   ```bash
   /home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_guadeloupe_wind_maps.py
   ```
+- Build Guadeloupe water infrastructure map layer (AEP + EU):
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_guadeloupe_water_infra_map.py
+  ```
 
 ## Full STORM dataset links (for GitHub restitution)
 

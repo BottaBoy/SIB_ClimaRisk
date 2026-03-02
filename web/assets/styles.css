@@ -229,6 +229,22 @@ button:disabled {
   height: 420px;
 }
 
+.water-panel,
+.damage-head {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.water-map-card {
+  display: grid;
+  gap: 8px;
+}
+
+.water-map {
+  height: 460px;
+}
+
 .muted { color: var(--muted); margin: 6px 0 0; }
 .muted.small { font-size: 12px; }
 
@@ -479,6 +495,7 @@ button:disabled {
   .inline-row.tight input { min-width: 0; }
   .map { height: 360px; }
   .wind-map { height: 340px; }
+  .water-map { height: 340px; }
   .table-wrap th, .table-wrap td { font-size: 12px; padding: 8px; }
 }
 

@@ -14,7 +14,8 @@ const state = {
   pollTimer: null,
   pollingModeTarget: null,
   mapReady: false,
-  windMaps: null
+  windMaps: null,
+  waterInfra: null
 };
 
 const mapRef = {
@@ -29,6 +30,12 @@ const mapRef = {
 const windMapRef = {
   storm: { instance: null, cellsLayer: null, hasFitted: false },
   storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false }
+};
+
+const waterMapRef = {
+  instance: null,
+  layer: null,
+  hasFitted: false
 };
 
 const chartRefs = {
@@ -85,7 +92,10 @@ const els = {
   windMapStorm: document.getElementById('wind-map-storm'),
   windMapCmcc: document.getElementById('wind-map-cmcc'),
   windStormCaption: document.getElementById('wind-storm-caption'),
-  windCmccCaption: document.getElementById('wind-cmcc-caption')
+  windCmccCaption: document.getElementById('wind-cmcc-caption'),
+  waterInfraMap: document.getElementById('water-infra-map'),
+  waterMapCaption: document.getElementById('water-map-caption'),
+  infraSummary: document.getElementById('infra-summary')
 };
 
 const numberFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -230,6 +240,32 @@ function renderKpis() {
       <div class="kpi-sub">${escapeHtml(card.sub)}</div>
     </article>
   `).join('');
+}
+
+function renderInfraSummary() {
+  const result = getActiveResult();
+  if (!els.infraSummary) return;
+  if (!result) {
+    els.infraSummary.textContent = "Aucune information d'infrastructure disponible.";
+    return;
+  }
+
+  const categories = result?.exposure_summary?.exposure_category_counts || {};
+  const waterCount = Number(categories.ouvrage_eau || 0);
+  const elecCount = Number(categories.ouvrage_electrique || 0);
+  const housingCount = Number(categories.habitation || 0);
+  const totalAssets = Number(result?.exposure_summary?.asset_count_original || 0);
+  const totalExposure = Number(result?.exposure_summary?.total_exposure_eur || 0);
+  const interdep = result?.portfolio_results?.interdependency || {};
+  const depImpacted = Number(interdep?.dependency_impacted_assets || 0);
+
+  els.infraSummary.innerHTML = [
+    `<strong>Actifs integres dans le calcul:</strong> ${escapeHtml(numberFmt.format(totalAssets))} (eau=${escapeHtml(numberFmt.format(waterCount))}, electricite=${escapeHtml(numberFmt.format(elecCount))}, habitation=${escapeHtml(numberFmt.format(housingCount))})`,
+    `<br/>`,
+    `<strong>Valeur totale exposee:</strong> ${escapeHtml(formatMoneyMEUR(totalExposure))}`,
+    `<br/>`,
+    `<strong>Propagation elec -> eau:</strong> ${escapeHtml(String(Boolean(interdep?.electricity_to_water_enabled)))}; actifs eau impactes par dependance=${escapeHtml(numberFmt.format(depImpacted))}`
+  ].join('');
 }
 
 function escapeHtml(text) {
@@ -543,6 +579,79 @@ function renderWindMaps() {
   }
 }
 
+function waterInfraStyle(feature) {
+  const t = String(feature?.properties?.infra_type || '').toLowerCase();
+  if (t === 'aep_cana') return { color: '#58b368', weight: 1.2, opacity: 0.75 };
+  if (t === 'eu_cana') return { color: '#3a90c4', weight: 1.2, opacity: 0.75 };
+  if (t === 'aep_ouvrage') return { color: '#f1c04e', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_pr') return { color: '#f47f4f', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_step') return { color: '#d84f4f', weight: 2.2, opacity: 0.95 };
+  return { color: '#c7d0d8', weight: 1.0, opacity: 0.7 };
+}
+
+function ensureWaterMap() {
+  if (!window.L || !els.waterInfraMap) return null;
+  if (waterMapRef.instance) return waterMapRef;
+
+  waterMapRef.instance = L.map(els.waterInfraMap, { zoomControl: true, preferCanvas: true }).setView([16.25, -61.5], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 13,
+    minZoom: 4,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(waterMapRef.instance);
+  return waterMapRef;
+}
+
+function renderWaterInfraMap() {
+  const payload = state.waterInfra;
+  const ref = ensureWaterMap();
+  if (!payload || !ref || !ref.instance || !window.L) return;
+
+  if (els.waterMapCaption) {
+    const counts = {};
+    (payload.features || []).forEach((f) => {
+      const key = String(f?.properties?.infra_type || 'unknown');
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    els.waterMapCaption.textContent = `Total ${numberFmt.format((payload.features || []).length)} infrastructures eau (${Object.entries(counts).map(([k, v]) => `${k}: ${numberFmt.format(v)}`).join(' · ')})`;
+  }
+
+  if (ref.layer) {
+    ref.instance.removeLayer(ref.layer);
+    ref.layer = null;
+  }
+
+  ref.layer = L.geoJSON(payload, {
+    style: waterInfraStyle,
+    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+      ...waterInfraStyle(feature),
+      radius: String(feature?.properties?.infra_type || '') === 'eu_step' ? 4.5 : 3.2,
+      fillColor: waterInfraStyle(feature).color,
+      fillOpacity: 0.85
+    }),
+    onEachFeature: (feature, layer) => {
+      const p = feature?.properties || {};
+      layer.bindTooltip(
+        [
+          `<strong>${escapeHtml(String(p.infra_type || 'infra'))}</strong>`,
+          `id: ${escapeHtml(String(p.feature_id || 'n/a'))}`,
+          `groupe: ${escapeHtml(String(p.source_group || 'n/a'))}`
+        ].join('<br/>'),
+        { sticky: true }
+      );
+    }
+  }).addTo(ref.instance);
+
+  if (!ref.hasFitted) {
+    const bounds = ref.layer.getBounds();
+    if (bounds && bounds.isValid()) {
+      ref.instance.fitBounds(bounds, { padding: [18, 18], maxZoom: 11 });
+      ref.hasFitted = true;
+    }
+  }
+  setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
+}
+
 function chartThemeCommon() {
   return {
     backgroundColor: 'transparent',
@@ -746,19 +855,25 @@ function filterResultToSelectedTerritory(result) {
 }
 
 function renderAll() {
-  if (!state.activeResult) return;
+  renderWindMaps();
+  renderWaterInfraMap();
+
+  if (!state.activeResult) {
+    renderInfraSummary();
+    return;
+  }
   if (state.selectedTerritoryId && !(state.activeResult.territory_results || []).some((x) => x.territory_id === state.selectedTerritoryId)) {
     state.selectedTerritoryId = null;
   }
   updateMetaBadges();
   renderTerritorySelectionState();
+  renderInfraSummary();
   renderKpis();
   renderMap();
   renderTerritoryTable();
   renderHazardCharts();
   renderArtifactLinks();
   renderNotes();
-  renderWindMaps();
 }
 
 function setActiveResult(result, mode = state.selectedDatasetMode) {
@@ -770,10 +885,8 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
 
 async function fetchDemoResult() {
   const urls = [
-    '/data/guadeloupe-complete-analysis.json',
-    'data/guadeloupe-complete-analysis.json',
-    '/data/sib-thesis-demo.json',
-    'data/sib-thesis-demo.json'
+    new URL('/data/guadeloupe-complete-analysis.json', window.location.origin).toString(),
+    new URL('/data/sib-thesis-demo.json', window.location.origin).toString()
   ];
   let lastErr = null;
   for (const url of urls) {
@@ -789,7 +902,7 @@ async function fetchDemoResult() {
 }
 
 async function fetchWindMaps() {
-  const urls = ['/data/guadeloupe-wind-maps.json', 'data/guadeloupe-wind-maps.json'];
+  const urls = [new URL('/data/guadeloupe-wind-maps.json', window.location.origin).toString()];
   let lastErr = null;
   for (const url of urls) {
     try {
@@ -805,6 +918,17 @@ async function fetchWindMaps() {
     }
   }
   throw lastErr || new Error('Unable to load wind map payload');
+}
+
+async function fetchWaterInfra() {
+  const url = new URL('/data/guadeloupe-water-infra.geojson', window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
+    throw new Error('Invalid water infrastructure payload');
+  }
+  return payload;
 }
 
 function stopPolling() {
@@ -1057,29 +1181,35 @@ async function bootstrap() {
     bindEvents();
     if (window.L) ensureMap();
     renderDrawPreview();
-    const [demo, windMaps] = await Promise.all([
-      fetchDemoResult(),
-      fetchWindMaps().catch((err) => {
-        console.warn('Wind maps could not be loaded', err);
-        return null;
-      })
-    ]);
+    state.windMaps = await fetchWindMaps().catch((err) => {
+      console.warn('Wind maps could not be loaded', err);
+      return null;
+    });
+    if (!state.windMaps) {
+      if (els.windStormCaption) els.windStormCaption.textContent = 'Donnees vent indisponibles.';
+      if (els.windCmccCaption) els.windCmccCaption.textContent = 'Donnees vent indisponibles.';
+    }
+
+    state.waterInfra = await fetchWaterInfra().catch((err) => {
+      console.warn('Water infrastructures could not be loaded', err);
+      return null;
+    });
+    if (!state.waterInfra && els.waterMapCaption) {
+      els.waterMapCaption.textContent = "Donnees infrastructures d'eau indisponibles.";
+    }
+
+    const demo = await fetchDemoResult();
     state.demoResult = demo;
     state.resultsByMode.demo = demo;
     state.activeResult = demo;
-    state.windMaps = windMaps;
-    if (!windMaps) {
-      if (els.windStormCaption) els.windStormCaption.textContent = 'Wind map data unavailable.';
-      if (els.windCmccCaption) els.windCmccCaption.textContent = 'Wind map data unavailable.';
-    }
     updateMetaBadges();
     renderAll();
-    renderWindMaps();
     setStatus('Loaded Guadeloupe complete reference result. Submit an upload or a drawn exposure to start an async run.', 'success');
   } catch (err) {
     console.error(err);
     showError(`Startup error: ${err.message}`);
     setStatus(`Startup error: ${err.message}`, 'error');
+    renderAll();
   }
 }
 

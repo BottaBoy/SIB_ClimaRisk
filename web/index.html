@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SIB | Guadeloupe Cyclone Risk</title>
+    <title>SIB | Impact des risques physiques - Guadeloupe</title>
     <meta
       name="description"
-      content="Guadeloupe multi-network cyclone risk analysis (water + electricity) with STORM/STORM_CMCC and user exposure upload/drawing workflows."
+      content="Impact des risques physiques sur les infrastructures en Guadeloupe avec STORM et STORM CMCC, incluant eau et electricite."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,11 +19,11 @@
     <div class="page-shell">
       <header class="hero panel">
         <div>
-          <p class="eyebrow">Master Thesis Demo</p>
-          <h1>Guadeloupe Cyclone Risk: Water + Electricity</h1>
+          <p class="eyebrow">Analyse de reference</p>
+          <h1>Impact des risques physiques sur les infrastructures : cas de la Guadeloupe</h1>
           <p class="subtitle">
-            First page = complete Guadeloupe analysis (all available water and electrical networks), then optional
-            user-defined exposure workflows. Hazards: STORM and STORM_CMCC.
+            Exercice de demonstration d'une analyse complete des risques cycloniques, en prenant en compte
+            les reseaux d'eau et d'electricite. Les aleas compares sont STORM et STORM CMCC.
           </p>
         </div>
         <div class="hero-badges">
@@ -68,102 +68,12 @@
         </div>
       </section>
 
-      <section class="panel run-lab" aria-labelledby="run-lab-title">
-        <div class="run-lab-head">
-          <div>
-            <h2 id="run-lab-title">User Exposure Test Workflow</h2>
-            <p class="subtitle compact">
-              Upload CSV/XLSX/GeoJSON/GPKG or draw on the map. Runs are queued and processed asynchronously.
-              Results are retained for 24 hours (ephemeral storage).
-            </p>
-          </div>
-          <div class="status-box" id="job-status-box" hidden></div>
-        </div>
-
-        <div class="run-lab-grid">
-          <form id="upload-form" class="subpanel" enctype="multipart/form-data">
-            <h3>Upload Exposure</h3>
-            <p class="muted">Supported MVP formats: CSV, XLSX, GeoJSON, GPKG.</p>
-            <div class="field">
-              <label for="upload-file">Exposure file</label>
-              <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
-            </div>
-            <div class="field">
-              <label for="value-field">Value field (required for GIS/tabular files)</label>
-              <input id="value-field" type="text" placeholder="value_eur / operations_op_montant" />
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="id-field">ID field (optional)</label>
-                <input id="id-field" type="text" placeholder="asset_id" />
-              </div>
-              <div class="field">
-                <label for="asset-type-field">Asset type field (optional)</label>
-                <input id="asset-type-field" type="text" placeholder="asset_type" />
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="category-field">Exposure category field (optional)</label>
-                <input id="category-field" type="text" placeholder="exposure_category" />
-              </div>
-              <div class="field">
-                <label for="default-category">Default category</label>
-                <select id="default-category">
-                  <option value="habitation">Habitation</option>
-                  <option value="ouvrage_eau">Ouvrage eau</option>
-                  <option value="ouvrage_electrique">Ouvrage electrique</option>
-                </select>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="crs-field">CRS override (optional)</label>
-                <input id="crs-field" type="text" placeholder="EPSG:4326" />
-              </div>
-              <div class="field">
-                <label for="spacing-field">Sampling spacing (m)</label>
-                <input id="spacing-field" type="number" value="100" min="1" step="1" />
-              </div>
-            </div>
-            <div class="field">
-              <label for="run-label">Run label (optional)</label>
-              <input id="run-label" type="text" placeholder="SIB test upload" />
-            </div>
-            <button type="submit" class="primary-btn" id="upload-submit-btn">Submit Uploaded Exposure</button>
-          </form>
-
-          <div class="subpanel">
-            <h3>Draw Exposure on Map</h3>
-            <p class="muted">Draw points, lines, or polygons on the map below, then submit for a real backend run.</p>
-            <div class="field">
-              <label for="draw-category">Drawn exposure category</label>
-              <select id="draw-category">
-                <option value="habitation">Habitation</option>
-                <option value="ouvrage_eau">Ouvrage eau</option>
-                <option value="ouvrage_electrique">Ouvrage electrique</option>
-              </select>
-            </div>
-            <ul class="draw-summary-list" id="draw-summary-list">
-              <li>No drawings yet.</li>
-            </ul>
-            <div class="inline-row">
-              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Submit Drawn Exposure</button>
-              <button type="button" id="refresh-preview-btn">Refresh Preview</button>
-            </div>
-            <p class="muted small">
-              Drawn exposures use an MVP default value per feature in the backend fallback engine; field-based valuation will be added in the production CLIMADA path.
-            </p>
-          </div>
-        </div>
-      </section>
-
       <section class="panel wind-panel" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
-            <h2 id="wind-panel-title">Guadeloupe Mean Wind Fields (10,000 years)</h2>
+            <h2 id="wind-panel-title">Carte des aleas vent/tempete en Guadeloupe</h2>
             <p class="muted">
-              Interactive maps at STORM-grid scale to compare mean maximum wind intensities over Guadeloupe.
+              Carte interactive presentant les vents moyens des tempetes autour de la Guadeloupe.
             </p>
           </div>
         </div>
@@ -174,11 +84,38 @@
             <div id="wind-map-storm" class="map wind-map"></div>
           </article>
           <article class="subpanel wind-map-card">
-            <h3>STORM_CMCC</h3>
+            <h3>Carte des aleas vent/tempete (CMCC) en Guadeloupe</h3>
             <p class="muted small" id="wind-cmcc-caption">Loading…</p>
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>
         </div>
+      </section>
+
+      <section class="panel water-panel" aria-labelledby="water-map-title">
+        <div class="section-head">
+          <div>
+            <h2 id="water-map-title">Carte des infrastructures d'eau de Guadeloupe</h2>
+            <p class="muted">
+              Visualisation de l'ensemble des infrastructures AEP et EU fournies (canalisations, ouvrages, postes de refoulement, STEP).
+            </p>
+          </div>
+        </div>
+        <div class="subpanel water-map-card">
+          <p class="muted small" id="water-map-caption">Loading…</p>
+          <div id="water-infra-map" class="map water-map"></div>
+        </div>
+      </section>
+
+      <section class="panel damage-head" aria-labelledby="damage-head-title">
+        <div class="section-head">
+          <div>
+            <h2 id="damage-head-title">Informations et analyses sur les dommages potentiels lies aux couts</h2>
+            <p class="muted">
+              Estimation des pertes annuelles attendues, indicateurs de risque, et effets de propagation des dysfonctionnements.
+            </p>
+          </div>
+        </div>
+        <div id="infra-summary" class="notes-box"></div>
       </section>
 
       <section class="kpi-grid" id="kpi-grid" aria-label="Portfolio KPIs"></section>
@@ -242,6 +179,96 @@
         <div class="chart-card comparison-card">
           <h3>STORM vs STORM_CMCC Comparison</h3>
           <div id="chart-comparison" class="chart wide"></div>
+        </div>
+      </section>
+
+      <section class="panel run-lab" aria-labelledby="run-lab-title">
+        <div class="run-lab-head">
+          <div>
+            <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
+            <p class="subtitle compact">
+              Importez vos propres expositions (CSV/XLSX/GeoJSON/GPKG) ou dessinez-les sur la carte.
+              Les runs sont executes de facon asynchrone et conserves 24h.
+            </p>
+          </div>
+          <div class="status-box" id="job-status-box" hidden></div>
+        </div>
+
+        <div class="run-lab-grid">
+          <form id="upload-form" class="subpanel" enctype="multipart/form-data">
+            <h3>Import d'exposition</h3>
+            <p class="muted">Formats supportes: CSV, XLSX, GeoJSON, GPKG.</p>
+            <div class="field">
+              <label for="upload-file">Exposure file</label>
+              <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
+            </div>
+            <div class="field">
+              <label for="value-field">Value field (required for GIS/tabular files)</label>
+              <input id="value-field" type="text" placeholder="value_eur / operations_op_montant" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="id-field">ID field (optional)</label>
+                <input id="id-field" type="text" placeholder="asset_id" />
+              </div>
+              <div class="field">
+                <label for="asset-type-field">Asset type field (optional)</label>
+                <input id="asset-type-field" type="text" placeholder="asset_type" />
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="category-field">Exposure category field (optional)</label>
+                <input id="category-field" type="text" placeholder="exposure_category" />
+              </div>
+              <div class="field">
+                <label for="default-category">Default category</label>
+                <select id="default-category">
+                  <option value="habitation">Habitation</option>
+                  <option value="ouvrage_eau">Ouvrage eau</option>
+                  <option value="ouvrage_electrique">Ouvrage electrique</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="crs-field">CRS override (optional)</label>
+                <input id="crs-field" type="text" placeholder="EPSG:4326" />
+              </div>
+              <div class="field">
+                <label for="spacing-field">Sampling spacing (m)</label>
+                <input id="spacing-field" type="number" value="100" min="1" step="1" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="run-label">Run label (optional)</label>
+              <input id="run-label" type="text" placeholder="SIB test upload" />
+            </div>
+            <button type="submit" class="primary-btn" id="upload-submit-btn">Submit Uploaded Exposure</button>
+          </form>
+
+          <div class="subpanel">
+            <h3>Dessin d'exposition</h3>
+            <p class="muted">Dessinez des points, lignes ou polygones puis soumettez le run.</p>
+            <div class="field">
+              <label for="draw-category">Drawn exposure category</label>
+              <select id="draw-category">
+                <option value="habitation">Habitation</option>
+                <option value="ouvrage_eau">Ouvrage eau</option>
+                <option value="ouvrage_electrique">Ouvrage electrique</option>
+              </select>
+            </div>
+            <ul class="draw-summary-list" id="draw-summary-list">
+              <li>No drawings yet.</li>
+            </ul>
+            <div class="inline-row">
+              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Submit Drawn Exposure</button>
+              <button type="button" id="refresh-preview-btn">Refresh Preview</button>
+            </div>
+            <p class="muted small">
+              Drawn exposures use an MVP default value per feature in the backend fallback engine; field-based valuation will be added in the production CLIMADA path.
+            </p>
+          </div>
         </div>
       </section>
 
