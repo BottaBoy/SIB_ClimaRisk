@@ -16,7 +16,8 @@ const state = {
   currentPage: 'page1',
   mapReady: false,
   windMaps: null,
-  waterInfra: null
+  waterInfra: null,
+  waterLayerVisibility: {}
 };
 
 const mapRef = {
@@ -29,15 +30,42 @@ const mapRef = {
 };
 
 const windMapRef = {
-  storm: { instance: null, cellsLayer: null, hasFitted: false },
-  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false }
+  storm: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null },
+  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null }
 };
 
 const waterMapRef = {
   instance: null,
-  layer: null,
+  layersByType: new Map(),
+  order: [],
   hasFitted: false
 };
+
+const WATER_LAYER_ORDER = ['aep_cana', 'aep_ouvrage', 'eu_cana', 'eu_pr', 'eu_step'];
+const WATER_LAYER_LABEL = {
+  aep_cana: 'AEP canalisations',
+  aep_ouvrage: 'AEP ouvrages',
+  eu_cana: 'EU canalisations',
+  eu_pr: 'EU postes de refoulement',
+  eu_step: 'EU stations STEP'
+};
+
+const WIND_PADDING_CELLS = 6;
+const WIND_RELATIVE_PADDING = 0.6;
+const WIND_MIN_PAD_DEG = 0.9;
+const WIND_RECT_EPS_FRACTION = 0.08;
+
+const GUA_VALUATION_RULES = [
+  'Elec BT aerien: 180 kEUR/km',
+  'Elec BT souterrain: 320 kEUR/km',
+  'Elec HTA aerien: 260 kEUR/km',
+  'Elec HTA souterrain: 520 kEUR/km',
+  'AEP canalisations: 280 kEUR/km',
+  'EU canalisations: 340 kEUR/km',
+  'EU PR: 900 kEUR/unite',
+  'EU STEP: 6 000 kEUR/unite',
+  'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)'
+];
 
 const chartRefs = {
   c1: null,
@@ -100,6 +128,7 @@ const els = {
   windCmccCaption: document.getElementById('wind-cmcc-caption'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
+  waterLayerControls: document.getElementById('water-layer-controls'),
   infraSummary: document.getElementById('infra-summary')
 };
 
@@ -315,13 +344,18 @@ function renderInfraSummary() {
   const totalExposure = Number(result?.exposure_summary?.total_exposure_eur || 0);
   const interdep = result?.portfolio_results?.interdependency || {};
   const depImpacted = Number(interdep?.dependency_impacted_assets || 0);
+  const showValuation = String(result?.meta?.source || '').includes('guadeloupe_complete_reference');
+  const valuationText = showValuation
+    ? `<br/><strong>Hypotheses de valorisation (prudentes):</strong> ${escapeHtml(GUA_VALUATION_RULES.join(' · '))}`
+    : '';
 
   els.infraSummary.innerHTML = [
     `<strong>Actifs integres dans le calcul:</strong> ${escapeHtml(numberFmt.format(totalAssets))} (eau=${escapeHtml(numberFmt.format(waterCount))}, electricite=${escapeHtml(numberFmt.format(elecCount))}, habitation=${escapeHtml(numberFmt.format(housingCount))})`,
     `<br/>`,
     `<strong>Valeur totale exposee:</strong> ${escapeHtml(formatMoneyMEUR(totalExposure))}`,
     `<br/>`,
-    `<strong>Propagation elec -> eau:</strong> ${escapeHtml(String(Boolean(interdep?.electricity_to_water_enabled)))}; actifs eau impactes par dependance=${escapeHtml(numberFmt.format(depImpacted))}`
+    `<strong>Propagation elec -> eau:</strong> ${escapeHtml(String(Boolean(interdep?.electricity_to_water_enabled)))}; actifs eau impactes par dependance=${escapeHtml(numberFmt.format(depImpacted))}`,
+    valuationText
   ].join('');
 }
 
@@ -557,6 +591,40 @@ function getWindColor(value, min, max) {
   return '#d9f0a3';
 }
 
+function buildWindLegendHtml(min, max) {
+  const steps = [0.95, 0.8, 0.65, 0.5, 0.35, 0.2];
+  const rows = steps.map((s) => {
+    const value = min + s * (max - min);
+    const color = getWindColor(value, min, max);
+    return `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${numberFmt.format(value)} m/s</span></div>`;
+  });
+  return [
+    '<div class="wind-legend">',
+    `<div class="wind-legend-title">Vent moyen</div>`,
+    ...rows,
+    `<div class="wind-legend-range">${numberFmt.format(min)} - ${numberFmt.format(max)} m/s</div>`,
+    '</div>'
+  ].join('');
+}
+
+function ensureWindLegend(hazardKey, min, max) {
+  const ref = windMapRef[hazardKey];
+  if (!ref || !ref.instance || !window.L) return;
+
+  if (!ref.legendControl) {
+    ref.legendControl = L.control({ position: 'bottomright' });
+    ref.legendControl.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.className = 'leaflet-control wind-legend-control';
+      return div;
+    };
+    ref.legendControl.addTo(ref.instance);
+  }
+
+  const legendEl = ref.legendControl.getContainer();
+  if (legendEl) legendEl.innerHTML = buildWindLegendHtml(min, max);
+}
+
 function ensureWindMap(hazardKey) {
   if (!window.L) return null;
   const ref = windMapRef[hazardKey];
@@ -566,7 +634,7 @@ function ensureWindMap(hazardKey) {
   const container = hazardKey === 'storm' ? els.windMapStorm : els.windMapCmcc;
   if (!container) return null;
 
-  ref.instance = L.map(container, { zoomControl: true, attributionControl: true }).setView([16.25, -61.5], 8);
+  ref.instance = L.map(container, { zoomControl: true, attributionControl: true, preferCanvas: true }).setView([16.25, -61.5], 8);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 11,
     minZoom: 4,
@@ -574,6 +642,24 @@ function ensureWindMap(hazardKey) {
   }).addTo(ref.instance);
   ref.cellsLayer = L.layerGroup().addTo(ref.instance);
   return ref;
+}
+
+function nearestWindCellValue(i, j, knownCells, fallbackValue) {
+  if (!knownCells.length) return { mean_wind_mps: fallbackValue, sample_count: 0, extrapolated: true };
+  let best = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let idx = 0; idx < knownCells.length; idx += 1) {
+    const cell = knownCells[idx];
+    const di = cell.i - i;
+    const dj = cell.j - j;
+    const d2 = (di * di) + (dj * dj);
+    if (d2 < bestDist) {
+      bestDist = d2;
+      best = cell;
+    }
+  }
+  if (!best) return { mean_wind_mps: fallbackValue, sample_count: 0, extrapolated: true };
+  return { mean_wind_mps: best.mean_wind_mps, sample_count: best.sample_count, extrapolated: true };
 }
 
 function renderWindMap(hazardKey, payload, meta) {
@@ -587,15 +673,70 @@ function renderWindMap(hazardKey, payload, meta) {
 
   const bbox = meta?.bbox || {};
   const cellDeg = Number(meta?.grid_cell_deg || 0.05);
-  const latMin = Number(bbox.lat_min);
-  const latMax = Number(bbox.lat_max);
-  const lonMin = Number(bbox.lon_min);
-  const lonMax = Number(bbox.lon_max);
+  const latMinRaw = Number(bbox.lat_min);
+  const latMaxRaw = Number(bbox.lat_max);
+  const lonMinRaw = Number(bbox.lon_min);
+  const lonMaxRaw = Number(bbox.lon_max);
 
   const min = Number(payload.mean_wind_min_mps || 0);
   const max = Number(payload.mean_wind_max_mps || 0);
-  const bounds = [];
-  const byCellKey = new Map();
+  const knownCells = [];
+  const knownByIndex = new Map();
+
+  const latSpan = Math.max(cellDeg, latMaxRaw - latMinRaw);
+  const lonSpan = Math.max(cellDeg, lonMaxRaw - lonMinRaw);
+  const padLat = Math.max(WIND_PADDING_CELLS * cellDeg, latSpan * WIND_RELATIVE_PADDING, WIND_MIN_PAD_DEG);
+  const padLon = Math.max(WIND_PADDING_CELLS * cellDeg, lonSpan * WIND_RELATIVE_PADDING, WIND_MIN_PAD_DEG);
+  const coreLatMin = latMinRaw - padLat;
+  const coreLatMax = latMaxRaw + padLat;
+  const coreLonMin = lonMinRaw - padLon;
+  const coreLonMax = lonMaxRaw + padLon;
+
+  let targetLatMin = coreLatMin;
+  let targetLatMax = coreLatMax;
+  let targetLonMin = coreLonMin;
+  let targetLonMax = coreLonMax;
+  const size = ref.instance.getSize && ref.instance.getSize();
+  if (size && Number(size.x) > 0 && Number(size.y) > 0) {
+    const mapRatio = Number(size.x) / Number(size.y);
+    let spanLat = Math.max(cellDeg, coreLatMax - coreLatMin);
+    let spanLon = Math.max(cellDeg, coreLonMax - coreLonMin);
+    const spanRatio = spanLon / spanLat;
+    if (Number.isFinite(mapRatio) && mapRatio > 0) {
+      if (spanRatio < mapRatio) spanLon = spanLat * mapRatio;
+      else spanLat = spanLon / mapRatio;
+      const cLat = (coreLatMin + coreLatMax) / 2.0;
+      const cLon = (coreLonMin + coreLonMax) / 2.0;
+      targetLatMin = cLat - (spanLat / 2.0);
+      targetLatMax = cLat + (spanLat / 2.0);
+      targetLonMin = cLon - (spanLon / 2.0);
+      targetLonMax = cLon + (spanLon / 2.0);
+    }
+  }
+
+  if (
+    !ref.hasFitted
+    && Number.isFinite(targetLatMin)
+    && Number.isFinite(targetLatMax)
+    && Number.isFinite(targetLonMin)
+    && Number.isFinite(targetLonMax)
+  ) {
+    ref.instance.fitBounds([[targetLatMin, targetLonMin], [targetLatMax, targetLonMax]], { padding: [0, 0], maxZoom: 9 });
+    ref.hasFitted = true;
+  }
+
+  let latMin = targetLatMin;
+  let latMax = targetLatMax;
+  let lonMin = targetLonMin;
+  let lonMax = targetLonMax;
+  const viewBounds = ref.instance.getBounds && ref.instance.getBounds();
+  if (viewBounds && viewBounds.isValid()) {
+    latMin = Math.min(latMin, viewBounds.getSouth() - cellDeg);
+    latMax = Math.max(latMax, viewBounds.getNorth() + cellDeg);
+    lonMin = Math.min(lonMin, viewBounds.getWest() - cellDeg);
+    lonMax = Math.max(lonMax, viewBounds.getEast() + cellDeg);
+  }
+
   cells.forEach((cell) => {
     const lat = Number(cell.lat);
     const lon = Number(cell.lon);
@@ -603,51 +744,57 @@ function renderWindMap(hazardKey, payload, meta) {
     if (!Number.isFinite(latMin) || !Number.isFinite(lonMin) || !Number.isFinite(cellDeg)) return;
     const i = Math.round(((lat - latMin) / cellDeg) - 0.5);
     const j = Math.round(((lon - lonMin) / cellDeg) - 0.5);
-    byCellKey.set(`${i}|${j}`, {
+    const key = `${i}|${j}`;
+    const observed = {
+      i,
+      j,
       mean_wind_mps: Number(cell.mean_wind_mps || min),
       sample_count: Number(cell.sample_count || 0)
-    });
+    };
+    knownCells.push(observed);
+    if (!knownByIndex.has(key)) knownByIndex.set(key, observed);
   });
 
   if (
     Number.isFinite(latMin) && Number.isFinite(latMax) && Number.isFinite(lonMin) && Number.isFinite(lonMax) && Number.isFinite(cellDeg)
   ) {
-    const nLat = Math.max(1, Math.round((latMax - latMin) / cellDeg));
-    const nLon = Math.max(1, Math.round((lonMax - lonMin) / cellDeg));
+    const nLat = Math.max(1, Math.ceil((latMax - latMin) / cellDeg));
+    const nLon = Math.max(1, Math.ceil((lonMax - lonMin) / cellDeg));
+    const eps = cellDeg * WIND_RECT_EPS_FRACTION;
 
     for (let i = 0; i < nLat; i += 1) {
       for (let j = 0; j < nLon; j += 1) {
-        const south = latMin + i * cellDeg;
-        const north = south + cellDeg;
-        const west = lonMin + j * cellDeg;
-        const east = west + cellDeg;
+        const south = latMin + i * cellDeg - (eps / 2);
+        const north = south + cellDeg + eps;
+        const west = lonMin + j * cellDeg - (eps / 2);
+        const east = west + cellDeg + eps;
         const key = `${i}|${j}`;
-        const data = byCellKey.get(key);
-        const meanWind = Number(data?.mean_wind_mps ?? min);
-        const sampleCount = Number(data?.sample_count ?? 0);
+        const observed = knownByIndex.get(key);
+        const data = observed || nearestWindCellValue(i, j, knownCells, min);
+        const meanWind = Number(data.mean_wind_mps ?? min);
+        const sampleCount = Number(data.sample_count ?? 0);
+        const extrapolated = !observed;
+        const color = getWindColor(meanWind, min, max);
         const rect = L.rectangle([[south, west], [north, east]], {
           stroke: false,
-          fillColor: getWindColor(meanWind, min, max),
-          fillOpacity: sampleCount > 0 ? 0.78 : 0.2
+          fillColor: color,
+          fillOpacity: extrapolated ? 0.86 : 0.97
         });
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
             `Mean max wind: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
-            `Samples: ${escapeHtml(numberFmt.format(sampleCount))}`
+            `Samples: ${escapeHtml(numberFmt.format(sampleCount))}`,
+            extrapolated ? 'Valeur: extrapolee (plus proche maille observee)' : 'Valeur: observee'
           ].join('<br/>'),
           { sticky: true }
         );
         rect.addTo(ref.cellsLayer);
       }
     }
-    bounds.push([latMin, lonMin], [latMax, lonMax]);
   }
 
-  if (!ref.hasFitted && bounds.length) {
-    ref.instance.fitBounds(bounds, { padding: [16, 16], maxZoom: 9 });
-    ref.hasFitted = true;
-  }
+  ensureWindLegend(hazardKey, min, max);
 
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -659,11 +806,11 @@ function renderWindMaps() {
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · couverture spatiale continue sur la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
     renderWindMap('storm', storm, meta);
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · couverture spatiale continue sur la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
     renderWindMap('storm_cmcc', cmcc, meta);
   }
 }
@@ -676,6 +823,10 @@ function waterInfraStyle(feature) {
   if (t === 'eu_pr') return { color: '#f47f4f', weight: 1.8, opacity: 0.95 };
   if (t === 'eu_step') return { color: '#d84f4f', weight: 2.2, opacity: 0.95 };
   return { color: '#c7d0d8', weight: 1.0, opacity: 0.7 };
+}
+
+function ensureWaterLayerState(typeKey) {
+  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = true;
 }
 
 function ensureWaterMap() {
@@ -691,52 +842,127 @@ function ensureWaterMap() {
   return waterMapRef;
 }
 
+function buildWaterLayerControls(layerCounts) {
+  if (!els.waterLayerControls) return;
+  const types = [
+    ...WATER_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined),
+    ...Object.keys(layerCounts).filter((k) => !WATER_LAYER_ORDER.includes(k)).sort()
+  ];
+
+  els.waterLayerControls.innerHTML = types.map((type) => {
+    const style = waterInfraStyle({ properties: { infra_type: type } });
+    const checked = state.waterLayerVisibility[type] !== false ? 'checked' : '';
+    const label = WATER_LAYER_LABEL[type] || type;
+    const count = layerCounts[type] || 0;
+    return `
+      <label class="layer-item">
+        <input type="checkbox" data-water-layer="${escapeHtml(type)}" ${checked} />
+        <span class="layer-dot" style="background:${escapeHtml(style.color)}"></span>
+        <span>${escapeHtml(label)} (${escapeHtml(numberFmt.format(count))})</span>
+      </label>
+    `;
+  }).join('');
+
+  Array.from(els.waterLayerControls.querySelectorAll('input[data-water-layer]')).forEach((input) => {
+    input.addEventListener('change', () => {
+      const key = input.getAttribute('data-water-layer');
+      if (!key) return;
+      state.waterLayerVisibility[key] = input.checked;
+      renderWaterInfraMap();
+    });
+  });
+}
+
+function ensureWaterLayers(payload) {
+  const ref = ensureWaterMap();
+  if (!ref || !ref.instance || !payload || !Array.isArray(payload.features)) return null;
+  if (ref.layersByType.size > 0) return ref;
+
+  const grouped = new Map();
+  payload.features.forEach((feature) => {
+    const type = String(feature?.properties?.infra_type || 'unknown');
+    if (!grouped.has(type)) grouped.set(type, []);
+    grouped.get(type).push(feature);
+  });
+
+  const orderedTypes = [
+    ...WATER_LAYER_ORDER.filter((k) => grouped.has(k)),
+    ...Array.from(grouped.keys()).filter((k) => !WATER_LAYER_ORDER.includes(k)).sort()
+  ];
+  ref.order = orderedTypes;
+  orderedTypes.forEach((type) => {
+    ensureWaterLayerState(type);
+    const features = grouped.get(type) || [];
+    const layer = L.geoJSON({ type: 'FeatureCollection', features }, {
+      style: waterInfraStyle,
+      pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+        ...waterInfraStyle(feature),
+        radius: String(feature?.properties?.infra_type || '') === 'eu_step' ? 4.5 : 3.2,
+        fillColor: waterInfraStyle(feature).color,
+        fillOpacity: 0.85
+      }),
+      onEachFeature: (feature, layerItem) => {
+        const p = feature?.properties || {};
+        layerItem.bindTooltip(
+          [
+            `<strong>${escapeHtml(String(p.infra_type || 'infra'))}</strong>`,
+            `id: ${escapeHtml(String(p.feature_id || 'n/a'))}`,
+            `groupe: ${escapeHtml(String(p.source_group || 'n/a'))}`
+          ].join('<br/>'),
+          { sticky: true }
+        );
+      }
+    });
+    ref.layersByType.set(type, { layer, count: features.length });
+  });
+  return ref;
+}
+
 function renderWaterInfraMap() {
   const payload = state.waterInfra;
-  const ref = ensureWaterMap();
+  const ref = ensureWaterLayers(payload);
   if (!payload || !ref || !ref.instance || !window.L) return;
 
-  if (els.waterMapCaption) {
-    const counts = {};
-    (payload.features || []).forEach((f) => {
-      const key = String(f?.properties?.infra_type || 'unknown');
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    els.waterMapCaption.textContent = `Total ${numberFmt.format((payload.features || []).length)} infrastructures eau (${Object.entries(counts).map(([k, v]) => `${k}: ${numberFmt.format(v)}`).join(' · ')})`;
-  }
+  const counts = {};
+  ref.layersByType.forEach((entry, type) => {
+    counts[type] = entry.count;
+  });
+  buildWaterLayerControls(counts);
 
-  if (ref.layer) {
-    ref.instance.removeLayer(ref.layer);
-    ref.layer = null;
-  }
-
-  ref.layer = L.geoJSON(payload, {
-    style: waterInfraStyle,
-    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-      ...waterInfraStyle(feature),
-      radius: String(feature?.properties?.infra_type || '') === 'eu_step' ? 4.5 : 3.2,
-      fillColor: waterInfraStyle(feature).color,
-      fillOpacity: 0.85
-    }),
-    onEachFeature: (feature, layer) => {
-      const p = feature?.properties || {};
-      layer.bindTooltip(
-        [
-          `<strong>${escapeHtml(String(p.infra_type || 'infra'))}</strong>`,
-          `id: ${escapeHtml(String(p.feature_id || 'n/a'))}`,
-          `groupe: ${escapeHtml(String(p.source_group || 'n/a'))}`
-        ].join('<br/>'),
-        { sticky: true }
-      );
+  let visibleTotal = 0;
+  let visibleTypes = 0;
+  let bounds = null;
+  ref.order.forEach((type) => {
+    const entry = ref.layersByType.get(type);
+    if (!entry) return;
+    const visible = state.waterLayerVisibility[type] !== false;
+    if (visible) {
+      if (!ref.instance.hasLayer(entry.layer)) entry.layer.addTo(ref.instance);
+      visibleTotal += Number(entry.count || 0);
+      visibleTypes += 1;
+      const layerBounds = entry.layer.getBounds();
+      if (layerBounds && layerBounds.isValid()) {
+        bounds = bounds ? bounds.extend(layerBounds) : layerBounds;
+      }
+    } else if (ref.instance.hasLayer(entry.layer)) {
+      ref.instance.removeLayer(entry.layer);
     }
-  }).addTo(ref.instance);
+  });
 
-  if (!ref.hasFitted) {
-    const bounds = ref.layer.getBounds();
-    if (bounds && bounds.isValid()) {
+  if (els.waterMapCaption) {
+    const activeSummary = ref.order
+      .filter((type) => state.waterLayerVisibility[type] !== false)
+      .map((type) => `${WATER_LAYER_LABEL[type] || type}: ${numberFmt.format(counts[type] || 0)}`);
+    if (!visibleTypes) {
+      els.waterMapCaption.textContent = 'Aucune couche selectionnee. Activez au moins une couche pour afficher les infrastructures.';
+    } else {
+      els.waterMapCaption.textContent = `Visible ${numberFmt.format(visibleTotal)} infrastructures eau sur ${numberFmt.format((payload.features || []).length)} (couches actives: ${numberFmt.format(visibleTypes)}). ${activeSummary.join(' · ')}`;
+    }
+  }
+
+  if (!ref.hasFitted && bounds && bounds.isValid()) {
       ref.instance.fitBounds(bounds, { padding: [18, 18], maxZoom: 11 });
       ref.hasFitted = true;
-    }
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }

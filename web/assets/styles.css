@@ -268,6 +268,39 @@ button:disabled {
   gap: 8px;
 }
 
+.layer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 10px;
+  border: 1px solid rgba(177, 208, 203, 0.16);
+  border-radius: 10px;
+  background: rgba(8, 18, 25, 0.5);
+}
+
+.layer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.layer-item input {
+  min-height: 14px;
+  width: 14px;
+  margin: 0;
+  accent-color: var(--accent-a);
+}
+
+.layer-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
 .water-map {
   height: 460px;
 }
@@ -505,6 +538,49 @@ button:disabled {
   background-color: #0b1821 !important;
   border-color: rgba(177, 208, 203, 0.2) !important;
   color: var(--text) !important;
+}
+
+.wind-legend-control {
+  background: rgba(8, 18, 25, 0.85);
+  border: 1px solid rgba(177, 208, 203, 0.24);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #d8e7e3;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.wind-legend {
+  display: grid;
+  gap: 4px;
+  min-width: 116px;
+}
+
+.wind-legend-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c3d8d1;
+}
+
+.wind-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.wind-legend-swatch {
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(8, 16, 22, 0.6);
+  flex-shrink: 0;
+}
+
+.wind-legend-range {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #adc5be;
 }
 
 @media (max-width: 1180px) {
