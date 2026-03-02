@@ -10,6 +10,7 @@ class NormalizedFeature:
     label: str
     value_eur: float
     geometry_type: str
+    exposure_category: str = "habitation"
     lon: float | None = None
     lat: float | None = None
     geometry_geojson: dict[str, Any] | None = None

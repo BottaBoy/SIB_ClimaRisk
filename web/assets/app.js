@@ -13,7 +13,8 @@ const state = {
   currentJobId: null,
   pollTimer: null,
   pollingModeTarget: null,
-  mapReady: false
+  mapReady: false,
+  windMaps: null
 };
 
 const mapRef = {
@@ -23,6 +24,11 @@ const mapRef = {
   drawControl: null,
   markerByTerritoryId: new Map(),
   hasFitted: false
+};
+
+const windMapRef = {
+  storm: { instance: null, cellsLayer: null, hasFitted: false },
+  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false }
 };
 
 const chartRefs = {
@@ -48,9 +54,12 @@ const els = {
   valueField: document.getElementById('value-field'),
   idField: document.getElementById('id-field'),
   assetTypeField: document.getElementById('asset-type-field'),
+  categoryField: document.getElementById('category-field'),
+  defaultCategory: document.getElementById('default-category'),
   crsField: document.getElementById('crs-field'),
   spacingField: document.getElementById('spacing-field'),
   runLabel: document.getElementById('run-label'),
+  drawCategory: document.getElementById('draw-category'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
   submitDrawingBtn: document.getElementById('submit-drawing-btn'),
   refreshPreviewBtn: document.getElementById('refresh-preview-btn'),
@@ -72,7 +81,11 @@ const els = {
   chartTitle2: document.getElementById('chart-title-2'),
   chartTitle3: document.getElementById('chart-title-3'),
   chartTitle4: document.getElementById('chart-title-4'),
-  notesBox: document.getElementById('notes-box')
+  notesBox: document.getElementById('notes-box'),
+  windMapStorm: document.getElementById('wind-map-storm'),
+  windMapCmcc: document.getElementById('wind-map-cmcc'),
+  windStormCaption: document.getElementById('wind-storm-caption'),
+  windCmccCaption: document.getElementById('wind-cmcc-caption')
 };
 
 const numberFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -349,6 +362,12 @@ function ensureMap() {
     };
 
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
+      const drawCategory = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+      evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
+      evt.layer.feature.properties = {
+        ...(evt.layer.feature.properties || {}),
+        exposure_category: drawCategory
+      };
       mapRef.drawnItems.addLayer(evt.layer);
       onDrawChange();
     });
@@ -432,6 +451,96 @@ function renderMap() {
   }
 
   setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
+}
+
+function getWindColor(value, min, max) {
+  const span = Math.max(0.0001, (max - min) || 1);
+  const t = Math.max(0, Math.min(1, (value - min) / span));
+  if (t >= 0.9) return '#b10026';
+  if (t >= 0.75) return '#e31a1c';
+  if (t >= 0.6) return '#fd8d3c';
+  if (t >= 0.45) return '#feb24c';
+  if (t >= 0.3) return '#fee391';
+  return '#d9f0a3';
+}
+
+function ensureWindMap(hazardKey) {
+  if (!window.L) return null;
+  const ref = windMapRef[hazardKey];
+  if (!ref) return null;
+  if (ref.instance) return ref;
+
+  const container = hazardKey === 'storm' ? els.windMapStorm : els.windMapCmcc;
+  if (!container) return null;
+
+  ref.instance = L.map(container, { zoomControl: true, attributionControl: true }).setView([16.25, -61.5], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 11,
+    minZoom: 4,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(ref.instance);
+  ref.cellsLayer = L.layerGroup().addTo(ref.instance);
+  return ref;
+}
+
+function renderWindMap(hazardKey, payload) {
+  if (!payload || !Array.isArray(payload.cells)) return;
+  const ref = ensureWindMap(hazardKey);
+  if (!ref || !ref.cellsLayer) return;
+
+  ref.cellsLayer.clearLayers();
+  const cells = payload.cells || [];
+  if (!cells.length) return;
+
+  const min = Number(payload.mean_wind_min_mps || 0);
+  const max = Number(payload.mean_wind_max_mps || 0);
+  const bounds = [];
+
+  cells.forEach((cell) => {
+    const lat = Number(cell.lat);
+    const lon = Number(cell.lon);
+    const meanWind = Number(cell.mean_wind_mps || 0);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const marker = L.circleMarker([lat, lon], {
+      radius: 5,
+      color: 'rgba(0,0,0,0.55)',
+      weight: 0.8,
+      fillColor: getWindColor(meanWind, min, max),
+      fillOpacity: 0.84
+    });
+    marker.bindTooltip(
+      [
+        `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
+        `Mean max wind: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
+        `Samples: ${escapeHtml(numberFmt.format(Number(cell.sample_count || 0)))}`
+      ].join('<br/>'),
+      { sticky: true }
+    );
+    marker.addTo(ref.cellsLayer);
+    bounds.push([lat, lon]);
+  });
+
+  if (!ref.hasFitted && bounds.length) {
+    ref.instance.fitBounds(bounds, { padding: [16, 16], maxZoom: 9 });
+    ref.hasFitted = true;
+  }
+
+  setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
+}
+
+function renderWindMaps() {
+  const payload = state.windMaps;
+  if (!payload) return;
+  const storm = payload.storm;
+  const cmcc = payload.storm_cmcc;
+  if (storm && els.windStormCaption) {
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
+    renderWindMap('storm', storm);
+  }
+  if (cmcc && els.windCmccCaption) {
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
+    renderWindMap('storm_cmcc', cmcc);
+  }
 }
 
 function chartThemeCommon() {
@@ -584,17 +693,23 @@ function renderDrawPreview() {
     return;
   }
   const counts = { marker: 0, circle: 0, polyline: 0, polygon: 0, rectangle: 0 };
+  const categoryCounts = { habitation: 0, ouvrage_eau: 0, ouvrage_electrique: 0 };
   layers.forEach((layer) => {
     if (!window.L) return;
     if (layer instanceof L.Circle) counts.circle += 1;
     else if (layer instanceof L.Marker) counts.marker += 1;
     else if (layer instanceof L.Polygon) counts.polygon += 1;
     else if (layer instanceof L.Polyline) counts.polyline += 1;
+    const category = String(layer?.feature?.properties?.exposure_category || els.drawCategory?.value || 'habitation');
+    if (Object.prototype.hasOwnProperty.call(categoryCounts, category)) {
+      categoryCounts[category] += 1;
+    }
   });
   const lines = [`${layers.length} drawing(s) ready for submission.`];
   Object.entries(counts).forEach(([k, v]) => {
     if (v > 0) lines.push(`${k}: ${v}`);
   });
+  lines.push(`categories: habitation=${categoryCounts.habitation}, ouvrage_eau=${categoryCounts.ouvrage_eau}, ouvrage_electrique=${categoryCounts.ouvrage_electrique}`);
   lines.push(`MVP backend fallback uses default value per drawn feature and returns an ephemeral job result.`);
   els.drawSummaryList.innerHTML = lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
   els.submitDrawingBtn.disabled = layers.length === 0;
@@ -643,6 +758,7 @@ function renderAll() {
   renderHazardCharts();
   renderArtifactLinks();
   renderNotes();
+  renderWindMaps();
 }
 
 function setActiveResult(result, mode = state.selectedDatasetMode) {
@@ -653,7 +769,12 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
 }
 
 async function fetchDemoResult() {
-  const urls = ['/data/sib-thesis-demo.json', 'data/sib-thesis-demo.json'];
+  const urls = [
+    '/data/guadeloupe-complete-analysis.json',
+    'data/guadeloupe-complete-analysis.json',
+    '/data/sib-thesis-demo.json',
+    'data/sib-thesis-demo.json'
+  ];
   let lastErr = null;
   for (const url of urls) {
     try {
@@ -665,6 +786,25 @@ async function fetchDemoResult() {
     }
   }
   throw lastErr || new Error('Unable to load demo result');
+}
+
+async function fetchWindMaps() {
+  const urls = ['/data/guadeloupe-wind-maps.json', 'data/guadeloupe-wind-maps.json'];
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (!payload || !payload.storm || !payload.storm_cmcc) {
+        throw new Error('Invalid wind map payload');
+      }
+      return payload;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Unable to load wind map payload');
 }
 
 function stopPolling() {
@@ -734,6 +874,8 @@ async function submitUpload(event) {
   if (els.valueField.value.trim()) form.append('value_field', els.valueField.value.trim());
   if (els.idField.value.trim()) form.append('id_field', els.idField.value.trim());
   if (els.assetTypeField.value.trim()) form.append('asset_type_field', els.assetTypeField.value.trim());
+  if (els.categoryField.value.trim()) form.append('exposure_category_field', els.categoryField.value.trim());
+  form.append('default_exposure_category', (els.defaultCategory?.value || 'habitation').trim() || 'habitation');
   if (els.crsField.value.trim()) form.append('crs', els.crsField.value.trim());
   if (els.spacingField.value) form.append('sampling_spacing_m', els.spacingField.value);
   if (els.runLabel.value.trim()) form.append('run_label', els.runLabel.value.trim());
@@ -761,9 +903,24 @@ async function submitUpload(event) {
 
 function getDrawnFeatureCollection() {
   if (!mapRef.drawnItems) return null;
-  const geojson = mapRef.drawnItems.toGeoJSON();
-  if (!geojson || !Array.isArray(geojson.features) || geojson.features.length === 0) return null;
-  return geojson;
+  const layers = mapRef.drawnItems.getLayers();
+  if (!layers.length) return null;
+  const defaultCategory = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+  const features = layers.map((layer) => {
+    const gj = layer.toGeoJSON();
+    const currentCategory = String(layer?.feature?.properties?.exposure_category || gj?.properties?.exposure_category || defaultCategory);
+    gj.properties = {
+      ...(gj.properties || {}),
+      exposure_category: currentCategory
+    };
+    layer.feature = layer.feature || { type: 'Feature', properties: {} };
+    layer.feature.properties = {
+      ...(layer.feature.properties || {}),
+      exposure_category: currentCategory
+    };
+    return gj;
+  });
+  return { type: 'FeatureCollection', features };
 }
 
 async function submitDrawnExposure() {
@@ -777,6 +934,7 @@ async function submitDrawnExposure() {
   const form = new FormData();
   form.append('input_mode', 'drawn_geojson');
   form.append('drawn_geojson', JSON.stringify(fc));
+  form.append('default_exposure_category', (els.drawCategory?.value || 'habitation').trim() || 'habitation');
   if (els.spacingField.value) form.append('sampling_spacing_m', els.spacingField.value);
   if (els.runLabel.value.trim()) form.append('run_label', `${els.runLabel.value.trim()} (drawn)`);
 
@@ -839,7 +997,7 @@ function bindEvents() {
     state.selectedDatasetMode = 'demo';
     els.datasetSelect.value = 'demo';
     setActiveResult(state.resultsByMode.demo, 'demo');
-    setStatus('Reset to demo SIB example result.', 'success');
+    setStatus('Reset to the Guadeloupe complete reference result.', 'success');
   });
 
   els.reloadJobBtn.addEventListener('click', async () => {
@@ -855,6 +1013,19 @@ function bindEvents() {
   els.uploadForm.addEventListener('submit', submitUpload);
   els.submitDrawingBtn.addEventListener('click', submitDrawnExposure);
   els.refreshPreviewBtn.addEventListener('click', renderDrawPreview);
+  if (els.drawCategory) {
+    els.drawCategory.addEventListener('change', () => {
+      if (!mapRef.drawnItems) return;
+      mapRef.drawnItems.getLayers().forEach((layer) => {
+        layer.feature = layer.feature || { type: 'Feature', properties: {} };
+        layer.feature.properties = {
+          ...(layer.feature.properties || {}),
+          exposure_category: els.drawCategory.value
+        };
+      });
+      renderDrawPreview();
+    });
+  }
 
   els.clearDrawingsBtn.addEventListener('click', () => {
     if (!mapRef.drawnItems) return;
@@ -886,13 +1057,25 @@ async function bootstrap() {
     bindEvents();
     if (window.L) ensureMap();
     renderDrawPreview();
-    const demo = await fetchDemoResult();
+    const [demo, windMaps] = await Promise.all([
+      fetchDemoResult(),
+      fetchWindMaps().catch((err) => {
+        console.warn('Wind maps could not be loaded', err);
+        return null;
+      })
+    ]);
     state.demoResult = demo;
     state.resultsByMode.demo = demo;
     state.activeResult = demo;
+    state.windMaps = windMaps;
+    if (!windMaps) {
+      if (els.windStormCaption) els.windStormCaption.textContent = 'Wind map data unavailable.';
+      if (els.windCmccCaption) els.windCmccCaption.textContent = 'Wind map data unavailable.';
+    }
     updateMetaBadges();
     renderAll();
-    setStatus('Loaded demo SIB example result. Submit an upload or a drawn exposure to start an async run.', 'success');
+    renderWindMaps();
+    setStatus('Loaded Guadeloupe complete reference result. Submit an upload or a drawn exposure to start an async run.', 'success');
   } catch (err) {
     console.error(err);
     showError(`Startup error: ${err.message}`);

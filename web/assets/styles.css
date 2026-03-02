@@ -208,6 +208,27 @@ button:disabled {
   gap: 10px;
 }
 
+.wind-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.wind-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.wind-map-card {
+  display: grid;
+  gap: 8px;
+}
+
+.wind-map {
+  height: 420px;
+}
+
 .muted { color: var(--muted); margin: 6px 0 0; }
 .muted.small { font-size: 12px; }
 
@@ -436,7 +457,8 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .main-grid,
-  .run-lab-grid {
+  .run-lab-grid,
+  .wind-grid {
     grid-template-columns: 1fr;
   }
   .kpi-grid {
@@ -456,6 +478,7 @@ button:disabled {
   .inline-row { flex-direction: column; align-items: stretch; }
   .inline-row.tight input { min-width: 0; }
   .map { height: 360px; }
+  .wind-map { height: 340px; }
   .table-wrap th, .table-wrap td { font-size: 12px; padding: 8px; }
 }
 

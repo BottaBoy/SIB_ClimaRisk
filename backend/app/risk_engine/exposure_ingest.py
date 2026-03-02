@@ -20,6 +20,22 @@ except Exception:  # pragma: no cover
 
 
 SUPPORTED_UPLOAD_SUFFIXES = {".csv", ".xlsx", ".geojson", ".json", ".gpkg"}
+EXPOSURE_CATEGORY_ALIASES = {
+    "habitation": "habitation",
+    "residential": "habitation",
+    "house": "habitation",
+    "housing": "habitation",
+    "water": "ouvrage_eau",
+    "water_network": "ouvrage_eau",
+    "water_infra": "ouvrage_eau",
+    "ouvrage_eau": "ouvrage_eau",
+    "ouvrageeau": "ouvrage_eau",
+    "electric": "ouvrage_electrique",
+    "electricity": "ouvrage_electrique",
+    "power": "ouvrage_electrique",
+    "ouvrage_electrique": "ouvrage_electrique",
+    "ouvrageelectrique": "ouvrage_electrique",
+}
 
 
 def _to_float(value: Any, field_name: str) -> float:
@@ -30,6 +46,13 @@ def _to_float(value: Any, field_name: str) -> float:
     if not math.isfinite(result):
         raise InputValidationError(f"Non-finite numeric value for {field_name}")
     return result
+
+
+def _normalize_exposure_category(value: Any, default_category: str = "habitation") -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_")
+    if not raw:
+        raw = str(default_category or "habitation").strip().lower().replace(" ", "_")
+    return EXPOSURE_CATEGORY_ALIASES.get(raw, EXPOSURE_CATEGORY_ALIASES.get(str(default_category).lower(), "habitation"))
 
 
 def _coords_bbox_and_centroid(coords: Any) -> tuple[tuple[float, float, float, float] | None, tuple[float, float] | None]:
@@ -59,6 +82,8 @@ def _feature_from_geojson_feature(
     value_field: str,
     id_field: str | None,
     asset_type_field: str | None,
+    exposure_category_field: str | None,
+    default_exposure_category: str,
 ) -> NormalizedFeature:
     geom = feature.get("geometry")
     props = feature.get("properties") or {}
@@ -81,12 +106,18 @@ def _feature_from_geojson_feature(
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
         extra["asset_type"] = props[asset_type_field]
+    if exposure_category_field and exposure_category_field in props:
+        category_raw = props[exposure_category_field]
+    else:
+        category_raw = props.get("exposure_category")
+    exposure_category = _normalize_exposure_category(category_raw, default_exposure_category)
 
     return NormalizedFeature(
         feature_id=feature_id,
         label=label,
         value_eur=value_eur,
         geometry_type=gtype,
+        exposure_category=exposure_category,
         lon=lon,
         lat=lat,
         geometry_geojson=geom,
@@ -98,6 +129,7 @@ def ingest_drawn_geojson(
     drawn_geojson: str,
     *,
     default_value_eur: float = 1_000_000.0,
+    default_exposure_category: str = "habitation",
 ) -> NormalizedExposure:
     try:
         payload = json.loads(drawn_geojson)
@@ -130,6 +162,10 @@ def ingest_drawn_geojson(
                 label=f"Drawn {gtype} {idx + 1}",
                 value_eur=float(default_value_eur),
                 geometry_type=gtype,
+                exposure_category=_normalize_exposure_category(
+                    ((feat.get("properties") or {}).get("exposure_category")),
+                    default_exposure_category,
+                ),
                 lon=lon,
                 lat=lat,
                 geometry_geojson=geom if isinstance(geom, dict) else None,
@@ -152,6 +188,8 @@ def ingest_uploaded_exposure(
     value_field: str | None,
     id_field: str | None = None,
     asset_type_field: str | None = None,
+    exposure_category_field: str | None = None,
+    default_exposure_category: str = "habitation",
     crs: str | None = None,
 ) -> NormalizedExposure:
     suffix = file_path.suffix.lower()
@@ -159,18 +197,55 @@ def ingest_uploaded_exposure(
         raise InputValidationError(f"Unsupported file type: {suffix}")
 
     if suffix == ".csv":
-        return _ingest_csv(file_path, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field)
+        return _ingest_csv(
+            file_path,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+        )
     if suffix in {".geojson", ".json"}:
-        return _ingest_geojson(file_path, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field)
+        return _ingest_geojson(
+            file_path,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+        )
     if suffix == ".xlsx":
-        return _ingest_xlsx(file_path, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field)
+        return _ingest_xlsx(
+            file_path,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+        )
     if suffix == ".gpkg":
-        return _ingest_gpkg(file_path, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field, crs=crs)
+        return _ingest_gpkg(
+            file_path,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+            crs=crs,
+        )
 
     raise InputValidationError(f"Unsupported file type: {suffix}")
 
 
-def _ingest_csv(file_path: Path, *, value_field: str | None, id_field: str | None, asset_type_field: str | None) -> NormalizedExposure:
+def _ingest_csv(
+    file_path: Path,
+    *,
+    value_field: str | None,
+    id_field: str | None,
+    asset_type_field: str | None,
+    exposure_category_field: str | None,
+    default_exposure_category: str,
+) -> NormalizedExposure:
     with file_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
@@ -191,6 +266,8 @@ def _ingest_csv(file_path: Path, *, value_field: str | None, id_field: str | Non
         value_field = normalized_headers.get("value_eur") or normalized_headers.get("value")
     if not value_field:
         raise InputValidationError("CSV requires a value field (e.g. value_eur)")
+    if not exposure_category_field:
+        exposure_category_field = normalized_headers.get("exposure_category") or normalized_headers.get("category")
 
     for idx, row in enumerate(rows):
         row = {str(k): v for k, v in row.items()}
@@ -224,6 +301,8 @@ def _ingest_csv(file_path: Path, *, value_field: str | None, id_field: str | Non
         props: dict[str, Any] = {}
         if asset_type_field and asset_type_field in row:
             props["asset_type"] = row[asset_type_field]
+        category_raw = row.get(exposure_category_field) if exposure_category_field else None
+        exposure_category = _normalize_exposure_category(category_raw, default_exposure_category)
 
         features.append(
             NormalizedFeature(
@@ -231,6 +310,7 @@ def _ingest_csv(file_path: Path, *, value_field: str | None, id_field: str | Non
                 label=label,
                 value_eur=value_eur,
                 geometry_type=geometry_type,
+                exposure_category=exposure_category,
                 lon=lon,
                 lat=lat,
                 geometry_geojson=geometry_geojson,
@@ -250,7 +330,15 @@ def _ingest_csv(file_path: Path, *, value_field: str | None, id_field: str | Non
     )
 
 
-def _ingest_geojson(file_path: Path, *, value_field: str | None, id_field: str | None, asset_type_field: str | None) -> NormalizedExposure:
+def _ingest_geojson(
+    file_path: Path,
+    *,
+    value_field: str | None,
+    id_field: str | None,
+    asset_type_field: str | None,
+    exposure_category_field: str | None,
+    default_exposure_category: str,
+) -> NormalizedExposure:
     payload = json.loads(file_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection":
         raise InputValidationError("GeoJSON must be a FeatureCollection")
@@ -261,7 +349,15 @@ def _ingest_geojson(file_path: Path, *, value_field: str | None, id_field: str |
         raise InputValidationError("GeoJSON upload requires value_field")
 
     features = [
-        _feature_from_geojson_feature(feat, i, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field)
+        _feature_from_geojson_feature(
+            feat,
+            i,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+        )
         for i, feat in enumerate(features_raw)
     ]
 
@@ -274,7 +370,15 @@ def _ingest_geojson(file_path: Path, *, value_field: str | None, id_field: str |
     )
 
 
-def _ingest_xlsx(file_path: Path, *, value_field: str | None, id_field: str | None, asset_type_field: str | None) -> NormalizedExposure:
+def _ingest_xlsx(
+    file_path: Path,
+    *,
+    value_field: str | None,
+    id_field: str | None,
+    asset_type_field: str | None,
+    exposure_category_field: str | None,
+    default_exposure_category: str,
+) -> NormalizedExposure:
     try:
         import pandas as pd  # type: ignore
     except Exception as exc:  # pragma: no cover
@@ -284,7 +388,14 @@ def _ingest_xlsx(file_path: Path, *, value_field: str | None, id_field: str | No
     tmp_csv = file_path.with_suffix(".xlsx.csv.tmp")
     try:
         df.to_csv(tmp_csv, index=False)
-        return _ingest_csv(tmp_csv, value_field=value_field, id_field=id_field, asset_type_field=asset_type_field)
+        return _ingest_csv(
+            tmp_csv,
+            value_field=value_field,
+            id_field=id_field,
+            asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
+        )
     finally:
         if tmp_csv.exists():
             tmp_csv.unlink(missing_ok=True)
@@ -296,6 +407,8 @@ def _ingest_gpkg(
     value_field: str | None,
     id_field: str | None,
     asset_type_field: str | None,
+    exposure_category_field: str | None,
+    default_exposure_category: str,
     crs: str | None,
 ) -> NormalizedExposure:
     try:
@@ -308,6 +421,8 @@ def _ingest_gpkg(
         raise InputValidationError("GPKG contains no features")
     if not value_field or value_field not in gdf.columns:
         raise InputValidationError("GPKG upload requires a valid value_field")
+    if not exposure_category_field and "exposure_category" in gdf.columns:
+        exposure_category_field = "exposure_category"
 
     warnings: list[str] = []
     if gdf.crs is None and crs:
@@ -327,6 +442,10 @@ def _ingest_gpkg(
                 label=str(row.get("label") or row.get("name") or f"Feature {idx}"),
                 value_eur=_to_float(row.get(value_field), value_field),
                 geometry_type=getattr(geom, "geom_type", "Unknown"),
+                exposure_category=_normalize_exposure_category(
+                    (row.get(exposure_category_field) if exposure_category_field and exposure_category_field in row else None),
+                    default_exposure_category,
+                ),
                 lon=float(geom.centroid.x) if geom is not None else None,
                 lat=float(geom.centroid.y) if geom is not None else None,
                 geometry_geojson=(json.loads(gdf_wgs84.iloc[[pos]].to_json())["features"][0]["geometry"] if geom is not None else None),

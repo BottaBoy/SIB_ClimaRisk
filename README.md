@@ -6,8 +6,9 @@ Website + backend scaffold for presenting cyclone risk results over water infras
 
 ### Frontend (`web/`)
 - Thesis-mode interface focused on `STORM` vs `STORM_CMCC`
-- Unified result schema (`web/data/sib-thesis-demo.json`)
+- Unified result schema (`web/data/guadeloupe-complete-analysis.json`)
 - Interactive map + drawing tools (Leaflet + Leaflet.draw)
+- Dual interactive mean-wind maps for Guadeloupe (`web/data/guadeloupe-wind-maps.json`)
 - Interactive chart panels (ECharts) for the notebook graph families (web replicas)
 - Upload and drawn-exposure async job workflow UI (`/api/v1/runs`)
 - Demo reset and job result reload by job ID
@@ -26,7 +27,7 @@ Website + backend scaffold for presenting cyclone risk results over water infras
   - exposure ingestion
   - disaggregation summary (metric CRS aware)
   - impact function (Eberenz 2021 curve)
-  - impact computation (fallback engine until CLIMADA env is installed)
+  - impact computation (fallback engine with 4-state health + electricity->water propagation until CLIMADA env is installed)
   - result/artifact export
 
 ## Important note (current server runtime)
@@ -36,6 +37,22 @@ The server Python environment currently does **not** include `pip`, `pandas`, `g
 Because of that, the backend currently executes a deterministic **fallback engine** (same API/result schema) until a dedicated Python environment is installed.
 
 The production path should use the provided backend module structure and replace the fallback in `backend/app/risk_engine/impact_runner.py` with the full CLIMADA pipeline.
+
+## Guadeloupe reference build scripts
+
+- Build complete Guadeloupe reference result (water + electricity):
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_guadeloupe_complete_analysis.py
+  ```
+- Build Guadeloupe mean-wind maps from full STORM/STORM_CMCC NA catalogs (10,000 years):
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_guadeloupe_wind_maps.py
+  ```
+
+## Full STORM dataset links (for GitHub restitution)
+
+- STORM present climate (all basins): https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085
+- STORM CMCC: https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2
 
 ## Thesis result schema (new)
 
@@ -86,3 +103,7 @@ python scripts/run_backoffice_sample.py --file /path/to/exposure.csv --value-fie
 
 See `DEPLOIEMENT.md`.
 
+## Backend explanation note
+
+- Simplified note with formulas, diagrams and code excerpts:
+  - `docs/note-backend-calculatoire.md`

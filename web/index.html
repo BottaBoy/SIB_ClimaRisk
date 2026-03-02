@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SIB | Cyclone Risk Thesis Demo</title>
+    <title>SIB | Guadeloupe Cyclone Risk</title>
     <meta
       name="description"
-      content="Cyclone risk thesis demo for water infrastructure exposure, with STORM/STORM_CMCC comparison and user upload/drawing workflows."
+      content="Guadeloupe multi-network cyclone risk analysis (water + electricity) with STORM/STORM_CMCC and user exposure upload/drawing workflows."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,10 +20,10 @@
       <header class="hero panel">
         <div>
           <p class="eyebrow">Master Thesis Demo</p>
-          <h1>Cyclone Risk for Water Infrastructure</h1>
+          <h1>Guadeloupe Cyclone Risk: Water + Electricity</h1>
           <p class="subtitle">
-            Interactive presentation of probabilistic cyclone risk results using STORM and STORM_CMCC hazards,
-            with a demo SIB exposure and a workflow for user-uploaded or drawn exposures.
+            First page = complete Guadeloupe analysis (all available water and electrical networks), then optional
+            user-defined exposure workflows. Hazards: STORM and STORM_CMCC.
           </p>
         </div>
         <div class="hero-badges">
@@ -45,7 +45,7 @@
         <div class="field">
           <label for="dataset-select">Dataset</label>
           <select id="dataset-select">
-            <option value="demo">Demo SIB example</option>
+            <option value="demo">Guadeloupe complete reference</option>
             <option value="uploaded">My uploaded exposure</option>
             <option value="drawn">My drawn exposure</option>
           </select>
@@ -62,7 +62,7 @@
         <div class="field">
           <label>Actions</label>
           <div class="inline-row">
-            <button id="reset-demo-btn" type="button">Reset to SIB Example</button>
+            <button id="reset-demo-btn" type="button">Reset to Guadeloupe Reference</button>
             <button id="clear-drawings-btn" type="button" disabled>Clear Drawings</button>
           </div>
         </div>
@@ -104,6 +104,20 @@
             </div>
             <div class="field-row">
               <div class="field">
+                <label for="category-field">Exposure category field (optional)</label>
+                <input id="category-field" type="text" placeholder="exposure_category" />
+              </div>
+              <div class="field">
+                <label for="default-category">Default category</label>
+                <select id="default-category">
+                  <option value="habitation">Habitation</option>
+                  <option value="ouvrage_eau">Ouvrage eau</option>
+                  <option value="ouvrage_electrique">Ouvrage electrique</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
                 <label for="crs-field">CRS override (optional)</label>
                 <input id="crs-field" type="text" placeholder="EPSG:4326" />
               </div>
@@ -122,6 +136,14 @@
           <div class="subpanel">
             <h3>Draw Exposure on Map</h3>
             <p class="muted">Draw points, lines, or polygons on the map below, then submit for a real backend run.</p>
+            <div class="field">
+              <label for="draw-category">Drawn exposure category</label>
+              <select id="draw-category">
+                <option value="habitation">Habitation</option>
+                <option value="ouvrage_eau">Ouvrage eau</option>
+                <option value="ouvrage_electrique">Ouvrage electrique</option>
+              </select>
+            </div>
             <ul class="draw-summary-list" id="draw-summary-list">
               <li>No drawings yet.</li>
             </ul>
@@ -133,6 +155,29 @@
               Drawn exposures use an MVP default value per feature in the backend fallback engine; field-based valuation will be added in the production CLIMADA path.
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="panel wind-panel" aria-labelledby="wind-panel-title">
+        <div class="section-head">
+          <div>
+            <h2 id="wind-panel-title">Guadeloupe Mean Wind Fields (10,000 years)</h2>
+            <p class="muted">
+              Interactive maps at STORM-grid scale to compare mean maximum wind intensities over Guadeloupe.
+            </p>
+          </div>
+        </div>
+        <div class="wind-grid">
+          <article class="subpanel wind-map-card">
+            <h3>STORM</h3>
+            <p class="muted small" id="wind-storm-caption">Loading…</p>
+            <div id="wind-map-storm" class="map wind-map"></div>
+          </article>
+          <article class="subpanel wind-map-card">
+            <h3>STORM_CMCC</h3>
+            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
+            <div id="wind-map-cmcc" class="map wind-map"></div>
+          </article>
         </div>
       </section>
 
@@ -212,6 +257,7 @@
             <h3>Hazard</h3>
             <ul>
               <li>STORM and STORM_CMCC tropical cyclone hazards (Nadia Bloemendaal datasets).</li>
+              <li>Wind maps use the full 10,000-year NA catalogs currently available on the server.</li>
               <li>Probabilistic cyclone risk framing for water infrastructure exposure.</li>
               <li>Frequency normalization is handled on a copy in the backend architecture (idempotent design).</li>
             </ul>
@@ -219,17 +265,18 @@
           <article class="subpanel">
             <h3>Exposure</h3>
             <ul>
-              <li>Default demo uses the SIB example exposure/result payload.</li>
+              <li>Reference page uses complete Guadeloupe water+electric infrastructure datasets.</li>
+              <li>Exposure means the set of assets at stake (infrastructures, habitations, etc.).</li>
               <li>User uploads: CSV/XLSX and GIS formats (GeoJSON/GPKG) are accepted by the API contract.</li>
               <li>Lines and polygons are disaggregated to points before impact calculation, then reaggregated.</li>
             </ul>
           </article>
           <article class="subpanel">
-            <h3>Impact Function</h3>
+            <h3>Impact & Dependency</h3>
             <ul>
               <li>MVP production target is the Eberenz 2021 tropical cyclone impact function.</li>
-              <li>Notebook dummy/example impact curves are excluded from the backend production path.</li>
-              <li>Fallback engine is used until the CLIMADA/geospatial runtime is installed on the server.</li>
+              <li>Fallback engine uses 4 states (S0/S1/S2/S3), component health, and electricity-to-water propagation.</li>
+              <li>All water assets are conservatively treated as electricity-dependent in this iteration.</li>
             </ul>
           </article>
         </div>

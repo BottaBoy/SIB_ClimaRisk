@@ -13,8 +13,8 @@ class Settings:
     job_ttl_hours: int = 24
     max_upload_mb: int = 50
     worker_concurrency: int = 1
-    demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "sib-thesis-demo.json"
-    storm_years: int = 2000
+    demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
+    storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
     data_root: Path = Path(__file__).resolve().parents[2] / "data"
     hazard_storm_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
@@ -33,7 +33,7 @@ def load_settings() -> Settings:
     demo_result_path = Path(
         env.get(
             "SIB_RISK_DEMO_RESULT_PATH",
-            str(Path(__file__).resolve().parents[2] / "web" / "data" / "sib-thesis-demo.json"),
+            str(Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"),
         )
     )
 
@@ -45,7 +45,7 @@ def load_settings() -> Settings:
         max_upload_mb=int(env.get("SIB_RISK_MAX_UPLOAD_MB", "50")),
         worker_concurrency=int(env.get("SIB_RISK_WORKER_CONCURRENCY", "1")),
         demo_result_path=demo_result_path,
-        storm_years=int(env.get("SIB_RISK_STORM_YEARS", "2000")),
+        storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
         data_root=Path(env.get("SIB_RISK_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))),
         hazard_storm_path=Path(env.get("SIB_RISK_HAZARD_STORM_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"))),

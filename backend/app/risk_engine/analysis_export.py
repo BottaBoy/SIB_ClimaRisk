@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import csv
 import io
 from typing import Any
+from collections import Counter
 
 from .types import DisaggregationSummary, ImpactComputationResult, NormalizedExposure
 
@@ -22,6 +23,7 @@ def build_result_payload(
     notes = list(comp.notes)
     notes.extend(disagg.warnings)
     notes.extend(exposure.warnings)
+    category_counts = Counter((f.exposure_category or "habitation") for f in exposure.features)
 
     payload: dict[str, Any] = {
         "meta": {
@@ -43,6 +45,7 @@ def build_result_payload(
             "source_name": exposure.source_name,
             "source_format": exposure.source_format,
             "geometry_type_counts": disagg.by_geometry_type,
+            "exposure_category_counts": dict(category_counts),
             "metric_crs": disagg.metric_crs,
         },
         "territory_results": comp.territory_results,

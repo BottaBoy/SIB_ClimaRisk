@@ -17,10 +17,15 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
     value_field = params.get("value_field")
     id_field = params.get("id_field")
     asset_type_field = params.get("asset_type_field")
+    exposure_category_field = params.get("exposure_category_field")
+    default_exposure_category = params.get("default_exposure_category") or "habitation"
     crs = params.get("crs")
 
     if input_mode == "drawn_geojson":
-        exposure = ingest_drawn_geojson(params.get("drawn_geojson") or "")
+        exposure = ingest_drawn_geojson(
+            params.get("drawn_geojson") or "",
+            default_exposure_category=default_exposure_category,
+        )
     else:
         upload_name = str(params.get("upload_saved_name") or "")
         upload_path = store.upload_path(job_id, upload_name)
@@ -29,6 +34,8 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
             value_field=value_field,
             id_field=id_field,
             asset_type_field=asset_type_field,
+            exposure_category_field=exposure_category_field,
+            default_exposure_category=default_exposure_category,
             crs=crs,
         )
 
