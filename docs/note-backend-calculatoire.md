@@ -264,6 +264,26 @@ Prochaine etape recommandee:
 - brancher `compute_impacts()` sur la chaine CLIMADA de production avec les memes structures de sortie
   pour conserver la compatibilite front/API.
 
+### 12.1) Blocages techniques concrets pour brancher CLIMADA complet
+Le lien CLIMADA est possible, mais il manque encore une couche d'integration applicative:
+1. **Construction Exposures CLIMADA**:
+   - convertir proprement les geometries lineaires/polygones des reseaux en points d'exposition CLIMADA avec valeurs coherentes,
+   - maintenir la trace `asset_id -> territoire -> categorie` pour la restitution web.
+2. **Chargement Hazard CLIMADA dans le pipeline runtime**:
+   - connecter `hazard_loader.py` dans `compute_impacts()` (et plus seulement dans l'architecture cible),
+   - garantir la normalisation frequence et l'usage STORM / STORM_CMCC dans le meme schema de sortie.
+3. **Couche Impact Function + calcul**:
+   - utiliser l'impact function TC (Eberenz 2021) directement sur les expositions converties,
+   - calculer EAI / AAI / losses par alea sans casser les objets JSON attendus par le front.
+4. **Reaggregation metier**:
+   - reconstituer les resultats par territoire et par classe d'infrastructure (eau/elec/habitation),
+   - conserver les champs supplementaires: `component_health`, `interdependency`.
+5. **Validation de non-regression**:
+   - comparer fallback vs CLIMADA sur cas tests,
+   - verifier coherence unites, ordres de grandeur, et temps de calcul pour les gros jeux reseaux.
+
+Conclusion: ce n'est pas un blocage de donnees; c'est un blocage d'integration logicielle entre la couche CLIMADA et le contrat API/web deja en place.
+
 ---
 
 ## 13) Sources STORM completes a citer

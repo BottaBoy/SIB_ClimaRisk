@@ -17,7 +17,13 @@
   </head>
   <body>
     <div class="page-shell">
-      <header class="hero panel">
+      <nav class="panel top-menu" aria-label="Navigation pages">
+        <button id="nav-page-1" class="page-tab active" type="button">Page 1 - Exemple Guadeloupe</button>
+        <button id="nav-page-2" class="page-tab" type="button">Page 2 - Donnees utilisateur</button>
+        <button id="nav-page-3" class="page-tab" type="button">Page 3 - Methodologie detaillee</button>
+      </nav>
+
+      <header class="hero panel page-block page1">
         <div>
           <p class="eyebrow">Analyse de reference</p>
           <h1>Impact des risques physiques sur les infrastructures : cas de la Guadeloupe</h1>
@@ -33,7 +39,57 @@
         </div>
       </header>
 
-      <section class="panel controls-grid" aria-label="Analysis controls">
+      <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
+        <div class="section-head">
+          <div>
+            <h2 id="wind-panel-title">Carte des aleas vent/tempete en Guadeloupe</h2>
+            <p class="muted">
+              Carte interactive presentant les vents moyens des tempetes autour de la Guadeloupe.
+            </p>
+          </div>
+        </div>
+        <div class="wind-grid">
+          <article class="subpanel wind-map-card">
+            <h3>STORM</h3>
+            <p class="muted small" id="wind-storm-caption">Loading…</p>
+            <div id="wind-map-storm" class="map wind-map"></div>
+          </article>
+          <article class="subpanel wind-map-card">
+            <h3>Carte des aleas vent/tempete (CMCC) en Guadeloupe</h3>
+            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
+            <div id="wind-map-cmcc" class="map wind-map"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel water-panel page-block page1" aria-labelledby="water-map-title">
+        <div class="section-head">
+          <div>
+            <h2 id="water-map-title">Carte des infrastructures d'eau de Guadeloupe</h2>
+            <p class="muted">
+              Visualisation de l'ensemble des infrastructures AEP et EU fournies (canalisations, ouvrages, postes de refoulement, STEP).
+            </p>
+          </div>
+        </div>
+        <div class="subpanel water-map-card">
+          <p class="muted small" id="water-map-caption">Loading…</p>
+          <div id="water-infra-map" class="map water-map"></div>
+        </div>
+      </section>
+
+      <section class="panel damage-head page-block page1" aria-labelledby="damage-head-title">
+        <div class="section-head">
+          <div>
+            <h2 id="damage-head-title">Informations et analyses sur les dommages potentiels lies aux couts</h2>
+            <p class="muted">
+              Estimation des pertes annuelles attendues, indicateurs de risque, et effets de propagation des dysfonctionnements.
+            </p>
+          </div>
+        </div>
+        <div id="infra-summary" class="notes-box"></div>
+      </section>
+
+      <section class="panel controls-grid page-block page2" aria-label="Analysis controls">
         <div class="field">
           <label for="hazard-select">Hazard</label>
           <select id="hazard-select">
@@ -68,59 +124,9 @@
         </div>
       </section>
 
-      <section class="panel wind-panel" aria-labelledby="wind-panel-title">
-        <div class="section-head">
-          <div>
-            <h2 id="wind-panel-title">Carte des aleas vent/tempete en Guadeloupe</h2>
-            <p class="muted">
-              Carte interactive presentant les vents moyens des tempetes autour de la Guadeloupe.
-            </p>
-          </div>
-        </div>
-        <div class="wind-grid">
-          <article class="subpanel wind-map-card">
-            <h3>STORM</h3>
-            <p class="muted small" id="wind-storm-caption">Loading…</p>
-            <div id="wind-map-storm" class="map wind-map"></div>
-          </article>
-          <article class="subpanel wind-map-card">
-            <h3>Carte des aleas vent/tempete (CMCC) en Guadeloupe</h3>
-            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
-            <div id="wind-map-cmcc" class="map wind-map"></div>
-          </article>
-        </div>
-      </section>
+      <section class="kpi-grid page-block page2" id="kpi-grid" aria-label="Portfolio KPIs"></section>
 
-      <section class="panel water-panel" aria-labelledby="water-map-title">
-        <div class="section-head">
-          <div>
-            <h2 id="water-map-title">Carte des infrastructures d'eau de Guadeloupe</h2>
-            <p class="muted">
-              Visualisation de l'ensemble des infrastructures AEP et EU fournies (canalisations, ouvrages, postes de refoulement, STEP).
-            </p>
-          </div>
-        </div>
-        <div class="subpanel water-map-card">
-          <p class="muted small" id="water-map-caption">Loading…</p>
-          <div id="water-infra-map" class="map water-map"></div>
-        </div>
-      </section>
-
-      <section class="panel damage-head" aria-labelledby="damage-head-title">
-        <div class="section-head">
-          <div>
-            <h2 id="damage-head-title">Informations et analyses sur les dommages potentiels lies aux couts</h2>
-            <p class="muted">
-              Estimation des pertes annuelles attendues, indicateurs de risque, et effets de propagation des dysfonctionnements.
-            </p>
-          </div>
-        </div>
-        <div id="infra-summary" class="notes-box"></div>
-      </section>
-
-      <section class="kpi-grid" id="kpi-grid" aria-label="Portfolio KPIs"></section>
-
-      <section class="panel main-grid">
+      <section class="panel main-grid page-block page2">
         <div class="map-card">
           <div class="section-head">
             <div>
@@ -162,7 +168,7 @@
         </div>
       </section>
 
-      <section class="panel charts-panel">
+      <section class="panel charts-panel page-block page2">
         <div class="section-head">
           <div>
             <h2>Notebook Graph Suite (Web Replica)</h2>
@@ -182,7 +188,7 @@
         </div>
       </section>
 
-      <section class="panel run-lab" aria-labelledby="run-lab-title">
+      <section class="panel run-lab page-block page2" aria-labelledby="run-lab-title">
         <div class="run-lab-head">
           <div>
             <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
@@ -272,13 +278,32 @@
         </div>
       </section>
 
-      <section class="panel methodology">
+      <section class="panel methodology page-block page3">
         <div class="section-head">
           <div>
-            <h2>Methodology & Data Sources</h2>
-            <p class="muted">Thesis-oriented summary of the modeling chain and current MVP backend/runtime status.</p>
+            <h2>Methodologie detaillee de calcul</h2>
+            <p class="muted">Description technique complete du backend, des interactions entre fichiers, et du statut CLIMADA.</p>
           </div>
         </div>
+        <article class="subpanel">
+          <h3>Architecture des fichiers</h3>
+          <pre class="method-pre">
+web/assets/app.js
+  -> /api/v1/runs (backend/app/main.py)
+  -> pipeline.py
+      -> exposure_ingest.py
+      -> exposure_disaggregation.py
+      -> impact_runner.py
+      -> analysis_export.py
+
+scripts/build_guadeloupe_complete_analysis.py
+  -> cree web/data/guadeloupe-complete-analysis.json
+scripts/build_guadeloupe_wind_maps.py
+  -> cree web/data/guadeloupe-wind-maps.json
+scripts/build_guadeloupe_water_infra_map.py
+  -> cree web/data/guadeloupe-water-infra.geojson
+          </pre>
+        </article>
         <div class="method-grid">
           <article class="subpanel">
             <h3>Hazard</h3>
@@ -307,6 +332,15 @@
             </ul>
           </article>
         </div>
+        <article class="subpanel">
+          <h3>Pourquoi CLIMADA n'est pas encore branche en production</h3>
+          <ul>
+            <li>Le fallback calcule deja les etats/health/propagation metier, mais la chaine CLIMADA complete n'est pas encore reliee a `compute_impacts()`.</li>
+            <li>Il faut encore connecter proprement: chargement hazard STORM/STORM_CMCC, conversion expositions lineaires/ponctuelles vers Exposures CLIMADA, impact functions, puis aggregation territoriale homogene avec la sortie web.</li>
+            <li>Le blocage principal est logiciel/integration (et non pas un manque de donnees): les donnees sont presentes, mais le branchement applicatif complet reste a finaliser et valider.</li>
+            <li>Oui, c'est possible de faire le lien CLIMADA; la prochaine etape est d'implementer ce chemin dans `impact_runner.py` tout en gardant le meme schema JSON de sortie.</li>
+          </ul>
+        </article>
         <div class="notes-box" id="notes-box"></div>
       </section>
 

@@ -39,6 +39,33 @@ button, input, select {
   gap: 14px;
 }
 
+.top-menu {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  position: sticky;
+  top: 8px;
+  z-index: 2000;
+  backdrop-filter: blur(8px);
+}
+
+.page-tab {
+  min-height: 44px;
+  font-weight: 600;
+  background: rgba(8, 18, 25, 0.96);
+  border-color: rgba(177, 208, 203, 0.22);
+}
+
+.page-tab.active {
+  background: linear-gradient(135deg, rgba(75, 177, 203, 0.2), rgba(223, 184, 90, 0.1));
+  border-color: rgba(75, 177, 203, 0.5);
+}
+
+.page-block.hidden-page {
+  display: none !important;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -443,6 +470,18 @@ button:disabled {
   line-height: 1.45;
 }
 
+.method-pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(177, 208, 203, 0.18);
+  background: rgba(8, 18, 25, 0.65);
+  color: #d3e4e9;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+}
+
 .error-banner {
   border: 1px solid rgba(255, 143, 115, 0.35);
   color: #ffd8ce;
@@ -471,6 +510,9 @@ button:disabled {
 @media (max-width: 1180px) {
   .controls-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .top-menu {
+    grid-template-columns: 1fr;
   }
   .main-grid,
   .run-lab-grid,

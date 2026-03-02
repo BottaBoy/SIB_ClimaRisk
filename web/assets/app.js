@@ -13,6 +13,7 @@ const state = {
   currentJobId: null,
   pollTimer: null,
   pollingModeTarget: null,
+  currentPage: 'page1',
   mapReady: false,
   windMaps: null,
   waterInfra: null
@@ -47,6 +48,10 @@ const chartRefs = {
 };
 
 const els = {
+  navPage1: document.getElementById('nav-page-1'),
+  navPage2: document.getElementById('nav-page-2'),
+  navPage3: document.getElementById('nav-page-3'),
+  pageBlocks: Array.from(document.querySelectorAll('.page-block')),
   errorBanner: document.getElementById('error-banner'),
   badgeSource: document.getElementById('badge-source'),
   badgeUpdated: document.getElementById('badge-updated'),
@@ -103,6 +108,58 @@ const percentFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
 });
+
+function pageFromHash() {
+  const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
+  if (hash === 'page2') return 'page2';
+  if (hash === 'page3') return 'page3';
+  return 'page1';
+}
+
+function setActivePage(pageKey, { updateHash = true } = {}) {
+  state.currentPage = pageKey;
+  if (updateHash) {
+    const nextHash = `#${pageKey}`;
+    if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
+  }
+
+  els.pageBlocks.forEach((el) => {
+    if (!el.classList.contains(pageKey)) el.classList.add('hidden-page');
+    else el.classList.remove('hidden-page');
+  });
+
+  const tabs = [
+    [els.navPage1, 'page1'],
+    [els.navPage2, 'page2'],
+    [els.navPage3, 'page3']
+  ];
+  tabs.forEach(([btn, key]) => {
+    if (!btn) return;
+    if (pageKey === key) btn.classList.add('active');
+    else btn.classList.remove('active');
+  });
+
+  if (pageKey === 'page2') {
+    renderMap();
+    renderDrawPreview();
+    renderHazardCharts();
+    setTimeout(() => {
+      if (mapRef.instance) mapRef.instance.invalidateSize();
+      if (chartRefs.c1) chartRefs.c1.resize();
+      if (chartRefs.c2) chartRefs.c2.resize();
+      if (chartRefs.c3) chartRefs.c3.resize();
+      if (chartRefs.c4) chartRefs.c4.resize();
+      if (chartRefs.comparison) chartRefs.comparison.resize();
+    }, 80);
+  }
+  if (pageKey === 'page1') {
+    setTimeout(() => {
+      if (windMapRef.storm.instance) windMapRef.storm.instance.invalidateSize();
+      if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
+      if (waterMapRef.instance) waterMapRef.instance.invalidateSize();
+    }, 80);
+  }
+}
 
 function showError(message) {
   els.errorBanner.hidden = false;
@@ -519,7 +576,7 @@ function ensureWindMap(hazardKey) {
   return ref;
 }
 
-function renderWindMap(hazardKey, payload) {
+function renderWindMap(hazardKey, payload, meta) {
   if (!payload || !Array.isArray(payload.cells)) return;
   const ref = ensureWindMap(hazardKey);
   if (!ref || !ref.cellsLayer) return;
@@ -528,33 +585,64 @@ function renderWindMap(hazardKey, payload) {
   const cells = payload.cells || [];
   if (!cells.length) return;
 
+  const bbox = meta?.bbox || {};
+  const cellDeg = Number(meta?.grid_cell_deg || 0.05);
+  const latMin = Number(bbox.lat_min);
+  const latMax = Number(bbox.lat_max);
+  const lonMin = Number(bbox.lon_min);
+  const lonMax = Number(bbox.lon_max);
+
   const min = Number(payload.mean_wind_min_mps || 0);
   const max = Number(payload.mean_wind_max_mps || 0);
   const bounds = [];
-
+  const byCellKey = new Map();
   cells.forEach((cell) => {
     const lat = Number(cell.lat);
     const lon = Number(cell.lon);
-    const meanWind = Number(cell.mean_wind_mps || 0);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const marker = L.circleMarker([lat, lon], {
-      radius: 5,
-      color: 'rgba(0,0,0,0.55)',
-      weight: 0.8,
-      fillColor: getWindColor(meanWind, min, max),
-      fillOpacity: 0.84
+    if (!Number.isFinite(latMin) || !Number.isFinite(lonMin) || !Number.isFinite(cellDeg)) return;
+    const i = Math.round(((lat - latMin) / cellDeg) - 0.5);
+    const j = Math.round(((lon - lonMin) / cellDeg) - 0.5);
+    byCellKey.set(`${i}|${j}`, {
+      mean_wind_mps: Number(cell.mean_wind_mps || min),
+      sample_count: Number(cell.sample_count || 0)
     });
-    marker.bindTooltip(
-      [
-        `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
-        `Mean max wind: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
-        `Samples: ${escapeHtml(numberFmt.format(Number(cell.sample_count || 0)))}`
-      ].join('<br/>'),
-      { sticky: true }
-    );
-    marker.addTo(ref.cellsLayer);
-    bounds.push([lat, lon]);
   });
+
+  if (
+    Number.isFinite(latMin) && Number.isFinite(latMax) && Number.isFinite(lonMin) && Number.isFinite(lonMax) && Number.isFinite(cellDeg)
+  ) {
+    const nLat = Math.max(1, Math.round((latMax - latMin) / cellDeg));
+    const nLon = Math.max(1, Math.round((lonMax - lonMin) / cellDeg));
+
+    for (let i = 0; i < nLat; i += 1) {
+      for (let j = 0; j < nLon; j += 1) {
+        const south = latMin + i * cellDeg;
+        const north = south + cellDeg;
+        const west = lonMin + j * cellDeg;
+        const east = west + cellDeg;
+        const key = `${i}|${j}`;
+        const data = byCellKey.get(key);
+        const meanWind = Number(data?.mean_wind_mps ?? min);
+        const sampleCount = Number(data?.sample_count ?? 0);
+        const rect = L.rectangle([[south, west], [north, east]], {
+          stroke: false,
+          fillColor: getWindColor(meanWind, min, max),
+          fillOpacity: sampleCount > 0 ? 0.78 : 0.2
+        });
+        rect.bindTooltip(
+          [
+            `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
+            `Mean max wind: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
+            `Samples: ${escapeHtml(numberFmt.format(sampleCount))}`
+          ].join('<br/>'),
+          { sticky: true }
+        );
+        rect.addTo(ref.cellsLayer);
+      }
+    }
+    bounds.push([latMin, lonMin], [latMax, lonMax]);
+  }
 
   if (!ref.hasFitted && bounds.length) {
     ref.instance.fitBounds(bounds, { padding: [16, 16], maxZoom: 9 });
@@ -567,15 +655,16 @@ function renderWindMap(hazardKey, payload) {
 function renderWindMaps() {
   const payload = state.windMaps;
   if (!payload) return;
+  const meta = payload.meta || {};
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
-    renderWindMap('storm', storm);
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · couverture spatiale continue sur la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · mean wind ${numberFmt.format(storm.mean_wind_min_mps || 0)}-${numberFmt.format(storm.mean_wind_max_mps || 0)} m/s`;
+    renderWindMap('storm', storm, meta);
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
-    renderWindMap('storm_cmcc', cmcc);
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · couverture spatiale continue sur la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · mean wind ${numberFmt.format(cmcc.mean_wind_min_mps || 0)}-${numberFmt.format(cmcc.mean_wind_max_mps || 0)} m/s`;
+    renderWindMap('storm_cmcc', cmcc, meta);
   }
 }
 
@@ -857,23 +946,27 @@ function filterResultToSelectedTerritory(result) {
 function renderAll() {
   renderWindMaps();
   renderWaterInfraMap();
+  renderInfraSummary();
 
   if (!state.activeResult) {
-    renderInfraSummary();
     return;
   }
   if (state.selectedTerritoryId && !(state.activeResult.territory_results || []).some((x) => x.territory_id === state.selectedTerritoryId)) {
     state.selectedTerritoryId = null;
   }
   updateMetaBadges();
+  renderNotes();
+
+  if (state.currentPage !== 'page2') {
+    return;
+  }
+
   renderTerritorySelectionState();
-  renderInfraSummary();
   renderKpis();
   renderMap();
   renderTerritoryTable();
   renderHazardCharts();
   renderArtifactLinks();
-  renderNotes();
 }
 
 function setActiveResult(result, mode = state.selectedDatasetMode) {
@@ -1103,12 +1196,32 @@ function switchDatasetMode(mode) {
 }
 
 function bindEvents() {
+  if (els.navPage1) {
+    els.navPage1.addEventListener('click', () => {
+      setActivePage('page1');
+      renderAll();
+    });
+  }
+  if (els.navPage2) {
+    els.navPage2.addEventListener('click', () => {
+      setActivePage('page2');
+      renderAll();
+    });
+  }
+  if (els.navPage3) {
+    els.navPage3.addEventListener('click', () => {
+      setActivePage('page3');
+      renderAll();
+    });
+  }
+  window.addEventListener('hashchange', () => {
+    setActivePage(pageFromHash(), { updateHash: false });
+    renderAll();
+  });
+
   els.hazardSelect.addEventListener('change', () => {
     state.selectedHazard = els.hazardSelect.value;
-    renderKpis();
-    renderMap();
-    renderTerritoryTable();
-    renderHazardCharts();
+    renderAll();
   });
 
   els.datasetSelect.addEventListener('change', () => {
@@ -1122,6 +1235,7 @@ function bindEvents() {
     els.datasetSelect.value = 'demo';
     setActiveResult(state.resultsByMode.demo, 'demo');
     setStatus('Reset to the Guadeloupe complete reference result.', 'success');
+    setActivePage('page1');
   });
 
   els.reloadJobBtn.addEventListener('click', async () => {
@@ -1161,17 +1275,14 @@ function bindEvents() {
 
   els.territorySearch.addEventListener('input', () => {
     state.territorySearch = els.territorySearch.value.trim();
-    renderTerritoryTable();
+    if (state.currentPage === 'page2') renderTerritoryTable();
   });
 
   els.clearTerritoryFilterBtn.addEventListener('click', () => {
     els.territorySearch.value = '';
     state.territorySearch = '';
     state.selectedTerritoryId = null;
-    renderTerritorySelectionState();
-    renderKpis();
-    renderMap();
-    renderTerritoryTable();
+    renderAll();
   });
 }
 
@@ -1179,7 +1290,7 @@ async function bootstrap() {
   try {
     clearError();
     bindEvents();
-    if (window.L) ensureMap();
+    setActivePage(pageFromHash(), { updateHash: false });
     renderDrawPreview();
     state.windMaps = await fetchWindMaps().catch((err) => {
       console.warn('Wind maps could not be loaded', err);
