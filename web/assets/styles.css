@@ -1,17 +1,66 @@
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne Thin"), local("Marianne-Thin"), local("Marianne");
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne Light"), local("Marianne-Light"), local("Marianne");
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne"), local("Marianne Regular"), local("Marianne-Regular");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne Medium"), local("Marianne-Medium"), local("Marianne");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne Bold"), local("Marianne-Bold"), local("Marianne");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Marianne";
+  src: local("Marianne ExtraBold"), local("Marianne-ExtraBold"), local("Marianne");
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+
 :root {
-  --bg-0: #071017;
-  --bg-1: #0d1c26;
-  --panel: rgba(11, 24, 33, 0.86);
-  --panel-2: rgba(17, 37, 49, 0.9);
-  --line: rgba(177, 208, 203, 0.17);
-  --text: #edf4f2;
-  --muted: #abc0ba;
-  --accent-a: #4bb1cb;
-  --accent-b: #dfb85a;
-  --accent-risk: #db6b48;
-  --ok: #60c18e;
-  --danger: #ff8f73;
-  --shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  --bg-0: #003A76;
+  --bg-1: #0083CB;
+  --bg-2: #00A6E2;
+  --panel: rgba(0, 58, 118, 0.78);
+  --panel-2: rgba(0, 131, 203, 0.32);
+  --line: rgba(153, 215, 247, 0.5);
+  --text: #ffffff;
+  --muted: #EAF7FF;
+  --accent-a: #5BC5F2;
+  --accent-b: #A4A64B;
+  --accent-risk: #A4A64B;
+  --ok: #6AB96F;
+  --danger: #9FCA7E;
+  --shadow: 0 16px 36px rgba(0, 58, 118, 0.34);
 }
 
 * { box-sizing: border-box; }
@@ -21,10 +70,10 @@ html, body {
   padding: 0;
   color: var(--text);
   background:
-    radial-gradient(1000px 500px at 5% -10%, rgba(75, 177, 203, 0.25), transparent 70%),
-    radial-gradient(900px 480px at 110% 0%, rgba(223, 184, 90, 0.18), transparent 70%),
-    linear-gradient(155deg, var(--bg-0), #0b1620 45%, var(--bg-1));
-  font-family: "Manrope", sans-serif;
+    radial-gradient(1000px 520px at 5% -15%, rgba(91, 197, 242, 0.35), transparent 70%),
+    radial-gradient(900px 480px at 105% -5%, rgba(106, 185, 111, 0.3), transparent 70%),
+    linear-gradient(165deg, var(--bg-0), var(--bg-1) 48%, var(--bg-2));
+  font-family: "Marianne", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 button, input, select {
@@ -41,25 +90,44 @@ button, input, select {
 
 .top-menu {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 10px;
   position: sticky;
   top: 8px;
   z-index: 2000;
   backdrop-filter: blur(8px);
+  align-items: center;
+}
+
+.top-menu-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(153, 215, 247, 0.42);
+  background: rgba(0, 58, 118, 0.4);
+}
+
+.top-menu-brand img {
+  display: block;
+  width: auto;
+  height: 34px;
 }
 
 .page-tab {
   min-height: 44px;
-  font-weight: 600;
-  background: rgba(8, 18, 25, 0.96);
-  border-color: rgba(177, 208, 203, 0.22);
+  font-weight: 700;
+  background: rgba(0, 58, 118, 0.55);
+  border-color: rgba(153, 215, 247, 0.42);
+  color: #ffffff;
 }
 
 .page-tab.active {
-  background: linear-gradient(135deg, rgba(75, 177, 203, 0.2), rgba(223, 184, 90, 0.1));
-  border-color: rgba(75, 177, 203, 0.5);
+  background: linear-gradient(135deg, rgba(0, 166, 226, 0.38), rgba(106, 185, 111, 0.34));
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
 .page-block.hidden-page {
@@ -97,13 +165,13 @@ button, input, select {
 
 h1, h2, h3 {
   margin: 0;
-  font-family: "Fraunces", serif;
-  font-weight: 600;
+  font-family: "Marianne", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  color: #ffffff;
 }
 
-h1 { font-size: clamp(28px, 4vw, 42px); }
-h2 { font-size: clamp(22px, 2vw, 28px); }
-h3 { font-size: 18px; }
+h1 { font-size: clamp(28px, 4vw, 42px); font-weight: 800; }
+h2 { font-size: clamp(22px, 2vw, 28px); font-weight: 700; }
+h3 { font-size: 18px; font-weight: 600; }
 
 .subtitle {
   margin: 10px 0 0;
@@ -127,7 +195,7 @@ h3 { font-size: 18px; }
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(9, 22, 30, 0.75);
+  background: rgba(0, 58, 118, 0.52);
   color: var(--muted);
   font-size: 12px;
 }
@@ -169,14 +237,14 @@ h3 { font-size: 18px; }
 input, select, button {
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: rgba(8, 18, 25, 0.92);
+  background: rgba(0, 58, 118, 0.52);
   color: var(--text);
   min-height: 38px;
   padding: 9px 11px;
 }
 
 input:focus, select:focus, button:focus {
-  outline: 2px solid rgba(75, 177, 203, 0.45);
+  outline: 2px solid rgba(91, 197, 242, 0.78);
   outline-offset: 2px;
 }
 
@@ -190,8 +258,9 @@ button:disabled {
 }
 
 .primary-btn {
-  background: linear-gradient(135deg, rgba(75, 177, 203, 0.2), rgba(75, 177, 203, 0.1));
-  border-color: rgba(75, 177, 203, 0.35);
+  background: linear-gradient(135deg, rgba(0, 166, 226, 0.38), rgba(106, 185, 111, 0.32));
+  border-color: rgba(153, 215, 247, 0.8);
+  color: #ffffff;
 }
 
 .inline-row {
@@ -220,9 +289,9 @@ button:disabled {
 .status-box {
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(75, 177, 203, 0.35);
-  background: rgba(75, 177, 203, 0.08);
-  color: #d8eef5;
+  border: 1px solid rgba(153, 215, 247, 0.65);
+  background: rgba(0, 131, 203, 0.24);
+  color: #ffffff;
   min-width: 280px;
   max-width: 520px;
   font-size: 13px;
@@ -273,9 +342,9 @@ button:disabled {
   flex-wrap: wrap;
   gap: 8px 14px;
   padding: 8px 10px;
-  border: 1px solid rgba(177, 208, 203, 0.16);
+  border: 1px solid rgba(153, 215, 247, 0.45);
   border-radius: 10px;
-  background: rgba(8, 18, 25, 0.5);
+  background: rgba(0, 58, 118, 0.38);
 }
 
 .layer-item {
@@ -367,7 +436,7 @@ button:disabled {
 
 .filter-chip {
   border: 1px solid var(--line);
-  background: rgba(9, 22, 30, 0.72);
+  background: rgba(0, 58, 118, 0.5);
   border-radius: 999px;
   padding: 7px 10px;
   color: var(--muted);
@@ -375,7 +444,7 @@ button:disabled {
 }
 
 .fallback {
-  border: 1px dashed rgba(177, 208, 203, 0.3);
+  border: 1px dashed rgba(153, 215, 247, 0.5);
   border-radius: 12px;
   padding: 10px;
   color: var(--muted);
@@ -403,7 +472,7 @@ button:disabled {
 
 .table-wrap th, .table-wrap td {
   padding: 10px 9px;
-  border-bottom: 1px solid rgba(177, 208, 203, 0.08);
+  border-bottom: 1px solid rgba(153, 215, 247, 0.18);
   font-size: 13px;
   text-align: left;
   white-space: nowrap;
@@ -412,7 +481,7 @@ button:disabled {
 .table-wrap th {
   position: sticky;
   top: 0;
-  background: rgba(12, 26, 35, 0.95);
+  background: rgba(0, 58, 118, 0.86);
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -420,8 +489,8 @@ button:disabled {
 }
 
 .table-wrap td.num, .table-wrap th.num { text-align: right; }
-.table-wrap tr:hover td { background: rgba(75, 177, 203, 0.05); }
-.table-wrap tr.active td { background: rgba(75, 177, 203, 0.09); }
+.table-wrap tr:hover td { background: rgba(0, 166, 226, 0.2); }
+.table-wrap tr.active td { background: rgba(106, 185, 111, 0.26); }
 
 .charts-panel {
   padding: 14px;
@@ -466,13 +535,13 @@ button:disabled {
 }
 
 .artifact-links a {
-  color: #cde9f0;
+  color: #ffffff;
   text-decoration: none;
-  border: 1px solid rgba(75, 177, 203, 0.25);
+  border: 1px solid rgba(153, 215, 247, 0.55);
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
-  background: rgba(75, 177, 203, 0.08);
+  background: rgba(0, 166, 226, 0.18);
 }
 
 .methodology {
@@ -495,7 +564,7 @@ button:disabled {
 }
 
 .notes-box {
-  border: 1px dashed rgba(223, 184, 90, 0.35);
+  border: 1px dashed rgba(164, 166, 75, 0.75);
   border-radius: 12px;
   padding: 10px;
   color: var(--muted);
@@ -507,45 +576,45 @@ button:disabled {
   margin: 8px 0 0;
   padding: 10px;
   border-radius: 10px;
-  border: 1px solid rgba(177, 208, 203, 0.18);
-  background: rgba(8, 18, 25, 0.65);
-  color: #d3e4e9;
+  border: 1px solid rgba(153, 215, 247, 0.42);
+  background: rgba(0, 58, 118, 0.46);
+  color: #ffffff;
   font-size: 12px;
   line-height: 1.5;
   overflow: auto;
 }
 
 .error-banner {
-  border: 1px solid rgba(255, 143, 115, 0.35);
-  color: #ffd8ce;
-  background: rgba(255, 143, 115, 0.09);
+  border: 1px solid rgba(164, 166, 75, 0.7);
+  color: #ffffff;
+  background: rgba(164, 166, 75, 0.25);
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 14px;
 }
 
 .leaflet-container {
-  background: #0d1720;
+  background: #5BC5F2;
 }
 
 .leaflet-control-attribution {
-  background: rgba(9, 20, 28, 0.8) !important;
-  color: var(--muted) !important;
+  background: rgba(0, 58, 118, 0.7) !important;
+  color: #ffffff !important;
 }
 
 .leaflet-draw-toolbar a,
 .leaflet-draw-actions a {
-  background-color: #0b1821 !important;
-  border-color: rgba(177, 208, 203, 0.2) !important;
+  background-color: rgba(0, 58, 118, 0.9) !important;
+  border-color: rgba(153, 215, 247, 0.45) !important;
   color: var(--text) !important;
 }
 
 .wind-legend-control {
-  background: rgba(8, 18, 25, 0.85);
-  border: 1px solid rgba(177, 208, 203, 0.24);
+  background: rgba(0, 58, 118, 0.8);
+  border: 1px solid rgba(153, 215, 247, 0.55);
   border-radius: 10px;
   padding: 8px 10px;
-  color: #d8e7e3;
+  color: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
@@ -559,7 +628,7 @@ button:disabled {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #c3d8d1;
+  color: #ffffff;
 }
 
 .wind-legend-row {
@@ -580,7 +649,7 @@ button:disabled {
 .wind-legend-range {
   margin-top: 2px;
   font-size: 10px;
-  color: #adc5be;
+  color: #ffffff;
 }
 
 @media (max-width: 1180px) {
