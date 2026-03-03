@@ -58,3 +58,6 @@ class HealthResponse(BaseModel):
     optional_dependencies: dict[str, bool]
     demo_result_available: bool
     data_files: dict[str, bool] | None = None
+    climada_runtime_ready: bool | None = None
+    impact_engine_mode: str | None = None
+    fallback_allowed: bool | None = None

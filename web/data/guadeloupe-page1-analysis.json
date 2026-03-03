@@ -1,0 +1,442 @@
+{
+  "meta": {
+    "generated_at": "2026-03-03T14:08:01+00:00",
+    "source": "guadeloupe_page1_computed",
+    "sampling_spacing_m": 100.0,
+    "hazards": [
+      "STORM",
+      "STORM_CMCC"
+    ],
+    "storm_years": 10000
+  },
+  "exposition": {
+    "summary_text": "Le jeu de reference comprend 72989 troncons electriques et 45737 troncons d'eau. Longueurs reseaux: BT aerien 3063.9 km, BT souterrain 1616.5 km, HTA aerien 529.8 km, HTA souterrain 1956.8 km, AEP 3151.8 km, EU 819.2 km. Ouvrages eau: 440 AEP, 348 PR, 142 STEP.",
+    "lengths_km": {
+      "elec_bt_aerien": 3063.921,
+      "elec_bt_souterrain": 1616.507,
+      "elec_hta_aerien": 529.758,
+      "elec_hta_souterrain": 1956.786,
+      "eau_aep": 3151.821,
+      "eau_eu": 819.156
+    },
+    "counts": {
+      "aep_ouvrages_total": 440,
+      "aep_ouvrages_by_type": {
+        "CUV": 202,
+        "STPMP": 119,
+        "CAP": 68,
+        "TRAIT": 40,
+        "OUVEB": 11
+      },
+      "eu_pr_total": 348,
+      "eu_step_total": 142,
+      "elec_lines_total": 72989,
+      "water_lines_total": 45737
+    },
+    "value_per_km_eur": {
+      "eau_aep": 280000.0,
+      "eau_eu": 340000.0,
+      "elec_bt_souterrain": 320000.0,
+      "elec_bt_aerien": 180000.0,
+      "elec_hta_souterrain": 520000.0,
+      "elec_hta_aerien": 260000.0
+    },
+    "total_value_by_type_eur": {
+      "eau_aep": 882509995.07,
+      "eau_eu": 278513105.64,
+      "elec_bt_souterrain": 517282116.93,
+      "elec_bt_aerien": 551505719.56,
+      "elec_hta_souterrain": 1017528839.55,
+      "elec_hta_aerien": 137737183.71,
+      "eau_aep_ouvrages": 460600000.0,
+      "eau_eu_pr": 313200000.0,
+      "eau_eu_step": 852000000.0
+    },
+    "total_value_all_eur": 5010876960.46
+  },
+  "hazard": {
+    "summary_text": "STORM et STORM_CMCC sont des catalogues synthetiques de trajectoires cycloniques (10 000 ans, bassin NA). Les distributions ci-dessous sont calculees directement depuis les fichiers STORM/CMCC en vitesse maximale du vent.",
+    "wind_histograms": {
+      "storm": {
+        "track_max_hist": {
+          "bins_mps": [
+            20.833,
+            26.283,
+            31.732,
+            37.182,
+            42.631,
+            48.081,
+            53.53,
+            58.98,
+            64.429,
+            69.879,
+            75.329,
+            80.778
+          ],
+          "percent": [
+            29.7115,
+            17.4094,
+            12.0779,
+            10.3397,
+            6.98,
+            6.3925,
+            5.5519,
+            4.9971,
+            4.1359,
+            2.0091,
+            0.3652,
+            0.0299
+          ],
+          "count": 107063
+        },
+        "year_max_hist": {
+          "bins_mps": [
+            23.317,
+            28.55,
+            33.784,
+            39.018,
+            44.251,
+            49.485,
+            54.718,
+            59.952,
+            65.185,
+            70.419,
+            75.653,
+            80.886
+          ],
+          "percent": [
+            0.13,
+            0.56,
+            1.32,
+            2.79,
+            5.15,
+            8.79,
+            13.91,
+            21.09,
+            27.36,
+            15.36,
+            3.25,
+            0.29
+          ],
+          "count": 10000
+        },
+        "track_count": 107063,
+        "year_count": 10000
+      },
+      "storm_cmcc": {
+        "track_max_hist": {
+          "bins_mps": [
+            20.783,
+            26.35,
+            31.917,
+            37.483,
+            43.05,
+            48.617,
+            54.183,
+            59.75,
+            65.317,
+            70.883,
+            76.45,
+            82.017
+          ],
+          "percent": [
+            17.6442,
+            18.7605,
+            15.372,
+            13.2504,
+            9.0249,
+            7.2926,
+            6.1869,
+            5.2649,
+            4.6246,
+            1.7363,
+            0.7771,
+            0.0656
+          ],
+          "count": 123536
+        },
+        "year_max_hist": {
+          "bins_mps": [
+            27.012,
+            32.037,
+            37.062,
+            42.087,
+            47.112,
+            52.138,
+            57.162,
+            62.187,
+            67.212,
+            72.237,
+            77.262,
+            82.287
+          ],
+          "percent": [
+            0.06,
+            0.17,
+            1.08,
+            2.02,
+            4.78,
+            8.44,
+            13.5,
+            21.98,
+            27.72,
+            12.76,
+            7.03,
+            0.46
+          ],
+          "count": 10000
+        },
+        "track_count": 123536,
+        "year_count": 10000
+      }
+    }
+  },
+  "impact": {
+    "summary_text": "STORM: hors service direct S3 annuel 0.00% et additionnel lie a la dependance electrique 0.00%. Evenement le plus fort: direct 0.00% et indirect 0.00%. STORM_CMCC: hors service direct S3 annuel 0.00% et additionnel 0.00%. Evenement le plus fort: direct 0.00% et indirect 0.00%.",
+    "summary_metrics": {
+      "storm": {
+        "direct_hs_pct_annual": 0.0,
+        "direct_hs_pct_event_max": 0.0,
+        "indirect_hs_pct_annual": 0.0,
+        "indirect_hs_pct_event_max": 0.0,
+        "eai_total_eur": 965.78,
+        "event_max_total_loss_eur": 3016910.19,
+        "event_id_max": 18859
+      },
+      "storm_cmcc": {
+        "direct_hs_pct_annual": 0.0,
+        "direct_hs_pct_event_max": 0.0,
+        "indirect_hs_pct_annual": 0.0,
+        "indirect_hs_pct_event_max": 0.0,
+        "eai_total_eur": 1927.68,
+        "event_max_total_loss_eur": 3582218.69,
+        "event_id_max": 30019
+      }
+    },
+    "state_damage_table": [
+      {
+        "class_key": "eau_aep",
+        "class_label": "Eau AEP",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 249.91,
+          "event_max_loss_eur": 797506.01
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 544.75,
+          "event_max_loss_eur": 1021955.01
+        }
+      },
+      {
+        "class_key": "eau_eu",
+        "class_label": "Eau EU",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 85.31,
+          "event_max_loss_eur": 363524.71
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 173.55,
+          "event_max_loss_eur": 403443.3
+        }
+      },
+      {
+        "class_key": "elec_bt_souterrain",
+        "class_label": "Elec BT souterrain",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 132.47,
+          "event_max_loss_eur": 570316.48
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 247.77,
+          "event_max_loss_eur": 577087.73
+        }
+      },
+      {
+        "class_key": "elec_bt_aerien",
+        "class_label": "Elec BT aerien",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 163.09,
+          "event_max_loss_eur": 366815.66
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 339.81,
+          "event_max_loss_eur": 484291.55
+        }
+      },
+      {
+        "class_key": "elec_hta_souterrain",
+        "class_label": "Elec HTA souterrain",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 294.85,
+          "event_max_loss_eur": 866350.68
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 540.58,
+          "event_max_loss_eur": 999446.76
+        }
+      },
+      {
+        "class_key": "elec_hta_aerien",
+        "class_label": "Elec HTA aerien",
+        "storm": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 40.14,
+          "event_max_loss_eur": 52396.66
+        },
+        "storm_cmcc": {
+          "state_pct_annual": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "state_pct_event_max": {
+            "S0": 100.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "eai_eur": 81.22,
+          "event_max_loss_eur": 95994.34
+        }
+      }
+    ],
+    "map_defaults": {
+      "hazard": "storm",
+      "scenario": "event_max"
+    }
+  },
+  "conclusion": {
+    "text": "L'analyse montre un portefeuille de reseaux valorise a 5010.9 M€. Les dommages annuels moyens modelises sont de 0.001 M€ (STORM) et 0.002 M€ (STORM_CMCC). Le scenario le plus contraignant en EAI est STORM_CMCC. Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
+  }
+}

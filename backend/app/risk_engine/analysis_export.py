@@ -57,6 +57,8 @@ def build_result_payload(
         },
         "notes": _dedupe_non_empty(notes),
     }
+    if comp.modeling:
+        payload["meta"]["modeling"] = comp.modeling
     return payload
 
 
@@ -77,6 +79,41 @@ def build_graph_json_artifact(graphs: dict[str, Any]) -> bytes:
     import json
 
     return json.dumps(graphs, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def build_event_summary_csv(event_summary: dict[str, Any] | None) -> bytes | None:
+    if not event_summary or not isinstance(event_summary, dict):
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for hazard_key, events in event_summary.items():
+        if not isinstance(events, list):
+            continue
+        for rank, event in enumerate(events, start=1):
+            if not isinstance(event, dict):
+                continue
+            rows.append(
+                {
+                    "hazard": hazard_key,
+                    "rank": rank,
+                    "event_id": event.get("event_id"),
+                    "event_name": event.get("event_name"),
+                    "loss_eur": event.get("loss_eur"),
+                    "frequency_annual": event.get("frequency_annual"),
+                    "return_period_years_approx": event.get("return_period_years_approx"),
+                }
+            )
+
+    if not rows:
+        return None
+
+    output = io.StringIO()
+    fieldnames = ["hazard", "rank", "event_id", "event_name", "loss_eur", "frequency_annual", "return_period_years_approx"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return output.getvalue().encode("utf-8")
 
 
 def _dedupe_non_empty(items: list[str]) -> list[str]:

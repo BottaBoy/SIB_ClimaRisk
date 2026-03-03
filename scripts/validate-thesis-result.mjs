@@ -29,6 +29,7 @@ if (typeof data.meta?.updated_at !== 'string' || Number.isNaN(new Date(data.meta
 if (typeof data.meta?.source !== 'string' || !data.meta.source.trim()) fail('meta.source is required');
 if (typeof data.meta?.impact_function !== 'string' || !data.meta.impact_function.trim()) fail('meta.impact_function is required');
 if (!Array.isArray(data.meta?.hazards) || data.meta.hazards.length < 2) fail('meta.hazards must be an array of hazards');
+if (data.meta?.modeling != null && typeof data.meta.modeling !== 'object') fail('meta.modeling must be an object when provided');
 
 if (!data.exposure_summary || typeof data.exposure_summary !== 'object') fail('exposure_summary is required');
 ['asset_count_original', 'asset_count_points', 'total_exposure_eur'].forEach((key) => {
@@ -47,6 +48,9 @@ if (!Array.isArray(data.territory_results) || data.territory_results.length === 
     ['exposure_eur', 'eai_storm_eur', 'eai_cmcc_eur', 'risk_index_storm', 'risk_index_cmcc'].forEach((k) => {
       if (!isFiniteNumber(row[k])) fail(`territory_results[${idx}].${k} must be numeric`);
     });
+    ['eai_storm_direct_eur', 'eai_storm_indirect_eur', 'eai_cmcc_direct_eur', 'eai_cmcc_indirect_eur'].forEach((k) => {
+      if (row[k] != null && !isFiniteNumber(row[k])) fail(`territory_results[${idx}].${k} must be numeric when provided`);
+    });
     if (row.lat != null && !isFiniteNumber(row.lat)) fail(`territory_results[${idx}].lat must be number|null`);
     if (row.lon != null && !isFiniteNumber(row.lon)) fail(`territory_results[${idx}].lon must be number|null`);
     if (ids.has(row.territory_id)) fail(`duplicate territory_id ${row.territory_id}`);
@@ -60,8 +64,26 @@ if (!data.portfolio_results || typeof data.portfolio_results !== 'object') fail(
   ['eai_eur', 'aai_agg_eur', 'max_event_loss_eur'].forEach((k) => {
     if (!isFiniteNumber(data.portfolio_results[haz][k])) fail(`portfolio_results.${haz}.${k} must be numeric`);
   });
+  ['eai_direct_eur', 'eai_indirect_eur', 'pml_10_eur', 'pml_20_eur', 'pml_50_eur', 'pml_100_eur', 'pml_200_eur', 'tvar_95_eur'].forEach((k) => {
+    if (data.portfolio_results[haz][k] != null && !isFiniteNumber(data.portfolio_results[haz][k])) {
+      fail(`portfolio_results.${haz}.${k} must be numeric when provided`);
+    }
+  });
 });
 if (!data.portfolio_results.delta || typeof data.portfolio_results.delta !== 'object') fail('portfolio_results.delta is required');
+if (data.portfolio_results.event_summary != null && typeof data.portfolio_results.event_summary !== 'object') {
+  fail('portfolio_results.event_summary must be an object when provided');
+}
+['storm_top_events', 'storm_cmcc_top_events'].forEach((k) => {
+  const events = data.portfolio_results?.event_summary?.[k];
+  if (events == null) return;
+  if (!Array.isArray(events)) return fail(`portfolio_results.event_summary.${k} must be an array`);
+  events.forEach((event, idx) => {
+    if (!event || typeof event !== 'object') return fail(`portfolio_results.event_summary.${k}[${idx}] must be an object`);
+    if (event.loss_eur != null && !isFiniteNumber(event.loss_eur)) fail(`portfolio_results.event_summary.${k}[${idx}].loss_eur must be numeric`);
+    if (event.frequency_annual != null && !isFiniteNumber(event.frequency_annual)) fail(`portfolio_results.event_summary.${k}[${idx}].frequency_annual must be numeric`);
+  });
+});
 
 if (!data.graphs || typeof data.graphs !== 'object') fail('graphs is required');
 ['storm', 'storm_cmcc', 'comparison'].forEach((k) => {

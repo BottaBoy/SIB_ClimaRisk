@@ -68,6 +68,7 @@ def get_settings() -> Settings:
 def health() -> HealthResponse:
     settings = get_settings()
     store = get_store()
+    optional = _optional_dependency_status()
     data_files = {
         "hazard_storm_h5": settings.hazard_storm_path.exists(),
         "hazard_storm_cmcc_h5": settings.hazard_storm_cmcc_path.exists(),
@@ -77,14 +78,19 @@ def health() -> HealthResponse:
         "example_qgis_lines": settings.example_qgis_lines_path.exists(),
         "example_qgis_polygons": settings.example_qgis_polygons_path.exists(),
     }
+    required_mods = ("numpy", "pandas", "shapely", "pyproj", "geopandas", "climada")
+    climada_runtime_ready = all(optional.get(name, False) for name in required_mods) and data_files["hazard_storm_h5"] and data_files["hazard_storm_cmcc_h5"]
     return HealthResponse(
         status="ok",
         app=settings.app_name,
         now_utc=datetime.now(UTC),
         job_root=str(store.root),
-        optional_dependencies=_optional_dependency_status(),
+        optional_dependencies=optional,
         demo_result_available=settings.demo_result_path.exists(),
         data_files=data_files,
+        climada_runtime_ready=bool(climada_runtime_ready),
+        impact_engine_mode=settings.impact_engine_mode,
+        fallback_allowed=bool(settings.allow_climada_fallback),
     )
 
 

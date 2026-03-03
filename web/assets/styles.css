@@ -334,6 +334,71 @@ button:disabled {
   gap: 10px;
 }
 
+.exposition-panel,
+.impact-panel,
+.conclusion-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.expo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.wind-opacity-box {
+  min-width: min(420px, 100%);
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(0, 58, 118, 0.5);
+}
+
+.wind-opacity-box label {
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.wind-opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#wind-opacity-slider {
+  flex: 1;
+  min-height: 22px;
+  border: none;
+  padding: 0;
+  background: transparent;
+  accent-color: #5BC5F2;
+}
+
+#wind-opacity-slider:focus {
+  outline: none;
+}
+
+.wind-opacity-value {
+  min-width: 46px;
+  text-align: right;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .wind-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -392,6 +457,29 @@ button:disabled {
   height: 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.state-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.state-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.state-legend i {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 .water-map {
@@ -489,6 +577,14 @@ button:disabled {
   max-height: 480px;
 }
 
+.table-wrap.compact {
+  max-height: 340px;
+}
+
+.table-wrap.wide {
+  max-height: 560px;
+}
+
 .table-wrap table {
   width: 100%;
   border-collapse: collapse;
@@ -546,6 +642,7 @@ button:disabled {
 }
 
 .chart.wide { height: 320px; }
+.hazard-compare-grid .chart { height: 240px; }
 
 .comparison-card {
   margin-top: 2px;
@@ -685,7 +782,8 @@ button:disabled {
   }
   .main-grid,
   .run-lab-grid,
-  .wind-grid {
+  .wind-grid,
+  .expo-grid {
     grid-template-columns: 1fr;
   }
   .kpi-grid {

@@ -8,10 +8,11 @@ This repository now includes:
 - file-backed async jobs (`queued`/`running`/`completed`/`failed`)
 - upload and drawn-geometry API endpoints
 - unified result JSON schema for demo and user runs
-- optional CLIMADA/geospatial integration hooks
-- deterministic fallback engine for environments without CLIMADA/geopandas
+- CLIMADA production pipeline (STORM + STORM_CMCC) with electricity->water post-processing
+- deterministic fallback engine (disabled by default, configurable)
 
-The current server Python environment does not include the required geospatial stack, so the fallback engine is used until a dedicated environment is installed.
+By default, the backend tries CLIMADA first (`SIB_RISK_IMPACT_ENGINE_MODE=climada`).
+Fallback is only used if explicitly configured (`SIB_RISK_IMPACT_ENGINE_MODE=fallback`) or allowed (`SIB_RISK_ALLOW_CLIMADA_FALLBACK=true`).
 
 ## Ubuntu 24.04 note (CLIMADA + GDAL)
 
@@ -37,6 +38,11 @@ Environment variables:
 - `SIB_RISK_DEMO_RESULT_PATH` (default: `../web/data/sib-thesis-demo.json` relative to backend app)
 - `SIB_RISK_JOB_TTL_HOURS` (default: `24`)
 - `SIB_RISK_MAX_UPLOAD_MB` (default: `50`)
+- `SIB_RISK_IMPACT_ENGINE_MODE` (`climada` or `fallback`, default: `climada`)
+- `SIB_RISK_ALLOW_CLIMADA_FALLBACK` (`false`/`true`, default: `false`)
+- `SIB_RISK_CLIMADA_METRIC_CRS` (default: `EPSG:3857`)
+- `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE` (default: `300`)
+- `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT` (default: `20`)
 
 ## API
 

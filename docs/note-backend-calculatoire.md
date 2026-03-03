@@ -1,18 +1,18 @@
-# Note detaillee - Backend calculatoire des risques cycloniques
+# Note detaillee - Backend calculatoire des risques cycloniques (CLIMADA)
 
-## 1) Objectif de cette note
-Cette note explique en detail:
-- la logique de calcul actuellement active cote backend,
-- la regle de decision en 4 etats (S0/S1/S2/S3),
-- la propagation des dysfonctionnements electricite -> eau,
-- l'architecture logicielle entre les fichiers Python/JSON du projet,
-- le role des scripts de preparation des donnees Guadeloupe.
+## 1) Objectif
+Cette note explique:
+- comment le backend calcule les impacts STORM et STORM_CMCC avec CLIMADA,
+- comment la dependance electricite -> eau est appliquee (post-traitement prudent),
+- quels champs sont produits dans le JSON final,
+- comment les fichiers Python interagissent.
 
-Le moteur en production est un **fallback deterministic** (pas encore la chaine CLIMADA finale), mais il integre deja les regles metier demandees.
+Le moteur par defaut est maintenant **CLIMADA complet** (`engine=climada_with_interdependency_v1`).
+Le fallback deterministic existe encore, mais uniquement en mode explicitement active (`SIB_RISK_IMPACT_ENGINE_MODE=fallback`) ou si `SIB_RISK_ALLOW_CLIMADA_FALLBACK=true`.
 
 ---
 
-## 2) Vue d'ensemble de l'architecture (fichiers et interactions)
+## 2) Architecture et flux de calcul
 
 ```mermaid
 flowchart TD
@@ -20,229 +20,230 @@ flowchart TD
   B --> C[backend/app/job_runner.py]
   C --> D[backend/app/risk_engine/pipeline.py]
 
-  D --> E[backend/app/risk_engine/exposure_ingest.py]
-  D --> F[backend/app/risk_engine/exposure_disaggregation.py]
-  D --> G[backend/app/risk_engine/impact_runner.py]
-  D --> H[backend/app/risk_engine/analysis_export.py]
+  D --> E[exposure_ingest.py]
+  D --> F[exposure_disaggregation.py]
+  D --> G[impact_runner.py]
+  D --> H[analysis_export.py]
 
-  E --> I[backend/app/risk_engine/types.py]
-  F --> I
-  G --> I
-  H --> I
+  G --> I[exposure_to_climada.py]
+  G --> J[climada_engine.py]
+  G --> K[interdependency.py]
+  J --> L[hazard_loader.py]
+  J --> M[impact_functions.py]
+  L --> N[(tc_hazard_guadeloupe.h5)]
+  L --> O[(tc_hazard_guadeloupe_CMCC.h5)]
 
-  J[scripts/build_guadeloupe_complete_analysis.py] --> F
-  J --> G
-  J --> H
-  J --> K[web/data/guadeloupe-complete-analysis.json]
-
-  L[scripts/build_guadeloupe_wind_maps.py] --> M[web/data/guadeloupe-wind-maps.json]
-  N[scripts/build_guadeloupe_water_infra_map.py] --> O[web/data/guadeloupe-water-infra.geojson]
-
-  A --> K
-  A --> M
-  A --> O
+  H --> P[result.json + territory_results.csv + graphs.json + top_events.csv]
 ```
 
-### Fichiers principaux
-- API entree: `backend/app/main.py`
-- Orchestration run: `backend/app/risk_engine/pipeline.py`
-- Ingestion/normalisation expositions: `backend/app/risk_engine/exposure_ingest.py`
-- Desagregation geometrique: `backend/app/risk_engine/exposure_disaggregation.py`
-- Calcul impacts + dependances: `backend/app/risk_engine/impact_runner.py`
-- Construction payload resultat: `backend/app/risk_engine/analysis_export.py`
-- Types structures communes: `backend/app/risk_engine/types.py`
-
-### Fichiers de donnees de reference Guadeloupe
-- Resultat complet eau+electricite: `web/data/guadeloupe-complete-analysis.json`
-- Cartes vent moyen STORM/STORM_CMCC: `web/data/guadeloupe-wind-maps.json`
-- Carte de toutes les infrastructures eau: `web/data/guadeloupe-water-infra.geojson`
+### Role des modules
+- `exposure_ingest.py`: normalise les expositions utilisateur (CSV/XLSX/GeoJSON/GPKG/dessin).
+- `exposure_disaggregation.py`: calcule un resume geometrique (utilise aussi pour pilotage du sampling).
+- `exposure_to_climada.py`: convertit les geometries en points CLIMADA (CRS metrique -> WGS84), conserve la valeur totale.
+- `climada_engine.py`: charge hazards STORM/STORM_CMCC, applique ImpactCalc CLIMADA, extrait EAI direct / evenements / PML / TVaR.
+- `interdependency.py`: applique la propagation elec->eau et calcule la sante `health`.
+- `impact_runner.py`: orchestre le tout, produit `territory_results`, `portfolio_results`, `graphs`, `notes`, `meta.modeling`.
+- `analysis_export.py`: assemble le payload API et exporte les artefacts CSV/JSON.
 
 ---
 
-## 3) Entree utilisateur et normalisation des expositions
+## 3) Entrees et normalisation des expositions
 
 Le backend accepte:
-- upload (`input_mode=file`) en CSV, XLSX, GeoJSON, GPKG,
-- dessin carte (`input_mode=drawn_geojson`).
+- `input_mode=file`: CSV, XLSX, GeoJSON, GPKG,
+- `input_mode=drawn_geojson`: expositions dessinees.
 
-### Parametres categories
-Dans `main.py`, le formulaire accepte:
-- `exposure_category_field` (nom de colonne source),
-- `default_exposure_category` (valeur par defaut).
-
-Dans `exposure_ingest.py`, les categories sont normalisees vers:
+Categories supportees:
 - `habitation`
 - `ouvrage_eau`
 - `ouvrage_electrique`
 
-Alias geres (exemples):
+Aliases principaux:
 - `electric`, `electricity`, `power` -> `ouvrage_electrique`
 - `water`, `water_network` -> `ouvrage_eau`
 
 ---
 
-## 4) Regle d'etat a 4 niveaux
+## 4) Conversion exposition -> CLIMADA
 
-Chaque composant recoit un ratio de dommage direct (entre 0 et 1), puis est classe:
-- `S0` operationnel: dommage < 0.05
-- `S1` degrade: 0.05 <= dommage < 0.15
-- `S2` critique: 0.15 <= dommage < 0.35
-- `S3` hors service: dommage >= 0.35
+Fichier: `backend/app/risk_engine/exposure_to_climada.py`
 
-Implementation: `impact_runner.py`, fonction `_state_from_damage_ratio`.
+Principe:
+1. chaque geometrie est convertie en objet shapely,
+2. projection en CRS metrique (`SIB_RISK_CLIMADA_METRIC_CRS`, defaut `EPSG:3857`),
+3. echantillonnage en points:
+   - point/multipoint: points existants,
+   - ligne/multiligne: interpolation selon `sampling_spacing_m`,
+   - polygone/multipolygone: grille interne (avec cap),
+4. reprojection WGS84,
+5. repartition de la valeur de l’actif sur les points echantillonnes.
+
+Parametres runtime:
+- `sampling_spacing_m` (depuis le run),
+- `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE` (defaut `300`) pour controler cout CPU/memoire.
+
+Le mapping metier est conserve par point:
+- `feature_id`, `territory_id`, `infra_class`, `asset_type`, `exposure_category`.
 
 ---
 
-## 5) Calcul du dommage direct
+## 5) Calcul d’impact direct CLIMADA
 
-Le fallback calcule un dommage direct par actif selon:
-1. une base liee a la complexite geometrique (nombre de points desagreges),
-2. un facteur de classe d'infrastructure (aerien, souterrain, eau reseau, eau ouvrage, habitation),
-3. un facteur hazard (`storm_cmcc` > `storm`),
-4. un facteur spatial deterministic (hash stable par actif).
+Fichier: `backend/app/risk_engine/climada_engine.py`
 
-Forme simplifiee:
+### Etapes
+1. chargement des hazards via `hazard_loader.py`:
+   - STORM: `tc_hazard_guadeloupe.h5`
+   - STORM_CMCC: `tc_hazard_guadeloupe_CMCC.h5`
+2. normalisation de frequence:
+   - `hazard.frequency = hazard.frequency / storm_years` (`storm_years=10000` par defaut)
+3. creation fonction d’impact tropical cyclone (Eberenz 2021) via `impact_functions.py`
+4. calcul CLIMADA:
+   - `ImpactCalc(exposures, impfset, hazard).impact(...)`
+
+### Sorties directes par alea
+- `eai_direct_by_point` (EAI direct par point d’exposition),
+- `max_loss_by_point` (perte max evenementielle par point),
+- `at_event_loss` (perte portfolio par evenement),
+- `aai_agg_eur`,
+- `max_event_loss_eur`,
+- `pml_eur` pour RP 10/20/50/100/200,
+- `tvar_95_eur`,
+- `top_events` (top N, defaut 20).
+
+---
+
+## 6) Regles metier 4 etats + health
+
+### 6.1 Etats S0/S1/S2/S3
+Le ratio de dommage direct est:
 
 ```text
-damage_direct = clamp(base_damage * class_factor * hazard_factor * spatial_factor, 0, 0.95)
+DR_max = max_event_loss_asset / value_asset
 ```
 
-Extrait:
-```python
-def _direct_damage_ratio(feature, hazard_key, base_damage):
-    infra_class = _infer_infra_class(feature)
-    class_factor = DIRECT_CLASS_FACTOR.get(infra_class, 1.0)
-    hazard_factor = CMCC_DAMAGE_SCALER if hazard_key == "storm_cmcc" else 1.0
-    spatial_factor = _stable_factor(f"{feature.feature_id}|{hazard_key}|{infra_class}", 0.82, 1.18)
-    return _clamp(base_damage * class_factor * hazard_factor * spatial_factor, 0.0, 0.95)
-```
+Classification:
+- `S0`: `DR_max < 0.05`
+- `S1`: `0.05 <= DR_max < 0.15`
+- `S2`: `0.15 <= DR_max < 0.35`
+- `S3`: `DR_max >= 0.35`
 
----
-
-## 6) Health des composants (formule demandee)
-
-La sante d'un composant est calculee a partir des longueurs/poids en etats S1/S2/S3:
+### 6.2 Sante `health`
 
 ```text
 health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total
 ```
 
-Ou:
-- `L_total`: poids total du composant (longueur pour lineaire si geometrique dispo, sinon poids unitaire),
-- `L_S1`: poids en etat degrade,
-- `L_S2`: poids en etat critique,
-- `L_S3`: poids hors service.
-
-Interpretation:
-- proche de `1.0` -> composant robuste/fonctionnel,
-- proche de `0.0` -> composant tres degrade/hors service.
-
-Ces valeurs sont exportees dans:
-- `portfolio_results.component_health.<hazard>.<classe>`
+Avec:
+- `L_total`: poids total (ici somme des valeurs des actifs/points du composant),
+- `L_S1`, `L_S2`, `L_S3`: poids dans chaque etat.
 
 ---
 
-## 7) Propagation des dysfonctionnements elec -> eau
+## 7) Propagation elec -> eau (post-traitement prudent)
 
-Hypothese prudente retenue:
-- tous les actifs d'eau sont dependants de l'electricite.
+Fichier: `backend/app/risk_engine/interdependency.py`
+
+Hypothese prudente:
+- **tous les actifs eau sont dependants de l’electricite**.
 
 Algorithme:
-1. calculer health electrique par territoire (et global),
-2. convertir cette health en etat de dependance:
-   - health < 0.75 -> au moins `S1`
-   - health < 0.55 -> au moins `S2`
-   - health < 0.35 -> `S3`
-3. pour chaque actif eau:
-   - `final_state = max(direct_state, dependency_state)`
-   - dommage final releve a un plancher lie a l'etat de dependance
-4. convertir en EAI.
+1. calcul de `health_elec(territoire, alea)` a partir des actifs electriques,
+2. conversion en etat de dependance:
+   - `health < 0.75` -> au moins `S1`
+   - `health < 0.55` -> au moins `S2`
+   - `health < 0.35` -> `S3`
+3. pour les actifs eau, uplift d’EAI indirect:
+   - `S0: +0%`, `S1: +10%`, `S2: +25%`, `S3: +45%`
 
-Extrait:
-```python
-if infra_class in {"eau_reseau", "eau_ouvrage"}:
-    elec_health = elec_health_by_territory[hazard].get(territory_id, elec_health_global[hazard])
-    dependency_state = _dependency_state_from_elec_health(elec_health)
-    if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
-        final_state = dependency_state
-    final_damage = max(final_damage, STATE_DAMAGE_FLOOR[dependency_state])
-```
-
----
-
-## 8) Passage au cout annuel (EAI)
-
-Une fois le dommage final obtenu, le moteur calcule la perte annuelle attendue:
+Formules:
 
 ```text
-EAI_asset = exposure_value_eur * final_damage * annualization_factor(hazard)
-```
-
-Avec:
-- `annualization_factor(storm)=0.22`
-- `annualization_factor(storm_cmcc)=0.25`
-
-Agrégation:
-- somme par territoire -> `territory_results`
-- somme globale -> `portfolio_results`
-
----
-
-## 9) Pipeline de calcul run API
-
-```mermaid
-sequenceDiagram
-  participant UI as web/assets/app.js
-  participant API as backend/app/main.py
-  participant PIPE as risk_engine/pipeline.py
-  participant ING as exposure_ingest.py
-  participant DIS as exposure_disaggregation.py
-  participant IMP as impact_runner.py
-  participant EXP as analysis_export.py
-
-  UI->>API: POST /api/v1/runs (upload ou draw)
-  API->>PIPE: run_job_pipeline(job_id, params)
-  PIPE->>ING: ingest_uploaded_exposure(...) / ingest_drawn_geojson(...)
-  PIPE->>DIS: summarize_disaggregation(exposure)
-  PIPE->>IMP: compute_impacts(exposure, disagg)
-  IMP-->>PIPE: territory_results + portfolio_results + graphs + notes
-  PIPE->>EXP: build_result_payload(...)
-  EXP-->>API: JSON final + artefacts (csv, graphs.json)
-  API-->>UI: GET result
+EAI_indirect(i,h) = EAI_direct(i,h) * uplift(state_dep(t,h))
+EAI_total(i,h) = EAI_direct(i,h) + EAI_indirect(i,h)
 ```
 
 ---
 
-## 10) Scripts de preparation Guadeloupe
+## 8) Aggregation territoriale et portfolio
 
-### a) `scripts/build_guadeloupe_complete_analysis.py`
-Role:
-- lit les jeux infrastructures eau + electricite dans `/home/ubuntu/uploads/...`,
-- applique des hypotheses de valorisation prudentes (EUR/km, EUR/ouvrage),
-- execute le meme moteur de risque backend,
-- produit la reference de premiere page:
-  - `web/data/guadeloupe-complete-analysis.json`
+### 8.1 Territoires
+Le backend agrège par maille territoriale (`territory_id`) et produit:
+- `eai_storm_direct_eur`, `eai_storm_indirect_eur`, `eai_storm_eur`
+- `eai_cmcc_direct_eur`, `eai_cmcc_indirect_eur`, `eai_cmcc_eur`
+- `risk_index_storm`, `risk_index_cmcc`
 
-### b) `scripts/build_guadeloupe_wind_maps.py`
-Role:
-- lit les catalogues STORM/CMCC NA sur 10 000 ans,
-- calcule la vitesse moyenne max du vent par maille geographique autour de la Guadeloupe,
-- produit:
-  - `web/data/guadeloupe-wind-maps.json`
+`risk_index_*` est conserve pour compatibilite front:
 
-### c) `scripts/build_guadeloupe_water_infra_map.py`
-Role:
-- lit l'ensemble des couches eau (AEP + EU),
-- simplifie legerement les geometries lineaires pour le web,
-- produit:
-  - `web/data/guadeloupe-water-infra.geojson`
+```text
+risk_index = clamp((EAI_total / exposure_eur) * 1000, 0, 100)
+```
 
-### d) Hypotheses de valorisation monetaire (cas Guadeloupe)
+### 8.2 Portfolio
+Pour chaque alea:
+- `eai_eur`, `aai_agg_eur`, `max_event_loss_eur`
+- `eai_direct_eur`, `eai_indirect_eur`
+- `pml_10_eur`, `pml_20_eur`, `pml_50_eur`, `pml_100_eur`, `pml_200_eur`
+- `tvar_95_eur`
 
-Les valeurs monetaires ci-dessous sont des **hypotheses prudentes** utilisees pour le cas de reference Guadeloupe dans:
-- `scripts/build_guadeloupe_complete_analysis.py`
+Autres blocs:
+- `portfolio_results.component_health`
+- `portfolio_results.interdependency`
+- `portfolio_results.event_summary` (`storm_top_events`, `storm_cmcc_top_events`)
 
-Elles n'ont pas ete fournies par un barème officiel unique dans les donnees sources; elles servent donc de base de calcul coherente en attendant des couts metier valides par type d'actif.
+---
+
+## 9) Contrat de sortie JSON (compatibilite + extensions)
+
+Compatibilite legacy conservee:
+- `meta`, `exposure_summary`, `territory_results`, `portfolio_results`, `graphs`, `notes`.
+
+Ajouts:
+- `meta.engine = "climada_with_interdependency_v1"`
+- `meta.modeling = {storm_years, frequency_normalized, dependency_mode, scenario_mode, ...}`
+- nouveaux champs directs/indirects/PML/TVaR/top events.
+
+Artefacts telechargeables:
+- `territory_results.csv`
+- `graphs.json`
+- `top_events.csv` (si `event_summary` disponible)
+
+---
+
+## 10) Graphiques backend (`graphs`)
+
+Le backend conserve les memes cles pour le front:
+- `graphs.storm.wind_year_hist`
+- `graphs.storm.wind_track_hist`
+- `graphs.storm.annual_fec`
+- `graphs.storm.lifetime_fec`
+- idem `storm_cmcc`
+- `graphs.comparison.side_by_side`
+
+Les valeurs sont maintenant derivees des pertes CLIMADA (distribution evenementielle + PML), puis ajustees par le facteur indirect elec->eau.
+
+---
+
+## 11) Parametrage runtime important
+
+Variables d’environnement:
+- `SIB_RISK_IMPACT_ENGINE_MODE`: `climada` (defaut) ou `fallback`
+- `SIB_RISK_ALLOW_CLIMADA_FALLBACK`: `true/false`
+- `SIB_RISK_CLIMADA_METRIC_CRS`: ex. `EPSG:3857`
+- `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`: cap sampling
+- `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`: top evenements exportes
+
+Endpoint sante:
+- `GET /api/v1/health` retourne notamment:
+  - `climada_runtime_ready`
+  - `impact_engine_mode`
+  - `fallback_allowed`
+
+---
+
+## 12) Valorisation monetaire prudente (cas Guadeloupe)
+
+Hypotheses utilisees dans `scripts/build_guadeloupe_complete_analysis.py`:
 
 | Type d'actif | Regle de valorisation | Valeur retenue |
 |---|---|---|
@@ -257,61 +258,35 @@ Elles n'ont pas ete fournies par un barème officiel unique dans les donnees sou
 | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR |
 
 Details techniques:
-- pour les lineaires: `value_eur = max(5000, longueur_km * cout_km)`
-- pour les ouvrages points: valeur fixe par actif/type.
+- lineaires: `value_eur = max(5000, longueur_km * cout_km)`
+- ouvrages ponctuels: valeur fixe par type d’ouvrage.
 
 ---
 
-## 11) Ce que la page web affiche
+## 13) Scripts de preparation des donnees Guadeloupe
 
-La premiere page presente:
-1. titre et description de l'exercice,
-2. carte STORM des vents moyens tempete,
-3. carte STORM CMCC des vents moyens tempete,
-4. carte de toutes les infrastructures d'eau,
-5. indicateurs de couts et dommages (KPIs, carte risques territoriaux, tableaux, courbes).
-
-En plus, un bloc "Ajout d'expositions utilisateur" permet:
-- upload de donnees propres,
-- dessin d'expositions avec categorie (`habitation`, `ouvrage_eau`, `ouvrage_electrique`).
+- `scripts/build_guadeloupe_complete_analysis.py`
+  - construit la reference complete eau+electricite et lance le backend de calcul.
+- `scripts/build_guadeloupe_wind_maps.py`
+  - calcule les cartes vent moyen STORM/STORM_CMCC sur 10 000 ans.
+- `scripts/build_guadeloupe_water_infra_map.py`
+  - construit la couche web de toutes les infrastructures d’eau.
+- `scripts/rebuild_tc_hazard_na.py`
+  - reconstruit les hazards TC STORM/STORM_CMCC (bassin NA) avec les centroids Guadeloupe.
 
 ---
 
-## 12) Limites et prochaine etape
+## 14) Limites connues
 
-Limites actuelles du fallback:
-- dommages directs deterministic (pas encore simulation CLIMADA complete),
-- dependance elec->eau sans graphe physique detaille poste source -> pompe.
-
-Prochaine etape recommandee:
-- brancher `compute_impacts()` sur la chaine CLIMADA de production avec les memes structures de sortie
-  pour conserver la compatibilite front/API.
-
-### 12.1) Blocages techniques concrets pour brancher CLIMADA complet
-Le lien CLIMADA est possible, mais il manque encore une couche d'integration applicative:
-1. **Construction Exposures CLIMADA**:
-   - convertir proprement les geometries lineaires/polygones des reseaux en points d'exposition CLIMADA avec valeurs coherentes,
-   - maintenir la trace `asset_id -> territoire -> categorie` pour la restitution web.
-2. **Chargement Hazard CLIMADA dans le pipeline runtime**:
-   - connecter `hazard_loader.py` dans `compute_impacts()` (et plus seulement dans l'architecture cible),
-   - garantir la normalisation frequence et l'usage STORM / STORM_CMCC dans le meme schema de sortie.
-3. **Couche Impact Function + calcul**:
-   - utiliser l'impact function TC (Eberenz 2021) directement sur les expositions converties,
-   - calculer EAI / AAI / losses par alea sans casser les objets JSON attendus par le front.
-4. **Reaggregation metier**:
-   - reconstituer les resultats par territoire et par classe d'infrastructure (eau/elec/habitation),
-   - conserver les champs supplementaires: `component_health`, `interdependency`.
-5. **Validation de non-regression**:
-   - comparer fallback vs CLIMADA sur cas tests,
-   - verifier coherence unites, ordres de grandeur, et temps de calcul pour les gros jeux reseaux.
-
-Conclusion: ce n'est pas un blocage de donnees; c'est un blocage d'integration logicielle entre la couche CLIMADA et le contrat API/web deja en place.
+- La propagation elec->eau est prudente et non basee sur un graphe electrique explicite poste-source -> equipement.
+- Le couplage indirect est applique en multiplicateur d’EAI direct (pas encore simulation dynamique multi-etapes par evenement).
+- Le cap de points par geometrie (`max_points_per_feature`) est necessaire pour maitriser le cout calculatoire.
 
 ---
 
-## 13) Sources STORM completes a citer
+## 15) Sources STORM completes
 
-- STORM present climate (all basins):
+- STORM present climate (all basins):  
   https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085
-- STORM CMCC:
+- STORM CMCC:  
   https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2

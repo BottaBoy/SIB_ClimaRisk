@@ -27,16 +27,14 @@ Website + backend scaffold for presenting cyclone risk results over water infras
   - exposure ingestion
   - disaggregation summary (metric CRS aware)
   - impact function (Eberenz 2021 curve)
-  - impact computation (fallback engine with 4-state health + electricity->water propagation until CLIMADA env is installed)
+  - CLIMADA impact computation (direct impacts) + electricity->water propagation post-processing
+  - deterministic fallback engine (explicit mode only)
   - result/artifact export
 
-## Important note (current server runtime)
+## Runtime note
 
-The server Python environment currently does **not** include `pip`, `pandas`, `geopandas`, `CLIMADA`, etc.
-
-Because of that, the backend currently executes a deterministic **fallback engine** (same API/result schema) until a dedicated Python environment is installed.
-
-The production path should use the provided backend module structure and replace the fallback in `backend/app/risk_engine/impact_runner.py` with the full CLIMADA pipeline.
+The backend now runs the CLIMADA production path by default (`SIB_RISK_IMPACT_ENGINE_MODE=climada`).
+Fallback remains available only when explicitly enabled.
 
 ## Guadeloupe reference build scripts
 
@@ -51,6 +49,10 @@ The production path should use the provided backend module structure and replace
 - Build Guadeloupe water infrastructure map layer (AEP + EU):
   ```bash
   /home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_guadeloupe_water_infra_map.py
+  ```
+- Rebuild NA hazards (STORM / STORM_CMCC) for Guadeloupe centroids:
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/rebuild_tc_hazard_na.py --build both
   ```
 
 ## Full STORM dataset links (for GitHub restitution)

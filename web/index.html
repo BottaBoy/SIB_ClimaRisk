@@ -39,55 +39,156 @@
         </div>
       </header>
 
-      <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
+      <section class="panel exposition-panel page-block page1" aria-labelledby="expo-title">
         <div class="section-head">
           <div>
-            <h2 id="wind-panel-title">Carte des aleas Cyclones en Guadeloupe (base de données STORM)</h2>
-            <p class="muted">
-              Carte interactive presentant les vents moyens des tempetes autour de la Guadeloupe.
-            </p>
+            <h2 id="expo-title">Partie exposition</h2>
+            <p class="muted" id="exposition-summary-text">Chargement des indicateurs d'exposition...</p>
           </div>
         </div>
-        <div class="wind-grid">
-          <article class="subpanel wind-map-card">
-            <h3>STORM</h3>
-            <p class="muted small" id="wind-storm-caption">Loading…</p>
-            <div id="wind-map-storm" class="map wind-map"></div>
+        <div class="expo-grid">
+          <article class="subpanel">
+            <h3>Synthese des infrastructures</h3>
+            <ul id="exposition-metrics-list" class="metric-list">
+              <li>Chargement...</li>
+            </ul>
           </article>
-          <article class="subpanel wind-map-card">
-            <h3>STORM_CMCC</h3>
-            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
-            <div id="wind-map-cmcc" class="map wind-map"></div>
+          <article class="subpanel">
+            <h3>Valorisation monetaire</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th class="num">Longueur (km)</th>
+                    <th class="num">Valeur/km (€)</th>
+                    <th class="num">Valeur totale (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="exposition-value-table-body"></tbody>
+              </table>
+            </div>
+            <p class="muted small" id="exposition-total-value">Valeur totale: —</p>
           </article>
-        </div>
-      </section>
-
-      <section class="panel water-panel page-block page1" aria-labelledby="water-map-title">
-        <div class="section-head">
-          <div>
-            <h2 id="water-map-title">Carte des infrastructures d'eau de Guadeloupe</h2>
-            <p class="muted">
-              Visualisation de l'ensemble des infrastructures AEP et EU fournies (canalisations, ouvrages, postes de refoulement, STEP).
-            </p>
-          </div>
         </div>
         <div class="subpanel water-map-card">
+          <h3>Carte des infrastructures d'eau de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Loading…</p>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
       </section>
 
-      <section class="panel damage-head page-block page1" aria-labelledby="damage-head-title">
+      <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
-            <h2 id="damage-head-title">Informations et analyses sur les dommages potentiels lies aux couts</h2>
-            <p class="muted">
-              Estimation des pertes annuelles attendues, indicateurs de risque, et effets de propagation des dysfonctionnements.
+            <h2 id="wind-panel-title">Partie analyse de l'alea</h2>
+            <p class="muted" id="hazard-summary-text">
+              Chargement des informations STORM / STORM_CMCC...
+            </p>
+          </div>
+          <div class="wind-opacity-box">
+            <label for="wind-opacity-slider">Transparence couche vent (STORM + STORM_CMCC)</label>
+            <div class="wind-opacity-row">
+              <input id="wind-opacity-slider" type="range" min="0" max="100" step="1" value="82" />
+              <span id="wind-opacity-value" class="wind-opacity-value">82%</span>
+            </div>
+          </div>
+        </div>
+        <div class="wind-grid">
+          <article class="subpanel wind-map-card">
+            <h3>Carte des aleas vent/tempete STORM</h3>
+            <p class="muted small" id="wind-storm-caption">Loading…</p>
+            <div id="wind-map-storm" class="map wind-map"></div>
+          </article>
+          <article class="subpanel wind-map-card">
+            <h3>Carte des aleas vent/tempete STORM_CMCC</h3>
+            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
+            <div id="wind-map-cmcc" class="map wind-map"></div>
+          </article>
+        </div>
+        <div class="chart-grid hazard-compare-grid">
+          <div class="chart-card">
+            <h3>STORM - vitesse max du vent par annee</h3>
+            <div id="page1-chart-year-storm" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>STORM_CMCC - vitesse max du vent par annee</h3>
+            <div id="page1-chart-year-cmcc" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>STORM - vitesse max du vent par track</h3>
+            <div id="page1-chart-track-storm" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>STORM_CMCC - vitesse max du vent par track</h3>
+            <div id="page1-chart-track-cmcc" class="chart"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel impact-panel page-block page1" aria-labelledby="impact-title">
+        <div class="section-head">
+          <div>
+            <h2 id="impact-title">Partie impact</h2>
+            <p class="muted" id="impact-summary-text">
+              Chargement des analyses d'impact...
             </p>
           </div>
         </div>
-        <div id="infra-summary" class="notes-box"></div>
+        <div class="table-wrap wide">
+          <table>
+            <thead>
+              <tr>
+                <th>Reseau</th>
+                <th class="num">STORM annuel S0/S1/S2/S3 (%)</th>
+                <th class="num">STORM evt max S0/S1/S2/S3 (%)</th>
+                <th class="num">STORM EAI (€)</th>
+                <th class="num">STORM evt max (€)</th>
+                <th class="num">CMCC annuel S0/S1/S2/S3 (%)</th>
+                <th class="num">CMCC evt max S0/S1/S2/S3 (%)</th>
+                <th class="num">CMCC EAI (€)</th>
+                <th class="num">CMCC evt max (€)</th>
+              </tr>
+            </thead>
+            <tbody id="impact-state-table-body"></tbody>
+          </table>
+        </div>
+        <div class="subpanel">
+          <div class="section-head">
+            <h3>Carte d'etat des reseaux (S0/S1/S2/S3)</h3>
+            <div class="inline-row tight">
+              <select id="impact-map-hazard-select">
+                <option value="storm">STORM</option>
+                <option value="storm_cmcc">STORM_CMCC</option>
+              </select>
+              <select id="impact-map-scenario-select">
+                <option value="event_max">Evenement le plus fort</option>
+                <option value="annual">Moyenne annuelle</option>
+              </select>
+            </div>
+          </div>
+          <div id="network-layer-controls" class="layer-controls" aria-label="Network state layers"></div>
+          <div class="state-legend">
+            <span><i style="background:#6AB96F"></i>S0 Operationnel</span>
+            <span><i style="background:#f2b66f"></i>S1 Degrade</span>
+            <span><i style="background:#d94832"></i>S2 Critique</span>
+            <span><i style="background:#111111"></i>S3 Hors service</span>
+          </div>
+          <div id="network-state-map" class="map water-map"></div>
+          <p class="muted small" id="network-state-caption">Chargement...</p>
+        </div>
+      </section>
+
+      <section class="panel conclusion-panel page-block page1" aria-labelledby="conclusion-title">
+        <div class="section-head">
+          <div>
+            <h2 id="conclusion-title">Partie conclusion</h2>
+            <p class="muted" id="conclusion-text">
+              Chargement de la conclusion...
+            </p>
+          </div>
+        </div>
       </section>
 
       <section class="panel controls-grid page-block page2" aria-label="Analysis controls">
@@ -334,12 +435,12 @@ scripts/build_guadeloupe_water_infra_map.py
           </article>
         </div>
         <article class="subpanel">
-          <h3>Pourquoi CLIMADA n'est pas encore branche en production</h3>
+          <h3>Branchement CLIMADA en production</h3>
           <ul>
-            <li>Le fallback calcule deja les etats/health/propagation metier, mais la chaine CLIMADA complete n'est pas encore reliee a `compute_impacts()`.</li>
-            <li>Il faut encore connecter proprement: chargement hazard STORM/STORM_CMCC, conversion expositions lineaires/ponctuelles vers Exposures CLIMADA, impact functions, puis aggregation territoriale homogene avec la sortie web.</li>
-            <li>Le blocage principal est logiciel/integration (et non pas un manque de donnees): les donnees sont presentes, mais le branchement applicatif complet reste a finaliser et valider.</li>
-            <li>Oui, c'est possible de faire le lien CLIMADA; la prochaine etape est d'implementer ce chemin dans `impact_runner.py` tout en gardant le meme schema JSON de sortie.</li>
+            <li>Le calcul principal est maintenant branche sur CLIMADA dans `compute_impacts()` avec le moteur `climada_with_interdependency_v1`.</li>
+            <li>Les sorties web/API restent compatibles et sont enrichies (direct/indirect, PML, TVaR, top evenements).</li>
+            <li>La propagation metier electricite -> eau est appliquee en post-traitement prudent apres dommages directs CLIMADA.</li>
+            <li>Le fallback deterministic existe toujours, mais uniquement en mode explicitement active pour debug/continuites d'exploitation.</li>
           </ul>
         </article>
         <div class="notes-box" id="notes-box"></div>

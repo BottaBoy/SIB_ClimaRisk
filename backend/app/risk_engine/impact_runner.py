@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from hashlib import blake2b
-from typing import Any
 import math
+from typing import Any
 
+from ..config import Settings, load_settings
+from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
+from .errors import DependencyMissingError
+from .exposure_to_climada import build_climada_exposure
+from .interdependency import aggregate_impacts_with_interdependency
 from .types import DisaggregationSummary, ImpactComputationResult, NormalizedExposure
 
 
@@ -25,10 +30,6 @@ DIRECT_CLASS_FACTOR = {
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
-
-
-def _safe_label(text: str) -> str:
-    return "".join(ch if ch.isalnum() else "-" for ch in text.lower()).strip("-") or "territory"
 
 
 def _state_from_damage_ratio(damage_ratio: float) -> str:
@@ -168,13 +169,7 @@ def _direct_damage_ratio(feature: Any, hazard_key: str, base_damage: float) -> f
 
 
 def _new_state_bucket() -> dict[str, float]:
-    return {
-        "total": 0.0,
-        "S1": 0.0,
-        "S2": 0.0,
-        "S3": 0.0,
-        "asset_count": 0.0,
-    }
+    return {"total": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0, "asset_count": 0.0}
 
 
 def _bucket_add_state(bucket: dict[str, float], *, state: str, weight: float) -> None:
@@ -196,6 +191,26 @@ def _health_from_bucket(bucket: dict[str, float]) -> float:
     return _clamp(1.0 - (weighted_damage / total), 0.0, 1.0)
 
 
+def _summarize_component_health(
+    buckets_by_class: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for infra_class, bucket in buckets_by_class.items():
+        total = float(bucket.get("total", 0.0))
+        s1 = float(bucket.get("S1", 0.0))
+        s2 = float(bucket.get("S2", 0.0))
+        s3 = float(bucket.get("S3", 0.0))
+        out[infra_class] = {
+            "health": round(_health_from_bucket(bucket), 4),
+            "L_total": round(total, 4),
+            "L_S1": round(s1, 4),
+            "L_S2": round(s2, 4),
+            "L_S3": round(s3, 4),
+            "asset_count": int(bucket.get("asset_count", 0.0)),
+        }
+    return out
+
+
 def _build_fec_curve(total_exposure_eur: float, ratio: float, lifetime_years: int | None = None) -> dict[str, Any]:
     return_periods = [1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200]
     curve_y: list[float] = []
@@ -211,7 +226,7 @@ def _build_fec_curve(total_exposure_eur: float, ratio: float, lifetime_years: in
     }
 
 
-def _build_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio: float) -> dict[str, Any]:
+def _build_fallback_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio: float) -> dict[str, Any]:
     bins = [20, 30, 40, 50, 60, 70, 80]
     base_hist = [6, 18, 24, 20, 16, 10, 6]
     cmcc_hist = [4, 12, 22, 24, 20, 12, 8]
@@ -259,24 +274,225 @@ def _build_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio: float) 
     }
 
 
-def _summarize_component_health(
-    buckets_by_class: dict[str, dict[str, float]],
-) -> dict[str, dict[str, float]]:
-    out: dict[str, dict[str, float]] = {}
-    for infra_class, bucket in buckets_by_class.items():
-        total = float(bucket.get("total", 0.0))
-        s1 = float(bucket.get("S1", 0.0))
-        s2 = float(bucket.get("S2", 0.0))
-        s3 = float(bucket.get("S3", 0.0))
-        out[infra_class] = {
-            "health": round(_health_from_bucket(bucket), 4),
-            "L_total": round(total, 4),
-            "L_S1": round(s1, 4),
-            "L_S2": round(s2, 4),
-            "L_S3": round(s3, 4),
-            "asset_count": int(bucket.get("asset_count", 0.0)),
+def _build_hist_percent(values: list[float], bins_count: int = 7) -> tuple[list[float], list[float]]:
+    cleaned = [max(0.0, float(v)) for v in values if isinstance(v, (int, float))]
+    if not cleaned:
+        return [0.0] * bins_count, [0.0] * bins_count
+    v_min = min(cleaned)
+    v_max = max(cleaned)
+    if v_max <= v_min:
+        return [round(v_max, 4)] * bins_count, ([100.0] + [0.0] * (bins_count - 1))
+    width = (v_max - v_min) / bins_count
+    bins = [v_min + width * (i + 1) for i in range(bins_count)]
+    counts = [0] * bins_count
+    for value in cleaned:
+        idx = int((value - v_min) / width)
+        if idx >= bins_count:
+            idx = bins_count - 1
+        counts[idx] += 1
+    total = max(1, sum(counts))
+    perc = [round((c / total) * 100.0, 2) for c in counts]
+    return [round(b, 4) for b in bins], perc
+
+
+def _build_climada_graphs(
+    climada_result: ClimadaRunResult,
+    scaler_by_hazard: dict[str, float],
+    portfolio_results: dict[str, Any],
+) -> dict[str, Any]:
+    def hazard_graph(hazard_key: str, label: str) -> dict[str, Any]:
+        raw = climada_result.hazards[hazard_key]
+        scaler = float(scaler_by_hazard.get(hazard_key, 1.0))
+        losses = [float(v) * scaler for v in list(raw.at_event_loss)]
+        bins1, perc1 = _build_hist_percent(losses, bins_count=7)
+        bins2, perc2 = _build_hist_percent([math.sqrt(v) if v > 0.0 else 0.0 for v in losses], bins_count=7)
+
+        annual_rp = [10, 20, 50, 100, 200]
+        annual_dmg = [round(float(raw.pml_eur.get(rp, 0.0)) * scaler, 2) for rp in annual_rp]
+        fec30 = [round(v * 1.105, 2) for v in annual_dmg]
+        fec50 = [round(v * 1.175, 2) for v in annual_dmg]
+        return {
+            "wind_year_hist": {
+                "title": f"{label} - Event loss distribution",
+                "bins_mps": bins1,
+                "percent": perc1,
+            },
+            "wind_track_hist": {
+                "title": f"{label} - Event loss intensity proxy",
+                "bins_mps": bins2,
+                "percent": perc2,
+            },
+            "annual_fec": {
+                "title": f"{label} - Annual frequency-exceedance curve",
+                "return_period_years": annual_rp,
+                "damage_eur": annual_dmg,
+                "y_scale": "linear",
+            },
+            "lifetime_fec": {
+                "title": f"{label} - Lifetime FEC (30y / 50y)",
+                "series": [
+                    {"name": "30-year FEC", "return_period_years": annual_rp, "damage_eur": fec30},
+                    {"name": "50-year FEC", "return_period_years": annual_rp, "damage_eur": fec50},
+                ],
+                "y_scale": "log",
+            },
         }
+
+    return {
+        "storm": hazard_graph("storm", "STORM"),
+        "storm_cmcc": hazard_graph("storm_cmcc", "STORM_CMCC"),
+        "comparison": {
+            "side_by_side": {
+                "hazards": ["STORM", "STORM_CMCC"],
+                "metrics": ["annual_eai", "max_event_loss"],
+                "values": {
+                    "annual_eai": [
+                        round(float((portfolio_results.get("storm") or {}).get("eai_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("eai_eur", 0.0)), 2),
+                    ],
+                    "max_event_loss": [
+                        round(float((portfolio_results.get("storm") or {}).get("max_event_loss_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("max_event_loss_eur", 0.0)), 2),
+                    ],
+                },
+            }
+        },
+    }
+
+
+def _scale_top_events(events: list[dict[str, Any]], scaler: float) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        item = dict(event)
+        item["loss_eur"] = round(max(0.0, float(event.get("loss_eur", 0.0))) * scaler, 2)
+        out.append(item)
     return out
+
+
+def _to_float_list(values: Any, expected_len: int) -> list[float]:
+    out = [max(0.0, float(v)) for v in list(values)]
+    if len(out) < expected_len:
+        out.extend([0.0] * (expected_len - len(out)))
+    if len(out) > expected_len:
+        out = out[:expected_len]
+    return out
+
+
+def _compute_impacts_climada(
+    exposure: NormalizedExposure,
+    disagg: DisaggregationSummary,
+    settings: Settings,
+) -> ImpactComputationResult:
+    bundle = build_climada_exposure(
+        exposure,
+        spacing_m=float(disagg.spacing_m),
+        metric_crs=settings.climada_metric_crs,
+        max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
+        impact_func_id=2,
+    )
+    climada = run_climada_direct_impacts(
+        bundle,
+        hazard_storm_path=settings.hazard_storm_path,
+        hazard_storm_cmcc_path=settings.hazard_storm_cmcc_path,
+        storm_years=max(1, int(settings.storm_years)),
+        top_n_events=max(1, int(settings.climada_top_events_count)),
+    )
+
+    point_count = len(bundle.point_records)
+    hazard_direct_eai = {
+        "storm": _to_float_list(climada.hazards["storm"].eai_direct_by_point, point_count),
+        "storm_cmcc": _to_float_list(climada.hazards["storm_cmcc"].eai_direct_by_point, point_count),
+    }
+    hazard_max_loss = {
+        "storm": _to_float_list(climada.hazards["storm"].max_loss_by_point, point_count),
+        "storm_cmcc": _to_float_list(climada.hazards["storm_cmcc"].max_loss_by_point, point_count),
+    }
+
+    aggregated = aggregate_impacts_with_interdependency(
+        point_records=bundle.point_records,
+        hazard_direct_eai=hazard_direct_eai,
+        hazard_max_loss=hazard_max_loss,
+    )
+
+    storm_direct = float(aggregated.portfolio_by_hazard["storm"]["eai_direct_eur"])
+    storm_indirect = float(aggregated.portfolio_by_hazard["storm"]["eai_indirect_eur"])
+    storm_total = float(aggregated.portfolio_by_hazard["storm"]["eai_total_eur"])
+    cmcc_direct = float(aggregated.portfolio_by_hazard["storm_cmcc"]["eai_direct_eur"])
+    cmcc_indirect = float(aggregated.portfolio_by_hazard["storm_cmcc"]["eai_indirect_eur"])
+    cmcc_total = float(aggregated.portfolio_by_hazard["storm_cmcc"]["eai_total_eur"])
+
+    storm_scaler = float(aggregated.dependency_scaler_by_hazard.get("storm", 1.0))
+    cmcc_scaler = float(aggregated.dependency_scaler_by_hazard.get("storm_cmcc", 1.0))
+
+    storm_direct_metrics = climada.hazards["storm"]
+    cmcc_direct_metrics = climada.hazards["storm_cmcc"]
+
+    portfolio_results = {
+        "storm": {
+            "eai_eur": round(storm_total, 2),
+            "aai_agg_eur": round(storm_total, 2),
+            "max_event_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
+            "eai_direct_eur": round(storm_direct, 2),
+            "eai_indirect_eur": round(storm_indirect, 2),
+            "pml_10_eur": round(float(storm_direct_metrics.pml_eur.get(10, 0.0)) * storm_scaler, 2),
+            "pml_20_eur": round(float(storm_direct_metrics.pml_eur.get(20, 0.0)) * storm_scaler, 2),
+            "pml_50_eur": round(float(storm_direct_metrics.pml_eur.get(50, 0.0)) * storm_scaler, 2),
+            "pml_100_eur": round(float(storm_direct_metrics.pml_eur.get(100, 0.0)) * storm_scaler, 2),
+            "pml_200_eur": round(float(storm_direct_metrics.pml_eur.get(200, 0.0)) * storm_scaler, 2),
+            "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
+        },
+        "storm_cmcc": {
+            "eai_eur": round(cmcc_total, 2),
+            "aai_agg_eur": round(cmcc_total, 2),
+            "max_event_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
+            "eai_direct_eur": round(cmcc_direct, 2),
+            "eai_indirect_eur": round(cmcc_indirect, 2),
+            "pml_10_eur": round(float(cmcc_direct_metrics.pml_eur.get(10, 0.0)) * cmcc_scaler, 2),
+            "pml_20_eur": round(float(cmcc_direct_metrics.pml_eur.get(20, 0.0)) * cmcc_scaler, 2),
+            "pml_50_eur": round(float(cmcc_direct_metrics.pml_eur.get(50, 0.0)) * cmcc_scaler, 2),
+            "pml_100_eur": round(float(cmcc_direct_metrics.pml_eur.get(100, 0.0)) * cmcc_scaler, 2),
+            "pml_200_eur": round(float(cmcc_direct_metrics.pml_eur.get(200, 0.0)) * cmcc_scaler, 2),
+            "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
+        },
+        "delta": {
+            "eai_eur": round(cmcc_total - storm_total, 2),
+            "eai_pct": round(((cmcc_total / max(storm_total, 1.0)) - 1.0) * 100.0, 2),
+        },
+        "component_health": aggregated.component_health,
+        "interdependency": aggregated.interdependency,
+        "event_summary": {
+            "storm_top_events": _scale_top_events(storm_direct_metrics.top_events, storm_scaler),
+            "storm_cmcc_top_events": _scale_top_events(cmcc_direct_metrics.top_events, cmcc_scaler),
+        },
+    }
+
+    graphs = _build_climada_graphs(climada, aggregated.dependency_scaler_by_hazard, portfolio_results)
+    notes = [
+        "CLIMADA production engine is active (STORM + STORM_CMCC with annualized frequencies).",
+        "Direct impact is computed by CLIMADA and indirect impact is added by conservative electricity-to-water dependency post-processing.",
+        "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
+        *climada.notes,
+        *bundle.warnings,
+    ]
+    modeling = {
+        **climada.modeling,
+        "dependency_mode": "postprocess_electricity_to_water",
+        "scenario_mode": "prudent",
+        "metric_crs": settings.climada_metric_crs,
+        "sampling_spacing_m": float(disagg.spacing_m),
+        "max_points_per_feature": int(settings.climada_max_points_per_feature),
+    }
+
+    return ImpactComputationResult(
+        engine="climada_with_interdependency_v1",
+        territory_results=aggregated.territory_results,
+        portfolio_results=portfolio_results,
+        graphs=graphs,
+        notes=notes,
+        modeling=modeling,
+    )
 
 
 def compute_impacts_fallback(
@@ -330,7 +546,11 @@ def compute_impacts_fallback(
                 "lon_sum": 0.0,
                 "loc_count": 0,
                 "exposure_eur": 0.0,
+                "eai_storm_direct_eur": 0.0,
+                "eai_storm_indirect_eur": 0.0,
                 "eai_storm_eur": 0.0,
+                "eai_cmcc_direct_eur": 0.0,
+                "eai_cmcc_indirect_eur": 0.0,
                 "eai_cmcc_eur": 0.0,
             },
         )
@@ -355,12 +575,18 @@ def compute_impacts_fallback(
                 final_damage = max(final_damage, STATE_DAMAGE_FLOOR[dependency_state])
                 final_damage = _clamp(final_damage + (1.0 - elec_health) * 0.12, 0.0, 0.95)
 
-            eai_ratio = final_damage * ANNUALIZATION_FACTOR[hazard]
-            eai_value = exposure_value * eai_ratio
+            direct_eai = exposure_value * (direct_damage * ANNUALIZATION_FACTOR[hazard])
+            final_eai = exposure_value * (final_damage * ANNUALIZATION_FACTOR[hazard])
+            indirect_eai = max(0.0, final_eai - direct_eai)
+
             if hazard == "storm":
-                row["eai_storm_eur"] += eai_value
+                row["eai_storm_direct_eur"] += direct_eai
+                row["eai_storm_indirect_eur"] += indirect_eai
+                row["eai_storm_eur"] += final_eai
             else:
-                row["eai_cmcc_eur"] += eai_value
+                row["eai_cmcc_direct_eur"] += direct_eai
+                row["eai_cmcc_indirect_eur"] += indirect_eai
+                row["eai_cmcc_eur"] += final_eai
 
             _bucket_add_state(infra_buckets_by_hazard[hazard][infra_class], state=final_state, weight=weight)
 
@@ -378,7 +604,11 @@ def compute_impacts_fallback(
                 "lat": (row["lat_sum"] / row["loc_count"]) if row["loc_count"] > 0 else None,
                 "lon": (row["lon_sum"] / row["loc_count"]) if row["loc_count"] > 0 else None,
                 "exposure_eur": round(exp_eur, 2),
+                "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
+                "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
                 "eai_storm_eur": round(eai_storm, 2),
+                "eai_cmcc_direct_eur": round(float(row["eai_cmcc_direct_eur"]), 2),
+                "eai_cmcc_indirect_eur": round(float(row["eai_cmcc_indirect_eur"]), 2),
                 "eai_cmcc_eur": round(eai_cmcc, 2),
                 "risk_index_storm": round(risk_index_storm, 2),
                 "risk_index_cmcc": round(risk_index_cmcc, 2),
@@ -393,7 +623,11 @@ def compute_impacts_fallback(
                 "lat": None,
                 "lon": None,
                 "exposure_eur": round(total_exposure, 2),
+                "eai_storm_direct_eur": 0.0,
+                "eai_storm_indirect_eur": 0.0,
                 "eai_storm_eur": 0.0,
+                "eai_cmcc_direct_eur": 0.0,
+                "eai_cmcc_indirect_eur": 0.0,
                 "eai_cmcc_eur": 0.0,
                 "risk_index_storm": 0.0,
                 "risk_index_cmcc": 0.0,
@@ -402,10 +636,14 @@ def compute_impacts_fallback(
 
     territory_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
 
-    portfolio_eai_storm = round(sum(float(row["eai_storm_eur"]) for row in territory_results), 2)
-    portfolio_eai_cmcc = round(sum(float(row["eai_cmcc_eur"]) for row in territory_results), 2)
-    max_event_storm = round(portfolio_eai_storm * 4.5, 2)
-    max_event_cmcc = round(portfolio_eai_cmcc * 4.9, 2)
+    storm_direct = round(sum(float(row["eai_storm_direct_eur"]) for row in territory_results), 2)
+    storm_indirect = round(sum(float(row["eai_storm_indirect_eur"]) for row in territory_results), 2)
+    storm_total = round(sum(float(row["eai_storm_eur"]) for row in territory_results), 2)
+    cmcc_direct = round(sum(float(row["eai_cmcc_direct_eur"]) for row in territory_results), 2)
+    cmcc_indirect = round(sum(float(row["eai_cmcc_indirect_eur"]) for row in territory_results), 2)
+    cmcc_total = round(sum(float(row["eai_cmcc_eur"]) for row in territory_results), 2)
+    max_event_storm = round(storm_total * 4.5, 2)
+    max_event_cmcc = round(cmcc_total * 4.9, 2)
 
     component_health = {
         hazard: _summarize_component_health(dict(infra_buckets))
@@ -414,18 +652,34 @@ def compute_impacts_fallback(
 
     portfolio_results = {
         "storm": {
-            "eai_eur": portfolio_eai_storm,
-            "aai_agg_eur": portfolio_eai_storm,
+            "eai_eur": storm_total,
+            "aai_agg_eur": storm_total,
             "max_event_loss_eur": max_event_storm,
+            "eai_direct_eur": storm_direct,
+            "eai_indirect_eur": storm_indirect,
+            "pml_10_eur": round(storm_total * 2.3, 2),
+            "pml_20_eur": round(storm_total * 2.0, 2),
+            "pml_50_eur": round(storm_total * 1.7, 2),
+            "pml_100_eur": round(storm_total * 1.45, 2),
+            "pml_200_eur": round(storm_total * 1.25, 2),
+            "tvar_95_eur": round(storm_total * 1.8, 2),
         },
         "storm_cmcc": {
-            "eai_eur": portfolio_eai_cmcc,
-            "aai_agg_eur": portfolio_eai_cmcc,
+            "eai_eur": cmcc_total,
+            "aai_agg_eur": cmcc_total,
             "max_event_loss_eur": max_event_cmcc,
+            "eai_direct_eur": cmcc_direct,
+            "eai_indirect_eur": cmcc_indirect,
+            "pml_10_eur": round(cmcc_total * 2.3, 2),
+            "pml_20_eur": round(cmcc_total * 2.0, 2),
+            "pml_50_eur": round(cmcc_total * 1.7, 2),
+            "pml_100_eur": round(cmcc_total * 1.45, 2),
+            "pml_200_eur": round(cmcc_total * 1.25, 2),
+            "tvar_95_eur": round(cmcc_total * 1.8, 2),
         },
         "delta": {
-            "eai_eur": round(portfolio_eai_cmcc - portfolio_eai_storm, 2),
-            "eai_pct": round(((portfolio_eai_cmcc / max(portfolio_eai_storm, 1.0)) - 1.0) * 100.0, 2),
+            "eai_eur": round(cmcc_total - storm_total, 2),
+            "eai_pct": round(((cmcc_total / max(storm_total, 1.0)) - 1.0) * 100.0, 2),
         },
         "component_health": component_health,
         "interdependency": {
@@ -441,16 +695,21 @@ def compute_impacts_fallback(
                 "S1_to_S2_damage_ratio": 0.15,
                 "S2_to_S3_damage_ratio": 0.35,
             },
+            "uplift_by_state": {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45},
+        },
+        "event_summary": {
+            "storm_top_events": [],
+            "storm_cmcc_top_events": [],
         },
     }
 
-    storm_ratio = portfolio_eai_storm / max(total_exposure, 1.0)
-    cmcc_ratio = portfolio_eai_cmcc / max(total_exposure, 1.0)
-    graphs = _build_graphs(total_exposure, storm_ratio, cmcc_ratio)
+    storm_ratio = storm_total / max(total_exposure, 1.0)
+    cmcc_ratio = cmcc_total / max(total_exposure, 1.0)
+    graphs = _build_fallback_graphs(total_exposure, storm_ratio, cmcc_ratio)
 
     notes = [
-        "Fallback deterministic engine is active while the production CLIMADA path is not wired in compute_impacts().",
-        "Each asset receives a direct cyclone damage ratio, mapped to four states (S0/S1/S2/S3) and then annualized into EAI.",
+        "Fallback deterministic engine is active while CLIMADA production engine is disabled.",
+        "Each asset receives a direct cyclone damage ratio, mapped to four states (S0/S1/S2/S3) and annualized into EAI.",
         "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
         "Water assets are conservatively assumed dependent on electricity; weak local electrical health can escalate water states.",
         "For uploads without explicit categories, default_exposure_category=habitation is applied unless overridden.",
@@ -462,15 +721,42 @@ def compute_impacts_fallback(
         portfolio_results=portfolio_results,
         graphs=graphs,
         notes=notes,
+        modeling={
+            "dependency_mode": "postprocess_electricity_to_water",
+            "scenario_mode": "prudent",
+            "fallback_reason": "explicit_fallback_mode",
+        },
     )
 
 
 def compute_impacts(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
+    settings: Settings | None = None,
 ) -> ImpactComputationResult:
-    """Entry point for impact computation.
+    runtime_settings = settings or load_settings()
+    mode = str(runtime_settings.impact_engine_mode or "climada").strip().lower()
 
-    Replace this fallback with the full CLIMADA production path.
-    """
-    return compute_impacts_fallback(exposure, disagg)
+    if mode == "fallback":
+        return compute_impacts_fallback(exposure, disagg)
+    if mode not in {"climada", "auto"}:
+        raise ValueError(f"Unsupported impact engine mode: {mode}")
+
+    try:
+        return _compute_impacts_climada(exposure, disagg, runtime_settings)
+    except DependencyMissingError as exc:
+        if runtime_settings.allow_climada_fallback:
+            res = compute_impacts_fallback(exposure, disagg)
+            res.notes.append(f"CLIMADA dependency missing ({exc}); fallback enabled by configuration.")
+            if isinstance(res.modeling, dict):
+                res.modeling["fallback_reason"] = str(exc)
+            return res
+        raise
+    except Exception as exc:
+        if runtime_settings.allow_climada_fallback:
+            res = compute_impacts_fallback(exposure, disagg)
+            res.notes.append(f"CLIMADA runtime failed ({type(exc).__name__}); fallback enabled by configuration.")
+            if isinstance(res.modeling, dict):
+                res.modeling["fallback_reason"] = f"{type(exc).__name__}: {exc}"
+            return res
+        raise

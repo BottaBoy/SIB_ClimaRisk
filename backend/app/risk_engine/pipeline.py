@@ -5,7 +5,7 @@ from typing import Any
 
 from ..config import Settings
 from ..job_store import JobStore
-from .analysis_export import build_graph_json_artifact, build_result_payload, build_territory_csv
+from .analysis_export import build_event_summary_csv, build_graph_json_artifact, build_result_payload, build_territory_csv
 from .exposure_disaggregation import summarize_disaggregation
 from .exposure_ingest import ingest_drawn_geojson, ingest_uploaded_exposure
 from .impact_runner import compute_impacts
@@ -40,7 +40,7 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
         )
 
     disagg = summarize_disaggregation(exposure, spacing_m=sampling_spacing_m)
-    comp = compute_impacts(exposure, disagg)
+    comp = compute_impacts(exposure, disagg, settings=settings)
 
     result = build_result_payload(
         job_id=job_id,
@@ -52,10 +52,15 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
 
     csv_path = store.save_artifact_bytes(job_id, "territory_results.csv", build_territory_csv(result["territory_results"]))
     graphs_path = store.save_artifact_bytes(job_id, "graphs.json", build_graph_json_artifact(result["graphs"]))
+    event_summary_csv = build_event_summary_csv((result.get("portfolio_results") or {}).get("event_summary"))
 
-    result["artifacts"]["downloads"] = [
+    downloads = [
         {"name": csv_path.name, "url": f"/api/v1/runs/{job_id}/artifacts/{csv_path.name}"},
         {"name": graphs_path.name, "url": f"/api/v1/runs/{job_id}/artifacts/{graphs_path.name}"},
     ]
+    if event_summary_csv:
+        event_path = store.save_artifact_bytes(job_id, "top_events.csv", event_summary_csv)
+        downloads.append({"name": event_path.name, "url": f"/api/v1/runs/{job_id}/artifacts/{event_path.name}"})
+    result["artifacts"]["downloads"] = downloads
 
     return result

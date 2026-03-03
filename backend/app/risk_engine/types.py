@@ -50,4 +50,5 @@ class ImpactComputationResult:
     portfolio_results: dict[str, Any]
     graphs: dict[str, Any]
     notes: list[str]
+    modeling: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, list[dict[str, str]]] = field(default_factory=dict)

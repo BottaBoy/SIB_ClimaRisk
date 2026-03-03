@@ -16,8 +16,15 @@ const state = {
   currentPage: 'page1',
   mapReady: false,
   windMaps: null,
+  windLayerOpacity: 0.82,
   waterInfra: null,
-  waterLayerVisibility: {}
+  waterLayerVisibility: {},
+  page1Analysis: null,
+  networkStates: null,
+  networkStatesPromise: null,
+  networkLayerVisibility: {},
+  impactMapHazard: 'storm',
+  impactMapScenario: 'event_max'
 };
 
 const mapRef = {
@@ -41,6 +48,13 @@ const waterMapRef = {
   hasFitted: false
 };
 
+const networkMapRef = {
+  instance: null,
+  layersByType: new Map(),
+  order: [],
+  hasFitted: false
+};
+
 const WATER_LAYER_ORDER = ['aep_cana', 'aep_ouvrage', 'eu_cana', 'eu_pr', 'eu_step'];
 const WATER_LAYER_LABEL = {
   aep_cana: 'AEP canalisations',
@@ -48,6 +62,31 @@ const WATER_LAYER_LABEL = {
   eu_cana: 'EU canalisations',
   eu_pr: 'EU postes de refoulement',
   eu_step: 'EU stations STEP'
+};
+
+const NETWORK_LAYER_ORDER = [
+  'eau_aep',
+  'eau_eu',
+  'elec_bt_souterrain',
+  'elec_bt_aerien',
+  'elec_hta_souterrain',
+  'elec_hta_aerien'
+];
+
+const NETWORK_LAYER_LABEL = {
+  eau_aep: 'Reseau eau AEP',
+  eau_eu: 'Reseau eau EU',
+  elec_bt_souterrain: 'Elec BT souterrain',
+  elec_bt_aerien: 'Elec BT aerien',
+  elec_hta_souterrain: 'Elec HTA souterrain',
+  elec_hta_aerien: 'Elec HTA aerien'
+};
+
+const STATE_COLORS = {
+  S0: '#6AB96F',
+  S1: '#f2b66f',
+  S2: '#d94832',
+  S3: '#111111'
 };
 
 const WIND_PADDING_CELLS = 6;
@@ -69,7 +108,11 @@ const chartRefs = {
   c2: null,
   c3: null,
   c4: null,
-  comparison: null
+  comparison: null,
+  page1_year_storm: null,
+  page1_year_cmcc: null,
+  page1_track_storm: null,
+  page1_track_cmcc: null
 };
 
 const els = {
@@ -123,10 +166,29 @@ const els = {
   windMapCmcc: document.getElementById('wind-map-cmcc'),
   windStormCaption: document.getElementById('wind-storm-caption'),
   windCmccCaption: document.getElementById('wind-cmcc-caption'),
+  windOpacitySlider: document.getElementById('wind-opacity-slider'),
+  windOpacityValue: document.getElementById('wind-opacity-value'),
+  hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
   waterLayerControls: document.getElementById('water-layer-controls'),
-  infraSummary: document.getElementById('infra-summary')
+  infraSummary: document.getElementById('infra-summary'),
+  expositionSummaryText: document.getElementById('exposition-summary-text'),
+  expositionMetricsList: document.getElementById('exposition-metrics-list'),
+  expositionValueTableBody: document.getElementById('exposition-value-table-body'),
+  expositionTotalValue: document.getElementById('exposition-total-value'),
+  page1ChartYearStorm: document.getElementById('page1-chart-year-storm'),
+  page1ChartYearCmcc: document.getElementById('page1-chart-year-cmcc'),
+  page1ChartTrackStorm: document.getElementById('page1-chart-track-storm'),
+  page1ChartTrackCmcc: document.getElementById('page1-chart-track-cmcc'),
+  impactSummaryText: document.getElementById('impact-summary-text'),
+  impactStateTableBody: document.getElementById('impact-state-table-body'),
+  impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
+  impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
+  networkLayerControls: document.getElementById('network-layer-controls'),
+  networkStateMap: document.getElementById('network-state-map'),
+  networkStateCaption: document.getElementById('network-state-caption'),
+  conclusionText: document.getElementById('conclusion-text')
 };
 
 const numberFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -183,6 +245,11 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (windMapRef.storm.instance) windMapRef.storm.instance.invalidateSize();
       if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
       if (waterMapRef.instance) waterMapRef.instance.invalidateSize();
+      if (networkMapRef.instance) networkMapRef.instance.invalidateSize();
+      if (chartRefs.page1_year_storm) chartRefs.page1_year_storm.resize();
+      if (chartRefs.page1_year_cmcc) chartRefs.page1_year_cmcc.resize();
+      if (chartRefs.page1_track_storm) chartRefs.page1_track_storm.resize();
+      if (chartRefs.page1_track_cmcc) chartRefs.page1_track_cmcc.resize();
     }, 80);
   }
 }
@@ -223,6 +290,10 @@ function formatMoneyMEUR(valueEur) {
   return `${numberFmt.format((Number(valueEur) || 0) / 1_000_000)} M€`;
 }
 
+function formatMoneyEUR(valueEur) {
+  return `${numberFmt.format(Number(valueEur) || 0)} €`;
+}
+
 function formatRisk(value) {
   return numberFmt.format(Number(value) || 0);
 }
@@ -236,6 +307,11 @@ function formatDate(value) {
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+function formatStateTuple(statePct) {
+  const p = statePct || {};
+  return `S0 ${percentFmt.format(Number(p.S0 || 0))} · S1 ${percentFmt.format(Number(p.S1 || 0))} · S2 ${percentFmt.format(Number(p.S2 || 0))} · S3 ${percentFmt.format(Number(p.S3 || 0))}`;
 }
 
 function ensureResultShape(raw) {
@@ -326,34 +402,134 @@ function renderKpis() {
 }
 
 function renderInfraSummary() {
-  const result = getActiveResult();
-  if (!els.infraSummary) return;
-  if (!result) {
-    els.infraSummary.textContent = "Aucune information d'infrastructure disponible.";
+  const analysis = state.page1Analysis;
+  if (!analysis) {
+    if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
+    if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
+    if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
+    if (els.conclusionText) els.conclusionText.textContent = "Conclusion indisponible.";
     return;
   }
 
-  const categories = result?.exposure_summary?.exposure_category_counts || {};
-  const waterCount = Number(categories.ouvrage_eau || 0);
-  const elecCount = Number(categories.ouvrage_electrique || 0);
-  const housingCount = Number(categories.habitation || 0);
-  const totalAssets = Number(result?.exposure_summary?.asset_count_original || 0);
-  const totalExposure = Number(result?.exposure_summary?.total_exposure_eur || 0);
-  const interdep = result?.portfolio_results?.interdependency || {};
-  const depImpacted = Number(interdep?.dependency_impacted_assets || 0);
-  const showValuation = String(result?.meta?.source || '').includes('guadeloupe_complete_reference');
-  const valuationText = showValuation
-    ? `<br/><strong>Hypotheses de valorisation (prudentes):</strong> ${escapeHtml(GUA_VALUATION_RULES.join(' · '))}`
-    : '';
+  renderPage1Exposition(analysis);
+  renderPage1Hazard(analysis);
+  renderPage1Impact(analysis);
+  renderPage1Conclusion(analysis);
+}
 
-  els.infraSummary.innerHTML = [
-    `<strong>Actifs integres dans le calcul:</strong> ${escapeHtml(numberFmt.format(totalAssets))} (eau=${escapeHtml(numberFmt.format(waterCount))}, electricite=${escapeHtml(numberFmt.format(elecCount))}, habitation=${escapeHtml(numberFmt.format(housingCount))})`,
-    `<br/>`,
-    `<strong>Valeur totale exposee:</strong> ${escapeHtml(formatMoneyMEUR(totalExposure))}`,
-    `<br/>`,
-    `<strong>Propagation elec -> eau:</strong> ${escapeHtml(String(Boolean(interdep?.electricity_to_water_enabled)))}; actifs eau impactes par dependance=${escapeHtml(numberFmt.format(depImpacted))}`,
-    valuationText
-  ].join('');
+function renderPage1Exposition(analysis) {
+  const expo = analysis?.exposition || {};
+  if (els.expositionSummaryText) {
+    els.expositionSummaryText.textContent = String(expo.summary_text || "Aucune information d'exposition disponible.");
+  }
+
+  if (els.expositionMetricsList) {
+    const lengths = expo.lengths_km || {};
+    const counts = expo.counts || {};
+    const items = [
+      `Reseau BT aerien: ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km`,
+      `Reseau BT souterrain: ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km`,
+      `Reseau HTA aerien: ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km`,
+      `Reseau HTA souterrain: ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km`,
+      `Reseau eau AEP: ${numberFmt.format(Number(lengths.eau_aep || 0))} km`,
+      `Reseau eau EU: ${numberFmt.format(Number(lengths.eau_eu || 0))} km`,
+      `Ouvrages AEP: ${numberFmt.format(Number(counts.aep_ouvrages_total || 0))}`,
+      `Postes de refoulement: ${numberFmt.format(Number(counts.eu_pr_total || 0))}`,
+      `STEP: ${numberFmt.format(Number(counts.eu_step_total || 0))}`
+    ];
+    els.expositionMetricsList.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  }
+
+  if (els.expositionValueTableBody) {
+    const lengths = expo.lengths_km || {};
+    const valuePerKm = expo.value_per_km_eur || {};
+    const totals = expo.total_value_by_type_eur || {};
+
+    const networkRows = NETWORK_LAYER_ORDER.map((key) => ({
+      label: NETWORK_LAYER_LABEL[key] || key,
+      lengthKm: Number(lengths[key] || 0),
+      valuePerKm: Number(valuePerKm[key] || 0),
+      total: Number(totals[key] || 0)
+    }));
+    const ouvrageRows = [
+      { label: 'Ouvrages eau AEP', lengthKm: null, valuePerKm: null, total: Number(totals.eau_aep_ouvrages || 0) },
+      { label: 'Postes de refoulement EU', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_pr || 0) },
+      { label: 'Stations STEP EU', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_step || 0) }
+    ];
+    const rows = [...networkRows, ...ouvrageRows];
+    els.expositionValueTableBody.innerHTML = rows.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td class="num">${row.lengthKm === null ? '—' : escapeHtml(numberFmt.format(row.lengthKm))}</td>
+        <td class="num">${row.valuePerKm === null ? '—' : escapeHtml(numberFmt.format(row.valuePerKm))}</td>
+        <td class="num">${escapeHtml(numberFmt.format(row.total))}</td>
+      </tr>
+    `).join('');
+  }
+
+  if (els.expositionTotalValue) {
+    els.expositionTotalValue.textContent = `Valeur totale des infrastructures: ${formatMoneyEUR(expo.total_value_all_eur || 0)}`;
+  }
+}
+
+function renderPage1Hazard(analysis) {
+  const hazard = analysis?.hazard || {};
+  const hist = hazard.wind_histograms || {};
+  if (els.hazardSummaryText) {
+    const stormYears = Number(hist?.storm?.year_count || 0);
+    const cmccYears = Number(hist?.storm_cmcc?.year_count || 0);
+    els.hazardSummaryText.textContent = `${String(hazard.summary_text || '')} STORM: ${numberFmt.format(stormYears)} annees; STORM_CMCC: ${numberFmt.format(cmccYears)} annees.`;
+  }
+
+  renderHistogramChart('page1_year_storm', 'page1-chart-year-storm', hist?.storm?.year_max_hist, '#0083CB');
+  renderHistogramChart('page1_year_cmcc', 'page1-chart-year-cmcc', hist?.storm_cmcc?.year_max_hist, '#00A6E2');
+  renderHistogramChart('page1_track_storm', 'page1-chart-track-storm', hist?.storm?.track_max_hist, '#0E823A');
+  renderHistogramChart('page1_track_cmcc', 'page1-chart-track-cmcc', hist?.storm_cmcc?.track_max_hist, '#A4A64B');
+}
+
+function renderPage1Impact(analysis) {
+  const impact = analysis?.impact || {};
+  const summary = impact.summary_metrics || {};
+  if (els.impactSummaryText) {
+    const storm = summary.storm || {};
+    const cmcc = summary.storm_cmcc || {};
+    els.impactSummaryText.textContent = [
+      String(impact.summary_text || ''),
+      `Dommages annuels moyens: STORM ${formatMoneyEUR(storm.eai_total_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.eai_total_eur || 0)}.`,
+      `Evenement le plus fort: STORM ${formatMoneyEUR(storm.event_max_total_loss_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.event_max_total_loss_eur || 0)}.`
+    ].join(' ');
+  }
+
+  const rows = Array.isArray(impact.state_damage_table) ? impact.state_damage_table : [];
+  if (els.impactStateTableBody) {
+    if (!rows.length) {
+      els.impactStateTableBody.innerHTML = '<tr><td colspan="9">Aucune donnee d\'impact disponible.</td></tr>';
+    } else {
+      els.impactStateTableBody.innerHTML = rows.map((row) => {
+        const storm = row.storm || {};
+        const cmcc = row.storm_cmcc || {};
+        return `
+          <tr>
+            <td>${escapeHtml(String(row.class_label || row.class_key || 'Reseau'))}</td>
+            <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_annual))}</td>
+            <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_event_max))}</td>
+            <td class="num">${escapeHtml(numberFmt.format(Number(storm.eai_eur || 0)))}</td>
+            <td class="num">${escapeHtml(numberFmt.format(Number(storm.event_max_loss_eur || 0)))}</td>
+            <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_annual))}</td>
+            <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_event_max))}</td>
+            <td class="num">${escapeHtml(numberFmt.format(Number(cmcc.eai_eur || 0)))}</td>
+            <td class="num">${escapeHtml(numberFmt.format(Number(cmcc.event_max_loss_eur || 0)))}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+}
+
+function renderPage1Conclusion(analysis) {
+  if (!els.conclusionText) return;
+  const text = analysis?.conclusion?.text;
+  els.conclusionText.textContent = String(text || 'Conclusion indisponible.');
 }
 
 function escapeHtml(text) {
@@ -588,6 +764,51 @@ function getWindColor(value, min, max) {
   return '#d9f0a3';
 }
 
+function clamp01(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function currentWindOpacityFactor() {
+  return clamp01(state.windLayerOpacity ?? 0.82);
+}
+
+function updateWindOpacityUi() {
+  const factor = currentWindOpacityFactor();
+  if (els.windOpacitySlider) els.windOpacitySlider.value = String(Math.round(factor * 100));
+  if (els.windOpacityValue) els.windOpacityValue.textContent = `${Math.round(factor * 100)}%`;
+}
+
+function syncWindOpacityFromSlider({ forceApply = false } = {}) {
+  if (!els.windOpacitySlider) return;
+  const pct = Number(els.windOpacitySlider.value);
+  if (!Number.isFinite(pct)) return;
+  const next = clamp01(pct / 100);
+  const previous = currentWindOpacityFactor();
+  const changed = Math.abs(next - previous) > 0.0001;
+  if (changed) state.windLayerOpacity = next;
+  updateWindOpacityUi();
+  if (changed || forceApply) applyWindLayerOpacity();
+}
+
+function applyWindOpacityToMap(hazardKey) {
+  const ref = windMapRef[hazardKey];
+  if (!ref || !ref.cellsLayer) return;
+  const factor = currentWindOpacityFactor();
+  ref.cellsLayer.eachLayer((layer) => {
+    if (!layer || typeof layer.setStyle !== 'function') return;
+    const base = Number(layer.options?.baseFillOpacity);
+    const finalOpacity = Number.isFinite(base) ? clamp01(base * factor) : factor;
+    layer.setStyle({ fillOpacity: finalOpacity });
+  });
+}
+
+function applyWindLayerOpacity() {
+  applyWindOpacityToMap('storm');
+  applyWindOpacityToMap('storm_cmcc');
+}
+
 function buildWindLegendHtml(min, max) {
   const steps = [0.95, 0.8, 0.65, 0.5, 0.35, 0.2];
   const rows = steps.map((s) => {
@@ -762,11 +983,14 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
         const color = getWindColor(meanWind, min, max);
+        const baseFillOpacity = extrapolated ? 0.86 : 0.97;
+        const finalFillOpacity = clamp01(baseFillOpacity * currentWindOpacityFactor());
         const rect = L.rectangle([[south, west], [north, east]], {
           stroke: false,
           fillColor: color,
-          fillOpacity: extrapolated ? 0.86 : 0.97
+          fillOpacity: finalFillOpacity
         });
+        rect.options.baseFillOpacity = baseFillOpacity;
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
@@ -817,6 +1041,7 @@ function renderWindMaps() {
     els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · echelle commune ${numberFmt.format(colorMin)}-${numberFmt.format(colorMax)} m/s`;
     renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
+  applyWindLayerOpacity();
 }
 
 function waterInfraStyle(feature) {
@@ -971,11 +1196,174 @@ function renderWaterInfraMap() {
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
 
+function networkStatePropertyKey() {
+  const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
+  const scenario = state.impactMapScenario === 'annual' ? 'annual' : 'event_max';
+  if (hazard === 'storm') return scenario === 'annual' ? 'state_annual_storm' : 'state_event_max_storm';
+  return scenario === 'annual' ? 'state_annual_storm_cmcc' : 'state_event_max_storm_cmcc';
+}
+
+function networkFeatureState(feature) {
+  const key = networkStatePropertyKey();
+  const raw = String(feature?.properties?.[key] || 'S0').toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(STATE_COLORS, raw)) return 'S0';
+  return raw;
+}
+
+function networkStateStyle(feature) {
+  const layerKey = String(feature?.properties?.layer_key || '');
+  const stateCode = networkFeatureState(feature);
+  const weight = layerKey.startsWith('eau_') ? 1.4 : 1.1;
+  return {
+    color: STATE_COLORS[stateCode] || STATE_COLORS.S0,
+    weight,
+    opacity: 0.92
+  };
+}
+
+function ensureNetworkLayerState(typeKey) {
+  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = true;
+}
+
+function ensureNetworkMap() {
+  if (!window.L || !els.networkStateMap) return null;
+  if (networkMapRef.instance) return networkMapRef;
+
+  networkMapRef.instance = L.map(els.networkStateMap, { zoomControl: true, preferCanvas: true }).setView([16.25, -61.5], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 13,
+    minZoom: 4,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(networkMapRef.instance);
+  return networkMapRef;
+}
+
+function buildNetworkLayerControls(layerCounts) {
+  if (!els.networkLayerControls) return;
+  const types = [
+    ...NETWORK_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined),
+    ...Object.keys(layerCounts).filter((k) => !NETWORK_LAYER_ORDER.includes(k)).sort()
+  ];
+
+  els.networkLayerControls.innerHTML = types.map((type) => {
+    const checked = state.networkLayerVisibility[type] !== false ? 'checked' : '';
+    const label = NETWORK_LAYER_LABEL[type] || type;
+    const count = layerCounts[type] || 0;
+    return `
+      <label class="layer-item">
+        <input type="checkbox" data-network-layer="${escapeHtml(type)}" ${checked} />
+        <span class="layer-dot" style="background:${escapeHtml(STATE_COLORS.S0)}"></span>
+        <span>${escapeHtml(label)} (${escapeHtml(numberFmt.format(count))})</span>
+      </label>
+    `;
+  }).join('');
+
+  Array.from(els.networkLayerControls.querySelectorAll('input[data-network-layer]')).forEach((input) => {
+    input.addEventListener('change', () => {
+      const key = input.getAttribute('data-network-layer');
+      if (!key) return;
+      state.networkLayerVisibility[key] = input.checked;
+      renderNetworkStateMap();
+    });
+  });
+}
+
+function ensureNetworkLayers(payload) {
+  const ref = ensureNetworkMap();
+  if (!ref || !ref.instance || !payload || !Array.isArray(payload.features)) return null;
+  if (ref.layersByType.size > 0) return ref;
+
+  const grouped = new Map();
+  payload.features.forEach((feature) => {
+    const type = String(feature?.properties?.layer_key || 'unknown');
+    if (!grouped.has(type)) grouped.set(type, []);
+    grouped.get(type).push(feature);
+  });
+
+  ref.order = [
+    ...NETWORK_LAYER_ORDER.filter((k) => grouped.has(k)),
+    ...Array.from(grouped.keys()).filter((k) => !NETWORK_LAYER_ORDER.includes(k)).sort()
+  ];
+
+  ref.order.forEach((type) => {
+    ensureNetworkLayerState(type);
+    const features = grouped.get(type) || [];
+    const layer = L.geoJSON({ type: 'FeatureCollection', features }, {
+      style: networkStateStyle
+    });
+    ref.layersByType.set(type, { layer, count: features.length });
+  });
+  return ref;
+}
+
+function refreshNetworkLayerStyles() {
+  const ref = networkMapRef;
+  ref.layersByType.forEach((entry) => {
+    entry.layer.eachLayer((layerItem) => {
+      if (!layerItem || typeof layerItem.setStyle !== 'function') return;
+      const style = networkStateStyle(layerItem.feature);
+      layerItem.setStyle(style);
+    });
+  });
+}
+
+function renderNetworkStateMap() {
+  if (!state.networkStates) {
+    if (els.networkStateCaption) els.networkStateCaption.textContent = 'Chargement de la carte d etat des reseaux...';
+    return;
+  }
+  const ref = ensureNetworkLayers(state.networkStates);
+  if (!ref || !ref.instance || !window.L) return;
+
+  const counts = {};
+  ref.layersByType.forEach((entry, type) => {
+    counts[type] = entry.count;
+  });
+  buildNetworkLayerControls(counts);
+  refreshNetworkLayerStyles();
+
+  let visibleTotal = 0;
+  let visibleTypes = 0;
+  let bounds = null;
+  ref.order.forEach((type) => {
+    const entry = ref.layersByType.get(type);
+    if (!entry) return;
+    const visible = state.networkLayerVisibility[type] !== false;
+    if (visible) {
+      if (!ref.instance.hasLayer(entry.layer)) entry.layer.addTo(ref.instance);
+      visibleTotal += Number(entry.count || 0);
+      visibleTypes += 1;
+      const layerBounds = entry.layer.getBounds();
+      if (layerBounds && layerBounds.isValid()) {
+        bounds = bounds ? bounds.extend(layerBounds) : layerBounds;
+      }
+    } else if (ref.instance.hasLayer(entry.layer)) {
+      ref.instance.removeLayer(entry.layer);
+    }
+  });
+
+  if (els.networkStateCaption) {
+    const hz = getHazardLabel(state.impactMapHazard);
+    const sc = state.impactMapScenario === 'annual' ? 'moyenne annuelle' : 'evenement le plus fort';
+    if (!visibleTypes) {
+      els.networkStateCaption.textContent = 'Aucune couche selectionnee.';
+    } else {
+      els.networkStateCaption.textContent = `Affichage ${hz} (${sc}) - ${numberFmt.format(visibleTotal)} segments visibles sur ${numberFmt.format((state.networkStates.features || []).length)}.`;
+    }
+  }
+
+  if (!ref.hasFitted && bounds && bounds.isValid()) {
+    ref.instance.fitBounds(bounds, { padding: [18, 18], maxZoom: 11 });
+    ref.hasFitted = true;
+  }
+  setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
+}
+
 function chartThemeCommon() {
   return {
     backgroundColor: 'transparent',
     grid: { left: 12, right: 16, top: 36, bottom: 28, containLabel: true },
-    textStyle: { color: '#edf4f2', fontFamily: 'Manrope' },
+    textStyle: { color: '#edf4f2', fontFamily: 'Marianne' },
     xAxis: {
       axisLine: { lineStyle: { color: 'rgba(177,208,203,0.25)' } },
       axisTick: { show: false },
@@ -994,6 +1382,7 @@ function ensureChart(refKey, domId) {
   if (!window.echarts) return null;
   if (!chartRefs[refKey]) {
     const el = document.getElementById(domId);
+    if (!el) return null;
     chartRefs[refKey] = echarts.init(el, null, { renderer: 'canvas' });
     window.addEventListener('resize', () => chartRefs[refKey] && chartRefs[refKey].resize());
   }
@@ -1073,7 +1462,7 @@ function renderHazardCharts() {
   const hazardGraphs = result.graphs?.[hazardKey];
   if (!hazardGraphs) return;
 
-  els.chartsCaption.textContent = `Interactive web replica for ${getHazardLabel(hazardKey)} plus a side-by-side comparison. Some demo/fallback results are synthetic until the CLIMADA backend runtime is installed.`;
+  els.chartsCaption.textContent = `Interactive web replica for ${getHazardLabel(hazardKey)} plus a side-by-side comparison. Charts are generated from backend risk outputs (CLIMADA in production mode when available).`;
   els.chartTitle1.textContent = hazardGraphs.wind_year_hist?.title || 'Max wind per year';
   els.chartTitle2.textContent = hazardGraphs.wind_track_hist?.title || 'Max wind per track';
   els.chartTitle3.textContent = hazardGraphs.annual_fec?.title || 'Annual FEC';
@@ -1177,6 +1566,10 @@ function renderAll() {
   renderWindMaps();
   renderWaterInfraMap();
   renderInfraSummary();
+  if (state.currentPage === 'page1') {
+    ensureNetworkStatesLoaded();
+  }
+  renderNetworkStateMap();
 
   if (!state.activeResult) {
     return;
@@ -1187,16 +1580,14 @@ function renderAll() {
   updateMetaBadges();
   renderNotes();
 
-  if (state.currentPage !== 'page2') {
-    return;
+  if (state.currentPage === 'page2') {
+    renderTerritorySelectionState();
+    renderKpis();
+    renderMap();
+    renderTerritoryTable();
+    renderHazardCharts();
+    renderArtifactLinks();
   }
-
-  renderTerritorySelectionState();
-  renderKpis();
-  renderMap();
-  renderTerritoryTable();
-  renderHazardCharts();
-  renderArtifactLinks();
 }
 
 function setActiveResult(result, mode = state.selectedDatasetMode) {
@@ -1252,6 +1643,47 @@ async function fetchWaterInfra() {
     throw new Error('Invalid water infrastructure payload');
   }
   return payload;
+}
+
+async function fetchPage1Analysis() {
+  const url = new URL('/data/guadeloupe-page1-analysis.json', window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload || !payload.exposition || !payload.hazard || !payload.impact || !payload.conclusion) {
+    throw new Error('Invalid page1 analysis payload');
+  }
+  return payload;
+}
+
+async function fetchNetworkStates() {
+  const url = new URL('/data/guadeloupe-network-states.geojson', window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
+    throw new Error('Invalid network state payload');
+  }
+  return payload;
+}
+
+function ensureNetworkStatesLoaded() {
+  if (state.networkStates) return;
+  if (state.networkStatesPromise) return;
+  state.networkStatesPromise = fetchNetworkStates()
+    .then((payload) => {
+      state.networkStates = payload;
+    })
+    .catch((err) => {
+      console.warn('Network states could not be loaded', err);
+      if (els.networkStateCaption) {
+        els.networkStateCaption.textContent = 'Donnees d etat des reseaux indisponibles.';
+      }
+    })
+    .finally(() => {
+      state.networkStatesPromise = null;
+      renderNetworkStateMap();
+    });
 }
 
 function stopPolling() {
@@ -1458,6 +1890,31 @@ function bindEvents() {
     switchDatasetMode(els.datasetSelect.value);
   });
 
+  if (els.windOpacitySlider) {
+    const onWindOpacityChange = () => syncWindOpacityFromSlider({ forceApply: true });
+    const sliderEvents = ['input', 'change', 'pointermove', 'pointerup', 'touchmove', 'touchend', 'mousemove', 'mouseup', 'keyup'];
+    sliderEvents.forEach((eventName) => {
+      els.windOpacitySlider.addEventListener(eventName, onWindOpacityChange);
+    });
+    updateWindOpacityUi();
+    syncWindOpacityFromSlider({ forceApply: true });
+  }
+
+  if (els.impactMapHazardSelect) {
+    els.impactMapHazardSelect.value = state.impactMapHazard;
+    els.impactMapHazardSelect.addEventListener('change', () => {
+      state.impactMapHazard = els.impactMapHazardSelect.value === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
+      renderNetworkStateMap();
+    });
+  }
+  if (els.impactMapScenarioSelect) {
+    els.impactMapScenarioSelect.value = state.impactMapScenario;
+    els.impactMapScenarioSelect.addEventListener('change', () => {
+      state.impactMapScenario = els.impactMapScenarioSelect.value === 'annual' ? 'annual' : 'event_max';
+      renderNetworkStateMap();
+    });
+  }
+
   els.resetDemoBtn.addEventListener('click', () => {
     stopPolling();
     state.selectedTerritoryId = null;
@@ -1537,6 +1994,17 @@ async function bootstrap() {
     });
     if (!state.waterInfra && els.waterMapCaption) {
       els.waterMapCaption.textContent = "Donnees infrastructures d'eau indisponibles.";
+    }
+
+    state.page1Analysis = await fetchPage1Analysis().catch((err) => {
+      console.warn('Page 1 analysis payload could not be loaded', err);
+      return null;
+    });
+    if (!state.page1Analysis) {
+      if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
+      if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
+      if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
+      if (els.conclusionText) els.conclusionText.textContent = 'Conclusion indisponible.';
     }
 
     const demo = await fetchDemoResult();
