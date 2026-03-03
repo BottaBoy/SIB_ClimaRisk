@@ -824,14 +824,15 @@ function renderMap() {
   setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
 }
 
-function getWindColor(value, min, max) {
-  const span = Math.max(0.0001, (max - min) || 1);
-  const t = Math.max(0, Math.min(1, (value - min) / span));
-  if (t >= 0.9) return '#b10026';
-  if (t >= 0.75) return '#e31a1c';
-  if (t >= 0.6) return '#fd8d3c';
-  if (t >= 0.45) return '#feb24c';
-  if (t >= 0.3) return '#fee391';
+function getWindColor(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '#d9f0a3';
+  if (v > 45) return '#67000d';
+  if (v > 40) return '#b10026';
+  if (v > 35) return '#e31a1c';
+  if (v > 30) return '#fd8d3c';
+  if (v > 25) return '#feb24c';
+  if (v > 20) return '#fee391';
   return '#d9f0a3';
 }
 
@@ -880,23 +881,27 @@ function applyWindLayerOpacity() {
   applyWindOpacityToMap('storm_cmcc');
 }
 
-function buildWindLegendHtml(min, max) {
-  const steps = [0.95, 0.8, 0.65, 0.5, 0.35, 0.2];
-  const rows = steps.map((s) => {
-    const value = min + s * (max - min);
-    const color = getWindColor(value, min, max);
-    return `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${numberFmt.format(value)} m/s</span></div>`;
-  });
+function buildWindLegendHtml() {
+  const rows = [
+    { label: '<20 m/s', color: getWindColor(19.99) },
+    { label: '20,01-25 m/s', color: getWindColor(22.5) },
+    { label: '25,01-30 m/s', color: getWindColor(27.5) },
+    { label: '30,01-35 m/s', color: getWindColor(32.5) },
+    { label: '35,01-40 m/s', color: getWindColor(37.5) },
+    { label: '40,01-45 m/s', color: getWindColor(42.5) },
+    { label: '>45 m/s', color: getWindColor(46.0) }
+  ].map((entry) => (
+    `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${entry.color}"></span><span>${entry.label}</span></div>`
+  ));
   return [
     '<div class="wind-legend">',
-    `<div class="wind-legend-title">Vent moyen</div>`,
+    '<div class="wind-legend-title">Vent moyen</div>',
     ...rows,
-    `<div class="wind-legend-range">${numberFmt.format(min)} - ${numberFmt.format(max)} m/s</div>`,
     '</div>'
   ].join('');
 }
 
-function ensureWindLegend(hazardKey, min, max) {
+function ensureWindLegend(hazardKey) {
   const ref = windMapRef[hazardKey];
   if (!ref || !ref.instance || !window.L) return;
 
@@ -911,7 +916,7 @@ function ensureWindLegend(hazardKey, min, max) {
   }
 
   const legendEl = ref.legendControl.getContainer();
-  if (legendEl) legendEl.innerHTML = buildWindLegendHtml(min, max);
+  if (legendEl) legendEl.innerHTML = buildWindLegendHtml();
 }
 
 function ensureWindMap(hazardKey) {
@@ -1053,7 +1058,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const meanWind = Number(data.mean_wind_mps ?? min);
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
-        const color = getWindColor(meanWind, min, max);
+        const color = getWindColor(meanWind);
         const baseFillOpacity = extrapolated ? 0.86 : 0.97;
         const finalFillOpacity = clamp01(baseFillOpacity * currentWindOpacityFactor());
         const rect = L.rectangle([[south, west], [north, east]], {
@@ -1076,7 +1081,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     }
   }
 
-  ensureWindLegend(hazardKey, min, max);
+  ensureWindLegend(hazardKey);
 
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -1105,11 +1110,11 @@ function renderWindMaps() {
   const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
 
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · echelle commune ${numberFmt.format(colorMin)}-${numberFmt.format(colorMax)} m/s`;
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
     renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · echelle commune ${numberFmt.format(colorMin)}-${numberFmt.format(colorMax)} m/s`;
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
     renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
   applyWindLayerOpacity();
