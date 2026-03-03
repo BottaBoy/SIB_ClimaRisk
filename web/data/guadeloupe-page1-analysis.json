@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-03T14:08:01+00:00",
+    "generated_at": "2026-03-03T15:09:03+00:00",
     "source": "guadeloupe_page1_computed",
     "sampling_spacing_m": 100.0,
     "hazards": [
@@ -199,8 +199,8 @@
         "direct_hs_pct_event_max": 0.0,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 965.78,
-        "event_max_total_loss_eur": 3016910.19,
+        "eai_total_eur": 1374.19,
+        "event_max_total_loss_eur": 4200440.72,
         "event_id_max": 18859
       },
       "storm_cmcc": {
@@ -208,8 +208,8 @@
         "direct_hs_pct_event_max": 0.0,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 1927.68,
-        "event_max_total_loss_eur": 3582218.69,
+        "eai_total_eur": 2883.4,
+        "event_max_total_loss_eur": 5615918.28,
         "event_id_max": 30019
       }
     },
@@ -431,12 +431,126 @@
         }
       }
     ],
+    "damage_breakdown": {
+      "storm": [
+        {
+          "class_key": "eau_aep",
+          "class_label": "Reseau eau AEP",
+          "eai_eur": 249.91,
+          "event_max_loss_eur": 797506.01
+        },
+        {
+          "class_key": "eau_eu",
+          "class_label": "Reseau eau EU",
+          "eai_eur": 85.31,
+          "event_max_loss_eur": 363524.71
+        },
+        {
+          "class_key": "elec_bt_souterrain",
+          "class_label": "Basse tension souterrain",
+          "eai_eur": 132.47,
+          "event_max_loss_eur": 570316.48
+        },
+        {
+          "class_key": "elec_bt_aerien",
+          "class_label": "Basse tension aerien",
+          "eai_eur": 163.09,
+          "event_max_loss_eur": 366815.66
+        },
+        {
+          "class_key": "elec_hta_souterrain",
+          "class_label": "Haute tension souterrain",
+          "eai_eur": 294.85,
+          "event_max_loss_eur": 866350.68
+        },
+        {
+          "class_key": "elec_hta_aerien",
+          "class_label": "Haute tension aerien",
+          "eai_eur": 40.14,
+          "event_max_loss_eur": 52396.66
+        },
+        {
+          "class_key": "eau_aep_ouvrages",
+          "class_label": "Ouvrages AEP",
+          "eai_eur": 95.84,
+          "event_max_loss_eur": 221087.76
+        },
+        {
+          "class_key": "eau_eu_pr",
+          "class_label": "Postes de refoulement",
+          "eai_eur": 95.06,
+          "event_max_loss_eur": 367289.4
+        },
+        {
+          "class_key": "eau_eu_step",
+          "class_label": "STEP",
+          "eai_eur": 217.51,
+          "event_max_loss_eur": 595153.38
+        }
+      ],
+      "storm_cmcc": [
+        {
+          "class_key": "eau_aep",
+          "class_label": "Reseau eau AEP",
+          "eai_eur": 544.75,
+          "event_max_loss_eur": 1021955.01
+        },
+        {
+          "class_key": "eau_eu",
+          "class_label": "Reseau eau EU",
+          "eai_eur": 173.55,
+          "event_max_loss_eur": 403443.3
+        },
+        {
+          "class_key": "elec_bt_souterrain",
+          "class_label": "Basse tension souterrain",
+          "eai_eur": 247.77,
+          "event_max_loss_eur": 577087.73
+        },
+        {
+          "class_key": "elec_bt_aerien",
+          "class_label": "Basse tension aerien",
+          "eai_eur": 339.81,
+          "event_max_loss_eur": 484291.55
+        },
+        {
+          "class_key": "elec_hta_souterrain",
+          "class_label": "Haute tension souterrain",
+          "eai_eur": 540.58,
+          "event_max_loss_eur": 999446.76
+        },
+        {
+          "class_key": "elec_hta_aerien",
+          "class_label": "Haute tension aerien",
+          "eai_eur": 81.22,
+          "event_max_loss_eur": 95994.34
+        },
+        {
+          "class_key": "eau_aep_ouvrages",
+          "class_label": "Ouvrages AEP",
+          "eai_eur": 265.75,
+          "event_max_loss_eur": 559371.27
+        },
+        {
+          "class_key": "eau_eu_pr",
+          "class_label": "Postes de refoulement",
+          "eai_eur": 184.22,
+          "event_max_loss_eur": 388108.65
+        },
+        {
+          "class_key": "eau_eu_step",
+          "class_label": "STEP",
+          "eai_eur": 505.74,
+          "event_max_loss_eur": 1086219.68
+        }
+      ]
+    },
     "map_defaults": {
       "hazard": "storm",
       "scenario": "event_max"
     }
   },
   "conclusion": {
-    "text": "L'analyse montre un portefeuille de reseaux valorise a 5010.9 M€. Les dommages annuels moyens modelises sont de 0.001 M€ (STORM) et 0.002 M€ (STORM_CMCC). Le scenario le plus contraignant en EAI est STORM_CMCC. Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
+    "text": "L'analyse montre un portefeuille de reseaux valorise a 5010.9 M€. Les dommages annuels moyens modelises sont de 0.001 M€ (STORM) et 0.003 M€ (STORM_CMCC). Le scenario le plus contraignant en EAI est STORM_CMCC. Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
   }
 }

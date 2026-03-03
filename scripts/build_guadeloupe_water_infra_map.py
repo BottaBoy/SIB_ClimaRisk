@@ -47,17 +47,23 @@ def _load_layer(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Guadeloupe water infrastructure GeoJSON for web visualization.")
     parser.add_argument("--infra-eau-dir", default="/home/ubuntu/uploads/Infra_Eau_Guadeloupe")
+    parser.add_argument("--infra-elec-dir", default="/home/ubuntu/uploads/Infra_Elec_Guadeloupe")
     parser.add_argument("--out", default="/home/ubuntu/sib-work/web/data/guadeloupe-water-infra.geojson")
     parser.add_argument("--simplify-tolerance-m", type=float, default=3.0)
     args = parser.parse_args()
 
     root = Path(args.infra_eau_dir)
+    elec_root = Path(args.infra_elec_dir)
     layers = [
         (root / "AEP" / "cana_aep.gpkg", "aep_cana", "AEP"),
         (root / "AEP" / "ouvrage_aep.gpkg", "aep_ouvrage", "AEP"),
         (root / "EU" / "cana_eu.gpkg", "eu_cana", "EU"),
         (root / "EU" / "pr.gpkg", "eu_pr", "EU"),
         (root / "EU" / "step.gpkg", "eu_step", "EU"),
+        (elec_root / "lignes-basse-tension-bt-aerien-gua.geojson", "elec_bt_aerien", "ELEC"),
+        (elec_root / "lignes-basse-tension-bt-souterrain-gua.geojson", "elec_bt_souterrain", "ELEC"),
+        (elec_root / "lignes-haute-tension-hta-aerien-gua.geojson", "elec_hta_aerien", "ELEC"),
+        (elec_root / "lignes-haute-tension-hta-souterrain-gua.geojson", "elec_hta_souterrain", "ELEC"),
     ]
 
     gdfs: list[gpd.GeoDataFrame] = []

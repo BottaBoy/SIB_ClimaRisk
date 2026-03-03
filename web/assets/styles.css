@@ -611,6 +611,11 @@ button:disabled {
 .table-wrap td.num, .table-wrap th.num { text-align: right; }
 .table-wrap tr:hover td { background: rgba(0, 166, 226, 0.2); }
 .table-wrap tr.active td { background: rgba(106, 185, 111, 0.26); }
+.table-wrap tr.table-total-row td {
+  background: rgba(91, 197, 242, 0.16);
+  border-top: 1px solid rgba(153, 215, 247, 0.35);
+  font-weight: 700;
+}
 
 .charts-panel {
   padding: 14px;

@@ -51,6 +51,18 @@ NETWORK_CLASS_LABELS = {
     "elec_hta_aerien": "Elec HTA aerien",
 }
 
+DAMAGE_BREAKDOWN_LABELS = {
+    "eau_aep": "Reseau eau AEP",
+    "eau_eu": "Reseau eau EU",
+    "elec_bt_souterrain": "Basse tension souterrain",
+    "elec_bt_aerien": "Basse tension aerien",
+    "elec_hta_souterrain": "Haute tension souterrain",
+    "elec_hta_aerien": "Haute tension aerien",
+    "eau_aep_ouvrages": "Ouvrages AEP",
+    "eau_eu_pr": "Postes de refoulement",
+    "eau_eu_step": "STEP",
+}
+
 NETWORK_VALUE_PER_KM = {
     "eau_aep": 280_000.0,
     "eau_eu": 340_000.0,
@@ -348,6 +360,17 @@ def _network_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(str(point_record.get("asset_type") or ""))
 
 
+def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
+    asset_type = str(point_record.get("asset_type") or "")
+    if asset_type.startswith("eau_aep_ouvrage_"):
+        return "eau_aep_ouvrages"
+    if asset_type == "eau_eu_pr":
+        return "eau_eu_pr"
+    if asset_type == "eau_eu_step":
+        return "eau_eu_step"
+    return ASSET_TYPE_TO_NETWORK_CLASS.get(asset_type)
+
+
 def _build_network_geometry_features(infra_elec_dir: Path, infra_eau_dir: Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
@@ -398,6 +421,7 @@ def _compute_impact_metrics(
     territories = [str(rec["territory_id"]) for rec in bundle.point_records]
     feature_ids = [str(rec["feature_id"]) for rec in bundle.point_records]
     class_keys = [_network_class_from_point(rec) for rec in bundle.point_records]
+    breakdown_class_keys = [_breakdown_class_from_point(rec) for rec in bundle.point_records]
     weights_km = np.array(
         [
             (float(rec["value_eur"]) / NETWORK_VALUE_PER_KM[class_key]) if class_key in NETWORK_VALUE_PER_KM else 0.0
@@ -503,6 +527,19 @@ def _compute_impact_metrics(
                 }
             )
 
+        breakdown_rows: list[dict[str, Any]] = []
+        for class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
+            mask = np.array([ck == class_key for ck in breakdown_class_keys], dtype=bool)
+            breakdown_rows.append(
+                {
+                    "class_key": class_key,
+                    "class_label": label,
+                    "eai_eur": round(float(total_eai[mask].sum()), 2),
+                    "event_max_loss_eur": round(float(total_event_loss[mask].sum()), 2),
+                }
+            )
+
+        all_infra_mask = np.array([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
         network_mask = np.array([ck in NETWORK_CLASS_LABELS for ck in class_keys], dtype=bool)
         network_total_w = float(weights_km[network_mask].sum())
         direct_s3_annual = float(weights_km[network_mask & (direct_state_annual == "S3")].sum())
@@ -517,14 +554,15 @@ def _compute_impact_metrics(
                 "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
-                "eai_total_eur": round(float(total_eai[network_mask].sum()), 2),
-                "event_max_total_loss_eur": round(float(total_event_loss[network_mask].sum()), 2),
+                "eai_total_eur": round(float(total_eai[all_infra_mask].sum()), 2),
+                "event_max_total_loss_eur": round(float(total_event_loss[all_infra_mask].sum()), 2),
                 "event_id_max": int(getattr(impact, "event_id", [event_idx + 1])[event_idx]) if len(getattr(impact, "event_id", [])) else int(event_idx + 1),
             },
             "feature_states": {
                 "annual": _aggregate_feature_states(feature_ids, final_state_annual_arr),
                 "event_max": _aggregate_feature_states(feature_ids, final_state_event_arr),
             },
+            "breakdown_rows": breakdown_rows,
         }
 
     merged_rows = _merge_rows_by_class(hazard_outputs)
@@ -534,6 +572,10 @@ def _compute_impact_metrics(
         "summary_text": summary_text,
         "summary_metrics": {haz: hazard_outputs[haz]["summary"] for haz in ("storm", "storm_cmcc")},
         "state_damage_table": merged_rows,
+        "damage_breakdown": {
+            "storm": hazard_outputs["storm"]["breakdown_rows"],
+            "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_rows"],
+        },
         "map_defaults": {
             "hazard": "storm",
             "scenario": "event_max",

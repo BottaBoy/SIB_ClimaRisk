@@ -55,13 +55,27 @@ const networkMapRef = {
   hasFitted: false
 };
 
-const WATER_LAYER_ORDER = ['aep_cana', 'aep_ouvrage', 'eu_cana', 'eu_pr', 'eu_step'];
+const WATER_LAYER_ORDER = [
+  'aep_cana',
+  'aep_ouvrage',
+  'eu_cana',
+  'eu_pr',
+  'eu_step',
+  'elec_bt_aerien',
+  'elec_bt_souterrain',
+  'elec_hta_aerien',
+  'elec_hta_souterrain'
+];
 const WATER_LAYER_LABEL = {
   aep_cana: 'AEP canalisations',
   aep_ouvrage: 'AEP ouvrages',
   eu_cana: 'EU canalisations',
   eu_pr: 'EU postes de refoulement',
-  eu_step: 'EU stations STEP'
+  eu_step: 'STEP',
+  elec_bt_aerien: 'Basse tension aerien',
+  elec_bt_souterrain: 'Basse tension souterrain',
+  elec_hta_aerien: 'Haute tension aerien',
+  elec_hta_souterrain: 'Haute tension souterrain'
 };
 
 const NETWORK_LAYER_ORDER = [
@@ -76,10 +90,10 @@ const NETWORK_LAYER_ORDER = [
 const NETWORK_LAYER_LABEL = {
   eau_aep: 'Reseau eau AEP',
   eau_eu: 'Reseau eau EU',
-  elec_bt_souterrain: 'Elec BT souterrain',
-  elec_bt_aerien: 'Elec BT aerien',
-  elec_hta_souterrain: 'Elec HTA souterrain',
-  elec_hta_aerien: 'Elec HTA aerien'
+  elec_bt_souterrain: 'Reseau basse tension souterrain',
+  elec_bt_aerien: 'Reseau basse tension aerien',
+  elec_hta_souterrain: 'Reseau haute tension souterrain',
+  elec_hta_aerien: 'Reseau haute tension aerien'
 };
 
 const STATE_COLORS = {
@@ -92,10 +106,10 @@ const STATE_COLORS = {
 const WIND_PADDING_CELLS = 6;
 
 const GUA_VALUATION_RULES = [
-  'Elec BT aerien: 180 kEUR/km',
-  'Elec BT souterrain: 320 kEUR/km',
-  'Elec HTA aerien: 260 kEUR/km',
-  'Elec HTA souterrain: 520 kEUR/km',
+  'Elec basse tension aerien: 180 kEUR/km',
+  'Elec basse tension souterrain: 320 kEUR/km',
+  'Elec haute tension aerien: 260 kEUR/km',
+  'Elec haute tension souterrain: 520 kEUR/km',
   'AEP canalisations: 280 kEUR/km',
   'EU canalisations: 340 kEUR/km',
   'EU PR: 900 kEUR/unite',
@@ -109,10 +123,10 @@ const chartRefs = {
   c3: null,
   c4: null,
   comparison: null,
-  page1_year_storm: null,
-  page1_year_cmcc: null,
-  page1_track_storm: null,
-  page1_track_cmcc: null
+  page1_year_compare: null,
+  page1_track_compare: null,
+  impact_eai: null,
+  impact_evt: null
 };
 
 const els = {
@@ -177,12 +191,12 @@ const els = {
   expositionMetricsList: document.getElementById('exposition-metrics-list'),
   expositionValueTableBody: document.getElementById('exposition-value-table-body'),
   expositionTotalValue: document.getElementById('exposition-total-value'),
-  page1ChartYearStorm: document.getElementById('page1-chart-year-storm'),
-  page1ChartYearCmcc: document.getElementById('page1-chart-year-cmcc'),
-  page1ChartTrackStorm: document.getElementById('page1-chart-track-storm'),
-  page1ChartTrackCmcc: document.getElementById('page1-chart-track-cmcc'),
+  page1ChartYearCompare: document.getElementById('page1-chart-year-compare'),
+  page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
   impactStateTableBody: document.getElementById('impact-state-table-body'),
+  impactEaiChart: document.getElementById('impact-eai-chart'),
+  impactEvtChart: document.getElementById('impact-evt-chart'),
   impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
   impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
   networkLayerControls: document.getElementById('network-layer-controls'),
@@ -191,8 +205,9 @@ const els = {
   conclusionText: document.getElementById('conclusion-text')
 };
 
-const numberFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-const percentFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
 });
@@ -246,10 +261,10 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
       if (waterMapRef.instance) waterMapRef.instance.invalidateSize();
       if (networkMapRef.instance) networkMapRef.instance.invalidateSize();
-      if (chartRefs.page1_year_storm) chartRefs.page1_year_storm.resize();
-      if (chartRefs.page1_year_cmcc) chartRefs.page1_year_cmcc.resize();
-      if (chartRefs.page1_track_storm) chartRefs.page1_track_storm.resize();
-      if (chartRefs.page1_track_cmcc) chartRefs.page1_track_cmcc.resize();
+      if (chartRefs.page1_year_compare) chartRefs.page1_year_compare.resize();
+      if (chartRefs.page1_track_compare) chartRefs.page1_track_compare.resize();
+      if (chartRefs.impact_eai) chartRefs.impact_eai.resize();
+      if (chartRefs.impact_evt) chartRefs.impact_evt.resize();
     }, 80);
   }
 }
@@ -287,11 +302,11 @@ function setStatus(message, tone = 'info') {
 }
 
 function formatMoneyMEUR(valueEur) {
-  return `${numberFmt.format((Number(valueEur) || 0) / 1_000_000)} M€`;
+  return `${moneyFmt.format((Number(valueEur) || 0) / 1_000_000)} M€`;
 }
 
 function formatMoneyEUR(valueEur) {
-  return `${numberFmt.format(Number(valueEur) || 0)} €`;
+  return `${moneyFmt.format(Number(valueEur) || 0)} €`;
 }
 
 function formatRisk(value) {
@@ -419,18 +434,26 @@ function renderInfraSummary() {
 
 function renderPage1Exposition(analysis) {
   const expo = analysis?.exposition || {};
+  const lengths = expo.lengths_km || {};
+  const counts = expo.counts || {};
+
   if (els.expositionSummaryText) {
-    els.expositionSummaryText.textContent = String(expo.summary_text || "Aucune information d'exposition disponible.");
+    const linesElec = Number(counts.elec_lines_total || 0);
+    const linesWater = Number(counts.water_lines_total || 0);
+    const txt = [
+      `Le jeu de reference comprend ${numberFmt.format(linesElec)} troncons electriques et ${numberFmt.format(linesWater)} troncons d'eau.`,
+      `Longueurs reseaux: basse tension aerien ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km, basse tension souterrain ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km, haute tension aerien ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km, haute tension souterrain ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km, AEP ${numberFmt.format(Number(lengths.eau_aep || 0))} km, EU ${numberFmt.format(Number(lengths.eau_eu || 0))} km.`,
+      `Ouvrages eau: ${numberFmt.format(Number(counts.aep_ouvrages_total || 0))} AEP, ${numberFmt.format(Number(counts.eu_pr_total || 0))} postes de refoulement, ${numberFmt.format(Number(counts.eu_step_total || 0))} STEP.`
+    ];
+    els.expositionSummaryText.textContent = txt.join(' ');
   }
 
   if (els.expositionMetricsList) {
-    const lengths = expo.lengths_km || {};
-    const counts = expo.counts || {};
     const items = [
-      `Reseau BT aerien: ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km`,
-      `Reseau BT souterrain: ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km`,
-      `Reseau HTA aerien: ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km`,
-      `Reseau HTA souterrain: ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km`,
+      `Reseau basse tension aerien: ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km`,
+      `Reseau basse tension souterrain: ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km`,
+      `Reseau haute tension aerien: ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km`,
+      `Reseau haute tension souterrain: ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km`,
       `Reseau eau AEP: ${numberFmt.format(Number(lengths.eau_aep || 0))} km`,
       `Reseau eau EU: ${numberFmt.format(Number(lengths.eau_eu || 0))} km`,
       `Ouvrages AEP: ${numberFmt.format(Number(counts.aep_ouvrages_total || 0))}`,
@@ -441,7 +464,6 @@ function renderPage1Exposition(analysis) {
   }
 
   if (els.expositionValueTableBody) {
-    const lengths = expo.lengths_km || {};
     const valuePerKm = expo.value_per_km_eur || {};
     const totals = expo.total_value_by_type_eur || {};
 
@@ -454,17 +476,25 @@ function renderPage1Exposition(analysis) {
     const ouvrageRows = [
       { label: 'Ouvrages eau AEP', lengthKm: null, valuePerKm: null, total: Number(totals.eau_aep_ouvrages || 0) },
       { label: 'Postes de refoulement EU', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_pr || 0) },
-      { label: 'Stations STEP EU', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_step || 0) }
+      { label: 'STEP', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_step || 0) }
     ];
     const rows = [...networkRows, ...ouvrageRows];
+    const totalValue = rows.reduce((acc, row) => acc + Number(row.total || 0), 0);
     els.expositionValueTableBody.innerHTML = rows.map((row) => `
       <tr>
         <td>${escapeHtml(row.label)}</td>
         <td class="num">${row.lengthKm === null ? '—' : escapeHtml(numberFmt.format(row.lengthKm))}</td>
         <td class="num">${row.valuePerKm === null ? '—' : escapeHtml(numberFmt.format(row.valuePerKm))}</td>
-        <td class="num">${escapeHtml(numberFmt.format(row.total))}</td>
+        <td class="num">${escapeHtml(formatMoneyEUR(row.total))}</td>
       </tr>
-    `).join('');
+    `).join('') + `
+      <tr class="table-total-row">
+        <td><strong>Total</strong></td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalValue))}</strong></td>
+      </tr>
+    `;
   }
 
   if (els.expositionTotalValue) {
@@ -481,10 +511,26 @@ function renderPage1Hazard(analysis) {
     els.hazardSummaryText.textContent = `${String(hazard.summary_text || '')} STORM: ${numberFmt.format(stormYears)} annees; STORM_CMCC: ${numberFmt.format(cmccYears)} annees.`;
   }
 
-  renderHistogramChart('page1_year_storm', 'page1-chart-year-storm', hist?.storm?.year_max_hist, '#0083CB');
-  renderHistogramChart('page1_year_cmcc', 'page1-chart-year-cmcc', hist?.storm_cmcc?.year_max_hist, '#00A6E2');
-  renderHistogramChart('page1_track_storm', 'page1-chart-track-storm', hist?.storm?.track_max_hist, '#0E823A');
-  renderHistogramChart('page1_track_cmcc', 'page1-chart-track-cmcc', hist?.storm_cmcc?.track_max_hist, '#A4A64B');
+  renderHistogramComparisonChart(
+    'page1_year_compare',
+    'page1-chart-year-compare',
+    hist?.storm?.year_max_hist,
+    hist?.storm_cmcc?.year_max_hist,
+    'STORM',
+    'STORM_CMCC',
+    '#0083CB',
+    '#F39655'
+  );
+  renderHistogramComparisonChart(
+    'page1_track_compare',
+    'page1-chart-track-compare',
+    hist?.storm?.track_max_hist,
+    hist?.storm_cmcc?.track_max_hist,
+    'STORM',
+    'STORM_CMCC',
+    '#00A6E2',
+    '#A4A64B'
+  );
 }
 
 function renderPage1Impact(analysis) {
@@ -493,8 +539,14 @@ function renderPage1Impact(analysis) {
   if (els.impactSummaryText) {
     const storm = summary.storm || {};
     const cmcc = summary.storm_cmcc || {};
+    const directAnnualStorm = Number(storm.direct_hs_pct_annual || 0);
+    const indirectAnnualStorm = Number(storm.indirect_hs_pct_annual || 0);
+    const directAnnualCmcc = Number(cmcc.direct_hs_pct_annual || 0);
+    const indirectAnnualCmcc = Number(cmcc.indirect_hs_pct_annual || 0);
+
     els.impactSummaryText.textContent = [
-      String(impact.summary_text || ''),
+      `Pourcentage hors service annuel (S3) - dommages directs: STORM ${percentFmt.format(directAnnualStorm)} %, STORM_CMCC ${percentFmt.format(directAnnualCmcc)} %.`,
+      `Pourcentage hors service annuel (S3) - dependance electrique: STORM ${percentFmt.format(indirectAnnualStorm)} %, STORM_CMCC ${percentFmt.format(indirectAnnualCmcc)} %.`,
       `Dommages annuels moyens: STORM ${formatMoneyEUR(storm.eai_total_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.eai_total_eur || 0)}.`,
       `Evenement le plus fort: STORM ${formatMoneyEUR(storm.event_max_total_loss_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.event_max_total_loss_eur || 0)}.`
     ].join(' ');
@@ -508,28 +560,47 @@ function renderPage1Impact(analysis) {
       els.impactStateTableBody.innerHTML = rows.map((row) => {
         const storm = row.storm || {};
         const cmcc = row.storm_cmcc || {};
+        const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
         return `
           <tr>
-            <td>${escapeHtml(String(row.class_label || row.class_key || 'Reseau'))}</td>
+            <td>${escapeHtml(String(rowLabel))}</td>
             <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_annual))}</td>
             <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_event_max))}</td>
-            <td class="num">${escapeHtml(numberFmt.format(Number(storm.eai_eur || 0)))}</td>
-            <td class="num">${escapeHtml(numberFmt.format(Number(storm.event_max_loss_eur || 0)))}</td>
+            <td class="num">${escapeHtml(formatMoneyEUR(storm.eai_eur || 0))}</td>
+            <td class="num">${escapeHtml(formatMoneyEUR(storm.event_max_loss_eur || 0))}</td>
             <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_annual))}</td>
             <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_event_max))}</td>
-            <td class="num">${escapeHtml(numberFmt.format(Number(cmcc.eai_eur || 0)))}</td>
-            <td class="num">${escapeHtml(numberFmt.format(Number(cmcc.event_max_loss_eur || 0)))}</td>
+            <td class="num">${escapeHtml(formatMoneyEUR(cmcc.eai_eur || 0))}</td>
+            <td class="num">${escapeHtml(formatMoneyEUR(cmcc.event_max_loss_eur || 0))}</td>
           </tr>
         `;
       }).join('');
     }
   }
+
+  renderImpactBreakdownCharts(impact);
 }
 
 function renderPage1Conclusion(analysis) {
   if (!els.conclusionText) return;
-  const text = analysis?.conclusion?.text;
-  els.conclusionText.textContent = String(text || 'Conclusion indisponible.');
+  const expo = analysis?.exposition || {};
+  const impact = analysis?.impact || {};
+  const storm = impact?.summary_metrics?.storm || {};
+  const cmcc = impact?.summary_metrics?.storm_cmcc || {};
+  const totalValue = Number(expo.total_value_all_eur || 0);
+  const stormEai = Number(storm.eai_total_eur || 0);
+  const cmccEai = Number(cmcc.eai_total_eur || 0);
+  const stormEvt = Number(storm.event_max_total_loss_eur || 0);
+  const cmccEvt = Number(cmcc.event_max_total_loss_eur || 0);
+  const stronger = cmccEai >= stormEai ? 'STORM_CMCC' : 'STORM';
+  const ratioStorm = totalValue > 0 ? (stormEai / totalValue) * 100.0 : 0;
+  const ratioCmcc = totalValue > 0 ? (cmccEai / totalValue) * 100.0 : 0;
+  const txt = [
+    `Le portefeuille d'infrastructures represente ${formatMoneyEUR(totalValue)}.`,
+    `Les dommages annuels moyens restent limites (${percentFmt.format(ratioStorm)} % pour STORM et ${percentFmt.format(ratioCmcc)} % pour STORM_CMCC), mais l'evenement extrême atteint ${formatMoneyEUR(stormEvt)} (STORM) et ${formatMoneyEUR(cmccEvt)} (STORM_CMCC).`,
+    `Le scenario le plus penalise en EAI est ${stronger}. Priorites recommandees: renforcer les troncons critiques, securiser l'alimentation electrique des ouvrages d'eau et prevoir des plans de continuité en cas de cyclone majeur.`
+  ];
+  els.conclusionText.textContent = txt.join(' ');
 }
 
 function escapeHtml(text) {
@@ -1046,16 +1117,20 @@ function renderWindMaps() {
 
 function waterInfraStyle(feature) {
   const t = String(feature?.properties?.infra_type || '').toLowerCase();
-  if (t === 'aep_cana') return { color: '#58b368', weight: 1.2, opacity: 0.75 };
-  if (t === 'eu_cana') return { color: '#3a90c4', weight: 1.2, opacity: 0.75 };
-  if (t === 'aep_ouvrage') return { color: '#f1c04e', weight: 1.8, opacity: 0.95 };
-  if (t === 'eu_pr') return { color: '#f47f4f', weight: 1.8, opacity: 0.95 };
-  if (t === 'eu_step') return { color: '#d84f4f', weight: 2.2, opacity: 0.95 };
+  if (t === 'aep_cana') return { color: '#003A76', weight: 1.2, opacity: 0.85 };
+  if (t === 'aep_ouvrage') return { color: '#5BC5F2', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_cana') return { color: '#564949', weight: 1.2, opacity: 0.85 };
+  if (t === 'eu_pr') return { color: '#9A7867', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_step') return { color: '#CC9F72', weight: 2.2, opacity: 0.95 };
+  if (t === 'elec_bt_aerien') return { color: '#6AB96F', weight: 1.2, opacity: 0.85 };
+  if (t === 'elec_bt_souterrain') return { color: '#A4A64B', weight: 1.2, opacity: 0.85 };
+  if (t === 'elec_hta_aerien') return { color: '#F39655', weight: 1.4, opacity: 0.9 };
+  if (t === 'elec_hta_souterrain') return { color: '#FFD744', weight: 1.4, opacity: 0.9 };
   return { color: '#c7d0d8', weight: 1.0, opacity: 0.7 };
 }
 
 function ensureWaterLayerState(typeKey) {
-  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = true;
+  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = false;
 }
 
 function ensureWaterMap() {
@@ -1185,7 +1260,7 @@ function renderWaterInfraMap() {
     if (!visibleTypes) {
       els.waterMapCaption.textContent = 'Aucune couche selectionnee. Activez au moins une couche pour afficher les infrastructures.';
     } else {
-      els.waterMapCaption.textContent = `Visible ${numberFmt.format(visibleTotal)} infrastructures eau sur ${numberFmt.format((payload.features || []).length)} (couches actives: ${numberFmt.format(visibleTypes)}). ${activeSummary.join(' · ')}`;
+      els.waterMapCaption.textContent = `Visible ${numberFmt.format(visibleTotal)} infrastructures (eau + elec) sur ${numberFmt.format((payload.features || []).length)} (couches actives: ${numberFmt.format(visibleTypes)}). ${activeSummary.join(' · ')}`;
     }
   }
 
@@ -1401,6 +1476,44 @@ function renderHistogramChart(refKey, domId, graph, color) {
   }, true);
 }
 
+function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, labelB, colorA, colorB) {
+  const chart = ensureChart(refKey, domId);
+  if (!chart || !graphA || !graphB) return;
+  const seriesA = (graphA.bins_mps || []).map((x, idx) => [Number(x), Number((graphA.percent || [])[idx] || 0)]);
+  const seriesB = (graphB.bins_mps || []).map((x, idx) => [Number(x), Number((graphB.percent || [])[idx] || 0)]);
+  chart.setOption({
+    ...chartThemeCommon(),
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (val) => `${numberFmt.format(Number(val || 0))}%`
+    },
+    legend: {
+      top: 2,
+      textStyle: { color: '#abc0ba' }
+    },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'value', name: 'm/s' },
+    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '%' },
+    series: [
+      {
+        name: labelA,
+        type: 'line',
+        smooth: true,
+        data: seriesA,
+        lineStyle: { color: colorA, width: 2 },
+        itemStyle: { color: colorA }
+      },
+      {
+        name: labelB,
+        type: 'line',
+        smooth: true,
+        data: seriesB,
+        lineStyle: { color: colorB, width: 2 },
+        itemStyle: { color: colorB }
+      }
+    ]
+  }, true);
+}
+
 function renderAnnualFecChart(refKey, domId, graph, color) {
   const chart = ensureChart(refKey, domId);
   if (!chart || !graph) return;
@@ -1453,6 +1566,77 @@ function renderComparisonChart() {
       { name: 'Max Event Loss', type: 'bar', data: maxEvent, itemStyle: { color: '#dfb85a' }, barMaxWidth: 30 }
     ]
   }, true);
+}
+
+function renderImpactBreakdownCharts(impactPayload) {
+  const breakdown = impactPayload?.damage_breakdown || null;
+  let labels = [];
+  let stormEai = [];
+  let cmccEai = [];
+  let stormEvt = [];
+  let cmccEvt = [];
+
+  if (breakdown?.storm && breakdown?.storm_cmcc) {
+    const byStorm = new Map((breakdown.storm || []).map((r) => [String(r.class_key), r]));
+    const byCmcc = new Map((breakdown.storm_cmcc || []).map((r) => [String(r.class_key), r]));
+    const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
+    ordered.forEach((key) => {
+      const s = byStorm.get(key) || {};
+      const c = byCmcc.get(key) || {};
+      labels.push(String(s.class_label || c.class_label || key));
+      stormEai.push(Number(s.eai_eur || 0));
+      cmccEai.push(Number(c.eai_eur || 0));
+      stormEvt.push(Number(s.event_max_loss_eur || 0));
+      cmccEvt.push(Number(c.event_max_loss_eur || 0));
+    });
+  } else {
+    const rows = Array.isArray(impactPayload?.state_damage_table) ? impactPayload.state_damage_table : [];
+    rows.forEach((row) => {
+      labels.push(String(row.class_label || row.class_key || 'type'));
+      stormEai.push(Number(row?.storm?.eai_eur || 0));
+      cmccEai.push(Number(row?.storm_cmcc?.eai_eur || 0));
+      stormEvt.push(Number(row?.storm?.event_max_loss_eur || 0));
+      cmccEvt.push(Number(row?.storm_cmcc?.event_max_loss_eur || 0));
+    });
+  }
+
+  const eaiChart = ensureChart('impact_eai', 'impact-eai-chart');
+  if (eaiChart && labels.length) {
+    eaiChart.setOption({
+      ...chartThemeCommon(),
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        valueFormatter: (value) => formatMoneyEUR(value)
+      },
+      legend: { top: 2, textStyle: { color: '#abc0ba' } },
+      xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
+      yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
+      series: [
+        { name: 'STORM', type: 'bar', data: stormEai, itemStyle: { color: '#0083CB' }, barMaxWidth: 30 },
+        { name: 'STORM_CMCC', type: 'bar', data: cmccEai, itemStyle: { color: '#F39655' }, barMaxWidth: 30 }
+      ]
+    }, true);
+  }
+
+  const evtChart = ensureChart('impact_evt', 'impact-evt-chart');
+  if (evtChart && labels.length) {
+    evtChart.setOption({
+      ...chartThemeCommon(),
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        valueFormatter: (value) => formatMoneyEUR(value)
+      },
+      legend: { top: 2, textStyle: { color: '#abc0ba' } },
+      xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
+      yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
+      series: [
+        { name: 'STORM', type: 'bar', data: stormEvt, itemStyle: { color: '#00A6E2' }, barMaxWidth: 30 },
+        { name: 'STORM_CMCC', type: 'bar', data: cmccEvt, itemStyle: { color: '#A4A64B' }, barMaxWidth: 30 }
+      ]
+    }, true);
+  }
 }
 
 function renderHazardCharts() {

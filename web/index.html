@@ -72,7 +72,7 @@
           </article>
         </div>
         <div class="subpanel water-map-card">
-          <h3>Carte des infrastructures d'eau de Guadeloupe</h3>
+          <h3>Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Loading…</p>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
@@ -109,20 +109,12 @@
         </div>
         <div class="chart-grid hazard-compare-grid">
           <div class="chart-card">
-            <h3>STORM - vitesse max du vent par annee</h3>
-            <div id="page1-chart-year-storm" class="chart"></div>
+            <h3>Vitesse max du vent par annee (STORM vs STORM_CMCC)</h3>
+            <div id="page1-chart-year-compare" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>STORM_CMCC - vitesse max du vent par annee</h3>
-            <div id="page1-chart-year-cmcc" class="chart"></div>
-          </div>
-          <div class="chart-card">
-            <h3>STORM - vitesse max du vent par track</h3>
-            <div id="page1-chart-track-storm" class="chart"></div>
-          </div>
-          <div class="chart-card">
-            <h3>STORM_CMCC - vitesse max du vent par track</h3>
-            <div id="page1-chart-track-cmcc" class="chart"></div>
+            <h3>Vitesse max du vent par track (STORM vs STORM_CMCC)</h3>
+            <div id="page1-chart-track-compare" class="chart"></div>
           </div>
         </div>
       </section>
@@ -177,6 +169,16 @@
           </div>
           <div id="network-state-map" class="map water-map"></div>
           <p class="muted small" id="network-state-caption">Chargement...</p>
+          <div class="chart-grid impact-breakdown-grid">
+            <div class="chart-card">
+              <h3>EAI par type de reseau/ouvrage (STORM vs STORM_CMCC)</h3>
+              <div id="impact-eai-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>EVT max par type de reseau/ouvrage (STORM vs STORM_CMCC)</h3>
+              <div id="impact-evt-chart" class="chart"></div>
+            </div>
+          </div>
         </div>
       </section>
 
