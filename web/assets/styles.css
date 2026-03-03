@@ -1,6 +1,10 @@
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne Thin"), local("Marianne-Thin"), local("Marianne");
+  src:
+    url("fonts/Marianne-Thin.woff2") format("woff2"),
+    local("Marianne Thin"),
+    local("Marianne-Thin"),
+    local("Marianne");
   font-style: normal;
   font-weight: 100;
   font-display: swap;
@@ -8,7 +12,11 @@
 
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne Light"), local("Marianne-Light"), local("Marianne");
+  src:
+    url("fonts/Marianne-Light.woff2") format("woff2"),
+    local("Marianne Light"),
+    local("Marianne-Light"),
+    local("Marianne");
   font-style: normal;
   font-weight: 300;
   font-display: swap;
@@ -16,7 +24,11 @@
 
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne"), local("Marianne Regular"), local("Marianne-Regular");
+  src:
+    url("fonts/Marianne-Regular.woff2") format("woff2"),
+    local("Marianne"),
+    local("Marianne Regular"),
+    local("Marianne-Regular");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -24,7 +36,11 @@
 
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne Medium"), local("Marianne-Medium"), local("Marianne");
+  src:
+    url("fonts/Marianne-Medium.woff2") format("woff2"),
+    local("Marianne Medium"),
+    local("Marianne-Medium"),
+    local("Marianne");
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -32,7 +48,11 @@
 
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne Bold"), local("Marianne-Bold"), local("Marianne");
+  src:
+    url("fonts/Marianne-Bold.woff2") format("woff2"),
+    local("Marianne Bold"),
+    local("Marianne-Bold"),
+    local("Marianne");
   font-style: normal;
   font-weight: 700;
   font-display: swap;
@@ -40,16 +60,20 @@
 
 @font-face {
   font-family: "Marianne";
-  src: local("Marianne ExtraBold"), local("Marianne-ExtraBold"), local("Marianne");
+  src:
+    url("fonts/Marianne-ExtraBold.woff2") format("woff2"),
+    local("Marianne ExtraBold"),
+    local("Marianne-ExtraBold"),
+    local("Marianne");
   font-style: normal;
   font-weight: 800;
   font-display: swap;
 }
 
 :root {
-  --bg-0: #003A76;
-  --bg-1: #0083CB;
-  --bg-2: #00A6E2;
+  --bg-0: #99D7F7;
+  --bg-1: #99D7F7;
+  --bg-2: #5BC5F2;
   --panel: rgba(0, 58, 118, 0.78);
   --panel-2: rgba(0, 131, 203, 0.32);
   --line: rgba(153, 215, 247, 0.5);
@@ -70,8 +94,8 @@ html, body {
   padding: 0;
   color: var(--text);
   background:
-    radial-gradient(1000px 520px at 5% -15%, rgba(91, 197, 242, 0.35), transparent 70%),
-    radial-gradient(900px 480px at 105% -5%, rgba(106, 185, 111, 0.3), transparent 70%),
+    radial-gradient(1000px 520px at 5% -15%, rgba(0, 131, 203, 0.25), transparent 70%),
+    radial-gradient(900px 480px at 105% -5%, rgba(106, 185, 111, 0.24), transparent 70%),
     linear-gradient(165deg, var(--bg-0), var(--bg-1) 48%, var(--bg-2));
   font-family: "Marianne", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
@@ -107,8 +131,8 @@ button, input, select {
   min-height: 44px;
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(153, 215, 247, 0.42);
-  background: rgba(0, 58, 118, 0.4);
+  border: 1px solid #99D7F7;
+  background: #5BC5F2;
 }
 
 .top-menu-brand img {
