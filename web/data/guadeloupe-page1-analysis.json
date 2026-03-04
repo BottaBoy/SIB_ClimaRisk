@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-03T15:09:03+00:00",
+    "generated_at": "2026-03-04T13:07:28+00:00",
     "source": "guadeloupe_page1_computed",
     "sampling_spacing_m": 100.0,
     "hazards": [
@@ -56,6 +56,8 @@
   },
   "hazard": {
     "summary_text": "STORM et STORM_CMCC sont des catalogues synthetiques de trajectoires cycloniques (10 000 ans, bassin NA). Les distributions ci-dessous sont calculees directement depuis les fichiers STORM/CMCC en vitesse maximale du vent.",
+    "wind_unit_in": "m/s",
+    "wind_unit_out": "m/s",
     "wind_histograms": {
       "storm": {
         "track_max_hist": {
@@ -192,25 +194,25 @@
     }
   },
   "impact": {
-    "summary_text": "STORM: hors service direct S3 annuel 0.00% et additionnel lie a la dependance electrique 0.00%. Evenement le plus fort: direct 0.00% et indirect 0.00%. STORM_CMCC: hors service direct S3 annuel 0.00% et additionnel 0.00%. Evenement le plus fort: direct 0.00% et indirect 0.00%.",
+    "summary_text": "STORM: hors service direct S3 annuel 0.00% et additionnel lie a la dependance electrique 0.00%. Evenement le plus fort: direct 94.83% et indirect 0.00%. STORM_CMCC: hors service direct S3 annuel 0.00% et additionnel 0.00%. Evenement le plus fort: direct 94.83% et indirect 0.00%.",
     "summary_metrics": {
       "storm": {
         "direct_hs_pct_annual": 0.0,
-        "direct_hs_pct_event_max": 0.0,
+        "direct_hs_pct_event_max": 94.826,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 1374.19,
-        "event_max_total_loss_eur": 4200440.72,
-        "event_id_max": 18859
+        "eai_total_eur": 92757235.2,
+        "event_max_total_loss_eur": 3182416789.58,
+        "event_id_max": 43318
       },
       "storm_cmcc": {
         "direct_hs_pct_annual": 0.0,
-        "direct_hs_pct_event_max": 0.0,
+        "direct_hs_pct_event_max": 94.826,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 2883.4,
-        "event_max_total_loss_eur": 5615918.28,
-        "event_id_max": 30019
+        "eai_total_eur": 90442218.25,
+        "event_max_total_loss_eur": 3377071008.69,
+        "event_id_max": 101106
       }
     },
     "state_damage_table": [
@@ -225,13 +227,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.0,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 100.0
           },
-          "eai_eur": 249.91,
-          "event_max_loss_eur": 797506.01
+          "eai_eur": 17652957.66,
+          "event_max_loss_eur": 785789467.15
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -241,13 +243,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.0,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 100.0
           },
-          "eai_eur": 544.75,
-          "event_max_loss_eur": 1021955.01
+          "eai_eur": 17241941.96,
+          "event_max_loss_eur": 834957869.44
         }
       },
       {
@@ -261,13 +263,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.0,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 100.0
           },
-          "eai_eur": 85.31,
-          "event_max_loss_eur": 363524.71
+          "eai_eur": 5380452.53,
+          "event_max_loss_eur": 242539724.99
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -277,13 +279,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.0,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 100.0
           },
-          "eai_eur": 173.55,
-          "event_max_loss_eur": 403443.3
+          "eai_eur": 5239186.9,
+          "event_max_loss_eur": 255728690.42
         }
       },
       {
@@ -297,13 +299,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 21.605,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 78.395
           },
-          "eai_eur": 132.47,
-          "event_max_loss_eur": 570316.48
+          "eai_eur": 8031266.82,
+          "event_max_loss_eur": 248294468.19
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -313,13 +315,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 21.605,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 78.395
           },
-          "eai_eur": 247.77,
-          "event_max_loss_eur": 577087.73
+          "eai_eur": 7818954.57,
+          "event_max_loss_eur": 263396495.95
         }
       },
       {
@@ -333,13 +335,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.935,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 99.065
           },
-          "eai_eur": 163.09,
-          "event_max_loss_eur": 366815.66
+          "eai_eur": 10637862.53,
+          "event_max_loss_eur": 323219321.83
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -349,13 +351,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 0.935,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 99.065
           },
-          "eai_eur": 339.81,
-          "event_max_loss_eur": 484291.55
+          "eai_eur": 10382543.02,
+          "event_max_loss_eur": 347849661.63
         }
       },
       {
@@ -369,13 +371,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 9.861,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 90.139
           },
-          "eai_eur": 294.85,
-          "event_max_loss_eur": 866350.68
+          "eai_eur": 17501293.17,
+          "event_max_loss_eur": 532424260.53
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -385,13 +387,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 9.861,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 90.139
           },
-          "eai_eur": 540.58,
-          "event_max_loss_eur": 999446.76
+          "eai_eur": 17062187.53,
+          "event_max_loss_eur": 571843235.74
         }
       },
       {
@@ -405,13 +407,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 1.212,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 98.788
           },
-          "eai_eur": 40.14,
-          "event_max_loss_eur": 52396.66
+          "eai_eur": 2602562.51,
+          "event_max_loss_eur": 78091867.26
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -421,13 +423,13 @@
             "S3": 0.0
           },
           "state_pct_event_max": {
-            "S0": 100.0,
+            "S0": 1.212,
             "S1": 0.0,
             "S2": 0.0,
-            "S3": 0.0
+            "S3": 98.788
           },
-          "eai_eur": 81.22,
-          "event_max_loss_eur": 95994.34
+          "eai_eur": 2543720.92,
+          "event_max_loss_eur": 84842359.81
         }
       }
     ],
@@ -436,112 +438,112 @@
         {
           "class_key": "eau_aep",
           "class_label": "Reseau eau AEP",
-          "eai_eur": 249.91,
-          "event_max_loss_eur": 797506.01
+          "eai_eur": 17652957.66,
+          "event_max_loss_eur": 785789467.15
         },
         {
           "class_key": "eau_eu",
           "class_label": "Reseau eau EU",
-          "eai_eur": 85.31,
-          "event_max_loss_eur": 363524.71
+          "eai_eur": 5380452.53,
+          "event_max_loss_eur": 242539724.99
         },
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
-          "eai_eur": 132.47,
-          "event_max_loss_eur": 570316.48
+          "eai_eur": 8031266.82,
+          "event_max_loss_eur": 248294468.19
         },
         {
           "class_key": "elec_bt_aerien",
           "class_label": "Basse tension aerien",
-          "eai_eur": 163.09,
-          "event_max_loss_eur": 366815.66
+          "eai_eur": 10637862.53,
+          "event_max_loss_eur": 323219321.83
         },
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
-          "eai_eur": 294.85,
-          "event_max_loss_eur": 866350.68
+          "eai_eur": 17501293.17,
+          "event_max_loss_eur": 532424260.53
         },
         {
           "class_key": "elec_hta_aerien",
           "class_label": "Haute tension aerien",
-          "eai_eur": 40.14,
-          "event_max_loss_eur": 52396.66
+          "eai_eur": 2602562.51,
+          "event_max_loss_eur": 78091867.26
         },
         {
           "class_key": "eau_aep_ouvrages",
           "class_label": "Ouvrages AEP",
-          "eai_eur": 95.84,
-          "event_max_loss_eur": 221087.76
+          "eai_eur": 8758986.31,
+          "event_max_loss_eur": 279086004.33
         },
         {
           "class_key": "eau_eu_pr",
           "class_label": "Postes de refoulement",
-          "eai_eur": 95.06,
-          "event_max_loss_eur": 367289.4
+          "eai_eur": 5959609.23,
+          "event_max_loss_eur": 184333341.5
         },
         {
           "class_key": "eau_eu_step",
           "class_label": "STEP",
-          "eai_eur": 217.51,
-          "event_max_loss_eur": 595153.38
+          "eai_eur": 16232244.44,
+          "event_max_loss_eur": 508638333.81
         }
       ],
       "storm_cmcc": [
         {
           "class_key": "eau_aep",
           "class_label": "Reseau eau AEP",
-          "eai_eur": 544.75,
-          "event_max_loss_eur": 1021955.01
+          "eai_eur": 17241941.96,
+          "event_max_loss_eur": 834957869.44
         },
         {
           "class_key": "eau_eu",
           "class_label": "Reseau eau EU",
-          "eai_eur": 173.55,
-          "event_max_loss_eur": 403443.3
+          "eai_eur": 5239186.9,
+          "event_max_loss_eur": 255728690.42
         },
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
-          "eai_eur": 247.77,
-          "event_max_loss_eur": 577087.73
+          "eai_eur": 7818954.57,
+          "event_max_loss_eur": 263396495.95
         },
         {
           "class_key": "elec_bt_aerien",
           "class_label": "Basse tension aerien",
-          "eai_eur": 339.81,
-          "event_max_loss_eur": 484291.55
+          "eai_eur": 10382543.02,
+          "event_max_loss_eur": 347849661.63
         },
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
-          "eai_eur": 540.58,
-          "event_max_loss_eur": 999446.76
+          "eai_eur": 17062187.53,
+          "event_max_loss_eur": 571843235.74
         },
         {
           "class_key": "elec_hta_aerien",
           "class_label": "Haute tension aerien",
-          "eai_eur": 81.22,
-          "event_max_loss_eur": 95994.34
+          "eai_eur": 2543720.92,
+          "event_max_loss_eur": 84842359.81
         },
         {
           "class_key": "eau_aep_ouvrages",
           "class_label": "Ouvrages AEP",
-          "eai_eur": 265.75,
-          "event_max_loss_eur": 559371.27
+          "eai_eur": 8529346.13,
+          "event_max_loss_eur": 289671435.17
         },
         {
           "class_key": "eau_eu_pr",
           "class_label": "Postes de refoulement",
-          "eai_eur": 184.22,
-          "event_max_loss_eur": 388108.65
+          "eai_eur": 5812815.46,
+          "event_max_loss_eur": 194755967.0
         },
         {
           "class_key": "eau_eu_step",
           "class_label": "STEP",
-          "eai_eur": 505.74,
-          "event_max_loss_eur": 1086219.68
+          "eai_eur": 15811521.76,
+          "event_max_loss_eur": 534025293.52
         }
       ]
     },
@@ -551,6 +553,6 @@
     }
   },
   "conclusion": {
-    "text": "L'analyse montre un portefeuille de reseaux valorise a 5010.9 M€. Les dommages annuels moyens modelises sont de 0.001 M€ (STORM) et 0.003 M€ (STORM_CMCC). Le scenario le plus contraignant en EAI est STORM_CMCC. Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
+    "text": "L'analyse montre un portefeuille de reseaux valorise a 5010.9 M€. Les dommages annuels moyens modelises sont de 92.757 M€ (STORM) et 90.442 M€ (STORM_CMCC). Le scenario le plus contraignant en EAI est STORM. Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
   }
 }

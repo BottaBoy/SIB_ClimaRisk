@@ -42,7 +42,7 @@
       <section class="panel exposition-panel page-block page1" aria-labelledby="expo-title">
         <div class="section-head">
           <div>
-            <h2 id="expo-title">Partie exposition</h2>
+            <h2 id="expo-title">Exposition</h2>
             <p class="muted" id="exposition-summary-text">Chargement des indicateurs d'exposition...</p>
           </div>
         </div>
@@ -82,7 +82,7 @@
       <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
-            <h2 id="wind-panel-title">Partie analyse de l'alea</h2>
+            <h2 id="wind-panel-title">Analyse de l'aléa</h2>
             <p class="muted" id="hazard-summary-text">
               Chargement des informations STORM / STORM_CMCC...
             </p>
@@ -122,7 +122,7 @@
       <section class="panel impact-panel page-block page1" aria-labelledby="impact-title">
         <div class="section-head">
           <div>
-            <h2 id="impact-title">Partie impact</h2>
+            <h2 id="impact-title">Impact</h2>
             <p class="muted" id="impact-summary-text">
               Chargement des analyses d'impact...
             </p>
@@ -148,7 +148,10 @@
         </div>
         <div class="subpanel">
           <div class="section-head">
-            <h3>Carte d'etat des reseaux (S0/S1/S2/S3)</h3>
+            <div>
+              <h3>Carte d'etat des reseaux</h3>
+              <p class="muted small">S0 Operationnel, S1 Degrade, S2 Critique, S3 Hors service</p>
+            </div>
             <div class="inline-row tight">
               <select id="impact-map-hazard-select">
                 <option value="storm">STORM</option>
@@ -171,12 +174,20 @@
           <p class="muted small" id="network-state-caption">Chargement...</p>
           <div class="chart-grid impact-breakdown-grid">
             <div class="chart-card">
-              <h3>EAI par type de reseau/ouvrage (STORM vs STORM_CMCC)</h3>
-              <div id="impact-eai-chart" class="chart"></div>
+              <h3>💧 EAI eau (STORM vs STORM_CMCC)</h3>
+              <div id="impact-eai-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>EVT max par type de reseau/ouvrage (STORM vs STORM_CMCC)</h3>
-              <div id="impact-evt-chart" class="chart"></div>
+              <h3>⚡ EAI electricite (STORM vs STORM_CMCC)</h3>
+              <div id="impact-eai-elec-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>💧 EVT max eau (STORM vs STORM_CMCC)</h3>
+              <div id="impact-evt-water-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>⚡ EVT max electricite (STORM vs STORM_CMCC)</h3>
+              <div id="impact-evt-elec-chart" class="chart"></div>
             </div>
           </div>
         </div>

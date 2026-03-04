@@ -30,6 +30,38 @@ COLUMNS = [
 UTC = timezone.utc
 
 
+def _normalize_wind_unit(raw: str) -> str:
+    unit = str(raw or "m/s").strip().lower()
+    aliases = {
+        "m/s": "m/s",
+        "ms": "m/s",
+        "mps": "m/s",
+        "meter_per_second": "m/s",
+        "meters_per_second": "m/s",
+        "knot": "kn",
+        "knots": "kn",
+        "kt": "kn",
+        "kts": "kn",
+        "kn": "kn",
+        "km/h": "km/h",
+        "kmh": "km/h",
+        "kph": "km/h",
+    }
+    if unit not in aliases:
+        raise ValueError(f"Unsupported wind unit '{raw}'. Supported: m/s, kn, km/h")
+    return aliases[unit]
+
+
+def _convert_wind_to_mps(values: pd.Series, unit_in: str) -> pd.Series:
+    unit = _normalize_wind_unit(unit_in)
+    wind = pd.to_numeric(values, errors="coerce").astype(float)
+    if unit == "m/s":
+        return wind
+    if unit == "kn":
+        return wind * 0.514444
+    return wind / 3.6  # km/h -> m/s
+
+
 def _parse_file_block_index(path: Path) -> int:
     m = re.search(r"_1000_YEARS_(\d+)", path.name)
     if not m:
@@ -48,6 +80,7 @@ def _aggregate_mean_wind(
     files: list[Path],
     *,
     basin_id: int,
+    wind_unit_in: str,
     lat_min: float,
     lat_max: float,
     lon_min: float,
@@ -84,6 +117,7 @@ def _aggregate_mean_wind(
                     "TC number": "tc_number",
                 }
             )
+            chunk["wind_max"] = _convert_wind_to_mps(chunk["wind_max"], wind_unit_in)
 
             # STORM longitudes are often encoded in [0, 360].
             # Convert to the conventional [-180, 180] before Guadeloupe bbox filtering.
@@ -160,7 +194,13 @@ def main() -> None:
     parser.add_argument("--lon-min", type=float, default=-62.48125)
     parser.add_argument("--lon-max", type=float, default=-60.66875)
     parser.add_argument("--basin-id", type=int, default=1, help="NA basin id in STORM files")
+    parser.add_argument(
+        "--wind-unit-in",
+        default="m/s",
+        help="Input wind unit in STORM txt files. Supported: m/s, kn, km/h. Output is always m/s.",
+    )
     args = parser.parse_args()
+    normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
 
     storm_dir = Path(args.storm_dir)
     cmcc_dir = Path(args.cmcc_dir)
@@ -172,6 +212,7 @@ def main() -> None:
     storm_cells, storm_years, storm_tracks, storm_min, storm_max = _aggregate_mean_wind(
         storm_files,
         basin_id=args.basin_id,
+        wind_unit_in=normalized_wind_unit,
         lat_min=args.lat_min,
         lat_max=args.lat_max,
         lon_min=args.lon_min,
@@ -182,6 +223,7 @@ def main() -> None:
     cmcc_cells, cmcc_years, cmcc_tracks, cmcc_min, cmcc_max = _aggregate_mean_wind(
         cmcc_files,
         basin_id=args.basin_id,
+        wind_unit_in=normalized_wind_unit,
         lat_min=args.lat_min,
         lat_max=args.lat_max,
         lon_min=args.lon_min,
@@ -204,6 +246,8 @@ def main() -> None:
                 "storm_present": "https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085",
                 "storm_cmcc": "https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2",
             },
+            "wind_unit_in": normalized_wind_unit,
+            "wind_unit_out": "m/s",
         },
         "storm": {
             "years_covered": storm_years,

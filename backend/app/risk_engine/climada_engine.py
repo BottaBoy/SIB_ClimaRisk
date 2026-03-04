@@ -67,6 +67,17 @@ def _max_loss_per_point(np: Any, impact_obj: Any, expected_len: int) -> Any:
     return np.zeros(expected_len, dtype=float)
 
 
+def _approx_max_loss_per_point(np: Any, eai_exp: Any, at_event: Any) -> Any:
+    eai = _as_1d_float(np, eai_exp)
+    evt = _as_1d_float(np, at_event)
+    if eai.size == 0:
+        return np.zeros(0, dtype=float)
+    eai_sum = float(eai.sum())
+    evt_max = float(evt.max()) if evt.size else 0.0
+    factor = (evt_max / eai_sum) if eai_sum > 0.0 else 0.0
+    return eai * max(0.0, factor)
+
+
 def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
     losses_arr = _as_1d_float(np, losses)
     freq_arr = _as_1d_float(np, frequency)
@@ -178,10 +189,10 @@ def run_climada_direct_impacts(
         if hazard_zero_intensity[hazard_key]:
             notes.append(f"Warning: hazard '{hazard_key}' has zero intensity values; computed impacts can be null.")
 
-        impact = ImpactCalc(exposure_bundle.exposures, impfset, hazard_obj).impact(save_mat=True, assign_centroids=True)
+        impact = ImpactCalc(exposure_bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
         eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
-        max_loss_point = _max_loss_per_point(np, impact, eai_exp.size)
         at_event = _as_1d_float(np, getattr(impact, "at_event", []))
+        max_loss_point = _approx_max_loss_per_point(np, eai_exp, at_event)
         frequency = _as_1d_float(np, getattr(impact, "frequency", []))
 
         out[hazard_key] = HazardImpactResult(

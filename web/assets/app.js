@@ -125,8 +125,10 @@ const chartRefs = {
   comparison: null,
   page1_year_compare: null,
   page1_track_compare: null,
-  impact_eai: null,
-  impact_evt: null
+  impact_eai_water: null,
+  impact_eai_elec: null,
+  impact_evt_water: null,
+  impact_evt_elec: null
 };
 
 const els = {
@@ -195,8 +197,10 @@ const els = {
   page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
   impactStateTableBody: document.getElementById('impact-state-table-body'),
-  impactEaiChart: document.getElementById('impact-eai-chart'),
-  impactEvtChart: document.getElementById('impact-evt-chart'),
+  impactEaiWaterChart: document.getElementById('impact-eai-water-chart'),
+  impactEaiElecChart: document.getElementById('impact-eai-elec-chart'),
+  impactEvtWaterChart: document.getElementById('impact-evt-water-chart'),
+  impactEvtElecChart: document.getElementById('impact-evt-elec-chart'),
   impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
   impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
   networkLayerControls: document.getElementById('network-layer-controls'),
@@ -263,8 +267,10 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (networkMapRef.instance) networkMapRef.instance.invalidateSize();
       if (chartRefs.page1_year_compare) chartRefs.page1_year_compare.resize();
       if (chartRefs.page1_track_compare) chartRefs.page1_track_compare.resize();
-      if (chartRefs.impact_eai) chartRefs.impact_eai.resize();
-      if (chartRefs.impact_evt) chartRefs.impact_evt.resize();
+      if (chartRefs.impact_eai_water) chartRefs.impact_eai_water.resize();
+      if (chartRefs.impact_eai_elec) chartRefs.impact_eai_elec.resize();
+      if (chartRefs.impact_evt_water) chartRefs.impact_evt_water.resize();
+      if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
     }, 80);
   }
 }
@@ -1302,7 +1308,7 @@ function networkStateStyle(feature) {
 }
 
 function ensureNetworkLayerState(typeKey) {
-  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = true;
+  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = false;
 }
 
 function ensureNetworkMap() {
@@ -1484,20 +1490,52 @@ function renderHistogramChart(refKey, domId, graph, color) {
 function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, labelB, colorA, colorB) {
   const chart = ensureChart(refKey, domId);
   if (!chart || !graphA || !graphB) return;
-  const seriesA = (graphA.bins_mps || []).map((x, idx) => [Number(x), Number((graphA.percent || [])[idx] || 0)]);
-  const seriesB = (graphB.bins_mps || []).map((x, idx) => [Number(x), Number((graphB.percent || [])[idx] || 0)]);
+  const mapA = new Map();
+  const mapB = new Map();
+  (graphA.bins_mps || []).forEach((x, idx) => {
+    mapA.set(Number(x).toFixed(3), Number((graphA.percent || [])[idx] || 0));
+  });
+  (graphB.bins_mps || []).forEach((x, idx) => {
+    mapB.set(Number(x).toFixed(3), Number((graphB.percent || [])[idx] || 0));
+  });
+
+  const yCategories = Array.from(
+    new Set([
+      ...(graphA.bins_mps || []).map((x) => Number(x).toFixed(3)),
+      ...(graphB.bins_mps || []).map((x) => Number(x).toFixed(3))
+    ])
+  )
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x))
+    .sort((a, b) => a - b)
+    .map((x) => x.toFixed(3));
+
+  const seriesA = yCategories.map((bin) => [Number(mapA.get(bin) || 0), Number(bin)]);
+  const seriesB = yCategories.map((bin) => [Number(mapB.get(bin) || 0), Number(bin)]);
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: {
       trigger: 'axis',
-      valueFormatter: (val) => `${numberFmt.format(Number(val || 0))}%`
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const rows = Array.isArray(params) ? params : [params];
+        if (!rows.length) return '';
+        const binValue = Number(rows[0]?.value?.[1] ?? rows[0]?.axisValue ?? 0);
+        const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[0] || 0);
+        const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[0] || 0);
+        return [
+          `<strong>${escapeHtml(numberFmt.format(binValue))} m/s</strong>`,
+          `${escapeHtml(labelA)}: ${escapeHtml(numberFmt.format(valA))}%`,
+          `${escapeHtml(labelB)}: ${escapeHtml(numberFmt.format(valB))}%`
+        ].join('<br/>');
+      }
     },
     legend: {
       top: 2,
       textStyle: { color: '#abc0ba' }
     },
-    xAxis: { ...chartThemeCommon().xAxis, type: 'value', name: 'm/s' },
-    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '%' },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'value', name: '%', min: 0 },
+    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: 'm/s' },
     series: [
       {
         name: labelA,
@@ -1573,13 +1611,43 @@ function renderComparisonChart() {
   }, true);
 }
 
+function renderGroupedImpactBarChart(refKey, domId, labels, stormValues, cmccValues, palette) {
+  const chart = ensureChart(refKey, domId);
+  if (!chart) return;
+  if (!labels.length) {
+    chart.setOption({
+      title: {
+        text: 'Aucune donnee',
+        left: 'center',
+        top: 'middle',
+        textStyle: { color: '#abc0ba', fontSize: 13, fontWeight: 500 }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    }, true);
+    return;
+  }
+  chart.setOption({
+    ...chartThemeCommon(),
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (value) => formatMoneyEUR(value)
+    },
+    legend: { top: 2, textStyle: { color: '#abc0ba' } },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
+    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
+    series: [
+      { name: 'STORM', type: 'bar', data: stormValues, itemStyle: { color: palette.storm }, barMaxWidth: 30 },
+      { name: 'STORM_CMCC', type: 'bar', data: cmccValues, itemStyle: { color: palette.cmcc }, barMaxWidth: 30 }
+    ]
+  }, true);
+}
+
 function renderImpactBreakdownCharts(impactPayload) {
   const breakdown = impactPayload?.damage_breakdown || null;
-  let labels = [];
-  let stormEai = [];
-  let cmccEai = [];
-  let stormEvt = [];
-  let cmccEvt = [];
+  const rows = [];
 
   if (breakdown?.storm && breakdown?.storm_cmcc) {
     const byStorm = new Map((breakdown.storm || []).map((r) => [String(r.class_key), r]));
@@ -1588,60 +1656,63 @@ function renderImpactBreakdownCharts(impactPayload) {
     ordered.forEach((key) => {
       const s = byStorm.get(key) || {};
       const c = byCmcc.get(key) || {};
-      labels.push(String(s.class_label || c.class_label || key));
-      stormEai.push(Number(s.eai_eur || 0));
-      cmccEai.push(Number(c.eai_eur || 0));
-      stormEvt.push(Number(s.event_max_loss_eur || 0));
-      cmccEvt.push(Number(c.event_max_loss_eur || 0));
+      rows.push({
+        key,
+        label: String(s.class_label || c.class_label || key),
+        storm_eai: Number(s.eai_eur || 0),
+        cmcc_eai: Number(c.eai_eur || 0),
+        storm_evt: Number(s.event_max_loss_eur || 0),
+        cmcc_evt: Number(c.event_max_loss_eur || 0)
+      });
     });
   } else {
-    const rows = Array.isArray(impactPayload?.state_damage_table) ? impactPayload.state_damage_table : [];
-    rows.forEach((row) => {
-      labels.push(String(row.class_label || row.class_key || 'type'));
-      stormEai.push(Number(row?.storm?.eai_eur || 0));
-      cmccEai.push(Number(row?.storm_cmcc?.eai_eur || 0));
-      stormEvt.push(Number(row?.storm?.event_max_loss_eur || 0));
-      cmccEvt.push(Number(row?.storm_cmcc?.event_max_loss_eur || 0));
+    (Array.isArray(impactPayload?.state_damage_table) ? impactPayload.state_damage_table : []).forEach((row) => {
+      rows.push({
+        key: String(row.class_key || ''),
+        label: String(row.class_label || row.class_key || 'type'),
+        storm_eai: Number(row?.storm?.eai_eur || 0),
+        cmcc_eai: Number(row?.storm_cmcc?.eai_eur || 0),
+        storm_evt: Number(row?.storm?.event_max_loss_eur || 0),
+        cmcc_evt: Number(row?.storm_cmcc?.event_max_loss_eur || 0)
+      });
     });
   }
 
-  const eaiChart = ensureChart('impact_eai', 'impact-eai-chart');
-  if (eaiChart && labels.length) {
-    eaiChart.setOption({
-      ...chartThemeCommon(),
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        valueFormatter: (value) => formatMoneyEUR(value)
-      },
-      legend: { top: 2, textStyle: { color: '#abc0ba' } },
-      xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
-      yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
-      series: [
-        { name: 'STORM', type: 'bar', data: stormEai, itemStyle: { color: '#0083CB' }, barMaxWidth: 30 },
-        { name: 'STORM_CMCC', type: 'bar', data: cmccEai, itemStyle: { color: '#F39655' }, barMaxWidth: 30 }
-      ]
-    }, true);
-  }
+  const waterRows = rows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRows = rows.filter((r) => String(r.key).startsWith('elec_'));
 
-  const evtChart = ensureChart('impact_evt', 'impact-evt-chart');
-  if (evtChart && labels.length) {
-    evtChart.setOption({
-      ...chartThemeCommon(),
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        valueFormatter: (value) => formatMoneyEUR(value)
-      },
-      legend: { top: 2, textStyle: { color: '#abc0ba' } },
-      xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
-      yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
-      series: [
-        { name: 'STORM', type: 'bar', data: stormEvt, itemStyle: { color: '#00A6E2' }, barMaxWidth: 30 },
-        { name: 'STORM_CMCC', type: 'bar', data: cmccEvt, itemStyle: { color: '#A4A64B' }, barMaxWidth: 30 }
-      ]
-    }, true);
-  }
+  renderGroupedImpactBarChart(
+    'impact_eai_water',
+    'impact-eai-water-chart',
+    waterRows.map((r) => r.label),
+    waterRows.map((r) => r.storm_eai),
+    waterRows.map((r) => r.cmcc_eai),
+    { storm: '#0083CB', cmcc: '#5BC5F2' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_eai_elec',
+    'impact-eai-elec-chart',
+    elecRows.map((r) => r.label),
+    elecRows.map((r) => r.storm_eai),
+    elecRows.map((r) => r.cmcc_eai),
+    { storm: '#6AB96F', cmcc: '#A4A64B' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_evt_water',
+    'impact-evt-water-chart',
+    waterRows.map((r) => r.label),
+    waterRows.map((r) => r.storm_evt),
+    waterRows.map((r) => r.cmcc_evt),
+    { storm: '#00A6E2', cmcc: '#99D7F7' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_evt_elec',
+    'impact-evt-elec-chart',
+    elecRows.map((r) => r.label),
+    elecRows.map((r) => r.storm_evt),
+    elecRows.map((r) => r.cmcc_evt),
+    { storm: '#F39655', cmcc: '#FFD744' }
+  );
 }
 
 function renderHazardCharts() {

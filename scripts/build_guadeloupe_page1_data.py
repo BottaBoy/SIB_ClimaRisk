@@ -90,6 +90,40 @@ NETWORK_LAYER_PREFIX = {
     "elec_hta_aerien": "elec-hta-aerien",
 }
 
+GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
+
+
+def _normalize_wind_unit(raw: str) -> str:
+    unit = str(raw or "m/s").strip().lower()
+    aliases = {
+        "m/s": "m/s",
+        "ms": "m/s",
+        "mps": "m/s",
+        "meter_per_second": "m/s",
+        "meters_per_second": "m/s",
+        "knot": "kn",
+        "knots": "kn",
+        "kt": "kn",
+        "kts": "kn",
+        "kn": "kn",
+        "km/h": "km/h",
+        "kmh": "km/h",
+        "kph": "km/h",
+    }
+    if unit not in aliases:
+        raise ValueError(f"Unsupported wind unit '{raw}'. Supported: m/s, kn, km/h")
+    return aliases[unit]
+
+
+def _convert_wind_to_mps(values: pd.Series, unit_in: str) -> pd.Series:
+    unit = _normalize_wind_unit(unit_in)
+    wind = pd.to_numeric(values, errors="coerce").astype(float)
+    if unit == "m/s":
+        return wind
+    if unit == "kn":
+        return wind * 0.514444
+    return wind / 3.6  # km/h -> m/s
+
 
 def _state_from_ratio(ratio: float) -> str:
     if ratio >= 0.35:
@@ -172,7 +206,13 @@ def _iter_storm_txt_files(source: Path, pattern: str) -> list[Path]:
     return files
 
 
-def _build_wind_distributions_from_txt(source: Path, pattern: str, basin_id: int = 1) -> dict[str, Any]:
+def _build_wind_distributions_from_txt(
+    source: Path,
+    pattern: str,
+    basin_id: int = 1,
+    *,
+    wind_unit_in: str = "m/s",
+) -> dict[str, Any]:
     cols = [
         "Year",
         "Month",
@@ -214,7 +254,7 @@ def _build_wind_distributions_from_txt(source: Path, pattern: str, basin_id: int
             )
             chunk["year"] = pd.to_numeric(chunk["year"], errors="coerce")
             chunk["basin_id"] = pd.to_numeric(chunk["basin_id"], errors="coerce")
-            chunk["wind_max"] = pd.to_numeric(chunk["wind_max"], errors="coerce")
+            chunk["wind_max"] = _convert_wind_to_mps(chunk["wind_max"], wind_unit_in)
             chunk["tc_number"] = pd.to_numeric(chunk["tc_number"], errors="coerce")
             chunk = chunk[
                 (chunk["basin_id"] == float(basin_id))
@@ -252,8 +292,14 @@ def _build_wind_distributions_from_txt(source: Path, pattern: str, basin_id: int
     }
 
 
-def _build_wind_distributions_from_parquet(parquet_path: Path, basin_id: int = 1) -> dict[str, Any]:
+def _build_wind_distributions_from_parquet(
+    parquet_path: Path,
+    basin_id: int = 1,
+    *,
+    wind_unit_in: str = "m/s",
+) -> dict[str, Any]:
     df = _normalize_storm_df(pd.read_parquet(parquet_path))
+    df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
     if "Basin ID" in df.columns:
         basin_values = pd.to_numeric(df["Basin ID"], errors="coerce")
         df = df[basin_values == float(basin_id)].copy()
@@ -267,20 +313,31 @@ def _build_wind_distributions_from_parquet(parquet_path: Path, basin_id: int = 1
     }
 
 
-def _build_wind_histograms(storm_source: Path, cmcc_source: Path) -> dict[str, Any]:
+def _build_wind_histograms(
+    storm_source: Path,
+    cmcc_source: Path,
+    *,
+    wind_unit_in: str = "m/s",
+) -> dict[str, Any]:
     if storm_source.is_dir():
-        storm = _build_wind_distributions_from_txt(storm_source, "STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt", basin_id=1)
+        storm = _build_wind_distributions_from_txt(
+            storm_source,
+            "STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt",
+            basin_id=1,
+            wind_unit_in=wind_unit_in,
+        )
     else:
-        storm = _build_wind_distributions_from_parquet(storm_source, basin_id=1)
+        storm = _build_wind_distributions_from_parquet(storm_source, basin_id=1, wind_unit_in=wind_unit_in)
 
     if cmcc_source.is_dir():
         cmcc = _build_wind_distributions_from_txt(
             cmcc_source,
             "STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt",
             basin_id=1,
+            wind_unit_in=wind_unit_in,
         )
     else:
-        cmcc = _build_wind_distributions_from_parquet(cmcc_source, basin_id=1)
+        cmcc = _build_wind_distributions_from_parquet(cmcc_source, basin_id=1, wind_unit_in=wind_unit_in)
 
     return {"storm": storm, "storm_cmcc": cmcc}
 
@@ -432,20 +489,38 @@ def _compute_impact_metrics(
 
     hazard_outputs: dict[str, Any] = {}
     for hazard_key, hazard_obj in {"storm": hazards.storm, "storm_cmcc": hazards.storm_cmcc}.items():
-        impact = ImpactCalc(bundle.exposures, impfset, hazard_obj).impact(save_mat=True, assign_centroids=True)
+        impact = ImpactCalc(bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
         eai_direct = np.asarray(impact.eai_exp, dtype=float).reshape(-1)
         eai_direct = np.nan_to_num(eai_direct, nan=0.0, posinf=0.0, neginf=0.0)
-        freq = np.asarray(impact.frequency, dtype=float).reshape(-1)
-        freq = np.clip(np.nan_to_num(freq, nan=0.0, posinf=0.0, neginf=0.0), 0.0, None)
+        at_event = np.asarray(impact.at_event, dtype=float).reshape(-1)
+        at_event = np.nan_to_num(at_event, nan=0.0, posinf=0.0, neginf=0.0)
+        event_idx = int(np.argmax(at_event)) if len(at_event) else 0
+        event_id_max = int(getattr(impact, "event_id", [event_idx + 1])[event_idx]) if len(getattr(impact, "event_id", [])) else int(event_idx + 1)
 
-        if impact.imp_mat is None:
-            raise RuntimeError(f"Impact matrix is not available for {hazard_key}")
-        imp_mat = impact.imp_mat.tocsr()
-        max_loss = np.asarray(imp_mat.max(axis=0).toarray(), dtype=float).reshape(-1)
-        max_loss = np.nan_to_num(max_loss, nan=0.0, posinf=0.0, neginf=0.0)
+        global_event_factor = float(at_event[event_idx] / max(float(eai_direct.sum()), 1e-9)) if len(at_event) else 0.0
+        class_event_factor: dict[str, float] = {}
+        for class_key in GLOBAL_EVENT_CLASS_KEYS:
+            class_mask = np.array([ck == class_key for ck in breakdown_class_keys], dtype=bool)
+            class_eai = float(eai_direct[class_mask].sum())
+            if class_eai <= 0.0 or not class_mask.any() or len(at_event) == 0:
+                class_event_factor[class_key] = 0.0
+                continue
 
-        event_idx = int(np.argmax(np.asarray(impact.at_event, dtype=float))) if len(impact.at_event) else 0
-        event_loss = np.asarray(imp_mat.getrow(event_idx).toarray(), dtype=float).reshape(-1)
+            subset = bundle.exposures.copy(deep=False)
+            subset.set_gdf(
+                bundle.exposures.gdf.iloc[np.where(class_mask)[0]].reset_index(drop=True),
+                crs=bundle.exposures.crs,
+            )
+            class_impact = ImpactCalc(subset, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
+            class_at_event = np.asarray(class_impact.at_event, dtype=float).reshape(-1)
+            class_at_event = np.nan_to_num(class_at_event, nan=0.0, posinf=0.0, neginf=0.0)
+            class_event_loss = float(class_at_event[event_idx]) if event_idx < len(class_at_event) else 0.0
+            class_event_factor[class_key] = class_event_loss / class_eai if class_eai > 0.0 else 0.0
+
+        event_loss = np.zeros_like(eai_direct)
+        for i, bclass in enumerate(breakdown_class_keys):
+            factor = class_event_factor.get(str(bclass), global_event_factor)
+            event_loss[i] = float(eai_direct[i]) * max(0.0, float(factor))
 
         direct_ratio_annual = np.divide(eai_direct, np.maximum(values, 1.0))
         direct_ratio_event = np.divide(event_loss, np.maximum(values, 1.0))
@@ -556,7 +631,7 @@ def _compute_impact_metrics(
                 "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "eai_total_eur": round(float(total_eai[all_infra_mask].sum()), 2),
                 "event_max_total_loss_eur": round(float(total_event_loss[all_infra_mask].sum()), 2),
-                "event_id_max": int(getattr(impact, "event_id", [event_idx + 1])[event_idx]) if len(getattr(impact, "event_id", [])) else int(event_idx + 1),
+                "event_id_max": event_id_max,
             },
             "feature_states": {
                 "annual": _aggregate_feature_states(feature_ids, final_state_annual_arr),
@@ -689,6 +764,11 @@ def main() -> None:
     parser.add_argument("--infra-eau-dir", default="/home/ubuntu/uploads/Infra_Eau_Guadeloupe")
     parser.add_argument("--storm-source", default="/home/ubuntu/uploads/STORM/STORM_ds")
     parser.add_argument("--cmcc-source", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
+    parser.add_argument(
+        "--wind-unit-in",
+        default="m/s",
+        help="Input wind unit in STORM/STORM_CMCC datasets. Supported: m/s, kn, km/h. Output is always m/s.",
+    )
     parser.add_argument("--spacing-m", type=float, default=100.0)
     parser.add_argument("--out-json", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-page1-analysis.json"))
     parser.add_argument("--out-state-geojson", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-network-states.geojson"))
@@ -700,9 +780,14 @@ def main() -> None:
     out_state_geojson = Path(args.out_state_geojson)
 
     settings = load_settings()
+    normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
 
     exposure_metrics = _build_exposure_metrics(infra_elec_dir, infra_eau_dir)
-    hazard_hist = _build_wind_histograms(Path(args.storm_source), Path(args.cmcc_source))
+    hazard_hist = _build_wind_histograms(
+        Path(args.storm_source),
+        Path(args.cmcc_source),
+        wind_unit_in=normalized_wind_unit,
+    )
     exposure: NormalizedExposure = build_complete_exposure(infra_elec_dir=infra_elec_dir, infra_eau_dir=infra_eau_dir)
     impact_metrics, aux = _compute_impact_metrics(exposure, spacing_m=float(args.spacing_m), settings=settings)
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
@@ -724,6 +809,8 @@ def main() -> None:
                 "STORM et STORM_CMCC sont des catalogues synthetiques de trajectoires cycloniques (10 000 ans, bassin NA). "
                 "Les distributions ci-dessous sont calculees directement depuis les fichiers STORM/CMCC en vitesse maximale du vent."
             ),
+            "wind_unit_in": normalized_wind_unit,
+            "wind_unit_out": "m/s",
             "wind_histograms": hazard_hist,
         },
         "impact": impact_metrics,
