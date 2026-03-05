@@ -144,6 +144,7 @@ const els = {
   navPage1: document.getElementById('nav-page-1'),
   navPage2: document.getElementById('nav-page-2'),
   navPage3: document.getElementById('nav-page-3'),
+  runtimeAccessNote: document.getElementById('runtime-access-note'),
   pageBlocks: Array.from(document.querySelectorAll('.page-block')),
   errorBanner: document.getElementById('error-banner'),
   badgeSource: document.getElementById('badge-source'),
@@ -242,6 +243,17 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
 });
 
+const PUBLIC_SHOWCASE_HOSTNAMES = new Set([
+  'sib.elio.dev',
+  'sib-copy.dev.elio.bottagisio.com'
+]);
+
+const runtime = {
+  hostname: String(window.location.hostname || '').toLowerCase(),
+  isPublicShowcase: false
+};
+runtime.isPublicShowcase = PUBLIC_SHOWCASE_HOSTNAMES.has(runtime.hostname);
+
 const EXPOSURE_TYPE_TO_CATEGORY = {
   habitation: 'habitation',
   eau_aep: 'ouvrage_eau',
@@ -295,12 +307,15 @@ const EXPOSURE_TYPE_LABEL = {
 
 function pageFromHash() {
   const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
-  if (hash === 'page2') return 'page2';
+  if (hash === 'page2') return runtime.isPublicShowcase ? 'page1' : 'page2';
   if (hash === 'page3') return 'page3';
   return 'page1';
 }
 
 function setActivePage(pageKey, { updateHash = true } = {}) {
+  if (runtime.isPublicShowcase && pageKey === 'page2') {
+    pageKey = 'page1';
+  }
   state.currentPage = pageKey;
   if (updateHash) {
     const nextHash = `#${pageKey}`;
@@ -358,6 +373,38 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
     }, 80);
   }
+}
+
+function applyRuntimeMode() {
+  if (!runtime.isPublicShowcase) {
+    return;
+  }
+
+  document.body.classList.add('runtime-public');
+
+  if (els.navPage2) {
+    els.navPage2.hidden = true;
+    els.navPage2.setAttribute('aria-hidden', 'true');
+  }
+
+  if (els.runtimeAccessNote) {
+    els.runtimeAccessNote.hidden = false;
+    els.runtimeAccessNote.textContent = "Mode vitrine publique actif: la section 'Donnees utilisateur' et l'API de calcul sont reservees aux collaborateurs autorises sur app.sib.elio.dev.";
+  }
+
+  if (els.datasetSelect) {
+    Array.from(els.datasetSelect.options).forEach((option) => {
+      if (option.value === 'uploaded' || option.value === 'drawn') {
+        option.hidden = true;
+        option.disabled = true;
+      }
+    });
+    els.datasetSelect.value = 'demo';
+  }
+
+  if (els.pollJobId) els.pollJobId.disabled = true;
+  if (els.reloadJobBtn) els.reloadJobBtn.disabled = true;
+  if (els.clearDrawingsBtn) els.clearDrawingsBtn.disabled = true;
 }
 
 function showError(message) {
@@ -1634,45 +1681,17 @@ function renderHistogramChart(refKey, domId, graph, color) {
 function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, labelB, colorA, colorB) {
   const chart = ensureChart(refKey, domId);
   if (!chart || !graphA || !graphB) return;
-  const mapA = new Map();
-  const mapB = new Map();
-  (graphA.bins_mps || []).forEach((x, idx) => {
-    mapA.set(Number(x).toFixed(3), Number((graphA.percent || [])[idx] || 0));
-  });
-  (graphB.bins_mps || []).forEach((x, idx) => {
-    mapB.set(Number(x).toFixed(3), Number((graphB.percent || [])[idx] || 0));
-  });
+  const rawBinsA = Array.isArray(graphA.bins_mps) ? graphA.bins_mps : [];
+  const rawBinsB = Array.isArray(graphB.bins_mps) ? graphB.bins_mps : [];
+  const rawPctA = Array.isArray(graphA.percent) ? graphA.percent : [];
+  const rawPctB = Array.isArray(graphB.percent) ? graphB.percent : [];
+  const seriesA = rawBinsA
+    .map((x, idx) => [Number(x), Number(rawPctA[idx] || 0)])
+    .filter(([x]) => Number.isFinite(x));
+  const seriesB = rawBinsB
+    .map((x, idx) => [Number(x), Number(rawPctB[idx] || 0)])
+    .filter(([x]) => Number.isFinite(x));
 
-  const xBins = Array.from(
-    new Set([
-      ...(graphA.bins_mps || []).map((x) => Number(x).toFixed(3)),
-      ...(graphB.bins_mps || []).map((x) => Number(x).toFixed(3))
-    ])
-  )
-    .map((x) => Number(x))
-    .filter((x) => Number.isFinite(x))
-    .sort((a, b) => a - b)
-    .map((x) => x.toFixed(3));
-
-  const baseA = xBins.map((bin) => [Number(bin), Number(mapA.get(bin) || 0)]);
-  const baseB = xBins.map((bin) => [Number(bin), Number(mapB.get(bin) || 0)]);
-  const interpolate = (pairs, segments = 8) => {
-    if (!Array.isArray(pairs) || pairs.length <= 1) return pairs || [];
-    const out = [];
-    for (let i = 0; i < pairs.length - 1; i += 1) {
-      const [x0, y0] = pairs[i];
-      const [x1, y1] = pairs[i + 1];
-      out.push([x0, y0]);
-      for (let s = 1; s < segments; s += 1) {
-        const t = s / segments;
-        out.push([x0 + ((x1 - x0) * t), y0 + ((y1 - y0) * t)]);
-      }
-    }
-    out.push(pairs[pairs.length - 1]);
-    return out;
-  };
-  const seriesA = interpolate(baseA, 10);
-  const seriesB = interpolate(baseB, 10);
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: {
@@ -2255,6 +2274,10 @@ function stopPolling() {
 }
 
 async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {}) {
+  if (runtime.isPublicShowcase) {
+    showError("Le suivi de jobs est indisponible en mode vitrine publique.");
+    return;
+  }
   stopPolling();
   state.currentJobId = jobId;
   state.pollingModeTarget = modeTarget;
@@ -2301,6 +2324,10 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
 
 async function submitUpload(event) {
   event.preventDefault();
+  if (runtime.isPublicShowcase) {
+    showError("L'import d'exposition est reserve aux collaborateurs autorises.");
+    return;
+  }
   clearError();
   const file = els.uploadFile.files?.[0];
   if (!file) {
@@ -2371,6 +2398,10 @@ function getDrawnFeatureCollection() {
 }
 
 async function submitDrawnExposure() {
+  if (runtime.isPublicShowcase) {
+    showError("Le run d'exposition dessinee est reserve aux collaborateurs autorises.");
+    return;
+  }
   clearError();
   const fc = getDrawnFeatureCollection();
   if (!fc) {
@@ -2406,6 +2437,11 @@ async function submitDrawnExposure() {
 }
 
 function switchDatasetMode(mode) {
+  if (runtime.isPublicShowcase && mode !== 'demo') {
+    setStatus("Le mode vitrine publique n'autorise que le jeu de donnees de reference.", 'info');
+    els.datasetSelect.value = 'demo';
+    mode = 'demo';
+  }
   state.selectedDatasetMode = mode;
   if (mode === 'demo') {
     state.selectedTerritoryId = null;
@@ -2435,6 +2471,11 @@ function bindEvents() {
   }
   if (els.navPage2) {
     els.navPage2.addEventListener('click', () => {
+      if (runtime.isPublicShowcase) {
+        setActivePage('page1');
+        setStatus("L'espace collaborateur est disponible sur app.sib.elio.dev.", 'info');
+        return;
+      }
       setActivePage('page2');
       renderAll();
     });
@@ -2498,6 +2539,10 @@ function bindEvents() {
   });
 
   els.reloadJobBtn.addEventListener('click', async () => {
+    if (runtime.isPublicShowcase) {
+      showError("Le rechargement de jobs est reserve aux collaborateurs autorises.");
+      return;
+    }
     const jobId = els.pollJobId.value.trim();
     if (!jobId) {
       showError('Renseignez un identifiant de job pour recharger un résultat.');
@@ -2551,6 +2596,7 @@ function bindEvents() {
 async function bootstrap() {
   try {
     clearError();
+    applyRuntimeMode();
     bindEvents();
     setActivePage(pageFromHash(), { updateHash: false });
     renderDrawPreview();
@@ -2588,7 +2634,11 @@ async function bootstrap() {
     state.activeResult = demo;
     updateMetaBadges();
     renderAll();
-    setStatus("Référence Guadeloupe complète chargée. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
+    if (runtime.isPublicShowcase) {
+      setStatus("Reference Guadeloupe complete chargee. Pour collaborer sur des runs personnalises, demande un acces a app.sib.elio.dev.", 'success');
+    } else {
+      setStatus("Reference Guadeloupe complete chargee. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
+    }
   } catch (err) {
     console.error(err);
     showError(`Erreur au démarrage: ${err.message}`);

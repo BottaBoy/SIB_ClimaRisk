@@ -91,6 +91,7 @@ NETWORK_LAYER_PREFIX = {
 GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
 TABLE_SCENARIOS = ("annual", "rp100", "rp1000", "event_max")
 MAP_SCENARIOS = ("annual", "rp100", "rp1000", "event_max", "top10", "top5")
+WIND_BIN_STEP_MPS = 1.0
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -163,7 +164,12 @@ def _health(bucket: dict[str, float]) -> float:
     return max(0.0, min(1.0, 1.0 - weighted / total))
 
 
-def _histogram_percent(values: pd.Series, bins: int = 12) -> dict[str, Any]:
+def _histogram_percent(
+    values: pd.Series,
+    bins: int | np.ndarray = 12,
+    *,
+    bin_step_mps: float | None = None,
+) -> dict[str, Any]:
     vals = pd.to_numeric(values, errors="coerce").dropna()
     vals = vals[np.isfinite(vals)]
     if vals.empty:
@@ -171,11 +177,42 @@ def _histogram_percent(values: pd.Series, bins: int = 12) -> dict[str, Any]:
     hist, edges = np.histogram(vals.to_numpy(dtype=float), bins=bins)
     pct = (hist / max(1, hist.sum())) * 100.0
     bin_centers = 0.5 * (edges[:-1] + edges[1:])
-    return {
+    payload = {
         "bins_mps": [round(float(x), 3) for x in bin_centers.tolist()],
         "percent": [round(float(x), 4) for x in pct.tolist()],
         "count": int(len(vals)),
     }
+    if bin_step_mps is not None:
+        payload["bin_step_mps"] = round(float(bin_step_mps), 3)
+    return payload
+
+
+def _build_common_wind_edges(
+    values_a: pd.Series,
+    values_b: pd.Series,
+    *,
+    step_mps: float = WIND_BIN_STEP_MPS,
+) -> np.ndarray:
+    step = float(step_mps)
+    if not np.isfinite(step) or step <= 0.0:
+        raise ValueError(f"Invalid wind bin step: {step_mps}")
+
+    vals_a = pd.to_numeric(values_a, errors="coerce").to_numpy(dtype=float)
+    vals_b = pd.to_numeric(values_b, errors="coerce").to_numpy(dtype=float)
+    vals = np.concatenate([vals_a[np.isfinite(vals_a)], vals_b[np.isfinite(vals_b)]])
+    if vals.size == 0:
+        return np.array([0.0, step], dtype=float)
+
+    lower = float(np.floor(np.min(vals)))
+    upper = float(np.ceil(np.max(vals)))
+    if upper <= lower:
+        upper = lower + step
+
+    n_steps = int(np.ceil((upper - lower) / step))
+    edges = lower + (np.arange(n_steps + 1, dtype=float) * step)
+    if edges[-1] < upper:
+        edges = np.append(edges, upper)
+    return edges
 
 
 def _loss_at_return_period(losses: np.ndarray, frequencies: np.ndarray, return_period_years: float) -> float:
@@ -314,8 +351,8 @@ def _build_wind_distributions_from_txt(
     track_series = pd.Series(list(track_max.values()), dtype=float)
     year_series = pd.Series(list(year_max.values()), dtype=float)
     return {
-        "track_max_hist": _histogram_percent(track_series, bins=12),
-        "year_max_hist": _histogram_percent(year_series, bins=12),
+        "track_series": track_series,
+        "year_series": year_series,
         "track_count": int(len(track_max)),
         "year_count": int(len(year_max)),
     }
@@ -335,8 +372,8 @@ def _build_wind_distributions_from_parquet(
     storm_track_max = df.groupby("track_id", as_index=False)["wind_max"].max()["wind_max"]
     storm_year_max = df.groupby("Year", as_index=False)["wind_max"].max()["wind_max"]
     return {
-        "track_max_hist": _histogram_percent(storm_track_max, bins=12),
-        "year_max_hist": _histogram_percent(storm_year_max, bins=12),
+        "track_series": pd.Series(storm_track_max.to_numpy(dtype=float), dtype=float),
+        "year_series": pd.Series(storm_year_max.to_numpy(dtype=float), dtype=float),
         "track_count": int(df["track_id"].nunique()),
         "year_count": int(df["Year"].nunique()),
     }
@@ -368,7 +405,22 @@ def _build_wind_histograms(
     else:
         cmcc = _build_wind_distributions_from_parquet(cmcc_source, basin_id=1, wind_unit_in=wind_unit_in)
 
-    return {"storm": storm, "storm_cmcc": cmcc}
+    year_edges = _build_common_wind_edges(storm["year_series"], cmcc["year_series"], step_mps=WIND_BIN_STEP_MPS)
+    track_edges = _build_common_wind_edges(storm["track_series"], cmcc["track_series"], step_mps=WIND_BIN_STEP_MPS)
+
+    storm_out = {
+        "track_max_hist": _histogram_percent(storm["track_series"], bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+        "year_max_hist": _histogram_percent(storm["year_series"], bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+        "track_count": int(storm["track_count"]),
+        "year_count": int(storm["year_count"]),
+    }
+    cmcc_out = {
+        "track_max_hist": _histogram_percent(cmcc["track_series"], bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+        "year_max_hist": _histogram_percent(cmcc["year_series"], bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+        "track_count": int(cmcc["track_count"]),
+        "year_count": int(cmcc["year_count"]),
+    }
+    return {"storm": storm_out, "storm_cmcc": cmcc_out}
 
 
 def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
