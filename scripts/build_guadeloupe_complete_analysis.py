@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 import sys
 
@@ -19,6 +20,15 @@ from app.risk_engine.analysis_export import build_result_payload  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.impact_runner import compute_impacts  # noqa: E402
 from app.risk_engine.types import NormalizedExposure, NormalizedFeature  # noqa: E402
+from valuation_ofb import (  # noqa: E402
+    SOURCE_LABEL,
+    VALUATION_VERSION,
+    build_valuation_metadata,
+    detect_territory_bbox,
+    get_aep_ouvrage_value,
+    get_elec_values,
+    get_water_values,
+)
 
 
 METRIC_CRS = "EPSG:5490"
@@ -105,16 +115,37 @@ def _point_features_fixed_value(
 
 
 def _aep_ouvrage_value(ovrg_type: str) -> float:
-    code = str(ovrg_type or "").strip().upper()
-    if code == "TRAIT":
-        return 3_500_000.0
-    if code == "STPMP":
-        return 1_200_000.0
-    if code == "CAP":
-        return 1_000_000.0
-    if code == "CUV":
-        return 500_000.0
-    return 800_000.0
+    return get_aep_ouvrage_value(ovrg_type)
+
+
+def _iter_reference_centroids(infra_elec_dir: Path, infra_eau_dir: Path) -> Iterable[tuple[float, float]]:
+    probe_paths = [
+        infra_eau_dir / "AEP" / "cana_aep.gpkg",
+        infra_eau_dir / "EU" / "cana_eu.gpkg",
+        infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson",
+        infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson",
+        infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson",
+        infra_elec_dir / "lignes-haute-tension-hta-souterrain-gua.geojson",
+    ]
+    for path in probe_paths:
+        if not path.exists():
+            continue
+        gdf = _ensure_crs(gpd.read_file(path)).to_crs(WGS84)
+        for geom in gdf.geometry:
+            if geom is None or getattr(geom, "is_empty", False):
+                continue
+            centroid = geom.centroid
+            if centroid is None or getattr(centroid, "is_empty", False):
+                continue
+            yield float(getattr(centroid, "x", 0.0)), float(getattr(centroid, "y", 0.0))
+
+
+def detect_reference_territory(infra_elec_dir: Path, infra_eau_dir: Path) -> str:
+    for lon, lat in _iter_reference_centroids(infra_elec_dir, infra_eau_dir):
+        territory = detect_territory_bbox(lon, lat)
+        if territory in {"guadeloupe", "martinique"}:
+            return territory
+    return "fallback_guadeloupe"
 
 
 def _point_features_aep_ouvrages(gdf: gpd.GeoDataFrame) -> list[NormalizedFeature]:
@@ -150,6 +181,10 @@ def build_complete_exposure(
     infra_elec_dir: Path,
     infra_eau_dir: Path,
 ) -> NormalizedExposure:
+    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
+    valuation_meta = build_valuation_metadata(territory)
+    water_values = get_water_values(territory)
+    elec_values = get_elec_values()
     features: list[NormalizedFeature] = []
 
     # Electricity lines
@@ -159,7 +194,7 @@ def build_complete_exposure(
             feature_prefix="elec-bt-aerien",
             asset_type="elec_bt_aerien",
             exposure_category="ouvrage_electrique",
-            eur_per_km=180_000.0,
+            eur_per_km=elec_values["elec_bt_aerien"],
         )
     )
     features.extend(
@@ -168,7 +203,7 @@ def build_complete_exposure(
             feature_prefix="elec-bt-souterrain",
             asset_type="elec_bt_souterrain",
             exposure_category="ouvrage_electrique",
-            eur_per_km=320_000.0,
+            eur_per_km=elec_values["elec_bt_souterrain"],
         )
     )
     features.extend(
@@ -177,7 +212,7 @@ def build_complete_exposure(
             feature_prefix="elec-hta-aerien",
             asset_type="elec_hta_aerien",
             exposure_category="ouvrage_electrique",
-            eur_per_km=260_000.0,
+            eur_per_km=elec_values["elec_hta_aerien"],
         )
     )
     features.extend(
@@ -186,7 +221,7 @@ def build_complete_exposure(
             feature_prefix="elec-hta-souterrain",
             asset_type="elec_hta_souterrain",
             exposure_category="ouvrage_electrique",
-            eur_per_km=520_000.0,
+            eur_per_km=elec_values["elec_hta_souterrain"],
         )
     )
 
@@ -197,7 +232,7 @@ def build_complete_exposure(
             feature_prefix="aep-cana",
             asset_type="eau_aep_cana",
             exposure_category="ouvrage_eau",
-            eur_per_km=280_000.0,
+            eur_per_km=water_values["eau_aep"],
         )
     )
     features.extend(_point_features_aep_ouvrages(gpd.read_file(infra_eau_dir / "AEP" / "ouvrage_aep.gpkg")))
@@ -209,7 +244,7 @@ def build_complete_exposure(
             feature_prefix="eu-cana",
             asset_type="eau_eu_cana",
             exposure_category="ouvrage_eau",
-            eur_per_km=340_000.0,
+            eur_per_km=water_values["eau_eu"],
         )
     )
     features.extend(
@@ -218,7 +253,7 @@ def build_complete_exposure(
             feature_prefix="eu-pr",
             asset_type="eau_eu_pr",
             exposure_category="ouvrage_eau",
-            fixed_value_eur=900_000.0,
+            fixed_value_eur=water_values["eau_eu_pr"],
         )
     )
     features.extend(
@@ -227,12 +262,14 @@ def build_complete_exposure(
             feature_prefix="eu-step",
             asset_type="eau_eu_step",
             exposure_category="ouvrage_eau",
-            fixed_value_eur=6_000_000.0,
+            fixed_value_eur=water_values["eau_eu_step"],
         )
     )
 
     warnings = [
-        "Reference run uses prudent valuation hypotheses per km/ouvrage for Guadeloupe electricity and water infrastructure.",
+        "Water valuation based on OFB cost comparator (territory mean).",
+        f"Valuation source: {SOURCE_LABEL}.",
+        f"Territory selection by bbox: input={territory}, effective={valuation_meta['territory_effective']}.",
         "All water assets are conservatively assumed dependent on electricity when service propagation is computed.",
         "For full STORM and STORM_CMCC raw catalogs, use official 4TU datasets linked in result notes and README.",
     ]
@@ -254,9 +291,13 @@ def main() -> None:
     parser.add_argument("--sampling-spacing-m", type=float, default=100.0)
     args = parser.parse_args()
 
+    infra_elec_dir = Path(args.infra_elec_dir)
+    infra_eau_dir = Path(args.infra_eau_dir)
+    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
+    valuation_meta = build_valuation_metadata(territory)
     exposure = build_complete_exposure(
-        infra_elec_dir=Path(args.infra_elec_dir),
-        infra_eau_dir=Path(args.infra_eau_dir),
+        infra_elec_dir=infra_elec_dir,
+        infra_eau_dir=infra_eau_dir,
     )
     disagg = summarize_disaggregation(exposure, spacing_m=float(args.sampling_spacing_m))
     comp = compute_impacts(exposure, disagg)
@@ -273,6 +314,9 @@ def main() -> None:
         "storm_present": "https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085",
         "storm_cmcc": "https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2",
     }
+    payload["meta"]["valuation_source"] = SOURCE_LABEL
+    payload["meta"]["valuation_territory"] = str(valuation_meta["territory_effective"])
+    payload["meta"]["valuation_version"] = VALUATION_VERSION
     payload["exposure_summary"]["asset_type_counts"] = dict(
         Counter(str((feat.properties or {}).get("asset_type") or "unknown") for feat in exposure.features)
     )

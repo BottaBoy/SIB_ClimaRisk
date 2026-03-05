@@ -348,6 +348,12 @@ button:disabled {
   gap: 10px;
 }
 
+.impact-tables-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .metric-list {
   margin: 8px 0 0;
   padding-left: 18px;
@@ -494,6 +500,18 @@ button:disabled {
   padding-left: 18px;
   color: var(--muted);
   min-height: 72px;
+}
+
+.disclaimer {
+  padding: 12px 14px;
+  background: rgba(0, 58, 118, 0.64);
+}
+
+.disclaimer p {
+  margin: 0;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .kpi-grid {
@@ -788,7 +806,8 @@ button:disabled {
   .main-grid,
   .run-lab-grid,
   .wind-grid,
-  .expo-grid {
+  .expo-grid,
+  .impact-tables-grid {
     grid-template-columns: 1fr;
   }
   .kpi-grid {

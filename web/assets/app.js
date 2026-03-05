@@ -110,11 +110,12 @@ const GUA_VALUATION_RULES = [
   'Elec basse tension souterrain: 320 kEUR/km',
   'Elec haute tension aerien: 260 kEUR/km',
   'Elec haute tension souterrain: 520 kEUR/km',
-  'AEP canalisations: 280 kEUR/km',
-  'EU canalisations: 340 kEUR/km',
-  'EU PR: 900 kEUR/unite',
-  'EU STEP: 6 000 kEUR/unite',
-  'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)'
+  'AEP canalisations (Guadeloupe): 776 386 EUR/km',
+  'EU canalisations (Guadeloupe): 791 691 EUR/km',
+  'EU PR (Guadeloupe): 523 211 EUR/unite',
+  'EU STEP (Guadeloupe): 7 777 800 EUR/unite',
+  'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)',
+  'Source OFB: comparateur de couts, moyenne territoriale observee'
 ];
 
 const chartRefs = {
@@ -128,7 +129,9 @@ const chartRefs = {
   impact_eai_water: null,
   impact_eai_elec: null,
   impact_evt_water: null,
-  impact_evt_elec: null
+  impact_evt_elec: null,
+  impact_top10: null,
+  impact_top5: null
 };
 
 const els = {
@@ -190,23 +193,32 @@ const els = {
   waterLayerControls: document.getElementById('water-layer-controls'),
   infraSummary: document.getElementById('infra-summary'),
   expositionSummaryText: document.getElementById('exposition-summary-text'),
-  expositionMetricsList: document.getElementById('exposition-metrics-list'),
-  expositionValueTableBody: document.getElementById('exposition-value-table-body'),
+  expositionNetworkTableBody: document.getElementById('exposition-network-table-body'),
+  expositionOuvrageTableBody: document.getElementById('exposition-ouvrage-table-body'),
+  expositionTotalNetworks: document.getElementById('exposition-total-networks'),
+  expositionTotalOuvrages: document.getElementById('exposition-total-ouvrages'),
   expositionTotalValue: document.getElementById('exposition-total-value'),
+  hazardGuadeloupeCompareBody: document.getElementById('hazard-guadeloupe-compare-body'),
   page1ChartYearCompare: document.getElementById('page1-chart-year-compare'),
   page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
-  impactStateTableBody: document.getElementById('impact-state-table-body'),
+  impactTableAnnualBody: document.getElementById('impact-table-annual-body'),
+  impactTableRp100Body: document.getElementById('impact-table-rp100-body'),
+  impactTableRp1000Body: document.getElementById('impact-table-rp1000-body'),
+  impactTableEventmaxBody: document.getElementById('impact-table-eventmax-body'),
   impactEaiWaterChart: document.getElementById('impact-eai-water-chart'),
   impactEaiElecChart: document.getElementById('impact-eai-elec-chart'),
   impactEvtWaterChart: document.getElementById('impact-evt-water-chart'),
   impactEvtElecChart: document.getElementById('impact-evt-elec-chart'),
+  impactTop10Chart: document.getElementById('impact-top10-chart'),
+  impactTop5Chart: document.getElementById('impact-top5-chart'),
   impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
   impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
   networkLayerControls: document.getElementById('network-layer-controls'),
   networkStateMap: document.getElementById('network-state-map'),
   networkStateCaption: document.getElementById('network-state-caption'),
-  conclusionText: document.getElementById('conclusion-text')
+  conclusionText: document.getElementById('conclusion-text'),
+  methodValuationOfb: document.getElementById('method-valuation-ofb')
 };
 
 const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
@@ -271,6 +283,8 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.impact_eai_elec) chartRefs.impact_eai_elec.resize();
       if (chartRefs.impact_evt_water) chartRefs.impact_evt_water.resize();
       if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
+      if (chartRefs.impact_top10) chartRefs.impact_top10.resize();
+      if (chartRefs.impact_top5) chartRefs.impact_top5.resize();
     }, 80);
   }
 }
@@ -424,6 +438,7 @@ function renderKpis() {
 
 function renderInfraSummary() {
   const analysis = state.page1Analysis;
+  renderMethodologyValuation(analysis);
   if (!analysis) {
     if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
     if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
@@ -438,73 +453,114 @@ function renderInfraSummary() {
   renderPage1Conclusion(analysis);
 }
 
+function renderMethodologyValuation(analysis) {
+  if (!els.methodValuationOfb) return;
+  const valuation = analysis?.exposition?.valuation_metadata || {};
+  const territory = String(valuation.territory_effective || 'guadeloupe');
+  const source = String(valuation.source || 'Comparateur de couts OFB (moyenne territoriale observee)');
+  const version = String(valuation.valuation_version || 'n/a');
+  const nb = valuation.nb_prix_compares || {};
+  const compared = [
+    `AEP canalisations: ${numberFmt.format(Number(nb.aep_cana || 0))}`,
+    `EU canalisations: ${numberFmt.format(Number(nb.eu_cana || 0))}`,
+    `EU PR: ${numberFmt.format(Number(nb.eu_pr || 0))}`,
+    `EU STEP: ${numberFmt.format(Number(nb.eu_step || 0))}`
+  ].join(' | ');
+  const policy = 'Regle territoriale: Guadeloupe/Martinique par bbox, hors zone = fallback Guadeloupe.';
+
+  els.methodValuationOfb.innerHTML = `
+    <p class="muted small">${escapeHtml(`Source: ${source}. Territoire applique: ${territory}. Version: ${version}.`)}</p>
+    <p class="muted small">${escapeHtml(`Nombre de prix compares (${territory}): ${compared}.`)}</p>
+    <p class="muted small">${escapeHtml(policy)}</p>
+    <ul>${GUA_VALUATION_RULES.map((rule) => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>
+  `;
+}
+
 function renderPage1Exposition(analysis) {
   const expo = analysis?.exposition || {};
   const lengths = expo.lengths_km || {};
   const counts = expo.counts || {};
+  const valuePerKm = expo.value_per_km_eur || {};
+  const totals = expo.total_value_by_type_eur || {};
+  const valuation = expo.valuation_metadata || {};
+  const newValues = valuation.new_values || {};
 
   if (els.expositionSummaryText) {
-    const linesElec = Number(counts.elec_lines_total || 0);
-    const linesWater = Number(counts.water_lines_total || 0);
-    const txt = [
-      `Le jeu de reference comprend ${numberFmt.format(linesElec)} troncons electriques et ${numberFmt.format(linesWater)} troncons d'eau.`,
-      `Longueurs reseaux: basse tension aerien ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km, basse tension souterrain ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km, haute tension aerien ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km, haute tension souterrain ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km, AEP ${numberFmt.format(Number(lengths.eau_aep || 0))} km, EU ${numberFmt.format(Number(lengths.eau_eu || 0))} km.`,
-      `Ouvrages eau: ${numberFmt.format(Number(counts.aep_ouvrages_total || 0))} AEP, ${numberFmt.format(Number(counts.eu_pr_total || 0))} postes de refoulement, ${numberFmt.format(Number(counts.eu_step_total || 0))} STEP.`
-    ];
-    els.expositionSummaryText.textContent = txt.join(' ');
+    els.expositionSummaryText.textContent = "L’exposition représente tous les enjeux qui peuvent et doivent être protégés face aux risques physiques. Dans ce cas d’étude sur la Guadeloupe, ont été pris en compte les réseaux d’eau potable (AEP), d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain, haute tension aerien, haute tension souterrain).";
   }
 
-  if (els.expositionMetricsList) {
-    const items = [
-      `Reseau basse tension aerien: ${numberFmt.format(Number(lengths.elec_bt_aerien || 0))} km`,
-      `Reseau basse tension souterrain: ${numberFmt.format(Number(lengths.elec_bt_souterrain || 0))} km`,
-      `Reseau haute tension aerien: ${numberFmt.format(Number(lengths.elec_hta_aerien || 0))} km`,
-      `Reseau haute tension souterrain: ${numberFmt.format(Number(lengths.elec_hta_souterrain || 0))} km`,
-      `Reseau eau AEP: ${numberFmt.format(Number(lengths.eau_aep || 0))} km`,
-      `Reseau eau EU: ${numberFmt.format(Number(lengths.eau_eu || 0))} km`,
-      `Ouvrages AEP: ${numberFmt.format(Number(counts.aep_ouvrages_total || 0))}`,
-      `Postes de refoulement: ${numberFmt.format(Number(counts.eu_pr_total || 0))}`,
-      `STEP: ${numberFmt.format(Number(counts.eu_step_total || 0))}`
-    ];
-    els.expositionMetricsList.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
-  }
-
-  if (els.expositionValueTableBody) {
-    const valuePerKm = expo.value_per_km_eur || {};
-    const totals = expo.total_value_by_type_eur || {};
-
+  if (els.expositionNetworkTableBody) {
     const networkRows = NETWORK_LAYER_ORDER.map((key) => ({
       label: NETWORK_LAYER_LABEL[key] || key,
       lengthKm: Number(lengths[key] || 0),
       valuePerKm: Number(valuePerKm[key] || 0),
       total: Number(totals[key] || 0)
     }));
-    const ouvrageRows = [
-      { label: 'Ouvrages eau AEP', lengthKm: null, valuePerKm: null, total: Number(totals.eau_aep_ouvrages || 0) },
-      { label: 'Postes de refoulement EU', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_pr || 0) },
-      { label: 'STEP', lengthKm: null, valuePerKm: null, total: Number(totals.eau_eu_step || 0) }
-    ];
-    const rows = [...networkRows, ...ouvrageRows];
-    const totalValue = rows.reduce((acc, row) => acc + Number(row.total || 0), 0);
-    els.expositionValueTableBody.innerHTML = rows.map((row) => `
+    const totalNetworks = networkRows.reduce((acc, row) => acc + Number(row.total || 0), 0);
+    els.expositionNetworkTableBody.innerHTML = networkRows.map((row) => `
       <tr>
         <td>${escapeHtml(row.label)}</td>
-        <td class="num">${row.lengthKm === null ? '—' : escapeHtml(numberFmt.format(row.lengthKm))}</td>
-        <td class="num">${row.valuePerKm === null ? '—' : escapeHtml(numberFmt.format(row.valuePerKm))}</td>
-        <td class="num">${escapeHtml(formatMoneyEUR(row.total))}</td>
+        <td class="num">${escapeHtml(numberFmt.format(row.lengthKm || 0))}</td>
+        <td class="num">${escapeHtml(numberFmt.format(row.valuePerKm || 0))}</td>
+        <td class="num">${escapeHtml(formatMoneyEUR(row.total || 0))}</td>
       </tr>
     `).join('') + `
       <tr class="table-total-row">
-        <td><strong>Total</strong></td>
+        <td><strong>Total reseaux</strong></td>
         <td class="num">—</td>
         <td class="num">—</td>
-        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalValue))}</strong></td>
+        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalNetworks))}</strong></td>
       </tr>
     `;
+    if (els.expositionTotalNetworks) {
+      els.expositionTotalNetworks.textContent = `Valeur totale des reseaux: ${formatMoneyEUR(totalNetworks)}`;
+    }
+  }
+
+  if (els.expositionOuvrageTableBody) {
+    const ouvrageRows = [
+      {
+        label: 'Ouvrages eau AEP',
+        count: Number(counts.aep_ouvrages_total || 0),
+        valuePerUnitText: 'Selon ovrg_type',
+        total: Number(totals.eau_aep_ouvrages || 0)
+      },
+      {
+        label: 'Postes de refoulement EU',
+        count: Number(counts.eu_pr_total || 0),
+        valuePerUnitText: numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0)),
+        total: Number(totals.eau_eu_pr || 0)
+      },
+      {
+        label: 'STEP',
+        count: Number(counts.eu_step_total || 0),
+        valuePerUnitText: numberFmt.format(Number(newValues.eu_step_eur_per_unit || 0)),
+        total: Number(totals.eau_eu_step || 0)
+      }
+    ];
+    const totalOuvrages = ouvrageRows.reduce((acc, row) => acc + Number(row.total || 0), 0);
+    els.expositionOuvrageTableBody.innerHTML = ouvrageRows.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td class="num">${escapeHtml(numberFmt.format(row.count || 0))}</td>
+        <td class="num">${escapeHtml(row.valuePerUnitText)}</td>
+        <td class="num">${escapeHtml(formatMoneyEUR(row.total || 0))}</td>
+      </tr>
+    `).join('') + `
+      <tr class="table-total-row">
+        <td><strong>Total ouvrages</strong></td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalOuvrages))}</strong></td>
+      </tr>
+    `;
+    if (els.expositionTotalOuvrages) {
+      els.expositionTotalOuvrages.textContent = `Valeur totale des ouvrages: ${formatMoneyEUR(totalOuvrages)}`;
+    }
   }
 
   if (els.expositionTotalValue) {
-    els.expositionTotalValue.textContent = `Valeur totale des infrastructures: ${formatMoneyEUR(expo.total_value_all_eur || 0)}`;
+    els.expositionTotalValue.textContent = `Valeur totale du portefeuille d'infrastructures: ${formatMoneyEUR(expo.total_value_all_eur || 0)}`;
   }
 }
 
@@ -512,9 +568,23 @@ function renderPage1Hazard(analysis) {
   const hazard = analysis?.hazard || {};
   const hist = hazard.wind_histograms || {};
   if (els.hazardSummaryText) {
-    const stormYears = Number(hist?.storm?.year_count || 0);
-    const cmccYears = Number(hist?.storm_cmcc?.year_count || 0);
-    els.hazardSummaryText.textContent = `${String(hazard.summary_text || '')} STORM: ${numberFmt.format(stormYears)} annees; STORM_CMCC: ${numberFmt.format(cmccYears)} annees.`;
+    els.hazardSummaryText.innerHTML = escapeHtml(String(hazard.summary_text || '')).replaceAll('\n', '<br />');
+  }
+
+  if (els.hazardGuadeloupeCompareBody) {
+    const rows = Array.isArray(hazard.guadeloupe_wind_comparison_table) ? hazard.guadeloupe_wind_comparison_table : [];
+    if (!rows.length) {
+      els.hazardGuadeloupeCompareBody.innerHTML = '<tr><td colspan="4">Tableau indisponible.</td></tr>';
+    } else {
+      els.hazardGuadeloupeCompareBody.innerHTML = rows.map((row) => `
+        <tr>
+          <td>${escapeHtml(String(row.indicator || ''))}</td>
+          <td class="num">${escapeHtml(String(row.storm || ''))}</td>
+          <td class="num">${escapeHtml(String(row.storm_cmcc || ''))}</td>
+          <td class="num">${escapeHtml(String(row.delta || ''))}</td>
+        </tr>
+      `).join('');
+    }
   }
 
   renderHistogramComparisonChart(
@@ -541,50 +611,35 @@ function renderPage1Hazard(analysis) {
 
 function renderPage1Impact(analysis) {
   const impact = analysis?.impact || {};
-  const summary = impact.summary_metrics || {};
-  if (els.impactSummaryText) {
-    const storm = summary.storm || {};
-    const cmcc = summary.storm_cmcc || {};
-    const directAnnualStorm = Number(storm.direct_hs_pct_annual || 0);
-    const indirectAnnualStorm = Number(storm.indirect_hs_pct_annual || 0);
-    const directAnnualCmcc = Number(cmcc.direct_hs_pct_annual || 0);
-    const indirectAnnualCmcc = Number(cmcc.indirect_hs_pct_annual || 0);
-
-    els.impactSummaryText.textContent = [
-      `Pourcentage hors service annuel (S3) - dommages directs: STORM ${percentFmt.format(directAnnualStorm)} %, STORM_CMCC ${percentFmt.format(directAnnualCmcc)} %.`,
-      `Pourcentage hors service annuel (S3) - dependance electrique: STORM ${percentFmt.format(indirectAnnualStorm)} %, STORM_CMCC ${percentFmt.format(indirectAnnualCmcc)} %.`,
-      `Dommages annuels moyens: STORM ${formatMoneyEUR(storm.eai_total_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.eai_total_eur || 0)}.`,
-      `Evenement le plus fort: STORM ${formatMoneyEUR(storm.event_max_total_loss_eur || 0)}, STORM_CMCC ${formatMoneyEUR(cmcc.event_max_total_loss_eur || 0)}.`
-    ].join(' ');
-  }
-
-  const rows = Array.isArray(impact.state_damage_table) ? impact.state_damage_table : [];
-  if (els.impactStateTableBody) {
-    if (!rows.length) {
-      els.impactStateTableBody.innerHTML = '<tr><td colspan="9">Aucune donnee d\'impact disponible.</td></tr>';
-    } else {
-      els.impactStateTableBody.innerHTML = rows.map((row) => {
-        const storm = row.storm || {};
-        const cmcc = row.storm_cmcc || {};
-        const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
-        return `
-          <tr>
-            <td>${escapeHtml(String(rowLabel))}</td>
-            <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_annual))}</td>
-            <td class="num">${escapeHtml(formatStateTuple(storm.state_pct_event_max))}</td>
-            <td class="num">${escapeHtml(formatMoneyEUR(storm.eai_eur || 0))}</td>
-            <td class="num">${escapeHtml(formatMoneyEUR(storm.event_max_loss_eur || 0))}</td>
-            <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_annual))}</td>
-            <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct_event_max))}</td>
-            <td class="num">${escapeHtml(formatMoneyEUR(cmcc.eai_eur || 0))}</td>
-            <td class="num">${escapeHtml(formatMoneyEUR(cmcc.event_max_loss_eur || 0))}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-  }
+  const tables = impact.state_damage_tables || {};
+  renderImpactScenarioTable(els.impactTableAnnualBody, Array.isArray(tables.annual) ? tables.annual : [], 'EAI');
+  renderImpactScenarioTable(els.impactTableRp100Body, Array.isArray(tables.rp100) ? tables.rp100 : [], 'RP100');
+  renderImpactScenarioTable(els.impactTableRp1000Body, Array.isArray(tables.rp1000) ? tables.rp1000 : [], 'RP1000');
+  renderImpactScenarioTable(els.impactTableEventmaxBody, Array.isArray(tables.event_max) ? tables.event_max : [], 'evt max');
 
   renderImpactBreakdownCharts(impact);
+}
+
+function renderImpactScenarioTable(targetBody, rows, damageLabel) {
+  if (!targetBody) return;
+  if (!rows.length) {
+    targetBody.innerHTML = '<tr><td colspan="5">Aucune donnee d\'impact disponible.</td></tr>';
+    return;
+  }
+  targetBody.innerHTML = rows.map((row) => {
+    const storm = row.storm || {};
+    const cmcc = row.storm_cmcc || {};
+    const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
+    return `
+      <tr>
+        <td>${escapeHtml(String(rowLabel))}</td>
+        <td class="num">${escapeHtml(formatStateTuple(storm.state_pct))}</td>
+        <td class="num">${escapeHtml(formatMoneyEUR(storm.damage_eur || 0))}</td>
+        <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct))}</td>
+        <td class="num">${escapeHtml(formatMoneyEUR(cmcc.damage_eur || 0))}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderPage1Conclusion(analysis) {
@@ -594,17 +649,15 @@ function renderPage1Conclusion(analysis) {
   const storm = impact?.summary_metrics?.storm || {};
   const cmcc = impact?.summary_metrics?.storm_cmcc || {};
   const totalValue = Number(expo.total_value_all_eur || 0);
-  const stormEai = Number(storm.eai_total_eur || 0);
-  const cmccEai = Number(cmcc.eai_total_eur || 0);
-  const stormEvt = Number(storm.event_max_total_loss_eur || 0);
-  const cmccEvt = Number(cmcc.event_max_total_loss_eur || 0);
-  const stronger = cmccEai >= stormEai ? 'STORM_CMCC' : 'STORM';
-  const ratioStorm = totalValue > 0 ? (stormEai / totalValue) * 100.0 : 0;
-  const ratioCmcc = totalValue > 0 ? (cmccEai / totalValue) * 100.0 : 0;
+  const safeTotal = totalValue > 0 ? totalValue : 1;
+  const toPct = (value) => (Number(value || 0) / safeTotal) * 100;
+  const toM = (value) => Math.round((Number(value || 0) / 1_000_000));
   const txt = [
-    `Le portefeuille d'infrastructures represente ${formatMoneyEUR(totalValue)}.`,
-    `Les dommages annuels moyens restent limites (${percentFmt.format(ratioStorm)} % pour STORM et ${percentFmt.format(ratioCmcc)} % pour STORM_CMCC), mais l'evenement extrême atteint ${formatMoneyEUR(stormEvt)} (STORM) et ${formatMoneyEUR(cmccEvt)} (STORM_CMCC).`,
-    `Le scenario le plus penalise en EAI est ${stronger}. Priorites recommandees: renforcer les troncons critiques, securiser l'alimentation electrique des ouvrages d'eau et prevoir des plans de continuité en cas de cyclone majeur.`
+    `Valeur totale du portefeuille d'infrastructures: ${numberFmt.format(Math.round(totalValue / 1_000_000))} M€.`,
+    `Dommages annuels moyens: STORM ${numberFmt.format(toM(storm.eai_total_eur))} M€ (${percentFmt.format(toPct(storm.eai_total_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.eai_total_eur))} M€ (${percentFmt.format(toPct(cmcc.eai_total_eur))} %).`,
+    `Scenario temps de retour 100 ans: STORM ${numberFmt.format(toM(storm.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp100_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp100_total_loss_eur))} %).`,
+    `Scenario temps de retour 1000 ans: STORM ${numberFmt.format(toM(storm.rp1000_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp1000_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp1000_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp1000_total_loss_eur))} %).`,
+    `Evenement le plus extreme: STORM ${numberFmt.format(toM(storm.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.event_max_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.event_max_total_loss_eur))} %).`
   ];
   els.conclusionText.textContent = txt.join(' ');
 }
@@ -1284,9 +1337,9 @@ function renderWaterInfraMap() {
 
 function networkStatePropertyKey() {
   const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
-  const scenario = state.impactMapScenario === 'annual' ? 'annual' : 'event_max';
-  if (hazard === 'storm') return scenario === 'annual' ? 'state_annual_storm' : 'state_event_max_storm';
-  return scenario === 'annual' ? 'state_annual_storm_cmcc' : 'state_event_max_storm_cmcc';
+  const allowedScenarios = new Set(['annual', 'rp100', 'rp1000', 'event_max', 'top10', 'top5']);
+  const scenario = allowedScenarios.has(state.impactMapScenario) ? state.impactMapScenario : 'event_max';
+  return `state_${scenario}_${hazard}`;
 }
 
 function networkFeatureState(feature) {
@@ -1430,7 +1483,15 @@ function renderNetworkStateMap() {
 
   if (els.networkStateCaption) {
     const hz = getHazardLabel(state.impactMapHazard);
-    const sc = state.impactMapScenario === 'annual' ? 'moyenne annuelle' : 'evenement le plus fort';
+    const scenarioLabel = {
+      annual: 'moyenne annuelle',
+      rp100: 'temps de retour 100 ans',
+      rp1000: 'temps de retour 1000 ans',
+      event_max: 'evenement le plus fort',
+      top10: '10% evenements les plus forts',
+      top5: '5% evenements les plus forts'
+    };
+    const sc = scenarioLabel[state.impactMapScenario] || scenarioLabel.event_max;
     if (!visibleTypes) {
       els.networkStateCaption.textContent = 'Aucune couche selectionnee.';
     } else {
@@ -1499,7 +1560,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     mapB.set(Number(x).toFixed(3), Number((graphB.percent || [])[idx] || 0));
   });
 
-  const yCategories = Array.from(
+  const xBins = Array.from(
     new Set([
       ...(graphA.bins_mps || []).map((x) => Number(x).toFixed(3)),
       ...(graphB.bins_mps || []).map((x) => Number(x).toFixed(3))
@@ -1510,8 +1571,8 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     .sort((a, b) => a - b)
     .map((x) => x.toFixed(3));
 
-  const seriesA = yCategories.map((bin) => [Number(mapA.get(bin) || 0), Number(bin)]);
-  const seriesB = yCategories.map((bin) => [Number(mapB.get(bin) || 0), Number(bin)]);
+  const seriesA = xBins.map((bin) => [Number(bin), Number(mapA.get(bin) || 0)]);
+  const seriesB = xBins.map((bin) => [Number(bin), Number(mapB.get(bin) || 0)]);
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: {
@@ -1520,9 +1581,9 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       formatter: (params) => {
         const rows = Array.isArray(params) ? params : [params];
         if (!rows.length) return '';
-        const binValue = Number(rows[0]?.value?.[1] ?? rows[0]?.axisValue ?? 0);
-        const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[0] || 0);
-        const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[0] || 0);
+        const binValue = Number(rows[0]?.value?.[0] ?? rows[0]?.axisValue ?? 0);
+        const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[1] || 0);
+        const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[1] || 0);
         return [
           `<strong>${escapeHtml(numberFmt.format(binValue))} m/s</strong>`,
           `${escapeHtml(labelA)}: ${escapeHtml(numberFmt.format(valA))}%`,
@@ -1534,8 +1595,8 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       top: 2,
       textStyle: { color: '#abc0ba' }
     },
-    xAxis: { ...chartThemeCommon().xAxis, type: 'value', name: '%', min: 0 },
-    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: 'm/s' },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'value', name: 'm/s' },
+    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '%', min: 0 },
     series: [
       {
         name: labelA,
@@ -1646,72 +1707,120 @@ function renderGroupedImpactBarChart(refKey, domId, labels, stormValues, cmccVal
 }
 
 function renderImpactBreakdownCharts(impactPayload) {
-  const breakdown = impactPayload?.damage_breakdown || null;
-  const rows = [];
+  const scenarioRows = impactPayload?.damage_breakdown_by_scenario || {};
+  const fallbackBreakdown = impactPayload?.damage_breakdown || {};
 
-  if (breakdown?.storm && breakdown?.storm_cmcc) {
-    const byStorm = new Map((breakdown.storm || []).map((r) => [String(r.class_key), r]));
-    const byCmcc = new Map((breakdown.storm_cmcc || []).map((r) => [String(r.class_key), r]));
-    const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
-    ordered.forEach((key) => {
-      const s = byStorm.get(key) || {};
-      const c = byCmcc.get(key) || {};
-      rows.push({
-        key,
-        label: String(s.class_label || c.class_label || key),
-        storm_eai: Number(s.eai_eur || 0),
-        cmcc_eai: Number(c.eai_eur || 0),
-        storm_evt: Number(s.event_max_loss_eur || 0),
-        cmcc_evt: Number(c.event_max_loss_eur || 0)
+  const rowsForScenario = (scenario) => {
+    const scenarioPayload = scenarioRows?.[scenario];
+    if (scenarioPayload?.storm && scenarioPayload?.storm_cmcc) {
+      const byStorm = new Map((scenarioPayload.storm || []).map((r) => [String(r.class_key), r]));
+      const byCmcc = new Map((scenarioPayload.storm_cmcc || []).map((r) => [String(r.class_key), r]));
+      const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
+      return ordered.map((key) => {
+        const s = byStorm.get(key) || {};
+        const c = byCmcc.get(key) || {};
+        return {
+          key,
+          label: String(s.class_label || c.class_label || key),
+          storm: Number(s.damage_eur || 0),
+          cmcc: Number(c.damage_eur || 0)
+        };
       });
-    });
-  } else {
-    (Array.isArray(impactPayload?.state_damage_table) ? impactPayload.state_damage_table : []).forEach((row) => {
-      rows.push({
-        key: String(row.class_key || ''),
-        label: String(row.class_label || row.class_key || 'type'),
-        storm_eai: Number(row?.storm?.eai_eur || 0),
-        cmcc_eai: Number(row?.storm_cmcc?.eai_eur || 0),
-        storm_evt: Number(row?.storm?.event_max_loss_eur || 0),
-        cmcc_evt: Number(row?.storm_cmcc?.event_max_loss_eur || 0)
-      });
-    });
-  }
+    }
 
-  const waterRows = rows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRows = rows.filter((r) => String(r.key).startsWith('elec_'));
+    if (scenario === 'annual' && fallbackBreakdown?.storm && fallbackBreakdown?.storm_cmcc) {
+      const byStorm = new Map((fallbackBreakdown.storm || []).map((r) => [String(r.class_key), r]));
+      const byCmcc = new Map((fallbackBreakdown.storm_cmcc || []).map((r) => [String(r.class_key), r]));
+      const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
+      return ordered.map((key) => {
+        const s = byStorm.get(key) || {};
+        const c = byCmcc.get(key) || {};
+        return {
+          key,
+          label: String(s.class_label || c.class_label || key),
+          storm: Number(s.eai_eur || 0),
+          cmcc: Number(c.eai_eur || 0)
+        };
+      });
+    }
+
+    if (scenario === 'event_max' && fallbackBreakdown?.storm && fallbackBreakdown?.storm_cmcc) {
+      const byStorm = new Map((fallbackBreakdown.storm || []).map((r) => [String(r.class_key), r]));
+      const byCmcc = new Map((fallbackBreakdown.storm_cmcc || []).map((r) => [String(r.class_key), r]));
+      const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
+      return ordered.map((key) => {
+        const s = byStorm.get(key) || {};
+        const c = byCmcc.get(key) || {};
+        return {
+          key,
+          label: String(s.class_label || c.class_label || key),
+          storm: Number(s.event_max_loss_eur || 0),
+          cmcc: Number(c.event_max_loss_eur || 0)
+        };
+      });
+    }
+
+    return [];
+  };
+
+  const annualRows = rowsForScenario('annual');
+  const eventRows = rowsForScenario('event_max');
+  const top10Rows = rowsForScenario('top10');
+  const top5Rows = rowsForScenario('top5');
+
+  const waterRows = annualRows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRows = annualRows.filter((r) => String(r.key).startsWith('elec_'));
+  const waterRowsEvt = eventRows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRowsEvt = eventRows.filter((r) => String(r.key).startsWith('elec_'));
 
   renderGroupedImpactBarChart(
     'impact_eai_water',
     'impact-eai-water-chart',
     waterRows.map((r) => r.label),
-    waterRows.map((r) => r.storm_eai),
-    waterRows.map((r) => r.cmcc_eai),
+    waterRows.map((r) => r.storm),
+    waterRows.map((r) => r.cmcc),
     { storm: '#0083CB', cmcc: '#5BC5F2' }
   );
   renderGroupedImpactBarChart(
     'impact_eai_elec',
     'impact-eai-elec-chart',
     elecRows.map((r) => r.label),
-    elecRows.map((r) => r.storm_eai),
-    elecRows.map((r) => r.cmcc_eai),
+    elecRows.map((r) => r.storm),
+    elecRows.map((r) => r.cmcc),
     { storm: '#6AB96F', cmcc: '#A4A64B' }
   );
   renderGroupedImpactBarChart(
     'impact_evt_water',
     'impact-evt-water-chart',
-    waterRows.map((r) => r.label),
-    waterRows.map((r) => r.storm_evt),
-    waterRows.map((r) => r.cmcc_evt),
+    waterRowsEvt.map((r) => r.label),
+    waterRowsEvt.map((r) => r.storm),
+    waterRowsEvt.map((r) => r.cmcc),
     { storm: '#00A6E2', cmcc: '#99D7F7' }
   );
   renderGroupedImpactBarChart(
     'impact_evt_elec',
     'impact-evt-elec-chart',
-    elecRows.map((r) => r.label),
-    elecRows.map((r) => r.storm_evt),
-    elecRows.map((r) => r.cmcc_evt),
+    elecRowsEvt.map((r) => r.label),
+    elecRowsEvt.map((r) => r.storm),
+    elecRowsEvt.map((r) => r.cmcc),
     { storm: '#F39655', cmcc: '#FFD744' }
+  );
+
+  renderGroupedImpactBarChart(
+    'impact_top10',
+    'impact-top10-chart',
+    top10Rows.map((r) => r.label),
+    top10Rows.map((r) => r.storm),
+    top10Rows.map((r) => r.cmcc),
+    { storm: '#00A6E2', cmcc: '#A4A64B' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_top5',
+    'impact-top5-chart',
+    top5Rows.map((r) => r.label),
+    top5Rows.map((r) => r.storm),
+    top5Rows.map((r) => r.cmcc),
+    { storm: '#0083CB', cmcc: '#FFD744' }
   );
 }
 
@@ -2170,7 +2279,10 @@ function bindEvents() {
   if (els.impactMapScenarioSelect) {
     els.impactMapScenarioSelect.value = state.impactMapScenario;
     els.impactMapScenarioSelect.addEventListener('change', () => {
-      state.impactMapScenario = els.impactMapScenarioSelect.value === 'annual' ? 'annual' : 'event_max';
+      const allowedScenarios = new Set(['annual', 'rp100', 'rp1000', 'event_max', 'top10', 'top5']);
+      state.impactMapScenario = allowedScenarios.has(els.impactMapScenarioSelect.value)
+        ? els.impactMapScenarioSelect.value
+        : 'event_max';
       renderNetworkStateMap();
     });
   }

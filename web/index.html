@@ -26,10 +26,14 @@
       <header class="hero panel page-block page1">
         <div>
           <p class="eyebrow">Analyse de reference</p>
-          <h1>Impact des risques physiques sur les infrastructures : cas de la Guadeloupe</h1>
+          <h1>Impact des risques physiques sur les infrastructures : etude de cas Guadeloupe</h1>
           <p class="subtitle">
-            Exercice de demonstration d'une analyse complete des risques cycloniques, en prenant en compte
-            les reseaux d'eau et d'electricite. Les aleas compares sont STORM et STORM CMCC.
+            Cette page présente un exercice de demonstration d'une analyse complete des risques cycloniques. Cette étude de cas prend en compte
+            les reseaux d'eau et d'electricite. Les aleas cycloniques sont modélisés à partir de la base de donnée STORM (Bloemdaal et al. 2020) et STORM_CMCC (Bloemdaal et al., 2022). 
+            Les données cartographiques des réseaux d'eau des réseaux d'eau ont été fournis par le SMGEAG, quand à celle des reseaux électriques, elles sont disponible sur le site de EDF Guadeloupe.
+            Cette analyse, réalisée dans le cadre du mémoire de master 2 Eau et société de Elio Bottagisio, à pour but d'informer les parties prenantes sur les risques physiques pouvant affecter les infrastructures en Guadeloupe 
+            et de démontrer la faisabilité d'une telle analyse dans le cadre des missions de la Solidarité InterBassin (SIB, département de l'OFB). Les méthodologies et résultats présentés sont à considérer comme des prototypes à valider et affiner dans les itérations futures du projet.
+            Une méthodologie détaillée de calcul est disponible dans la section dédiée.
           </p>
         </div>
         <div class="hero-badges">
@@ -43,34 +47,51 @@
         <div class="section-head">
           <div>
             <h2 id="expo-title">Exposition</h2>
-            <p class="muted" id="exposition-summary-text">Chargement des indicateurs d'exposition...</p>
+            <p class="muted" id="exposition-summary-text">
+              L’exposition représente tous les enjeux qui peuvent et doivent être protégés face aux risques physiques.
+              Dans ce cas d’étude sur la Guadeloupe, ont été pris en compte les réseaux d’eau potable (AEP),
+              d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain,
+              haute tension aerien, haute tension souterrain).
+            </p>
           </div>
         </div>
         <div class="expo-grid">
           <article class="subpanel">
-            <h3>Synthese des infrastructures</h3>
-            <ul id="exposition-metrics-list" class="metric-list">
-              <li>Chargement...</li>
-            </ul>
-          </article>
-          <article class="subpanel">
-            <h3>Valorisation monetaire</h3>
+            <h3>Valorisation monetaire des reseaux</h3>
             <div class="table-wrap compact">
               <table>
                 <thead>
                   <tr>
-                    <th>Type</th>
+                    <th>Type de reseau</th>
                     <th class="num">Longueur (km)</th>
                     <th class="num">Valeur/km (€)</th>
                     <th class="num">Valeur totale (€)</th>
                   </tr>
                 </thead>
-                <tbody id="exposition-value-table-body"></tbody>
+                <tbody id="exposition-network-table-body"></tbody>
               </table>
             </div>
-            <p class="muted small" id="exposition-total-value">Valeur totale: —</p>
+            <p class="muted small" id="exposition-total-networks">Valeur totale des reseaux: —</p>
+          </article>
+          <article class="subpanel">
+            <h3>Valorisation monetaire des ouvrages</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type d'ouvrage</th>
+                    <th class="num">Nombre (unites)</th>
+                    <th class="num">Valeur/unite (€)</th>
+                    <th class="num">Valeur totale (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="exposition-ouvrage-table-body"></tbody>
+              </table>
+            </div>
+            <p class="muted small" id="exposition-total-ouvrages">Valeur totale des ouvrages: —</p>
           </article>
         </div>
+        <p class="muted small" id="exposition-total-value">Valeur totale du portefeuille: —</p>
         <div class="subpanel water-map-card">
           <h3>Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Loading…</p>
@@ -82,9 +103,14 @@
       <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
-            <h2 id="wind-panel-title">Analyse de l'aléa</h2>
+            <h2 id="wind-panel-title">Analyse des aléas</h2>
             <p class="muted" id="hazard-summary-text">
-              Chargement des informations STORM / STORM_CMCC...
+              Cette section décrit les aléas qui sont utilisés comme sources de dommages sur l’exposition (les infrastructures d’eau et d'électricité).
+              Le catalogue STORM est une base de données simulant 10 000 ans de cyclones tropicaux synthétiques.
+              Le catalogue STORM CMCC représente la même base de données auquel un facteur de changement climatique, le scénario RCP 8.5 du GIEC a été appliqué.
+              <br /><br />
+              Les graphiques ci-dessous décrivent la vitesse moyenne des vents maximums par année des bases de données STORM et STORM_CMCC.
+              En d’autres termes cela représente la probabilité moyenne des vents sur la zone d’étude d’après les bases de données utilisées.
             </p>
           </div>
           <div class="wind-opacity-box">
@@ -95,14 +121,30 @@
             </div>
           </div>
         </div>
+        <article class="subpanel">
+          <h3>Comparaison vitesses max - zone Guadeloupe</h3>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Indicateur</th>
+                  <th class="num">STORM</th>
+                  <th class="num">STORM_CMCC</th>
+                  <th class="num">Delta (CMCC-STORM)</th>
+                </tr>
+              </thead>
+              <tbody id="hazard-guadeloupe-compare-body"></tbody>
+            </table>
+          </div>
+        </article>
         <div class="wind-grid">
           <article class="subpanel wind-map-card">
-            <h3>Carte des aleas vent/tempete STORM</h3>
+            <h3>Carte des aleas vent/tempete moyens (STORM)</h3>
             <p class="muted small" id="wind-storm-caption">Loading…</p>
             <div id="wind-map-storm" class="map wind-map"></div>
           </article>
           <article class="subpanel wind-map-card">
-            <h3>Carte des aleas vent/tempete STORM_CMCC</h3>
+            <h3>Carte des aleas vent/tempete moyens (STORM_CMCC)</h3>
             <p class="muted small" id="wind-cmcc-caption">Loading…</p>
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>
@@ -124,27 +166,85 @@
           <div>
             <h2 id="impact-title">Impact</h2>
             <p class="muted" id="impact-summary-text">
-              Chargement des analyses d'impact...
+              L’impact est la combinaison d’une exposition donnée, avec sa vulnérabilité, à un ou une série d’aléas données.
+              La valeur des infrastructures a été estimée à partir des données de l’OFB.
+              <br /><br />
+              Suite à l’impact de l'aléas, les infrastructures peuvent être dans 4 états: S0 Opérationnel, S1 Dégradé,
+              S2 Critique, S3 Hors service.
+              <br /><br />
+              L’impact d’un réseau électrique défaillant sur le réseau d’eau est modélisé (voir méthodologie détaillée).
             </p>
           </div>
         </div>
-        <div class="table-wrap wide">
-          <table>
-            <thead>
-              <tr>
-                <th>Reseau</th>
-                <th class="num">STORM annuel S0/S1/S2/S3 (%)</th>
-                <th class="num">STORM evt max S0/S1/S2/S3 (%)</th>
-                <th class="num">STORM EAI (€)</th>
-                <th class="num">STORM evt max (€)</th>
-                <th class="num">CMCC annuel S0/S1/S2/S3 (%)</th>
-                <th class="num">CMCC evt max S0/S1/S2/S3 (%)</th>
-                <th class="num">CMCC EAI (€)</th>
-                <th class="num">CMCC evt max (€)</th>
-              </tr>
-            </thead>
-            <tbody id="impact-state-table-body"></tbody>
-          </table>
+        <div class="impact-tables-grid">
+          <article class="subpanel">
+            <h3>Tableau des impacts annuels (moyenne)</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reseau</th>
+                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM EAI (€)</th>
+                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM_CMCC EAI (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-table-annual-body"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="subpanel">
+            <h3>Tableau des impacts causes par les evenements a temps de retour 100 ans</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reseau</th>
+                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM RP100 (€)</th>
+                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM_CMCC RP100 (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-table-rp100-body"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="subpanel">
+            <h3>Tableau des impacts causes par les evenements a temps de retour 1000 ans</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reseau</th>
+                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM RP1000 (€)</th>
+                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM_CMCC RP1000 (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-table-rp1000-body"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="subpanel">
+            <h3>Tableau des impacts causes par l'evenement le plus fort</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reseau</th>
+                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM evt max (€)</th>
+                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM_CMCC evt max (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-table-eventmax-body"></tbody>
+              </table>
+            </div>
+          </article>
         </div>
         <div class="subpanel">
           <div class="section-head">
@@ -158,8 +258,12 @@
                 <option value="storm_cmcc">STORM_CMCC</option>
               </select>
               <select id="impact-map-scenario-select">
-                <option value="event_max">Evenement le plus fort</option>
                 <option value="annual">Moyenne annuelle</option>
+                <option value="rp100">Temps de retour 100 ans</option>
+                <option value="rp1000">Temps de retour 1000 ans</option>
+                <option value="event_max">Evenement le plus fort</option>
+                <option value="top10">10% evenements les plus forts</option>
+                <option value="top5">5% evenements les plus forts</option>
               </select>
             </div>
           </div>
@@ -189,6 +293,14 @@
               <h3>⚡ EVT max electricite (STORM vs STORM_CMCC)</h3>
               <div id="impact-evt-elec-chart" class="chart"></div>
             </div>
+            <div class="chart-card">
+              <h3>Top 10% evenements les plus forts - dommages par type</h3>
+              <div id="impact-top10-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>Top 5% evenements les plus forts - dommages par type</h3>
+              <div id="impact-top5-chart" class="chart"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -196,12 +308,21 @@
       <section class="panel conclusion-panel page-block page1" aria-labelledby="conclusion-title">
         <div class="section-head">
           <div>
-            <h2 id="conclusion-title">Partie conclusion</h2>
+            <h2 id="conclusion-title">Conclusion</h2>
             <p class="muted" id="conclusion-text">
               Chargement de la conclusion...
             </p>
           </div>
         </div>
+      </section>
+
+      <section class="panel disclaimer page-block page1" aria-label="Clause de non responsabilite">
+        <p>
+          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
+          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
+          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
+          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
       </section>
 
       <section class="panel controls-grid page-block page2" aria-label="Analysis controls">
@@ -393,6 +514,15 @@
         </div>
       </section>
 
+      <section class="panel disclaimer page-block page2" aria-label="Clause de non responsabilite">
+        <p>
+          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
+          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
+          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
+          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
+      </section>
+
       <section class="panel methodology page-block page3">
         <div class="section-head">
           <div>
@@ -448,6 +578,12 @@ scripts/build_guadeloupe_water_infra_map.py
           </article>
         </div>
         <article class="subpanel">
+          <h3>Hypotheses de valorisation OFB</h3>
+          <div id="method-valuation-ofb">
+            <p class="muted small">Chargement des hypotheses OFB...</p>
+          </div>
+        </article>
+        <article class="subpanel">
           <h3>Branchement CLIMADA en production</h3>
           <ul>
             <li>Le calcul principal est maintenant branche sur CLIMADA dans `compute_impacts()` avec le moteur `climada_with_interdependency_v1`.</li>
@@ -457,6 +593,15 @@ scripts/build_guadeloupe_water_infra_map.py
           </ul>
         </article>
         <div class="notes-box" id="notes-box"></div>
+      </section>
+
+      <section class="panel disclaimer page-block page3" aria-label="Clause de non responsabilite">
+        <p>
+          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
+          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
+          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
+          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
       </section>
 
       <div id="error-banner" class="error-banner" hidden></div>

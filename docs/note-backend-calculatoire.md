@@ -116,6 +116,8 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 ## 6) Regles metier 4 etats + health
 
 ### 6.1 Etats S0/S1/S2/S3
+S0 Opérationnel, S1 Dégradé, S2 Critique, S3 Hors service
+
 Le ratio de dommage direct est:
 
 ```text
@@ -241,21 +243,26 @@ Endpoint sante:
 
 ---
 
-## 12) Valorisation monetaire prudente (cas Guadeloupe)
+## 12) Valorisation monetaire prudente (OFB)
 
-Hypotheses utilisees dans `scripts/build_guadeloupe_complete_analysis.py`:
+La valeur des reseaux eau est basee sur la moyenne observee par territoire dans le comparateur de couts OFB.
+Les reseaux electriques et les ouvrages AEP (`ovrg_type`) sont conserves inchanges.
 
-| Type d'actif | Regle de valorisation | Valeur retenue |
-|---|---|---|
-| Elec BT aerien | EUR par km | 180 000 EUR/km |
-| Elec BT souterrain | EUR par km | 320 000 EUR/km |
-| Elec HTA aerien | EUR par km | 260 000 EUR/km |
-| Elec HTA souterrain | EUR par km | 520 000 EUR/km |
-| AEP canalisations | EUR par km | 280 000 EUR/km |
-| EU canalisations | EUR par km | 340 000 EUR/km |
-| EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR |
-| EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR |
-| AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR |
+| Territoire | Type d'actif | Regle de valorisation | Valeur initiale retenue | Nouvelle valeur OFB | Nombre de prix compares |
+|---|---|---|---|---|---|
+| Guadeloupe | AEP canalisations | EUR par km | 280 000 EUR/km | 776 386 EUR/km | 24 |
+| Guadeloupe | EU canalisations | EUR par km | 340 000 EUR/km | 791 691 EUR/km | 10 |
+| Guadeloupe | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 523 211 EUR | 6 |
+| Guadeloupe | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 777 800 EUR | 1 |
+| Martinique | AEP canalisations | EUR par km | 280 000 EUR/km | 653 445 EUR/km | 16 |
+| Martinique | EU canalisations | EUR par km | 340 000 EUR/km | 831 815 EUR/km | 6 |
+| Martinique | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 44 257 EUR | 1 |
+| Martinique | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 923 344 EUR | 2 |
+| Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | inchange | n/a |
+| Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | inchange | n/a |
+| Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | inchange | n/a |
+| Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | inchange | n/a |
+| Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | n/a |
 
 Details techniques:
 - lineaires: `value_eur = max(5000, longueur_km * cout_km)`

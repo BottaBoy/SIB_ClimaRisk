@@ -285,6 +285,46 @@ def _table_impact_by_network(impact: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _table_impact_by_scenario(impact: dict[str, Any], scenario: str, damage_label: str) -> str:
+    tables = impact.get("state_damage_tables", {})
+    rows = tables.get(scenario, [])
+    lines = [
+        "| Reseau | STORM S0/S1/S2/S3 (%) | STORM "
+        + damage_label
+        + " (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC "
+        + damage_label
+        + " (€) |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        label = str(row.get("class_label") or row.get("class_key") or "Reseau")
+        storm = row.get("storm", {})
+        cmcc = row.get("storm_cmcc", {})
+        s_state = storm.get("state_pct", {})
+        c_state = cmcc.get("state_pct", {})
+        s_tuple = (
+            f"S0 {_fmt(_safe_num(s_state.get('S0', 0.0)), 2)} / "
+            f"S1 {_fmt(_safe_num(s_state.get('S1', 0.0)), 2)} / "
+            f"S2 {_fmt(_safe_num(s_state.get('S2', 0.0)), 2)} / "
+            f"S3 {_fmt(_safe_num(s_state.get('S3', 0.0)), 2)}"
+        )
+        c_tuple = (
+            f"S0 {_fmt(_safe_num(c_state.get('S0', 0.0)), 2)} / "
+            f"S1 {_fmt(_safe_num(c_state.get('S1', 0.0)), 2)} / "
+            f"S2 {_fmt(_safe_num(c_state.get('S2', 0.0)), 2)} / "
+            f"S3 {_fmt(_safe_num(c_state.get('S3', 0.0)), 2)}"
+        )
+        lines.append(
+            "| "
+            f"{label} | "
+            f"{s_tuple} | "
+            f"{_fmt(_safe_num(storm.get('damage_eur', 0.0)), 2)} | "
+            f"{c_tuple} | "
+            f"{_fmt(_safe_num(cmcc.get('damage_eur', 0.0)), 2)} |"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build markdown note comparing STORM and STORM_CMCC wind-speed maxima.")
     parser.add_argument("--storm-dir", default="/home/ubuntu/uploads/STORM/STORM_ds")
@@ -372,6 +412,24 @@ def main() -> None:
     lines.append("## Impacts (resume auto)")
     lines.append("")
     lines.append(_table_impact_summary(impact_payload))
+    lines.append("")
+    lines.append("### Tableau des impacts annuels (moyenne)")
+    lines.append("")
+    lines.append(_table_impact_by_scenario(impact_payload, "annual", "EAI"))
+    lines.append("")
+    lines.append("### Tableau des impacts causes par les evenements a temps de retour 100 ans")
+    lines.append("")
+    lines.append(_table_impact_by_scenario(impact_payload, "rp100", "RP100"))
+    lines.append("")
+    lines.append("### Tableau des impacts causes par les evenements a temps de retour 1000 ans")
+    lines.append("")
+    lines.append(_table_impact_by_scenario(impact_payload, "rp1000", "RP1000"))
+    lines.append("")
+    lines.append("### Tableau des impacts causes par l'evenement le plus fort")
+    lines.append("")
+    lines.append(_table_impact_by_scenario(impact_payload, "event_max", "evt max"))
+    lines.append("")
+    lines.append("### Tableau legacy (EAI / evenement max)")
     lines.append("")
     lines.append(_table_impact_by_network(impact_payload))
     lines.append("")

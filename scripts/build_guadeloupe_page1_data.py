@@ -32,10 +32,17 @@ from app.risk_engine.types import NormalizedExposure  # noqa: E402
 from build_guadeloupe_complete_analysis import (  # noqa: E402
     METRIC_CRS,
     WGS84,
-    _aep_ouvrage_value,
     _as_wgs84_and_metric,
     _ensure_crs,
     build_complete_exposure,
+    detect_reference_territory,
+)
+from valuation_ofb import (  # noqa: E402
+    SOURCE_LABEL,
+    build_valuation_metadata,
+    get_aep_ouvrage_value,
+    get_network_values_per_km,
+    get_water_values,
 )
 
 
@@ -63,15 +70,6 @@ DAMAGE_BREAKDOWN_LABELS = {
     "eau_eu_step": "STEP",
 }
 
-NETWORK_VALUE_PER_KM = {
-    "eau_aep": 280_000.0,
-    "eau_eu": 340_000.0,
-    "elec_bt_souterrain": 320_000.0,
-    "elec_bt_aerien": 180_000.0,
-    "elec_hta_souterrain": 520_000.0,
-    "elec_hta_aerien": 260_000.0,
-}
-
 ASSET_TYPE_TO_NETWORK_CLASS = {
     "eau_aep_cana": "eau_aep",
     "eau_eu_cana": "eau_eu",
@@ -91,6 +89,8 @@ NETWORK_LAYER_PREFIX = {
 }
 
 GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
+TABLE_SCENARIOS = ("annual", "rp100", "rp1000", "event_max")
+MAP_SCENARIOS = ("annual", "rp100", "rp1000", "event_max", "top10", "top5")
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -176,6 +176,35 @@ def _histogram_percent(values: pd.Series, bins: int = 12) -> dict[str, Any]:
         "percent": [round(float(x), 4) for x in pct.tolist()],
         "count": int(len(vals)),
     }
+
+
+def _loss_at_return_period(losses: np.ndarray, frequencies: np.ndarray, return_period_years: float) -> float:
+    if losses.size == 0:
+        return 0.0
+    vals = np.nan_to_num(np.asarray(losses, dtype=float).reshape(-1), nan=0.0, posinf=0.0, neginf=0.0)
+    vals = np.maximum(vals, 0.0)
+    freq = np.nan_to_num(np.asarray(frequencies, dtype=float).reshape(-1), nan=0.0, posinf=0.0, neginf=0.0)
+    if freq.size != vals.size or float(freq.sum()) <= 0.0:
+        freq = np.full(vals.size, 1.0 / max(1, vals.size), dtype=float)
+
+    order = np.argsort(vals)[::-1]
+    vals_sorted = vals[order]
+    freq_sorted = freq[order]
+    exceed = np.cumsum(freq_sorted)
+    target = 1.0 / max(1.0, float(return_period_years))
+    idx = int(np.searchsorted(exceed, target, side="left"))
+    idx = max(0, min(idx, vals_sorted.size - 1))
+    return float(vals_sorted[idx])
+
+
+def _mean_top_fraction(losses: np.ndarray, fraction: float) -> float:
+    vals = np.nan_to_num(np.asarray(losses, dtype=float).reshape(-1), nan=0.0, posinf=0.0, neginf=0.0)
+    vals = np.maximum(vals, 0.0)
+    if vals.size == 0:
+        return 0.0
+    k = max(1, int(np.ceil(vals.size * max(0.0, min(1.0, fraction)))))
+    top = np.partition(vals, -k)[-k:]
+    return float(np.mean(top)) if top.size else 0.0
 
 
 def _normalize_storm_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -348,7 +377,7 @@ def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
     return max(0.0, total_m / 1000.0)
 
 
-def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path) -> dict[str, Any]:
+def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path, territory: str) -> dict[str, Any]:
     elec_bt_aer = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson"))
     elec_bt_sou = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson"))
     elec_hta_aer = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson"))
@@ -368,15 +397,16 @@ def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path) -> dict[s
         "eau_eu": _line_length_km(eu_cana),
     }
 
-    value_per_km = dict(NETWORK_VALUE_PER_KM)
+    value_per_km = get_network_values_per_km(territory)
     total_value_network = {
-        key: round(lengths_km[key] * value_per_km[key], 2) for key in NETWORK_VALUE_PER_KM.keys()
+        key: round(lengths_km[key] * value_per_km[key], 2) for key in value_per_km.keys()
     }
+    water_values = get_water_values(territory)
 
     aep_type_counts = aep_ouvr["ovrg_type"].fillna("NA").astype(str).str.upper().value_counts().to_dict()
-    total_value_aep_ouvr = round(sum(_aep_ouvrage_value(k) * int(v) for k, v in aep_type_counts.items()), 2)
-    total_value_pr = round(float(len(eu_pr)) * 900_000.0, 2)
-    total_value_step = round(float(len(eu_step)) * 6_000_000.0, 2)
+    total_value_aep_ouvr = round(sum(get_aep_ouvrage_value(k) * int(v) for k, v in aep_type_counts.items()), 2)
+    total_value_pr = round(float(len(eu_pr)) * float(water_values["eau_eu_pr"]), 2)
+    total_value_step = round(float(len(eu_step)) * float(water_values["eau_eu_step"]), 2)
 
     counts = {
         "aep_ouvrages_total": int(len(aep_ouvr)),
@@ -410,6 +440,7 @@ def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path) -> dict[s
         "value_per_km_eur": value_per_km,
         "total_value_by_type_eur": total_value_by_type,
         "total_value_all_eur": total_value_all,
+        "valuation_metadata": build_valuation_metadata(territory),
     }
 
 
@@ -459,6 +490,7 @@ def _compute_impact_metrics(
     *,
     spacing_m: float,
     settings: Any,
+    network_value_per_km: dict[str, float],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     impf = try_build_climada_impact_func()
     if impf is None:
@@ -481,7 +513,7 @@ def _compute_impact_metrics(
     breakdown_class_keys = [_breakdown_class_from_point(rec) for rec in bundle.point_records]
     weights_km = np.array(
         [
-            (float(rec["value_eur"]) / NETWORK_VALUE_PER_KM[class_key]) if class_key in NETWORK_VALUE_PER_KM else 0.0
+            (float(rec["value_eur"]) / network_value_per_km[class_key]) if class_key in network_value_per_km else 0.0
             for rec, class_key in zip(bundle.point_records, class_keys)
         ],
         dtype=float,
@@ -492,18 +524,39 @@ def _compute_impact_metrics(
         impact = ImpactCalc(bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
         eai_direct = np.asarray(impact.eai_exp, dtype=float).reshape(-1)
         eai_direct = np.nan_to_num(eai_direct, nan=0.0, posinf=0.0, neginf=0.0)
+        eai_direct = np.minimum(np.maximum(eai_direct, 0.0), values)
         at_event = np.asarray(impact.at_event, dtype=float).reshape(-1)
         at_event = np.nan_to_num(at_event, nan=0.0, posinf=0.0, neginf=0.0)
+        freq = np.asarray(getattr(hazard_obj, "frequency", np.array([])), dtype=float).reshape(-1)
+        if freq.size != at_event.size or float(np.nansum(freq)) <= 0.0:
+            freq = np.full(at_event.size, 1.0 / max(1, at_event.size), dtype=float)
         event_idx = int(np.argmax(at_event)) if len(at_event) else 0
         event_id_max = int(getattr(impact, "event_id", [event_idx + 1])[event_idx]) if len(getattr(impact, "event_id", [])) else int(event_idx + 1)
+        global_scenario_losses = {
+            "event_max": float(at_event[event_idx]) if len(at_event) else 0.0,
+            "rp100": _loss_at_return_period(at_event, freq, 100.0),
+            "rp1000": _loss_at_return_period(at_event, freq, 1000.0),
+            "top10": _mean_top_fraction(at_event, 0.10),
+            "top5": _mean_top_fraction(at_event, 0.05),
+        }
+        global_eai = float(eai_direct.sum())
+        global_scenario_factors = {
+            scenario: (max(0.0, loss) / max(global_eai, 1e-9)) for scenario, loss in global_scenario_losses.items()
+        }
 
-        global_event_factor = float(at_event[event_idx] / max(float(eai_direct.sum()), 1e-9)) if len(at_event) else 0.0
-        class_event_factor: dict[str, float] = {}
+        class_scenario_factors: dict[str, dict[str, float]] = {
+            "event_max": {},
+            "rp100": {},
+            "rp1000": {},
+            "top10": {},
+            "top5": {},
+        }
         for class_key in GLOBAL_EVENT_CLASS_KEYS:
             class_mask = np.array([ck == class_key for ck in breakdown_class_keys], dtype=bool)
             class_eai = float(eai_direct[class_mask].sum())
             if class_eai <= 0.0 or not class_mask.any() or len(at_event) == 0:
-                class_event_factor[class_key] = 0.0
+                for scenario in class_scenario_factors:
+                    class_scenario_factors[scenario][class_key] = 0.0
                 continue
 
             subset = bundle.exposures.copy(deep=False)
@@ -514,142 +567,185 @@ def _compute_impact_metrics(
             class_impact = ImpactCalc(subset, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
             class_at_event = np.asarray(class_impact.at_event, dtype=float).reshape(-1)
             class_at_event = np.nan_to_num(class_at_event, nan=0.0, posinf=0.0, neginf=0.0)
-            class_event_loss = float(class_at_event[event_idx]) if event_idx < len(class_at_event) else 0.0
-            class_event_factor[class_key] = class_event_loss / class_eai if class_eai > 0.0 else 0.0
+            class_total_value = float(values[class_mask].sum())
+            class_at_event = np.minimum(np.maximum(class_at_event, 0.0), class_total_value)
+            class_scenario_losses = {
+                "event_max": float(class_at_event[event_idx]) if event_idx < len(class_at_event) else 0.0,
+                "rp100": _loss_at_return_period(class_at_event, freq, 100.0),
+                "rp1000": _loss_at_return_period(class_at_event, freq, 1000.0),
+                "top10": _mean_top_fraction(class_at_event, 0.10),
+                "top5": _mean_top_fraction(class_at_event, 0.05),
+            }
+            for scenario, scenario_loss in class_scenario_losses.items():
+                class_scenario_factors[scenario][class_key] = max(0.0, float(scenario_loss)) / max(class_eai, 1e-9)
 
-        event_loss = np.zeros_like(eai_direct)
-        for i, bclass in enumerate(breakdown_class_keys):
-            factor = class_event_factor.get(str(bclass), global_event_factor)
-            event_loss[i] = float(eai_direct[i]) * max(0.0, float(factor))
+        direct_losses_by_scenario: dict[str, np.ndarray] = {"annual": np.array(eai_direct, dtype=float)}
+        for scenario in ("event_max", "rp100", "rp1000", "top10", "top5"):
+            scenario_direct = np.zeros_like(eai_direct, dtype=float)
+            for i, bclass in enumerate(breakdown_class_keys):
+                factor = class_scenario_factors[scenario].get(str(bclass), global_scenario_factors[scenario])
+                scenario_direct[i] = float(eai_direct[i]) * max(0.0, float(factor))
+            direct_losses_by_scenario[scenario] = np.minimum(np.maximum(scenario_direct, 0.0), values)
 
-        direct_ratio_annual = np.divide(eai_direct, np.maximum(values, 1.0))
-        direct_ratio_event = np.divide(event_loss, np.maximum(values, 1.0))
-        direct_state_annual = np.array([_state_from_ratio(float(v)) for v in direct_ratio_annual], dtype=object)
-        direct_state_event = np.array([_state_from_ratio(float(v)) for v in direct_ratio_event], dtype=object)
+        def evaluate_scenario(direct_loss: np.ndarray) -> dict[str, Any]:
+            direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float), 0.0), values)
+            direct_ratio = np.divide(direct, np.maximum(values, 1.0))
+            direct_state = np.array([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
 
-        # Electricity health by territory (annual scenario)
-        elec_buckets_annual: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
-        elec_buckets_event: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
-        for i, class_key in enumerate(class_keys):
-            if class_key is None or not class_key.startswith("elec_"):
-                continue
-            w = float(weights_km[i])
-            _add_state(elec_buckets_annual[territories[i]], str(direct_state_annual[i]), w)
-            _add_state(elec_buckets_event[territories[i]], str(direct_state_event[i]), w)
-        elec_health_annual = {k: _health(v) for k, v in elec_buckets_annual.items()}
-        elec_health_event = {k: _health(v) for k, v in elec_buckets_event.items()}
-        global_health_annual = _health(_merge_buckets(list(elec_buckets_annual.values())))
-        global_health_event = _health(_merge_buckets(list(elec_buckets_event.values())))
+            elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
+            for i, ckey in enumerate(class_keys):
+                if ckey is None or not ckey.startswith("elec_"):
+                    continue
+                _add_state(elec_buckets[territories[i]], str(direct_state[i]), float(weights_km[i]))
+            elec_health = {k: _health(v) for k, v in elec_buckets.items()}
+            global_health = _health(_merge_buckets(list(elec_buckets.values())))
 
-        final_state_annual: list[str] = []
-        final_state_event: list[str] = []
-        indirect_eai = np.zeros_like(eai_direct)
-        total_event_loss = np.array(event_loss, dtype=float)
-        indirect_s3_flag_annual = np.zeros_like(eai_direct, dtype=bool)
-        indirect_s3_flag_event = np.zeros_like(eai_direct, dtype=bool)
+            total_loss = np.array(direct, dtype=float)
+            final_state: list[str] = []
+            indirect_s3_flag = np.zeros_like(direct, dtype=bool)
+            for i, ckey in enumerate(class_keys):
+                state_code = str(direct_state[i])
+                if ckey in {"eau_aep", "eau_eu"}:
+                    dep_state = _dependency_state_from_elec_health(elec_health.get(territories[i], global_health))
+                    final_code = dep_state if STATE_ORDER[dep_state] > STATE_ORDER[state_code] else state_code
+                    uplift = UPLIFT_BY_STATE[dep_state]
+                    total_with_dep = min(float(values[i]), float(direct[i]) * (1.0 + float(uplift)))
+                    total_loss[i] = max(0.0, total_with_dep)
+                    indirect_s3_flag[i] = final_code == "S3" and state_code != "S3"
+                    final_state.append(final_code)
+                else:
+                    final_state.append(state_code)
 
-        for i, class_key in enumerate(class_keys):
-            state_a = str(direct_state_annual[i])
-            state_e = str(direct_state_event[i])
-            if class_key in {"eau_aep", "eau_eu"}:
-                dep_a = _dependency_state_from_elec_health(elec_health_annual.get(territories[i], global_health_annual))
-                dep_e = _dependency_state_from_elec_health(elec_health_event.get(territories[i], global_health_event))
-                final_a = dep_a if STATE_ORDER[dep_a] > STATE_ORDER[state_a] else state_a
-                final_e = dep_e if STATE_ORDER[dep_e] > STATE_ORDER[state_e] else state_e
-                uplift_a = UPLIFT_BY_STATE[dep_a]
-                uplift_e = UPLIFT_BY_STATE[dep_e]
-                indirect_eai[i] = eai_direct[i] * uplift_a
-                total_event_loss[i] = event_loss[i] * (1.0 + uplift_e)
-                indirect_s3_flag_annual[i] = final_a == "S3" and state_a != "S3"
-                indirect_s3_flag_event[i] = final_e == "S3" and state_e != "S3"
-                final_state_annual.append(final_a)
-                final_state_event.append(final_e)
-            else:
-                final_state_annual.append(state_a)
-                final_state_event.append(state_e)
-        final_state_annual_arr = np.array(final_state_annual, dtype=object)
-        final_state_event_arr = np.array(final_state_event, dtype=object)
-        total_eai = eai_direct + indirect_eai
+            final_state_arr = np.array(final_state, dtype=object)
+            return {
+                "direct_state": direct_state,
+                "final_state": final_state_arr,
+                "total_loss": np.minimum(np.maximum(total_loss, 0.0), values),
+                "indirect_s3_flag": indirect_s3_flag,
+            }
 
-        rows: list[dict[str, Any]] = []
-        for class_key, label in NETWORK_CLASS_LABELS.items():
-            mask = np.array([ck == class_key for ck in class_keys], dtype=bool)
-            total_w = float(weights_km[mask].sum())
-            if total_w <= 0:
-                state_annual_pct = {s: 0.0 for s in ("S0", "S1", "S2", "S3")}
-                state_event_pct = {s: 0.0 for s in ("S0", "S1", "S2", "S3")}
-                eai_val = 0.0
-                event_val = 0.0
-            else:
-                state_annual_pct = {
-                    s: round(float(weights_km[mask & (final_state_annual_arr == s)].sum()) / total_w * 100.0, 3)
-                    for s in ("S0", "S1", "S2", "S3")
-                }
-                state_event_pct = {
-                    s: round(float(weights_km[mask & (final_state_event_arr == s)].sum()) / total_w * 100.0, 3)
-                    for s in ("S0", "S1", "S2", "S3")
-                }
-                eai_val = round(float(total_eai[mask].sum()), 2)
-                event_val = round(float(total_event_loss[mask].sum()), 2)
-            rows.append(
-                {
-                    "class_key": class_key,
-                    "class_label": label,
-                    "state_pct_annual": state_annual_pct,
-                    "state_pct_event_max": state_event_pct,
-                    "eai_eur": eai_val,
-                    "event_max_loss_eur": event_val,
-                }
-            )
+        scenario_results = {
+            scenario: evaluate_scenario(direct_losses_by_scenario[scenario]) for scenario in MAP_SCENARIOS
+        }
 
-        breakdown_rows: list[dict[str, Any]] = []
-        for class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
-            mask = np.array([ck == class_key for ck in breakdown_class_keys], dtype=bool)
-            breakdown_rows.append(
-                {
-                    "class_key": class_key,
-                    "class_label": label,
-                    "eai_eur": round(float(total_eai[mask].sum()), 2),
-                    "event_max_loss_eur": round(float(total_event_loss[mask].sum()), 2),
-                }
-            )
+        rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
+        for scenario in TABLE_SCENARIOS:
+            rows: list[dict[str, Any]] = []
+            for network_class_key, label in NETWORK_CLASS_LABELS.items():
+                mask = np.array([ck == network_class_key for ck in class_keys], dtype=bool)
+                total_w = float(weights_km[mask].sum())
+                if total_w <= 0.0:
+                    state_pct = {s: 0.0 for s in ("S0", "S1", "S2", "S3")}
+                    damage_val = 0.0
+                else:
+                    state_pct = {
+                        s: round(
+                            float(weights_km[mask & (scenario_results[scenario]["final_state"] == s)].sum())
+                            / total_w
+                            * 100.0,
+                            3,
+                        )
+                        for s in ("S0", "S1", "S2", "S3")
+                    }
+                    damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                rows.append(
+                    {
+                        "class_key": network_class_key,
+                        "class_label": label,
+                        "state_pct": state_pct,
+                        "damage_eur": damage_val,
+                    }
+                )
+            rows_by_scenario[scenario] = rows
+
+        breakdown_by_scenario: dict[str, list[dict[str, Any]]] = {}
+        for scenario in MAP_SCENARIOS:
+            breakdown_rows: list[dict[str, Any]] = []
+            for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
+                mask = np.array([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
+                breakdown_rows.append(
+                    {
+                        "class_key": breakdown_class_key,
+                        "class_label": label,
+                        "damage_eur": round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2),
+                    }
+                )
+            breakdown_by_scenario[scenario] = breakdown_rows
 
         all_infra_mask = np.array([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
         network_mask = np.array([ck in NETWORK_CLASS_LABELS for ck in class_keys], dtype=bool)
         network_total_w = float(weights_km[network_mask].sum())
-        direct_s3_annual = float(weights_km[network_mask & (direct_state_annual == "S3")].sum())
-        direct_s3_event = float(weights_km[network_mask & (direct_state_event == "S3")].sum())
-        indirect_s3_annual = float(weights_km[network_mask & indirect_s3_flag_annual].sum())
-        indirect_s3_event = float(weights_km[network_mask & indirect_s3_flag_event].sum())
+
+        direct_s3_annual = float(weights_km[network_mask & (scenario_results["annual"]["direct_state"] == "S3")].sum())
+        direct_s3_event = float(weights_km[network_mask & (scenario_results["event_max"]["direct_state"] == "S3")].sum())
+        indirect_s3_annual = float(weights_km[network_mask & scenario_results["annual"]["indirect_s3_flag"]].sum())
+        indirect_s3_event = float(weights_km[network_mask & scenario_results["event_max"]["indirect_s3_flag"]].sum())
 
         hazard_outputs[hazard_key] = {
-            "rows": rows,
+            "rows_by_scenario": rows_by_scenario,
+            "breakdown_by_scenario": breakdown_by_scenario,
             "summary": {
                 "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
                 "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
-                "eai_total_eur": round(float(total_eai[all_infra_mask].sum()), 2),
-                "event_max_total_loss_eur": round(float(total_event_loss[all_infra_mask].sum()), 2),
+                "eai_total_eur": round(float(scenario_results["annual"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp100_total_loss_eur": round(float(scenario_results["rp100"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp1000_total_loss_eur": round(float(scenario_results["rp1000"]["total_loss"][all_infra_mask].sum()), 2),
+                "event_max_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
+                "top10_total_loss_eur": round(float(scenario_results["top10"]["total_loss"][all_infra_mask].sum()), 2),
+                "top5_total_loss_eur": round(float(scenario_results["top5"]["total_loss"][all_infra_mask].sum()), 2),
                 "event_id_max": event_id_max,
             },
             "feature_states": {
-                "annual": _aggregate_feature_states(feature_ids, final_state_annual_arr),
-                "event_max": _aggregate_feature_states(feature_ids, final_state_event_arr),
+                scenario: _aggregate_feature_states(feature_ids, scenario_results[scenario]["final_state"])
+                for scenario in MAP_SCENARIOS
             },
-            "breakdown_rows": breakdown_rows,
         }
 
-    merged_rows = _merge_rows_by_class(hazard_outputs)
+    merged_rows = _merge_rows_by_scenario(hazard_outputs)
     summary_text = _build_impact_summary_text(hazard_outputs)
+
+    legacy_rows: list[dict[str, Any]] = []
+    for class_key in NETWORK_CLASS_LABELS.keys():
+        row_storm_annual = _row_for_class(hazard_outputs, "storm", "annual", class_key)
+        row_storm_event = _row_for_class(hazard_outputs, "storm", "event_max", class_key)
+        row_cmcc_annual = _row_for_class(hazard_outputs, "storm_cmcc", "annual", class_key)
+        row_cmcc_event = _row_for_class(hazard_outputs, "storm_cmcc", "event_max", class_key)
+        legacy_rows.append(
+            {
+                "class_key": class_key,
+                "class_label": NETWORK_CLASS_LABELS[class_key],
+                "storm": {
+                    "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
+                    "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
+                    "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                },
+                "storm_cmcc": {
+                    "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
+                    "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
+                    "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                },
+            }
+        )
 
     impact_payload = {
         "summary_text": summary_text,
         "summary_metrics": {haz: hazard_outputs[haz]["summary"] for haz in ("storm", "storm_cmcc")},
-        "state_damage_table": merged_rows,
+        "state_damage_tables": merged_rows,
+        "state_damage_table": legacy_rows,
         "damage_breakdown": {
-            "storm": hazard_outputs["storm"]["breakdown_rows"],
-            "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_rows"],
+            "storm": _legacy_breakdown_rows(hazard_outputs, "storm"),
+            "storm_cmcc": _legacy_breakdown_rows(hazard_outputs, "storm_cmcc"),
+        },
+        "damage_breakdown_by_scenario": {
+            scenario: {
+                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][scenario],
+                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][scenario],
+            }
+            for scenario in MAP_SCENARIOS
         },
         "map_defaults": {
             "hazard": "storm",
@@ -691,45 +787,129 @@ def _aggregate_feature_states(feature_ids: list[str], states: np.ndarray) -> dic
     return grouped
 
 
-def _merge_rows_by_class(hazard_outputs: dict[str, Any]) -> list[dict[str, Any]]:
-    by_class: dict[str, dict[str, Any]] = {}
-    for hazard_key in ("storm", "storm_cmcc"):
-        for row in hazard_outputs[hazard_key]["rows"]:
-            class_key = row["class_key"]
-            entry = by_class.setdefault(class_key, {"class_key": class_key, "class_label": row["class_label"]})
-            entry[hazard_key] = {
-                "state_pct_annual": row["state_pct_annual"],
-                "state_pct_event_max": row["state_pct_event_max"],
-                "eai_eur": row["eai_eur"],
-                "event_max_loss_eur": row["event_max_loss_eur"],
+def _row_for_class(
+    hazard_outputs: dict[str, Any],
+    hazard_key: str,
+    scenario: str,
+    class_key: str,
+) -> dict[str, Any]:
+    for row in hazard_outputs[hazard_key]["rows_by_scenario"][scenario]:
+        if str(row.get("class_key")) == class_key:
+            return row
+    return {"class_key": class_key, "class_label": NETWORK_CLASS_LABELS.get(class_key, class_key), "state_pct": {s: 0.0 for s in ("S0", "S1", "S2", "S3")}, "damage_eur": 0.0}
+
+
+def _merge_rows_by_scenario(hazard_outputs: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for scenario in TABLE_SCENARIOS:
+        rows: list[dict[str, Any]] = []
+        for class_key in NETWORK_CLASS_LABELS.keys():
+            storm_row = _row_for_class(hazard_outputs, "storm", scenario, class_key)
+            cmcc_row = _row_for_class(hazard_outputs, "storm_cmcc", scenario, class_key)
+            rows.append(
+                {
+                    "class_key": class_key,
+                    "class_label": NETWORK_CLASS_LABELS[class_key],
+                    "storm": {
+                        "state_pct": dict(storm_row.get("state_pct", {})),
+                        "damage_eur": float(storm_row.get("damage_eur", 0.0)),
+                    },
+                    "storm_cmcc": {
+                        "state_pct": dict(cmcc_row.get("state_pct", {})),
+                        "damage_eur": float(cmcc_row.get("damage_eur", 0.0)),
+                    },
+                }
+            )
+        out[scenario] = rows
+    return out
+
+
+def _legacy_breakdown_rows(hazard_outputs: dict[str, Any], hazard_key: str) -> list[dict[str, Any]]:
+    annual = {str(r["class_key"]): r for r in hazard_outputs[hazard_key]["breakdown_by_scenario"]["annual"]}
+    event_max = {str(r["class_key"]): r for r in hazard_outputs[hazard_key]["breakdown_by_scenario"]["event_max"]}
+    rows: list[dict[str, Any]] = []
+    for class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
+        rows.append(
+            {
+                "class_key": class_key,
+                "class_label": label,
+                "eai_eur": round(float(annual.get(class_key, {}).get("damage_eur", 0.0)), 2),
+                "event_max_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
             }
-    ordered = [by_class[k] for k in NETWORK_CLASS_LABELS.keys() if k in by_class]
-    return ordered
+        )
+    return rows
 
 
 def _build_impact_summary_text(hazard_outputs: dict[str, Any]) -> str:
     s = hazard_outputs["storm"]["summary"]
     c = hazard_outputs["storm_cmcc"]["summary"]
     return (
-        f"STORM: hors service direct S3 annuel {s['direct_hs_pct_annual']:.2f}% et additionnel lie a la dependance electrique {s['indirect_hs_pct_annual']:.2f}%. "
-        f"Evenement le plus fort: direct {s['direct_hs_pct_event_max']:.2f}% et indirect {s['indirect_hs_pct_event_max']:.2f}%. "
-        f"STORM_CMCC: hors service direct S3 annuel {c['direct_hs_pct_annual']:.2f}% et additionnel {c['indirect_hs_pct_annual']:.2f}%. "
-        f"Evenement le plus fort: direct {c['direct_hs_pct_event_max']:.2f}% et indirect {c['indirect_hs_pct_event_max']:.2f}%."
+        f"STORM: EAI {s['eai_total_eur']:.0f} €, RP100 {s['rp100_total_loss_eur']:.0f} €, "
+        f"RP1000 {s['rp1000_total_loss_eur']:.0f} €, evt max {s['event_max_total_loss_eur']:.0f} €. "
+        f"STORM_CMCC: EAI {c['eai_total_eur']:.0f} €, RP100 {c['rp100_total_loss_eur']:.0f} €, "
+        f"RP1000 {c['rp1000_total_loss_eur']:.0f} €, evt max {c['event_max_total_loss_eur']:.0f} €."
     )
 
 
 def _build_conclusion_text(exposure_metrics: dict[str, Any], impact_metrics: dict[str, Any]) -> str:
     storm = impact_metrics["summary_metrics"]["storm"]
     cmcc = impact_metrics["summary_metrics"]["storm_cmcc"]
-    worst_hazard = "STORM" if storm["eai_total_eur"] >= cmcc["eai_total_eur"] else "STORM_CMCC"
+    total_value = max(1.0, float(exposure_metrics["total_value_all_eur"]))
+
+    def m_eur_rounded(value_eur: float) -> str:
+        return f"{int(round(float(value_eur) / 1_000_000.0))}"
+
+    def pct_of_portfolio(value_eur: float) -> str:
+        return f"{(float(value_eur) / total_value) * 100.0:.2f}"
+
     return (
-        f"L'analyse montre un portefeuille de reseaux valorise a {exposure_metrics['total_value_all_eur'] / 1_000_000:.1f} M€. "
-        f"Les dommages annuels moyens modelises sont de {storm['eai_total_eur'] / 1_000_000:.3f} M€ (STORM) et "
-        f"{cmcc['eai_total_eur'] / 1_000_000:.3f} M€ (STORM_CMCC). "
-        f"Le scenario le plus contraignant en EAI est {worst_hazard}. "
-        "Recommandations: renforcer en priorite les troncons classes S2/S3, securiser l'alimentation electrique des reseaux d'eau, "
-        "et preparer des plans de reconfiguration rapide en cas d'evenement majeur."
+        f"Valeur totale du portefeuille d'infrastructures: {m_eur_rounded(total_value)} M€. "
+        f"Dommages annuels moyens: STORM {m_eur_rounded(storm['eai_total_eur'])} M€ ({pct_of_portfolio(storm['eai_total_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['eai_total_eur'])} M€ ({pct_of_portfolio(cmcc['eai_total_eur'])} %). "
+        f"Scenario temps de retour 100 ans: STORM {m_eur_rounded(storm['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp100_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp100_total_loss_eur'])} %). "
+        f"Scenario temps de retour 1000 ans: STORM {m_eur_rounded(storm['rp1000_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp1000_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['rp1000_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp1000_total_loss_eur'])} %). "
+        f"Evenement le plus extreme: STORM {m_eur_rounded(storm['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(storm['event_max_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['event_max_total_loss_eur'])} %)."
     )
+
+
+def _load_guadeloupe_wind_comparison_table(doc_path: Path) -> list[dict[str, str]]:
+    if not doc_path.exists():
+        return []
+    lines = doc_path.read_text(encoding="utf-8").splitlines()
+    start_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().lower() == "## comparaison vitesses max - zone guadeloupe":
+            start_idx = i
+            break
+    if start_idx is None:
+        return []
+
+    table_lines: list[str] = []
+    for line in lines[start_idx + 1 :]:
+        if line.strip().startswith("## "):
+            break
+        if line.strip().startswith("|"):
+            table_lines.append(line.rstrip())
+    if len(table_lines) < 3:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for line in table_lines[2:]:
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 4:
+            continue
+        rows.append(
+            {
+                "indicator": cells[0],
+                "storm": cells[1],
+                "storm_cmcc": cells[2],
+                "delta": cells[3],
+            }
+        )
+    return rows
 
 
 def _build_state_geojson(
@@ -741,17 +921,15 @@ def _build_state_geojson(
     geoms: list[Any] = []
     for feat in geometry_features:
         fid = feat["feature_id"]
-        rows.append(
-            {
-                "feature_id": fid,
-                "layer_key": feat["class_key"],
-                "layer_label": feat["class_label"],
-                "state_annual_storm": hazard_feature_states["storm"]["annual"].get(fid, "S0"),
-                "state_event_max_storm": hazard_feature_states["storm"]["event_max"].get(fid, "S0"),
-                "state_annual_storm_cmcc": hazard_feature_states["storm_cmcc"]["annual"].get(fid, "S0"),
-                "state_event_max_storm_cmcc": hazard_feature_states["storm_cmcc"]["event_max"].get(fid, "S0"),
-            }
-        )
+        row = {
+            "feature_id": fid,
+            "layer_key": feat["class_key"],
+            "layer_label": feat["class_label"],
+        }
+        for hazard_key in ("storm", "storm_cmcc"):
+            for scenario in MAP_SCENARIOS:
+                row[f"state_{scenario}_{hazard_key}"] = hazard_feature_states[hazard_key][scenario].get(fid, "S0")
+        rows.append(row)
         geoms.append(feat["geometry"])
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs=WGS84)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -772,25 +950,35 @@ def main() -> None:
     parser.add_argument("--spacing-m", type=float, default=100.0)
     parser.add_argument("--out-json", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-page1-analysis.json"))
     parser.add_argument("--out-state-geojson", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-network-states.geojson"))
+    parser.add_argument("--diagnostic-md", default=str(REPO_ROOT / "docs" / "diagnostic-vents-et-mailles.md"))
     args = parser.parse_args()
 
     infra_elec_dir = Path(args.infra_elec_dir)
     infra_eau_dir = Path(args.infra_eau_dir)
     out_json = Path(args.out_json)
     out_state_geojson = Path(args.out_state_geojson)
+    diagnostic_md = Path(args.diagnostic_md)
 
     settings = load_settings()
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
+    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
+    valuation_metadata = build_valuation_metadata(territory)
 
-    exposure_metrics = _build_exposure_metrics(infra_elec_dir, infra_eau_dir)
+    exposure_metrics = _build_exposure_metrics(infra_elec_dir, infra_eau_dir, territory)
     hazard_hist = _build_wind_histograms(
         Path(args.storm_source),
         Path(args.cmcc_source),
         wind_unit_in=normalized_wind_unit,
     )
     exposure: NormalizedExposure = build_complete_exposure(infra_elec_dir=infra_elec_dir, infra_eau_dir=infra_eau_dir)
-    impact_metrics, aux = _compute_impact_metrics(exposure, spacing_m=float(args.spacing_m), settings=settings)
+    impact_metrics, aux = _compute_impact_metrics(
+        exposure,
+        spacing_m=float(args.spacing_m),
+        settings=settings,
+        network_value_per_km=exposure_metrics["value_per_km_eur"],
+    )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
+    guadeloupe_wind_compare_rows = _load_guadeloupe_wind_comparison_table(diagnostic_md)
 
     geometry_features = _build_network_geometry_features(infra_elec_dir, infra_eau_dir)
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
@@ -802,16 +990,23 @@ def main() -> None:
             "sampling_spacing_m": float(args.spacing_m),
             "hazards": ["STORM", "STORM_CMCC"],
             "storm_years": int(settings.storm_years),
+            "valuation_source": SOURCE_LABEL,
+            "valuation_territory": str(valuation_metadata["territory_effective"]),
+            "valuation_version": str(valuation_metadata["valuation_version"]),
         },
         "exposition": exposure_metrics,
         "hazard": {
             "summary_text": (
-                "STORM et STORM_CMCC sont des catalogues synthetiques de trajectoires cycloniques (10 000 ans, bassin NA). "
-                "Les distributions ci-dessous sont calculees directement depuis les fichiers STORM/CMCC en vitesse maximale du vent."
+                "Cette section décrit les aléas qui sont utilisés comme sources de dommages sur l’exposition (les infrastructures d’eau et d'électricité). "
+                "Le catalogue STORM est une base de données simulant 10 000 ans de cyclones tropicaux synthétiques. "
+                "Le catalogue STORM CMCC représente la même base de données auquel un facteur de changement climatique, le scénario RCP 8.5 du GIEC a été appliqué.\n\n"
+                "Les graphiques ci-dessous décrivent la vitesse moyenne des vents maximums par année des bases de données STORM et STORM_CMCC. "
+                "En d’autres termes cela représente la probabilité moyenne des vents sur la zone d’étude d’après les bases de données utilisées."
             ),
             "wind_unit_in": normalized_wind_unit,
             "wind_unit_out": "m/s",
             "wind_histograms": hazard_hist,
+            "guadeloupe_wind_comparison_table": guadeloupe_wind_compare_rows,
         },
         "impact": impact_metrics,
         "conclusion": {
