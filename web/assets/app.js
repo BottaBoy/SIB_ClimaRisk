@@ -128,10 +128,16 @@ const chartRefs = {
   page1_track_compare: null,
   impact_eai_water: null,
   impact_eai_elec: null,
+  impact_rp100_water: null,
+  impact_rp100_elec: null,
+  impact_rp1000_water: null,
+  impact_rp1000_elec: null,
   impact_evt_water: null,
   impact_evt_elec: null,
-  impact_top10: null,
-  impact_top5: null
+  user_impact_eai: null,
+  user_impact_rp100: null,
+  user_impact_rp1000: null,
+  user_impact_eventmax: null
 };
 
 const els = {
@@ -156,7 +162,6 @@ const els = {
   categoryField: document.getElementById('category-field'),
   defaultCategory: document.getElementById('default-category'),
   crsField: document.getElementById('crs-field'),
-  spacingField: document.getElementById('spacing-field'),
   runLabel: document.getElementById('run-label'),
   drawCategory: document.getElementById('draw-category'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
@@ -208,10 +213,18 @@ const els = {
   impactTableEventmaxBody: document.getElementById('impact-table-eventmax-body'),
   impactEaiWaterChart: document.getElementById('impact-eai-water-chart'),
   impactEaiElecChart: document.getElementById('impact-eai-elec-chart'),
+  impactRp100WaterChart: document.getElementById('impact-rp100-water-chart'),
+  impactRp100ElecChart: document.getElementById('impact-rp100-elec-chart'),
+  impactRp1000WaterChart: document.getElementById('impact-rp1000-water-chart'),
+  impactRp1000ElecChart: document.getElementById('impact-rp1000-elec-chart'),
   impactEvtWaterChart: document.getElementById('impact-evt-water-chart'),
   impactEvtElecChart: document.getElementById('impact-evt-elec-chart'),
-  impactTop10Chart: document.getElementById('impact-top10-chart'),
-  impactTop5Chart: document.getElementById('impact-top5-chart'),
+  userImpactSummaryText: document.getElementById('user-impact-summary-text'),
+  userImpactEaiChart: document.getElementById('user-impact-eai-chart'),
+  userImpactRp100Chart: document.getElementById('user-impact-rp100-chart'),
+  userImpactRp1000Chart: document.getElementById('user-impact-rp1000-chart'),
+  userImpactEventmaxChart: document.getElementById('user-impact-eventmax-chart'),
+  userConclusionText: document.getElementById('user-conclusion-text'),
   impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
   impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
   networkLayerControls: document.getElementById('network-layer-controls'),
@@ -224,9 +237,61 @@ const els = {
 const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const FIXED_SAMPLING_SPACING_M = 100;
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
 });
+
+const EXPOSURE_TYPE_TO_CATEGORY = {
+  habitation: 'habitation',
+  eau_aep: 'ouvrage_eau',
+  eau_eu: 'ouvrage_eau',
+  elec_bt_souterrain: 'ouvrage_electrique',
+  elec_bt_aerien: 'ouvrage_electrique',
+  elec_hta_souterrain: 'ouvrage_electrique',
+  elec_hta_aerien: 'ouvrage_electrique',
+  eau_eu_pr: 'ouvrage_eau',
+  eau_eu_step: 'ouvrage_eau',
+  aep_ouvrage_trait: 'ouvrage_eau',
+  aep_ouvrage_stpmp: 'ouvrage_eau',
+  aep_ouvrage_cap: 'ouvrage_eau',
+  aep_ouvrage_cuv: 'ouvrage_eau',
+  aep_ouvrage_autres: 'ouvrage_eau'
+};
+
+const EXPOSURE_TYPE_TO_ASSET = {
+  habitation: 'habitation',
+  eau_aep: 'eau_aep_cana',
+  eau_eu: 'eau_eu_cana',
+  elec_bt_souterrain: 'elec_bt_souterrain',
+  elec_bt_aerien: 'elec_bt_aerien',
+  elec_hta_souterrain: 'elec_hta_souterrain',
+  elec_hta_aerien: 'elec_hta_aerien',
+  eau_eu_pr: 'eau_eu_pr',
+  eau_eu_step: 'eau_eu_step',
+  aep_ouvrage_trait: 'eau_aep_ouvrage_TRAIT',
+  aep_ouvrage_stpmp: 'eau_aep_ouvrage_STPMP',
+  aep_ouvrage_cap: 'eau_aep_ouvrage_CAP',
+  aep_ouvrage_cuv: 'eau_aep_ouvrage_CUV',
+  aep_ouvrage_autres: 'eau_aep_ouvrage_NA'
+};
+
+const EXPOSURE_TYPE_LABEL = {
+  habitation: 'Habitation',
+  eau_aep: 'Réseau eau AEP',
+  eau_eu: 'Réseau eau EU',
+  elec_bt_souterrain: 'Réseau élec basse tension souterrain',
+  elec_bt_aerien: 'Réseau élec basse tension aérien',
+  elec_hta_souterrain: 'Réseau élec haute tension souterrain',
+  elec_hta_aerien: 'Réseau élec haute tension aérien',
+  eau_eu_pr: 'Poste de refoulement EU',
+  eau_eu_step: 'STEP',
+  aep_ouvrage_trait: 'Ouvrage AEP TRAIT',
+  aep_ouvrage_stpmp: 'Ouvrage AEP STPMP',
+  aep_ouvrage_cap: 'Ouvrage AEP CAP',
+  aep_ouvrage_cuv: 'Ouvrage AEP CUV',
+  aep_ouvrage_autres: 'Ouvrage AEP autre'
+};
 
 function pageFromHash() {
   const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
@@ -269,6 +334,10 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.c3) chartRefs.c3.resize();
       if (chartRefs.c4) chartRefs.c4.resize();
       if (chartRefs.comparison) chartRefs.comparison.resize();
+      if (chartRefs.user_impact_eai) chartRefs.user_impact_eai.resize();
+      if (chartRefs.user_impact_rp100) chartRefs.user_impact_rp100.resize();
+      if (chartRefs.user_impact_rp1000) chartRefs.user_impact_rp1000.resize();
+      if (chartRefs.user_impact_eventmax) chartRefs.user_impact_eventmax.resize();
     }, 80);
   }
   if (pageKey === 'page1') {
@@ -281,10 +350,12 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.page1_track_compare) chartRefs.page1_track_compare.resize();
       if (chartRefs.impact_eai_water) chartRefs.impact_eai_water.resize();
       if (chartRefs.impact_eai_elec) chartRefs.impact_eai_elec.resize();
+      if (chartRefs.impact_rp100_water) chartRefs.impact_rp100_water.resize();
+      if (chartRefs.impact_rp100_elec) chartRefs.impact_rp100_elec.resize();
+      if (chartRefs.impact_rp1000_water) chartRefs.impact_rp1000_water.resize();
+      if (chartRefs.impact_rp1000_elec) chartRefs.impact_rp1000_elec.resize();
       if (chartRefs.impact_evt_water) chartRefs.impact_evt_water.resize();
       if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
-      if (chartRefs.impact_top10) chartRefs.impact_top10.resize();
-      if (chartRefs.impact_top5) chartRefs.impact_top5.resize();
     }, 80);
   }
 }
@@ -350,9 +421,9 @@ function formatStateTuple(statePct) {
 }
 
 function ensureResultShape(raw) {
-  if (!raw || typeof raw !== 'object') throw new Error('Invalid result payload');
+  if (!raw || typeof raw !== 'object') throw new Error('Payload résultat invalide');
   if (!raw.meta || !raw.exposure_summary || !Array.isArray(raw.territory_results) || !raw.portfolio_results || !raw.graphs) {
-    throw new Error('Result payload missing required sections');
+    throw new Error('Payload résultat incomplet');
   }
   return raw;
 }
@@ -376,9 +447,9 @@ function getHazardLabel(hazardKey) {
 function updateMetaBadges() {
   const result = getActiveResult();
   if (!result) return;
-  els.badgeSource.textContent = `Source: ${result.meta?.source || 'unknown'}`;
-  els.badgeUpdated.textContent = `Updated: ${formatDate(result.meta?.updated_at)}`;
-  els.badgeEngine.textContent = `Engine: ${result.meta?.engine || 'n/a'}`;
+  els.badgeSource.textContent = `Source: ${result.meta?.source || 'inconnue'}`;
+  els.badgeUpdated.textContent = `Mis a jour: ${formatDate(result.meta?.updated_at)}`;
+  els.badgeEngine.textContent = `Moteur: ${result.meta?.engine || 'n/a'}`;
 }
 
 function renderKpis() {
@@ -404,26 +475,26 @@ function renderKpis() {
 
   const cards = [
     {
-      label: 'Selected Hazard EAI',
+      label: "EAI de l'aléa sélectionné",
       value: formatMoneyMEUR(p.eai_eur),
       sub: `AAI agg ${formatMoneyMEUR(p.aai_agg_eur)} · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: 'Max Event Loss',
+      label: "Perte de l'événement max",
       value: formatMoneyMEUR(p.max_event_loss_eur),
-      sub: 'Portfolio-level estimate from current result set'
+      sub: 'Estimation portefeuille sur le jeu de résultats actif'
     },
     {
-      label: 'Total Exposure',
+      label: 'Exposition totale',
       value: formatMoneyMEUR(exposureForScope),
       sub: selectedRow
-        ? `Selected territory: ${selectedRow.territory_label}`
-        : `${numberFmt.format(assetCountForScope)} assets · ${numberFmt.format(pointCountForScope || 0)} disaggregated points`
+        ? `Territoire sélectionné: ${selectedRow.territory_label}`
+        : `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points désagrégés`
     },
     {
-      label: 'CMCC Delta vs STORM',
+      label: 'Écart CMCC vs STORM',
       value: formatMoneyMEUR(delta.eai_eur),
-      sub: `${percentFmt.format(delta.eai_pct || 0)}% portfolio EAI change`
+      sub: `${percentFmt.format(delta.eai_pct || 0)}% de variation d'EAI portefeuille`
     }
   ];
 
@@ -671,6 +742,16 @@ function escapeHtml(text) {
     .replaceAll("'", '&#39;');
 }
 
+function categoryFromExposureType(typeValue) {
+  const raw = String(typeValue || '').trim();
+  return EXPOSURE_TYPE_TO_CATEGORY[raw] || 'habitation';
+}
+
+function assetFromExposureType(typeValue) {
+  const raw = String(typeValue || '').trim();
+  return EXPOSURE_TYPE_TO_ASSET[raw] || 'habitation';
+}
+
 function filteredTerritories() {
   const result = getActiveResult();
   if (!result) return [];
@@ -697,14 +778,14 @@ function eaiForHazard(row, hazardKey) {
 function renderTerritoryTable() {
   const result = getActiveResult();
   if (!result) {
-    els.territoryTableBody.innerHTML = '<tr><td colspan="6">No data loaded.</td></tr>';
+    els.territoryTableBody.innerHTML = '<tr><td colspan="6">Aucune donnée chargée.</td></tr>';
     return;
   }
   const rows = filteredTerritories();
-  els.tableCaption.textContent = `${rows.length} territory row(s) · source ${result.meta?.source || 'unknown'} · hazard ${getHazardLabel(currentHazardKey())}`;
+  els.tableCaption.textContent = `${rows.length} territoire(s) · source ${result.meta?.source || 'inconnue'} · aléa ${getHazardLabel(currentHazardKey())}`;
 
   if (!rows.length) {
-    els.territoryTableBody.innerHTML = '<tr><td colspan="6">No territories match the filter.</td></tr>';
+    els.territoryTableBody.innerHTML = '<tr><td colspan="6">Aucun territoire ne correspond au filtre.</td></tr>';
     return;
   }
 
@@ -736,12 +817,12 @@ function renderTerritoryTable() {
 
 function renderTerritorySelectionState() {
   if (!state.selectedTerritoryId) {
-    els.selectedTerritoryChip.textContent = 'No territory selected';
+    els.selectedTerritoryChip.textContent = 'Aucun territoire sélectionné';
     return;
   }
   const result = getActiveResult();
   const row = (result?.territory_results || []).find((x) => x.territory_id === state.selectedTerritoryId);
-  els.selectedTerritoryChip.textContent = row ? `Selected: ${row.territory_label}` : 'No territory selected';
+  els.selectedTerritoryChip.textContent = row ? `Sélection: ${row.territory_label}` : 'Aucun territoire sélectionné';
 }
 
 function getRiskColor(risk) {
@@ -792,11 +873,13 @@ function ensureMap() {
     };
 
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
-      const drawCategory = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+      const exposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
       evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
       evt.layer.feature.properties = {
         ...(evt.layer.feature.properties || {}),
-        exposure_category: drawCategory
+        exposure_type: exposureType,
+        exposure_category: categoryFromExposureType(exposureType),
+        asset_type: assetFromExposureType(exposureType)
       };
       mapRef.drawnItems.addLayer(evt.layer);
       onDrawChange();
@@ -815,7 +898,7 @@ function renderMap() {
 
   if (!window.L) {
     els.mapFallback.hidden = false;
-    els.mapFallback.textContent = 'Leaflet could not be loaded. The map is unavailable.';
+    els.mapFallback.textContent = 'Leaflet n’a pas pu être chargé. La carte est indisponible.';
     return;
   }
   els.mapFallback.hidden = true;
@@ -823,20 +906,20 @@ function renderMap() {
 
   if (!ensureMap()) {
     els.mapFallback.hidden = false;
-    els.mapFallback.textContent = 'Map initialization failed.';
+    els.mapFallback.textContent = 'Échec de l’initialisation de la carte.';
     return;
   }
 
   const rows = (result.territory_results || []).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon));
   const hazardKey = currentHazardKey();
-  els.mapCaption.textContent = `Marker size = exposure, color = risk index (${getHazardLabel(hazardKey)}). Click a marker to highlight a territory.`;
+  els.mapCaption.textContent = `Taille des points = exposition, couleur = indice de risque (${getHazardLabel(hazardKey)}). Cliquez un point pour surligner un territoire.`;
 
   mapRef.markerByTerritoryId.clear();
   mapRef.markersLayer.clearLayers();
 
   if (!rows.length) {
     els.mapFallback.hidden = false;
-    els.mapFallback.textContent = 'No mappable centroids in this result set. Aggregate results remain available in the table and charts.';
+    els.mapFallback.textContent = 'Aucun centroïde cartographiable dans ce résultat. Les agrégats restent disponibles dans le tableau et les graphiques.';
     return;
   }
 
@@ -857,9 +940,9 @@ function renderMap() {
     marker.bindTooltip(
       [
         `<strong>${escapeHtml(row.territory_label)}</strong>`,
-        `Exposure: ${escapeHtml(formatMoneyMEUR(row.exposure_eur))}`,
+        `Exposition: ${escapeHtml(formatMoneyMEUR(row.exposure_eur))}`,
         `EAI (${escapeHtml(getHazardLabel(hazardKey))}): ${escapeHtml(formatMoneyMEUR(eaiForHazard(row, hazardKey)))}`,
-        `Risk index: ${escapeHtml(formatRisk(risk))}`
+        `Indice de risque: ${escapeHtml(formatRisk(risk))}`
       ].join('<br/>'),
       { sticky: true }
     );
@@ -1129,8 +1212,8 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
-            `Mean max wind: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
-            `Samples: ${escapeHtml(numberFmt.format(sampleCount))}`,
+            `Vent max moyen: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
+            `Echantillons: ${escapeHtml(numberFmt.format(sampleCount))}`,
             extrapolated ? 'Valeur: extrapolee (plus proche maille observee)' : 'Valeur: observee'
           ].join('<br/>'),
           { sticky: true }
@@ -1169,11 +1252,11 @@ function renderWindMaps() {
   const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
 
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} years · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
     renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} cells observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} years · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
     renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax });
   }
   applyWindLayerOpacity();
@@ -1571,8 +1654,25 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     .sort((a, b) => a - b)
     .map((x) => x.toFixed(3));
 
-  const seriesA = xBins.map((bin) => [Number(bin), Number(mapA.get(bin) || 0)]);
-  const seriesB = xBins.map((bin) => [Number(bin), Number(mapB.get(bin) || 0)]);
+  const baseA = xBins.map((bin) => [Number(bin), Number(mapA.get(bin) || 0)]);
+  const baseB = xBins.map((bin) => [Number(bin), Number(mapB.get(bin) || 0)]);
+  const interpolate = (pairs, segments = 8) => {
+    if (!Array.isArray(pairs) || pairs.length <= 1) return pairs || [];
+    const out = [];
+    for (let i = 0; i < pairs.length - 1; i += 1) {
+      const [x0, y0] = pairs[i];
+      const [x1, y1] = pairs[i + 1];
+      out.push([x0, y0]);
+      for (let s = 1; s < segments; s += 1) {
+        const t = s / segments;
+        out.push([x0 + ((x1 - x0) * t), y0 + ((y1 - y0) * t)]);
+      }
+    }
+    out.push(pairs[pairs.length - 1]);
+    return out;
+  };
+  const seriesA = interpolate(baseA, 10);
+  const seriesB = interpolate(baseB, 10);
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: {
@@ -1624,7 +1724,7 @@ function renderAnnualFecChart(refKey, domId, graph, color) {
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: { trigger: 'axis' },
-    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: (graph.return_period_years || []).map(String), name: 'Years' },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: (graph.return_period_years || []).map(String), name: 'Ans' },
     yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: 'EUR' },
     series: [{ type: 'line', smooth: true, data: graph.damage_eur || [], lineStyle: { color, width: 2 }, itemStyle: { color }, areaStyle: { color: `${color}22` } }]
   }, true);
@@ -1638,7 +1738,7 @@ function renderLifetimeFecChart(refKey, domId, graph) {
     ...chartThemeCommon(),
     tooltip: { trigger: 'axis' },
     legend: { top: 2, textStyle: { color: '#abc0ba' } },
-    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: (graph.series?.[0]?.return_period_years || []).map(String), name: 'Years' },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: (graph.series?.[0]?.return_period_years || []).map(String), name: 'Ans' },
     yAxis: { ...chartThemeCommon().yAxis, type: 'log', name: 'EUR' },
     series: (graph.series || []).map((s, i) => ({
       name: s.name,
@@ -1765,11 +1865,15 @@ function renderImpactBreakdownCharts(impactPayload) {
 
   const annualRows = rowsForScenario('annual');
   const eventRows = rowsForScenario('event_max');
-  const top10Rows = rowsForScenario('top10');
-  const top5Rows = rowsForScenario('top5');
+  const rp100Rows = rowsForScenario('rp100');
+  const rp1000Rows = rowsForScenario('rp1000');
 
   const waterRows = annualRows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRows = annualRows.filter((r) => String(r.key).startsWith('elec_'));
+  const waterRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('elec_'));
+  const waterRowsRp1000 = rp1000Rows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRowsRp1000 = rp1000Rows.filter((r) => String(r.key).startsWith('elec_'));
   const waterRowsEvt = eventRows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRowsEvt = eventRows.filter((r) => String(r.key).startsWith('elec_'));
 
@@ -1790,6 +1894,38 @@ function renderImpactBreakdownCharts(impactPayload) {
     { storm: '#6AB96F', cmcc: '#A4A64B' }
   );
   renderGroupedImpactBarChart(
+    'impact_rp100_water',
+    'impact-rp100-water-chart',
+    waterRowsRp100.map((r) => r.label),
+    waterRowsRp100.map((r) => r.storm),
+    waterRowsRp100.map((r) => r.cmcc),
+    { storm: '#00A6E2', cmcc: '#99D7F7' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_rp100_elec',
+    'impact-rp100-elec-chart',
+    elecRowsRp100.map((r) => r.label),
+    elecRowsRp100.map((r) => r.storm),
+    elecRowsRp100.map((r) => r.cmcc),
+    { storm: '#F39655', cmcc: '#FFD744' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_rp1000_water',
+    'impact-rp1000-water-chart',
+    waterRowsRp1000.map((r) => r.label),
+    waterRowsRp1000.map((r) => r.storm),
+    waterRowsRp1000.map((r) => r.cmcc),
+    { storm: '#0083CB', cmcc: '#5BC5F2' }
+  );
+  renderGroupedImpactBarChart(
+    'impact_rp1000_elec',
+    'impact-rp1000-elec-chart',
+    elecRowsRp1000.map((r) => r.label),
+    elecRowsRp1000.map((r) => r.storm),
+    elecRowsRp1000.map((r) => r.cmcc),
+    { storm: '#A4A64B', cmcc: '#FFD744' }
+  );
+  renderGroupedImpactBarChart(
     'impact_evt_water',
     'impact-evt-water-chart',
     waterRowsEvt.map((r) => r.label),
@@ -1805,23 +1941,70 @@ function renderImpactBreakdownCharts(impactPayload) {
     elecRowsEvt.map((r) => r.cmcc),
     { storm: '#F39655', cmcc: '#FFD744' }
   );
+}
 
-  renderGroupedImpactBarChart(
-    'impact_top10',
-    'impact-top10-chart',
-    top10Rows.map((r) => r.label),
-    top10Rows.map((r) => r.storm),
-    top10Rows.map((r) => r.cmcc),
-    { storm: '#00A6E2', cmcc: '#A4A64B' }
-  );
-  renderGroupedImpactBarChart(
-    'impact_top5',
-    'impact-top5-chart',
-    top5Rows.map((r) => r.label),
-    top5Rows.map((r) => r.storm),
-    top5Rows.map((r) => r.cmcc),
-    { storm: '#0083CB', cmcc: '#FFD744' }
-  );
+function scenarioLossFromPortfolio(hazardData, scenario) {
+  const h = hazardData || {};
+  if (scenario === 'annual') return Number(h.eai_eur || 0);
+  if (scenario === 'rp100') return Number(h.pml_100_eur || 0);
+  if (scenario === 'rp1000') {
+    if (Number.isFinite(Number(h.pml_1000_eur))) return Number(h.pml_1000_eur || 0);
+    return Number(h.max_event_loss_eur || 0);
+  }
+  return Number(h.max_event_loss_eur || 0);
+}
+
+function renderUserImpactChartsFromResult(result) {
+  const storm = result?.portfolio_results?.storm || {};
+  const cmcc = result?.portfolio_results?.storm_cmcc || {};
+  const scenarioChart = (refKey, domId, scenario, colorA, colorB) => {
+    renderGroupedImpactBarChart(
+      refKey,
+      domId,
+      ['Portefeuille total'],
+      [scenarioLossFromPortfolio(storm, scenario)],
+      [scenarioLossFromPortfolio(cmcc, scenario)],
+      { storm: colorA, cmcc: colorB }
+    );
+  };
+  scenarioChart('user_impact_eai', 'user-impact-eai-chart', 'annual', '#0083CB', '#5BC5F2');
+  scenarioChart('user_impact_rp100', 'user-impact-rp100-chart', 'rp100', '#00A6E2', '#99D7F7');
+  scenarioChart('user_impact_rp1000', 'user-impact-rp1000-chart', 'rp1000', '#A4A64B', '#FFD744');
+  scenarioChart('user_impact_eventmax', 'user-impact-eventmax-chart', 'event_max', '#F39655', '#FFD744');
+}
+
+function renderUserConclusionText(result) {
+  if (!els.userConclusionText) return;
+  const totalExposure = Number(result?.exposure_summary?.total_exposure_eur || 0);
+  const safeExposure = totalExposure > 0 ? totalExposure : 1;
+  const storm = result?.portfolio_results?.storm || {};
+  const cmcc = result?.portfolio_results?.storm_cmcc || {};
+  const pct = (value) => ((Number(value || 0) / safeExposure) * 100);
+  const text = [
+    `Exposition totale utilisateur: ${formatMoneyEUR(totalExposure)}.`,
+    `Dommages annuels moyens: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'annual')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'annual')))} %).`,
+    `Temps de retour 100 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp100')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp100')))} %).`,
+    `Temps de retour 1000 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp1000'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp1000')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp1000'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp1000')))} %).`,
+    `Événement maximum: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'event_max')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'event_max')))} %).`
+  ];
+  els.userConclusionText.textContent = text.join(' ');
+}
+
+function renderUserImpactSection(result) {
+  if (!els.userImpactSummaryText) return;
+  if (!result) {
+    els.userImpactSummaryText.textContent = 'Aucun résultat utilisateur chargé.';
+    if (els.userConclusionText) els.userConclusionText.textContent = 'Conclusion indisponible.';
+    return;
+  }
+  const modeLabel = {
+    demo: 'référence Guadeloupe',
+    uploaded: 'exposition importée',
+    drawn: 'exposition dessinée'
+  }[state.selectedDatasetMode] || 'résultat actif';
+  els.userImpactSummaryText.textContent = `Cette section présente les impacts du ${modeLabel}, sans carte d’état des réseaux.`;
+  renderUserImpactChartsFromResult(result);
+  renderUserConclusionText(result);
 }
 
 function renderHazardCharts() {
@@ -1831,11 +2014,11 @@ function renderHazardCharts() {
   const hazardGraphs = result.graphs?.[hazardKey];
   if (!hazardGraphs) return;
 
-  els.chartsCaption.textContent = `Interactive web replica for ${getHazardLabel(hazardKey)} plus a side-by-side comparison. Charts are generated from backend risk outputs (CLIMADA in production mode when available).`;
-  els.chartTitle1.textContent = hazardGraphs.wind_year_hist?.title || 'Max wind per year';
-  els.chartTitle2.textContent = hazardGraphs.wind_track_hist?.title || 'Max wind per track';
-  els.chartTitle3.textContent = hazardGraphs.annual_fec?.title || 'Annual FEC';
-  els.chartTitle4.textContent = hazardGraphs.lifetime_fec?.title || 'Lifetime FEC';
+  els.chartsCaption.textContent = `Graphiques du run actif (${getHazardLabel(hazardKey)}), générés depuis les sorties backend.`;
+  els.chartTitle1.textContent = hazardGraphs.wind_year_hist?.title || 'Vitesse max du vent par année';
+  els.chartTitle2.textContent = hazardGraphs.wind_track_hist?.title || 'Vitesse max du vent par track';
+  els.chartTitle3.textContent = hazardGraphs.annual_fec?.title || 'FEC annuelle';
+  els.chartTitle4.textContent = hazardGraphs.lifetime_fec?.title || 'FEC longue durée';
 
   const color = hazardKey === 'storm_cmcc' ? '#db6b48' : '#4bb1cb';
   renderHistogramChart('c1', 'chart-1', hazardGraphs.wind_year_hist, color);
@@ -1851,7 +2034,7 @@ function renderArtifactLinks() {
   const plots = result?.artifacts?.plots_png || [];
   const all = [...downloads, ...plots];
   if (!all.length) {
-    els.artifactLinks.innerHTML = '<span class="muted">No downloadable artifacts attached to this result.</span>';
+    els.artifactLinks.innerHTML = '<span class="muted">Aucun artefact téléchargeable pour ce résultat.</span>';
     return;
   }
   els.artifactLinks.innerHTML = all.map((a) => `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.name)}</a>`).join('');
@@ -1861,7 +2044,7 @@ function renderNotes() {
   const result = getActiveResult();
   const notes = Array.isArray(result?.notes) ? result.notes : [];
   if (!notes.length) {
-    els.notesBox.textContent = 'No notes available for this result.';
+    els.notesBox.textContent = 'Aucune note disponible pour ce résultat.';
     return;
   }
   els.notesBox.innerHTML = `<ul>${notes.slice(0, 8).map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`;
@@ -1869,34 +2052,42 @@ function renderNotes() {
 
 function renderDrawPreview() {
   if (!mapRef.drawnItems) {
-    els.drawSummaryList.innerHTML = '<li>Map drawing tools not available.</li>';
+    els.drawSummaryList.innerHTML = '<li>Outils de dessin indisponibles.</li>';
     return;
   }
   const layers = mapRef.drawnItems.getLayers();
   if (!layers.length) {
-    els.drawSummaryList.innerHTML = '<li>No drawings yet.</li>';
+    els.drawSummaryList.innerHTML = '<li>Aucun dessin pour le moment.</li>';
     els.submitDrawingBtn.disabled = true;
     return;
   }
   const counts = { marker: 0, circle: 0, polyline: 0, polygon: 0, rectangle: 0 };
-  const categoryCounts = { habitation: 0, ouvrage_eau: 0, ouvrage_electrique: 0 };
+  const typeCounts = {};
   layers.forEach((layer) => {
     if (!window.L) return;
     if (layer instanceof L.Circle) counts.circle += 1;
     else if (layer instanceof L.Marker) counts.marker += 1;
     else if (layer instanceof L.Polygon) counts.polygon += 1;
     else if (layer instanceof L.Polyline) counts.polyline += 1;
-    const category = String(layer?.feature?.properties?.exposure_category || els.drawCategory?.value || 'habitation');
-    if (Object.prototype.hasOwnProperty.call(categoryCounts, category)) {
-      categoryCounts[category] += 1;
-    }
+    const type = String(layer?.feature?.properties?.exposure_type || els.drawCategory?.value || 'habitation');
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
   });
-  const lines = [`${layers.length} drawing(s) ready for submission.`];
+  const shapeLabels = {
+    marker: 'points',
+    circle: 'cercles',
+    polyline: 'lignes',
+    polygon: 'polygones',
+    rectangle: 'rectangles'
+  };
+  const lines = [`${layers.length} dessin(s) prêt(s) pour soumission.`];
   Object.entries(counts).forEach(([k, v]) => {
-    if (v > 0) lines.push(`${k}: ${v}`);
+    if (v > 0) lines.push(`${shapeLabels[k] || k}: ${v}`);
   });
-  lines.push(`categories: habitation=${categoryCounts.habitation}, ouvrage_eau=${categoryCounts.ouvrage_eau}, ouvrage_electrique=${categoryCounts.ouvrage_electrique}`);
-  lines.push(`MVP backend fallback uses default value per drawn feature and returns an ephemeral job result.`);
+  const typeSummary = Object.entries(typeCounts)
+    .map(([k, v]) => `${EXPOSURE_TYPE_LABEL[k] || k}: ${v}`)
+    .join(' · ');
+  lines.push(`types d'exposition: ${typeSummary}`);
+  lines.push("Le backend applique actuellement une valeur par défaut par objet dessiné.");
   els.drawSummaryList.innerHTML = lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
   els.submitDrawingBtn.disabled = layers.length === 0;
 }
@@ -1935,6 +2126,7 @@ function renderAll() {
   renderWindMaps();
   renderWaterInfraMap();
   renderInfraSummary();
+  renderUserImpactSection(state.activeResult);
   if (state.currentPage === 'page1') {
     ensureNetworkStatesLoaded();
   }
@@ -1981,7 +2173,7 @@ async function fetchDemoResult() {
       lastErr = err;
     }
   }
-  throw lastErr || new Error('Unable to load demo result');
+  throw lastErr || new Error('Impossible de charger le résultat de référence');
 }
 
 async function fetchWindMaps() {
@@ -1993,14 +2185,14 @@ async function fetchWindMaps() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = await res.json();
       if (!payload || !payload.storm || !payload.storm_cmcc) {
-        throw new Error('Invalid wind map payload');
+        throw new Error('Payload carte des vents invalide');
       }
       return payload;
     } catch (err) {
       lastErr = err;
     }
   }
-  throw lastErr || new Error('Unable to load wind map payload');
+  throw lastErr || new Error('Impossible de charger les cartes des vents');
 }
 
 async function fetchWaterInfra() {
@@ -2009,7 +2201,7 @@ async function fetchWaterInfra() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
   if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
-    throw new Error('Invalid water infrastructure payload');
+    throw new Error("Payload des infrastructures d'eau invalide");
   }
   return payload;
 }
@@ -2020,7 +2212,7 @@ async function fetchPage1Analysis() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
   if (!payload || !payload.exposition || !payload.hazard || !payload.impact || !payload.conclusion) {
-    throw new Error('Invalid page1 analysis payload');
+    throw new Error('Payload analyse page 1 invalide');
   }
   return payload;
 }
@@ -2031,7 +2223,7 @@ async function fetchNetworkStates() {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
   if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
-    throw new Error('Invalid network state payload');
+    throw new Error("Payload des états de réseaux invalide");
   }
   return payload;
 }
@@ -2095,7 +2287,7 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
 
       state.pollTimer = setTimeout(runOnce, 1800);
     } catch (err) {
-      setStatus(`Polling error for ${jobId}: ${err.message}`, 'error');
+      setStatus(`Erreur de suivi du job ${jobId}: ${err.message}`, 'error');
       stopPolling();
     }
   };
@@ -2112,7 +2304,7 @@ async function submitUpload(event) {
   clearError();
   const file = els.uploadFile.files?.[0];
   if (!file) {
-    showError('Select a file before submitting an uploaded exposure run.');
+    showError("Sélectionnez un fichier avant de lancer un run d'exposition importée.");
     return;
   }
 
@@ -2123,27 +2315,28 @@ async function submitUpload(event) {
   if (els.idField.value.trim()) form.append('id_field', els.idField.value.trim());
   if (els.assetTypeField.value.trim()) form.append('asset_type_field', els.assetTypeField.value.trim());
   if (els.categoryField.value.trim()) form.append('exposure_category_field', els.categoryField.value.trim());
-  form.append('default_exposure_category', (els.defaultCategory?.value || 'habitation').trim() || 'habitation');
+  const defaultExposureType = (els.defaultCategory?.value || 'habitation').trim() || 'habitation';
+  form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
   if (els.crsField.value.trim()) form.append('crs', els.crsField.value.trim());
-  if (els.spacingField.value) form.append('sampling_spacing_m', els.spacingField.value);
+  form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
   if (els.runLabel.value.trim()) form.append('run_label', els.runLabel.value.trim());
 
   els.uploadSubmitBtn.disabled = true;
-  setStatus('Submitting uploaded exposure run…', 'info');
+  setStatus("Soumission du run d'exposition importée…", 'info');
   try {
     const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(payload.detail || `HTTP ${res.status}`);
     }
-    setStatus(`Job accepted: ${payload.job_id}. Queueing upload run.`, 'info');
+    setStatus(`Job accepté: ${payload.job_id}. Run importé en file d'attente.`, 'info');
     state.selectedDatasetMode = 'uploaded';
     els.datasetSelect.value = 'uploaded';
     els.pollJobId.value = payload.job_id;
     await pollJob(payload.job_id, { modeTarget: 'uploaded', immediate: true });
   } catch (err) {
-    showError(`Upload run failed to start: ${err.message}`);
-    setStatus(`Upload run failed to start: ${err.message}`, 'error');
+    showError(`Échec du lancement du run importé: ${err.message}`);
+    setStatus(`Échec du lancement du run importé: ${err.message}`, 'error');
   } finally {
     els.uploadSubmitBtn.disabled = false;
   }
@@ -2153,18 +2346,24 @@ function getDrawnFeatureCollection() {
   if (!mapRef.drawnItems) return null;
   const layers = mapRef.drawnItems.getLayers();
   if (!layers.length) return null;
-  const defaultCategory = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+  const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
   const features = layers.map((layer) => {
     const gj = layer.toGeoJSON();
-    const currentCategory = String(layer?.feature?.properties?.exposure_category || gj?.properties?.exposure_category || defaultCategory);
+    const currentType = String(layer?.feature?.properties?.exposure_type || gj?.properties?.exposure_type || defaultExposureType);
+    const currentCategory = categoryFromExposureType(currentType);
+    const currentAssetType = assetFromExposureType(currentType);
     gj.properties = {
       ...(gj.properties || {}),
-      exposure_category: currentCategory
+      exposure_type: currentType,
+      exposure_category: currentCategory,
+      asset_type: currentAssetType
     };
     layer.feature = layer.feature || { type: 'Feature', properties: {} };
     layer.feature.properties = {
       ...(layer.feature.properties || {}),
-      exposure_category: currentCategory
+      exposure_type: currentType,
+      exposure_category: currentCategory,
+      asset_type: currentAssetType
     };
     return gj;
   });
@@ -2175,31 +2374,32 @@ async function submitDrawnExposure() {
   clearError();
   const fc = getDrawnFeatureCollection();
   if (!fc) {
-    showError('Draw at least one geometry before submitting a drawn exposure run.');
+    showError("Dessinez au moins une géométrie avant de lancer un run d'exposition dessinée.");
     return;
   }
 
   const form = new FormData();
   form.append('input_mode', 'drawn_geojson');
   form.append('drawn_geojson', JSON.stringify(fc));
-  form.append('default_exposure_category', (els.drawCategory?.value || 'habitation').trim() || 'habitation');
-  if (els.spacingField.value) form.append('sampling_spacing_m', els.spacingField.value);
-  if (els.runLabel.value.trim()) form.append('run_label', `${els.runLabel.value.trim()} (drawn)`);
+  const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+  form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
+  form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
+  if (els.runLabel.value.trim()) form.append('run_label', `${els.runLabel.value.trim()} (dessin)`);
 
   els.submitDrawingBtn.disabled = true;
-  setStatus('Submitting drawn exposure run…', 'info');
+  setStatus("Soumission du run d'exposition dessinée…", 'info');
   try {
     const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
-    setStatus(`Job accepted: ${payload.job_id}. Queueing drawn run.`, 'info');
+    setStatus(`Job accepté: ${payload.job_id}. Run dessiné en file d'attente.`, 'info');
     state.selectedDatasetMode = 'drawn';
     els.datasetSelect.value = 'drawn';
     els.pollJobId.value = payload.job_id;
     await pollJob(payload.job_id, { modeTarget: 'drawn', immediate: true });
   } catch (err) {
-    showError(`Drawn exposure run failed to start: ${err.message}`);
-    setStatus(`Drawn exposure run failed to start: ${err.message}`, 'error');
+    showError(`Échec du lancement du run dessiné: ${err.message}`);
+    setStatus(`Échec du lancement du run dessiné: ${err.message}`, 'error');
   } finally {
     els.submitDrawingBtn.disabled = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length === 0 : true;
   }
@@ -2215,7 +2415,7 @@ function switchDatasetMode(mode) {
 
   const candidate = state.resultsByMode[mode];
   if (!candidate) {
-    setStatus(`No ${mode} result has been computed yet. Showing demo SIB example.`, 'info');
+    setStatus(`Aucun résultat ${mode} n'est encore disponible. Affichage de la référence Guadeloupe.`, 'info');
     els.datasetSelect.value = 'demo';
     state.selectedDatasetMode = 'demo';
     setActiveResult(state.resultsByMode.demo, 'demo');
@@ -2293,14 +2493,14 @@ function bindEvents() {
     state.selectedDatasetMode = 'demo';
     els.datasetSelect.value = 'demo';
     setActiveResult(state.resultsByMode.demo, 'demo');
-    setStatus('Reset to the Guadeloupe complete reference result.', 'success');
+    setStatus('Retour à la référence complète Guadeloupe.', 'success');
     setActivePage('page1');
   });
 
   els.reloadJobBtn.addEventListener('click', async () => {
     const jobId = els.pollJobId.value.trim();
     if (!jobId) {
-      showError('Enter a job ID to reload a previous result.');
+      showError('Renseignez un identifiant de job pour recharger un résultat.');
       return;
     }
     const target = els.datasetSelect.value === 'drawn' ? 'drawn' : 'uploaded';
@@ -2313,11 +2513,14 @@ function bindEvents() {
   if (els.drawCategory) {
     els.drawCategory.addEventListener('change', () => {
       if (!mapRef.drawnItems) return;
+      const exposureType = (els.drawCategory.value || 'habitation').trim() || 'habitation';
       mapRef.drawnItems.getLayers().forEach((layer) => {
         layer.feature = layer.feature || { type: 'Feature', properties: {} };
         layer.feature.properties = {
           ...(layer.feature.properties || {}),
-          exposure_category: els.drawCategory.value
+          exposure_type: exposureType,
+          exposure_category: categoryFromExposureType(exposureType),
+          asset_type: assetFromExposureType(exposureType)
         };
       });
       renderDrawPreview();
@@ -2385,11 +2588,11 @@ async function bootstrap() {
     state.activeResult = demo;
     updateMetaBadges();
     renderAll();
-    setStatus('Loaded Guadeloupe complete reference result. Submit an upload or a drawn exposure to start an async run.', 'success');
+    setStatus("Référence Guadeloupe complète chargée. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
   } catch (err) {
     console.error(err);
-    showError(`Startup error: ${err.message}`);
-    setStatus(`Startup error: ${err.message}`, 'error');
+    showError(`Erreur au démarrage: ${err.message}`);
+    setStatus(`Erreur au démarrage: ${err.message}`, 'error');
     renderAll();
   }
 }

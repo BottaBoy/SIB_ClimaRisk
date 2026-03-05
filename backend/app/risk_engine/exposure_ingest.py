@@ -152,10 +152,16 @@ def ingest_drawn_geojson(
         if not isinstance(feat, dict) or feat.get("type") != "Feature":
             raise InputValidationError(f"Invalid drawn feature at index {idx}")
         geom = feat.get("geometry") or {}
+        props = feat.get("properties") or {}
+        if not isinstance(props, dict):
+            props = {}
         gtype = str(geom.get("type") or "Unknown")
         _, centroid = _coords_bbox_and_centroid(geom.get("coordinates"))
         lon = centroid[0] if centroid else None
         lat = centroid[1] if centroid else None
+        extra_props: dict[str, Any] = {}
+        if props.get("asset_type") is not None:
+            extra_props["asset_type"] = props.get("asset_type")
         features.append(
             NormalizedFeature(
                 feature_id=str(idx + 1),
@@ -163,13 +169,13 @@ def ingest_drawn_geojson(
                 value_eur=float(default_value_eur),
                 geometry_type=gtype,
                 exposure_category=_normalize_exposure_category(
-                    ((feat.get("properties") or {}).get("exposure_category")),
+                    props.get("exposure_category"),
                     default_exposure_category,
                 ),
                 lon=lon,
                 lat=lat,
                 geometry_geojson=geom if isinstance(geom, dict) else None,
-                properties={},
+                properties=extra_props,
             )
         )
 

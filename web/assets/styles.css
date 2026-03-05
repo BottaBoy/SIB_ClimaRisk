@@ -303,6 +303,19 @@ button:disabled {
   gap: 12px;
 }
 
+.user-impact-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.run-lab.page-block.page2 { order: -40; }
+.user-impact-panel.page-block.page2 { order: -30; }
+.controls-grid.page-block.page2 { order: -20; }
+.kpi-grid.page-block.page2 { order: -19; }
+.main-grid.page-block.page2 { order: -18; }
+.charts-panel.page-block.page2 { order: -17; }
+
 .run-lab-head {
   display: flex;
   flex-wrap: wrap;

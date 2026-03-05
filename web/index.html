@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -30,16 +30,16 @@
           <p class="subtitle">
             Cette page présente un exercice de demonstration d'une analyse complete des risques cycloniques. Cette étude de cas prend en compte
             les reseaux d'eau et d'electricite. Les aleas cycloniques sont modélisés à partir de la base de donnée STORM (Bloemdaal et al. 2020) et STORM_CMCC (Bloemdaal et al., 2022). 
-            Les données cartographiques des réseaux d'eau des réseaux d'eau ont été fournis par le SMGEAG, quand à celle des reseaux électriques, elles sont disponible sur le site de EDF Guadeloupe.
-            Cette analyse, réalisée dans le cadre du mémoire de master 2 Eau et société de Elio Bottagisio, à pour but d'informer les parties prenantes sur les risques physiques pouvant affecter les infrastructures en Guadeloupe 
+            Les données cartographiques des réseaux d'eau ont été fournis par le SMGEAG, quand à celle des reseaux électriques, elles sont disponible sur le site de EDF Guadeloupe.
+            Cette analyse, réalisée dans le cadre du mémoire de master 2 "Eau et société" de Elio Bottagisio, a pour but d'informer les parties prenantes sur les risques physiques pouvant affecter les infrastructures en Guadeloupe 
             et de démontrer la faisabilité d'une telle analyse dans le cadre des missions de la Solidarité InterBassin (SIB, département de l'OFB). Les méthodologies et résultats présentés sont à considérer comme des prototypes à valider et affiner dans les itérations futures du projet.
             Une méthodologie détaillée de calcul est disponible dans la section dédiée.
           </p>
         </div>
         <div class="hero-badges">
-          <span class="badge" id="badge-source">Source: loading…</span>
-          <span class="badge" id="badge-updated">Updated: —</span>
-          <span class="badge" id="badge-engine">Engine: —</span>
+          <span class="badge" id="badge-source">Source: chargement…</span>
+          <span class="badge" id="badge-updated">Mis a jour: —</span>
+          <span class="badge" id="badge-engine">Moteur: —</span>
         </div>
       </header>
 
@@ -94,7 +94,7 @@
         <p class="muted small" id="exposition-total-value">Valeur totale du portefeuille: —</p>
         <div class="subpanel water-map-card">
           <h3>Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
-          <p class="muted small" id="water-map-caption">Loading…</p>
+          <p class="muted small" id="water-map-caption">Chargement…</p>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
@@ -140,12 +140,12 @@
         <div class="wind-grid">
           <article class="subpanel wind-map-card">
             <h3>Carte des aleas vent/tempete moyens (STORM)</h3>
-            <p class="muted small" id="wind-storm-caption">Loading…</p>
+            <p class="muted small" id="wind-storm-caption">Chargement…</p>
             <div id="wind-map-storm" class="map wind-map"></div>
           </article>
           <article class="subpanel wind-map-card">
             <h3>Carte des aleas vent/tempete moyens (STORM_CMCC)</h3>
-            <p class="muted small" id="wind-cmcc-caption">Loading…</p>
+            <p class="muted small" id="wind-cmcc-caption">Chargement…</p>
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>
         </div>
@@ -278,28 +278,36 @@
           <p class="muted small" id="network-state-caption">Chargement...</p>
           <div class="chart-grid impact-breakdown-grid">
             <div class="chart-card">
-              <h3>💧 EAI eau (STORM vs STORM_CMCC)</h3>
+              <h3>EAI eau (STORM vs STORM_CMCC)</h3>
               <div id="impact-eai-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>⚡ EAI electricite (STORM vs STORM_CMCC)</h3>
+              <h3>EAI electricite (STORM vs STORM_CMCC)</h3>
               <div id="impact-eai-elec-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>💧 EVT max eau (STORM vs STORM_CMCC)</h3>
+              <h3>RP100 eau (STORM vs STORM_CMCC)</h3>
+              <div id="impact-rp100-water-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>RP100 electricite (STORM vs STORM_CMCC)</h3>
+              <div id="impact-rp100-elec-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>RP1000 eau (STORM vs STORM_CMCC)</h3>
+              <div id="impact-rp1000-water-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>RP1000 electricite (STORM vs STORM_CMCC)</h3>
+              <div id="impact-rp1000-elec-chart" class="chart"></div>
+            </div>
+            <div class="chart-card">
+              <h3>EVT max eau (STORM vs STORM_CMCC)</h3>
               <div id="impact-evt-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>⚡ EVT max electricite (STORM vs STORM_CMCC)</h3>
+              <h3>EVT max electricite (STORM vs STORM_CMCC)</h3>
               <div id="impact-evt-elec-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>Top 10% evenements les plus forts - dommages par type</h3>
-              <div id="impact-top10-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>Top 5% evenements les plus forts - dommages par type</h3>
-              <div id="impact-top5-chart" class="chart"></div>
             </div>
           </div>
         </div>
@@ -325,9 +333,9 @@
         </p>
       </section>
 
-      <section class="panel controls-grid page-block page2" aria-label="Analysis controls">
+      <section class="panel controls-grid page-block page2" aria-label="Parametres d'analyse">
         <div class="field">
-          <label for="hazard-select">Hazard</label>
+          <label for="hazard-select">Aléa</label>
           <select id="hazard-select">
             <option value="storm">STORM</option>
             <option value="storm_cmcc">STORM_CMCC</option>
@@ -335,41 +343,41 @@
         </div>
 
         <div class="field">
-          <label for="dataset-select">Dataset</label>
+          <label for="dataset-select">Jeu de donnees</label>
           <select id="dataset-select">
-            <option value="demo">Guadeloupe complete reference</option>
-            <option value="uploaded">My uploaded exposure</option>
-            <option value="drawn">My drawn exposure</option>
+            <option value="demo">Reference Guadeloupe complete</option>
+            <option value="uploaded">Exposition importee</option>
+            <option value="drawn">Exposition dessinee</option>
           </select>
         </div>
 
         <div class="field">
-          <label for="poll-job-id">Reload Job Result</label>
+          <label for="poll-job-id">Recharger un resultat</label>
           <div class="inline-row">
             <input id="poll-job-id" type="text" placeholder="jr_20260224_abc123" />
-            <button id="reload-job-btn" type="button">Load</button>
+            <button id="reload-job-btn" type="button">Charger</button>
           </div>
         </div>
 
         <div class="field">
           <label>Actions</label>
           <div class="inline-row">
-            <button id="reset-demo-btn" type="button">Reset to Guadeloupe Reference</button>
-            <button id="clear-drawings-btn" type="button" disabled>Clear Drawings</button>
+            <button id="reset-demo-btn" type="button">Revenir a la reference Guadeloupe</button>
+            <button id="clear-drawings-btn" type="button" disabled>Effacer les dessins</button>
           </div>
         </div>
       </section>
 
-      <section class="kpi-grid page-block page2" id="kpi-grid" aria-label="Portfolio KPIs"></section>
+      <section class="kpi-grid page-block page2" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
 
       <section class="panel main-grid page-block page2">
         <div class="map-card">
           <div class="section-head">
             <div>
-              <h2>Territory Map</h2>
-              <p class="muted" id="map-caption">Marker size = exposure, color = risk index for selected hazard.</p>
+              <h2>Carte des territoires</h2>
+              <p class="muted" id="map-caption">Taille des points = exposition, couleur = indice de risque pour l'alea selectionne.</p>
             </div>
-            <div class="filter-chip" id="selected-territory-chip">No territory selected</div>
+            <div class="filter-chip" id="selected-territory-chip">Aucun territoire selectionne</div>
           </div>
           <div id="map-fallback" class="fallback" hidden></div>
           <div id="territory-map" class="map"></div>
@@ -378,24 +386,24 @@
         <div class="table-card">
           <div class="section-head">
             <div>
-              <h2>Territory Results</h2>
-              <p class="muted" id="table-caption">Loaded result set.</p>
+              <h2>Resultats par territoire</h2>
+              <p class="muted" id="table-caption">Resultat charge.</p>
             </div>
             <div class="inline-row tight">
-              <input id="territory-search" type="search" placeholder="Filter territories" />
-              <button id="clear-territory-filter-btn" type="button">Clear</button>
+              <input id="territory-search" type="search" placeholder="Filtrer les territoires" />
+              <button id="clear-territory-filter-btn" type="button">Effacer</button>
             </div>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Territory</th>
-                  <th class="num">Exposure (M€)</th>
+                  <th>Territoire</th>
+                  <th class="num">Exposition (M€)</th>
                   <th class="num">EAI STORM (M€)</th>
                   <th class="num">EAI CMCC (M€)</th>
-                  <th class="num">Risk STORM</th>
-                  <th class="num">Risk CMCC</th>
+                  <th class="num">Indice risque STORM</th>
+                  <th class="num">Indice risque CMCC</th>
                 </tr>
               </thead>
               <tbody id="territory-table-body"></tbody>
@@ -407,19 +415,19 @@
       <section class="panel charts-panel page-block page2">
         <div class="section-head">
           <div>
-            <h2>Notebook Graph Suite (Web Replica)</h2>
-            <p class="muted" id="charts-caption">Interactive replicas of the STORM/STORM_CMCC graph families with shared result schema.</p>
+            <h2>Graphiques aléas (resultat utilisateur)</h2>
+            <p class="muted" id="charts-caption">Reproduction web des familles de graphiques STORM/STORM_CMCC.</p>
           </div>
           <div class="artifact-links" id="artifact-links"></div>
         </div>
         <div class="chart-grid">
-          <div class="chart-card"><h3 id="chart-title-1">Max wind per year</h3><div id="chart-1" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-2">Max wind per track</h3><div id="chart-2" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-3">Annual FEC</h3><div id="chart-3" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-4">Lifetime FEC</h3><div id="chart-4" class="chart"></div></div>
+          <div class="chart-card"><h3 id="chart-title-1">Vitesse max du vent par annee</h3><div id="chart-1" class="chart"></div></div>
+          <div class="chart-card"><h3 id="chart-title-2">Vitesse max du vent par track</h3><div id="chart-2" class="chart"></div></div>
+          <div class="chart-card"><h3 id="chart-title-3">FEC annuelle</h3><div id="chart-3" class="chart"></div></div>
+          <div class="chart-card"><h3 id="chart-title-4">FEC longue duree</h3><div id="chart-4" class="chart"></div></div>
         </div>
         <div class="chart-card comparison-card">
-          <h3>STORM vs STORM_CMCC Comparison</h3>
+          <h3>Comparaison STORM vs STORM_CMCC</h3>
           <div id="chart-comparison" class="chart wide"></div>
         </div>
       </section>
@@ -430,7 +438,7 @@
             <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
             <p class="subtitle compact">
               Importez vos propres expositions (CSV/XLSX/GeoJSON/GPKG) ou dessinez-les sur la carte.
-              Les runs sont executes de facon asynchrone et conserves 24h.
+              Les calculs sont executes de facon asynchrone et conserves 24h.
             </p>
           </div>
           <div class="status-box" id="job-status-box" hidden></div>
@@ -441,77 +449,129 @@
             <h3>Import d'exposition</h3>
             <p class="muted">Formats supportes: CSV, XLSX, GeoJSON, GPKG.</p>
             <div class="field">
-              <label for="upload-file">Exposure file</label>
+              <label for="upload-file">Fichier d'exposition</label>
               <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
             </div>
             <div class="field">
-              <label for="value-field">Value field (required for GIS/tabular files)</label>
+              <label for="value-field">Valeur monetaire (€) de l'exposition</label>
               <input id="value-field" type="text" placeholder="value_eur / operations_op_montant" />
             </div>
             <div class="field-row">
               <div class="field">
-                <label for="id-field">ID field (optional)</label>
+                <label for="id-field">Champ identifiant (optionnel)</label>
                 <input id="id-field" type="text" placeholder="asset_id" />
               </div>
               <div class="field">
-                <label for="asset-type-field">Asset type field (optional)</label>
+                <label for="asset-type-field">Champ type d'actif (optionnel)</label>
                 <input id="asset-type-field" type="text" placeholder="asset_type" />
               </div>
             </div>
             <div class="field-row">
               <div class="field">
-                <label for="category-field">Exposure category field (optional)</label>
+                <label for="category-field">Type d'exposition (champ optionnel)</label>
                 <input id="category-field" type="text" placeholder="exposure_category" />
               </div>
               <div class="field">
-                <label for="default-category">Default category</label>
+                <label for="default-category">Type d'exposition par defaut</label>
                 <select id="default-category">
                   <option value="habitation">Habitation</option>
-                  <option value="ouvrage_eau">Ouvrage eau</option>
-                  <option value="ouvrage_electrique">Ouvrage electrique</option>
+                  <option value="eau_aep">Reseau eau AEP</option>
+                  <option value="eau_eu">Reseau eau EU</option>
+                  <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
+                  <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
+                  <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
+                  <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
+                  <option value="eau_eu_pr">Poste de refoulement EU</option>
+                  <option value="eau_eu_step">STEP</option>
+                  <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
+                  <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
+                  <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
+                  <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
+                  <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
                 </select>
               </div>
             </div>
             <div class="field-row">
               <div class="field">
-                <label for="crs-field">CRS override (optional)</label>
+                <label for="crs-field">CRS (optionnel)</label>
                 <input id="crs-field" type="text" placeholder="EPSG:4326" />
               </div>
               <div class="field">
-                <label for="spacing-field">Sampling spacing (m)</label>
-                <input id="spacing-field" type="number" value="100" min="1" step="1" />
+                <label>Pas d'echantillonnage</label>
+                <input type="text" value="100 m (fixe)" disabled />
               </div>
             </div>
             <div class="field">
-              <label for="run-label">Run label (optional)</label>
-              <input id="run-label" type="text" placeholder="SIB test upload" />
+              <label for="run-label">Nom du run (optionnel)</label>
+              <input id="run-label" type="text" placeholder="Test SIB utilisateur" />
             </div>
-            <button type="submit" class="primary-btn" id="upload-submit-btn">Submit Uploaded Exposure</button>
+            <button type="submit" class="primary-btn" id="upload-submit-btn">Lancer le run de l'exposition importee</button>
           </form>
 
           <div class="subpanel">
             <h3>Dessin d'exposition</h3>
-            <p class="muted">Dessinez des points, lignes ou polygones puis soumettez le run.</p>
+            <p class="muted">Dessinez des points, lignes ou polygones puis lancez le calcul.</p>
             <div class="field">
-              <label for="draw-category">Drawn exposure category</label>
+              <label for="draw-category">Type d'exposition dessinee</label>
               <select id="draw-category">
                 <option value="habitation">Habitation</option>
-                <option value="ouvrage_eau">Ouvrage eau</option>
-                <option value="ouvrage_electrique">Ouvrage electrique</option>
+                <option value="eau_aep">Reseau eau AEP</option>
+                <option value="eau_eu">Reseau eau EU</option>
+                <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
+                <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
+                <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
+                <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
+                <option value="eau_eu_pr">Poste de refoulement EU</option>
+                <option value="eau_eu_step">STEP</option>
+                <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
+                <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
+                <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
+                <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
+                <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
               </select>
             </div>
             <ul class="draw-summary-list" id="draw-summary-list">
-              <li>No drawings yet.</li>
+              <li>Aucun dessin pour le moment.</li>
             </ul>
             <div class="inline-row">
-              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Submit Drawn Exposure</button>
-              <button type="button" id="refresh-preview-btn">Refresh Preview</button>
+              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Lancer le run de l'exposition dessinee</button>
+              <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
             <p class="muted small">
-              Drawn exposures use an MVP default value per feature in the backend fallback engine; field-based valuation will be added in the production CLIMADA path.
+              Les expositions dessinees utilisent une valorisation par defaut au niveau de l'actif. La valorisation par champs est disponible pour les imports tabulaires/GIS.
             </p>
           </div>
         </div>
+      </section>
+
+      <section class="panel page-block page2 user-impact-panel" aria-labelledby="user-impact-title">
+        <div class="section-head">
+          <div>
+            <h2 id="user-impact-title">Impact (resultat utilisateur)</h2>
+            <p class="muted" id="user-impact-summary-text">
+              Cette section synthétise les impacts pour l'exposition importee ou dessinee, sans carte d'etat des reseaux.
+            </p>
+          </div>
+        </div>
+        <div class="chart-grid impact-breakdown-grid">
+          <div class="chart-card">
+            <h3>Dommages annuels moyens (EAI) - STORM vs STORM_CMCC</h3>
+            <div id="user-impact-eai-chart" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Dommages - temps de retour 100 ans</h3>
+            <div id="user-impact-rp100-chart" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Dommages - temps de retour 1000 ans</h3>
+            <div id="user-impact-rp1000-chart" class="chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Dommages - evenement maximum</h3>
+            <div id="user-impact-eventmax-chart" class="chart"></div>
+          </div>
+        </div>
+        <p class="muted" id="user-conclusion-text">Conclusion utilisateur en cours de chargement...</p>
       </section>
 
       <section class="panel disclaimer page-block page2" aria-label="Clause de non responsabilite">
@@ -527,7 +587,11 @@
         <div class="section-head">
           <div>
             <h2>Methodologie detaillee de calcul</h2>
-            <p class="muted">Description technique complete du backend, des interactions entre fichiers, et du statut CLIMADA.</p>
+            <p class="muted">
+              Cette page presente le contexte de l'etude des risques physiques sur les infrastructures essentielles en outre-mer
+              et decrit la logique des calculs utilises: calcul d'impact, dependance entre reseaux electriques et reseaux d'eau,
+              et classification des etats de service (S0 a S3).
+            </p>
           </div>
         </div>
         <article class="subpanel">
@@ -551,29 +615,29 @@ scripts/build_guadeloupe_water_infra_map.py
         </article>
         <div class="method-grid">
           <article class="subpanel">
-            <h3>Hazard</h3>
+            <h3>Aleas</h3>
             <ul>
-              <li>STORM and STORM_CMCC tropical cyclone hazards (Nadia Bloemendaal datasets).</li>
-              <li>Wind maps use the full 10,000-year NA catalogs currently available on the server.</li>
-              <li>Probabilistic cyclone risk framing for water infrastructure exposure.</li>
-              <li>Frequency normalization is handled on a copy in the backend architecture (idempotent design).</li>
+              <li>Aleas cycloniques tropicaux STORM et STORM_CMCC (jeux de donnees de Nadia Bloemendaal).</li>
+              <li>Les cartes de vent utilisent le catalogue complet 10 000 ans (bassin NA) disponible sur le serveur.</li>
+              <li>Cadre probabiliste pour estimer le risque cyclonique sur les infrastructures exposees.</li>
+              <li>La normalisation de frequence est geree de facon idempotente dans le backend.</li>
             </ul>
           </article>
           <article class="subpanel">
-            <h3>Exposure</h3>
+            <h3>Exposition</h3>
             <ul>
-              <li>Reference page uses complete Guadeloupe water+electric infrastructure datasets.</li>
-              <li>Exposure means the set of assets at stake (infrastructures, habitations, etc.).</li>
-              <li>User uploads: CSV/XLSX and GIS formats (GeoJSON/GPKG) are accepted by the API contract.</li>
-              <li>Lines and polygons are disaggregated to points before impact calculation, then reaggregated.</li>
+              <li>La page de reference utilise les jeux complets d'infrastructures eau et electricite de Guadeloupe.</li>
+              <li>L'exposition represente l'ensemble des enjeux (infrastructures, habitations, etc.).</li>
+              <li>Imports utilisateur acceptes: CSV/XLSX et formats SIG (GeoJSON/GPKG).</li>
+              <li>Les lignes et polygones sont desagreges en points avant calcul, puis reagreges.</li>
             </ul>
           </article>
           <article class="subpanel">
-            <h3>Impact & Dependency</h3>
+            <h3>Impact et dependances</h3>
             <ul>
-              <li>MVP production target is the Eberenz 2021 tropical cyclone impact function.</li>
-              <li>Fallback engine uses 4 states (S0/S1/S2/S3), component health, and electricity-to-water propagation.</li>
-              <li>All water assets are conservatively treated as electricity-dependent in this iteration.</li>
+              <li>La fonction d'impact tropical cyclone Eberenz 2021 est utilisee comme base de modelisation.</li>
+              <li>Le moteur applique 4 etats (S0/S1/S2/S3), une sante de composant et une propagation elec -> eau.</li>
+              <li>Tous les actifs eau sont traites de facon prudente comme dependants de l'electricite.</li>
             </ul>
           </article>
         </div>
