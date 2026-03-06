@@ -44,8 +44,22 @@ class HazardBundle:
     point_count: int = 0
 
 
+@dataclass(frozen=True)
+class SpatialWindow:
+    lat_min: float
+    lat_max: float
+    lon_min: float
+    lon_max: float
+    center_lat: float
+    center_lon: float
+
+
 _TRACK_CACHE_LOCK = threading.Lock()
-_TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float], Any] = {}
+_TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int], Any] = {}
+
+
+DEFAULT_SPATIAL_PADDING_DEG = 4.0
+DEFAULT_MAX_TRACKS = 4000
 
 
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
@@ -102,6 +116,55 @@ def _point_in_basin(lat: float, lon: float, basin: BasinCoverage) -> bool:
     if lat < float(basin.lat_min) or lat > float(basin.lat_max):
         return False
     return _lon_in_bbox(_normalize_lon(lon), float(basin.lon_min), float(basin.lon_max))
+
+
+def _build_spatial_window(
+    point_coords: Iterable[tuple[float, float]],
+    *,
+    padding_deg: float,
+) -> SpatialWindow | None:
+    lat_vals: list[float] = []
+    lon_vals: list[float] = []
+    for lat, lon in point_coords:
+        try:
+            latf = float(lat)
+            lonf = _normalize_lon(float(lon))
+        except Exception:
+            continue
+        if not (-90.0 <= latf <= 90.0):
+            continue
+        lat_vals.append(latf)
+        lon_vals.append(lonf)
+
+    if not lat_vals or not lon_vals:
+        return None
+
+    pad = max(0.0, float(padding_deg))
+    lat_min = max(-90.0, min(lat_vals) - pad)
+    lat_max = min(90.0, max(lat_vals) + pad)
+
+    lon_min_raw = min(lon_vals)
+    lon_max_raw = max(lon_vals)
+    # When points span the dateline we cannot represent a compact bbox
+    # with this simple min/max; keep full longitude range in that case.
+    if (lon_max_raw - lon_min_raw) > 180.0:
+        lon_min = -180.0
+        lon_max = 180.0
+        center_lon = 0.0
+    else:
+        lon_min = max(-180.0, lon_min_raw - pad)
+        lon_max = min(180.0, lon_max_raw + pad)
+        center_lon = _normalize_lon((lon_min_raw + lon_max_raw) / 2.0)
+
+    center_lat = (min(lat_vals) + max(lat_vals)) / 2.0
+    return SpatialWindow(
+        lat_min=float(lat_min),
+        lat_max=float(lat_max),
+        lon_min=float(lon_min),
+        lon_max=float(lon_max),
+        center_lat=float(center_lat),
+        center_lon=float(center_lon),
+    )
 
 
 def _basin_ids_for_points(
@@ -227,6 +290,8 @@ def _build_tracks_from_parquet(
     *,
     provider_name: str,
     basin_ids: tuple[int, ...],
+    spatial_window: SpatialWindow | None = None,
+    max_tracks: int = DEFAULT_MAX_TRACKS,
     timestep_hours: int = 3,
     wind_unit_in: str = "m/s",
     radius_unit_in: str = "km",
@@ -264,6 +329,43 @@ def _build_tracks_from_parquet(
 
     df["lon"] = df["lon"].astype(float)
     df.loc[df["lon"] > 180.0, "lon"] = df.loc[df["lon"] > 180.0, "lon"] - 360.0
+
+    if spatial_window is not None:
+        lat_mask = df["lat"].astype(float).between(float(spatial_window.lat_min), float(spatial_window.lat_max))
+        if spatial_window.lon_min <= spatial_window.lon_max:
+            lon_mask = df["lon"].astype(float).between(float(spatial_window.lon_min), float(spatial_window.lon_max))
+        else:
+            lon_mask = (df["lon"].astype(float) >= float(spatial_window.lon_min)) | (df["lon"].astype(float) <= float(spatial_window.lon_max))
+        df = df[lat_mask & lon_mask].copy()
+        if df.empty:
+            raise ValueError(
+                "No rows remain after spatial filter "
+                f"lat=[{spatial_window.lat_min:.3f},{spatial_window.lat_max:.3f}] "
+                f"lon=[{spatial_window.lon_min:.3f},{spatial_window.lon_max:.3f}] on {parquet_path}"
+            )
+
+    try:
+        max_tracks_int = int(max_tracks)
+    except Exception:
+        max_tracks_int = DEFAULT_MAX_TRACKS
+    if max_tracks_int > 0:
+        track_count = int(df["track_id"].nunique(dropna=True))
+        if track_count > max_tracks_int:
+            lat_center = float(spatial_window.center_lat if spatial_window is not None else df["lat"].astype(float).mean())
+            lon_center = float(spatial_window.center_lon if spatial_window is not None else df["lon"].astype(float).mean())
+            dlat = df["lat"].astype(float) - lat_center
+            dlon = (df["lon"].astype(float) - lon_center).abs()
+            dlon = dlon.where(dlon <= 180.0, 360.0 - dlon)
+            dist2 = (dlat * dlat) + (dlon * dlon)
+            ranked_tracks = (
+                df.assign(_dist2=dist2)
+                .groupby("track_id", sort=False)["_dist2"]
+                .min()
+                .nsmallest(max_tracks_int)
+            )
+            keep_track_ids = set(ranked_tracks.index.tolist())
+            df = df[df["track_id"].isin(keep_track_ids)].copy()
+
     df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
     df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
 
@@ -333,10 +435,20 @@ def _get_or_build_tracks(
     *,
     provider_name: str,
     basin_ids: tuple[int, ...],
+    spatial_window: SpatialWindow | None,
+    max_tracks: int,
     wind_unit_in: str,
     radius_unit_in: str,
     env_pressure_hpa: float,
 ) -> Any:
+    window_key = None
+    if spatial_window is not None:
+        window_key = (
+            round(float(spatial_window.lat_min), 4),
+            round(float(spatial_window.lat_max), 4),
+            round(float(spatial_window.lon_min), 4),
+            round(float(spatial_window.lon_max), 4),
+        )
     cache_key = (
         str(parquet_path.expanduser().resolve(strict=False)),
         str(provider_name),
@@ -344,6 +456,8 @@ def _get_or_build_tracks(
         str(wind_unit_in),
         str(radius_unit_in),
         float(env_pressure_hpa),
+        window_key,
+        int(max_tracks),
     )
     with _TRACK_CACHE_LOCK:
         cached = _TRACK_CACHE.get(cache_key)
@@ -354,6 +468,8 @@ def _get_or_build_tracks(
         parquet_path,
         provider_name=provider_name,
         basin_ids=tuple(sorted(int(b) for b in basin_ids)),
+        spatial_window=spatial_window,
+        max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
@@ -411,6 +527,8 @@ def load_storm_hazards_from_parquet_for_points(
     point_coords: Iterable[tuple[float, float]],
     storm_years: int,
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
+    spatial_padding_deg: float = DEFAULT_SPATIAL_PADDING_DEG,
+    max_tracks: int = DEFAULT_MAX_TRACKS,
     wind_unit_in: str = "m/s",
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
@@ -420,11 +538,14 @@ def load_storm_hazards_from_parquet_for_points(
         raise ValueError("Dynamic hazard build requires at least one exposure coordinate")
 
     basin_ids = _basin_ids_for_points(coords, basin_coverages)
+    spatial_window = _build_spatial_window(coords, padding_deg=spatial_padding_deg)
     centroids = _build_centroids_from_points(coords)
     tracks_storm = _get_or_build_tracks(
         storm_parquet_path,
         provider_name="STORM",
         basin_ids=basin_ids,
+        spatial_window=spatial_window,
+        max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
@@ -433,6 +554,8 @@ def load_storm_hazards_from_parquet_for_points(
         cmcc_parquet_path,
         provider_name="STORM_CMCC",
         basin_ids=basin_ids,
+        spatial_window=spatial_window,
+        max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,

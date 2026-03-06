@@ -241,7 +241,18 @@ def run_climada_direct_impacts(
         if hazard_zero_intensity[hazard_key]:
             notes.append(f"Warning: hazard '{hazard_key}' has zero intensity values; computed impacts can be null.")
 
-        impact = ImpactCalc(exposure_bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
+        # Explicit centroid assignment avoids CLIMADA auto-threshold estimation
+        # failures when the dynamic hazard has very few centroids (e.g. 1 point).
+        exposure_bundle.exposures.assign_centroids(
+            hazard_obj,
+            distance="euclidean",
+            threshold=5.0,
+            overwrite=True,
+        )
+        impact = ImpactCalc(exposure_bundle.exposures, impfset, hazard_obj).impact(
+            save_mat=False,
+            assign_centroids=False,
+        )
         eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
         at_event = _as_1d_float(np, getattr(impact, "at_event", []))
         max_loss_point = _approx_max_loss_per_point(np, eai_exp, at_event)

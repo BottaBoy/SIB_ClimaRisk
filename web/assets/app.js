@@ -756,7 +756,7 @@ function renderOutsideCoverageWarnings() {
     lines.push(`Attention, l'asset ID ${uploaded.join(', ')} est hors de la zone d'aléas. Il ne serait donc pas affecté par les aléas.`);
   }
   if (drawn.length) {
-    lines.push(`Attention, la geometrie ${drawn.join(', ')} est hors de la zone d'aléas. Elle ne serait donc pas affectee par les aléas.`);
+    lines.push(`Attention, la geometrie ${drawn.join(', ')} est hors de la zone d'aléas. Elle ne sera donc pas affectee par les aléas.`);
   }
 
   if (els.impactOutsideWarning) {

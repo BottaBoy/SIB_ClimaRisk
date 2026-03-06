@@ -81,14 +81,10 @@ def load_settings() -> Settings:
     default_storm_cmcc_parquet = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     alt_storm_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds")
     alt_storm_cmcc_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds_CMCC")
-    if "SIB_RISK_STORM_PARQUET_PATH" in env:
-        storm_parquet_path = Path(env.get("SIB_RISK_STORM_PARQUET_PATH", str(default_storm_parquet)))
-    else:
-        storm_parquet_path = _prefer_existing_path(default_storm_parquet, alt_storm_parquet)
-    if "SIB_RISK_STORM_CMCC_PARQUET_PATH" in env:
-        storm_cmcc_parquet_path = Path(env.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(default_storm_cmcc_parquet)))
-    else:
-        storm_cmcc_parquet_path = _prefer_existing_path(default_storm_cmcc_parquet, alt_storm_cmcc_parquet)
+    configured_storm_parquet = Path(env.get("SIB_RISK_STORM_PARQUET_PATH", str(default_storm_parquet)))
+    configured_storm_cmcc_parquet = Path(env.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(default_storm_cmcc_parquet)))
+    storm_parquet_path = _prefer_existing_path(configured_storm_parquet, default_storm_parquet, alt_storm_parquet)
+    storm_cmcc_parquet_path = _prefer_existing_path(configured_storm_cmcc_parquet, default_storm_cmcc_parquet, alt_storm_cmcc_parquet)
 
     return Settings(
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
