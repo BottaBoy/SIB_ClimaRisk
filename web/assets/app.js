@@ -1,5 +1,6 @@
 const state = {
   activeResult: null,
+  activeResultMode: 'uploaded',
   selectedHazard: 'storm',
   selectedDatasetMode: 'uploaded',
   territorySearch: '',
@@ -10,6 +11,7 @@ const state = {
   backendComputeActive: false,
   uiComputeActive: false,
   uiComputeTimer: null,
+  activeSubmitMode: null,
   runLabelsByJob: {},
   recentRuns: [],
   currentJobId: null,
@@ -437,6 +439,36 @@ function refreshComputeIndicator() {
   els.computeIndicator.hidden = !shouldShow;
 }
 
+function normalizeDatasetMode(mode) {
+  return String(mode || '').trim() === 'drawn' ? 'drawn' : 'uploaded';
+}
+
+function setSubmitButtonLoading(mode, active) {
+  const normalized = normalizeDatasetMode(mode);
+  const isDrawn = normalized === 'drawn';
+  const button = isDrawn ? els.submitDrawingBtn : els.uploadSubmitBtn;
+  if (!button) return;
+  const spinner = button.querySelector('.btn-spinner-logo');
+  if (spinner) spinner.hidden = !active;
+  button.classList.toggle('is-loading', Boolean(active));
+  if (active) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    return;
+  }
+  button.removeAttribute('aria-busy');
+  if (isDrawn) {
+    button.disabled = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length === 0 : true;
+    return;
+  }
+  button.disabled = false;
+}
+
+function clearSubmitButtonLoading() {
+  setSubmitButtonLoading('uploaded', false);
+  setSubmitButtonLoading('drawn', false);
+}
+
 function setBackendComputeActive(active) {
   state.backendComputeActive = Boolean(active);
   refreshComputeIndicator();
@@ -537,6 +569,8 @@ function renderKpis() {
   const delta = result.portfolio_results?.delta || { eai_eur: 0, eai_pct: 0 };
   const summary = result.exposure_summary || {};
   const exposureForScope = Number(summary.total_exposure_eur || 0);
+  const safeExposure = exposureForScope > 0 ? exposureForScope : 1;
+  const pctExposure = (value) => (Number(value || 0) / safeExposure) * 100;
   const assetCountForScope = Number(summary.asset_count_original || 0);
   const pointCountForScope = Number(summary.asset_count_points || 0);
   const lossRp100 = scenarioLossFromPortfolio(p, 'rp100');
@@ -552,22 +586,22 @@ function renderKpis() {
     {
       label: "EAI de l'aléa sélectionné",
       value: formatMoneyMEUR(p.eai_eur),
-      sub: `AAI agg ${formatMoneyMEUR(p.aai_agg_eur)} · ${getHazardLabel(hazardKey)}`
+      sub: `${percentFmt.format(pctExposure(p.eai_eur))}% de l'exposition totale · AAI agg ${formatMoneyMEUR(p.aai_agg_eur)} · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: 'Perte evenements temps de retour 100 ans',
+      label: 'Pertes evenements temps de retour 100 ans',
       value: formatMoneyMEUR(lossRp100),
-      sub: `Estimation portefeuille · ${getHazardLabel(hazardKey)}`
+      sub: `${percentFmt.format(pctExposure(lossRp100))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: 'Perte evenements temps de retour 1000 ans',
+      label: 'Pertes evenements temps de retour 1000 ans',
       value: formatMoneyMEUR(lossRp1000),
-      sub: `Estimation portefeuille · ${getHazardLabel(hazardKey)}`
+      sub: `${percentFmt.format(pctExposure(lossRp1000))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: "Perte de l'evenement max",
+      label: "Pertes de l'evenement max",
       value: formatMoneyMEUR(lossEventMax),
-      sub: 'Estimation portefeuille sur le jeu de resultats actif'
+      sub: `${percentFmt.format(pctExposure(lossEventMax))}% de l'exposition totale · Estimation portefeuille`
     },
     {
       label: 'Écart CMCC vs STORM',
@@ -859,6 +893,12 @@ function rememberRunLabel(jobId, runLabel) {
   state.runLabelsByJob[id] = label || id;
 }
 
+function datasetModeFromResult(result, fallbackMode = state.selectedDatasetMode) {
+  if (!result || typeof result !== 'object') return normalizeDatasetMode(fallbackMode);
+  const modeRaw = result?.meta?.dataset_mode || result?.dataset_mode || fallbackMode;
+  return normalizeDatasetMode(modeRaw);
+}
+
 function runLabelForJob(jobId) {
   const id = String(jobId || '').trim();
   if (!id) return '';
@@ -967,7 +1007,7 @@ function renderTerritoryTable() {
     return;
   }
   const rows = filteredResultRows();
-  const modeLabel = state.selectedDatasetMode === 'drawn' ? 'géométrie(s) dessinée(s)' : 'actif(s) importé(s)';
+  const modeLabel = state.activeResultMode === 'drawn' ? 'géométrie(s) dessinée(s)' : 'actif(s) importé(s)';
   els.tableCaption.textContent = `${rows.length} ${modeLabel} · source ${result.meta?.source || 'inconnue'} · aléa ${getHazardLabel(currentHazardKey())}`;
 
   if (!rows.length) {
@@ -2389,7 +2429,7 @@ function renderUserImpactSection(result) {
   const modeLabel = {
     uploaded: 'exposition importée',
     drawn: 'exposition dessinée'
-  }[state.selectedDatasetMode] || 'résultat actif';
+  }[state.activeResultMode] || 'résultat actif';
   els.userImpactSummaryText.textContent = `Cette section présente les impacts du ${modeLabel}, sans carte d’état des réseaux.`;
   renderUserImpactChartsFromResult(result);
   renderUserConclusionText(result);
@@ -2445,7 +2485,8 @@ function renderDrawPreview() {
     `;
   });
   els.drawSummaryList.innerHTML = rows.join('');
-  els.submitDrawingBtn.disabled = layers.length === 0;
+  const drawBusy = state.activeSubmitMode === 'drawn' && state.backendComputeActive;
+  els.submitDrawingBtn.disabled = drawBusy || layers.length === 0;
 }
 
 function renderAll() {
@@ -2482,8 +2523,11 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
   ensureResultShape(result);
   const label = resultRunLabel(result);
   rememberRunLabel(result?.meta?.job_id, label || result?.meta?.job_id);
+  const resolvedMode = datasetModeFromResult(result, mode);
   state.activeResult = result;
-  if (mode) state.resultsByMode[mode] = result;
+  state.activeResultMode = resolvedMode;
+  state.selectedDatasetMode = resolvedMode;
+  if (resolvedMode) state.resultsByMode[resolvedMode] = result;
   syncMapPreviewFromResult(result);
   renderAll();
 }
@@ -2644,18 +2688,25 @@ function stopPolling() {
     clearTimeout(state.pollTimer);
     state.pollTimer = null;
   }
+  state.activeSubmitMode = null;
+  clearSubmitButtonLoading();
   setBackendComputeActive(false);
 }
 
-async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {}) {
+async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false, submitMode = null } = {}) {
   if (runtime.isPublicShowcase) {
     showError("Le suivi de jobs est indisponible en mode vitrine publique.");
     return;
   }
+  const normalizedModeTarget = normalizeDatasetMode(modeTarget);
   stopPolling();
+  if (submitMode) {
+    state.activeSubmitMode = normalizeDatasetMode(submitMode);
+    setSubmitButtonLoading(state.activeSubmitMode, true);
+  }
   setBackendComputeActive(true);
   state.currentJobId = jobId;
-  state.pollingModeTarget = modeTarget;
+  state.pollingModeTarget = normalizedModeTarget;
   if (els.pollJobId && !els.pollJobId.value) els.pollJobId.value = jobId;
 
   const runOnce = async () => {
@@ -2672,12 +2723,12 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
         const resultRes = await fetch(`/api/v1/runs/${encodeURIComponent(jobId)}/result`, { cache: 'no-store' });
         if (!resultRes.ok) throw new Error(`Result HTTP ${resultRes.status}`);
         const payload = ensureResultShape(await resultRes.json());
+        const resolvedMode = datasetModeFromResult(payload, job?.dataset_mode || normalizedModeTarget);
         const payloadLabel = resultRunLabel(payload);
         rememberRunLabel(jobId, payloadLabel || runLabelForJob(jobId) || jobId);
-        state.resultsByMode[modeTarget] = payload;
-        state.selectedDatasetMode = modeTarget;
-        els.datasetSelect.value = modeTarget;
-        setActiveResult(payload, modeTarget);
+        state.resultsByMode[resolvedMode] = payload;
+        state.selectedDatasetMode = resolvedMode;
+        setActiveResult(payload, resolvedMode);
         refreshRunMemoryList().catch(() => {});
         stopPolling();
         return;
@@ -2709,8 +2760,21 @@ async function resolveRunLookup(inputValue) {
     throw new Error('Renseignez un nom de run ou un identifiant de job.');
   }
   if (query.startsWith('jr_')) {
-    const modeTarget = els.datasetSelect.value === 'drawn' ? 'drawn' : 'uploaded';
-    return { jobId: query, modeTarget, runLabel: runLabelForJob(query) || query };
+    const recent = state.recentRuns.find((run) => String(run?.job_id || '').trim() === query);
+    let modeTarget = normalizeDatasetMode(recent?.dataset_mode || state.selectedDatasetMode);
+    let runLabel = runLabelForJob(query) || String(recent?.run_label || query).trim() || query;
+    try {
+      const jobRes = await fetch(`/api/v1/runs/${encodeURIComponent(query)}`, { cache: 'no-store' });
+      if (jobRes.ok) {
+        const jobPayload = await jobRes.json();
+        modeTarget = normalizeDatasetMode(jobPayload?.dataset_mode || modeTarget);
+        runLabel = String(jobPayload?.run_label || runLabel || query).trim() || query;
+        rememberRunLabel(query, runLabel);
+      }
+    } catch (_) {
+      /* fallback to memory */
+    }
+    return { jobId: query, modeTarget, runLabel };
   }
   const res = await fetch(`/api/v1/runs/search?run_label=${encodeURIComponent(query)}`, { cache: 'no-store' });
   const payload = await res.json().catch(() => ({}));
@@ -2756,7 +2820,7 @@ async function submitUpload(event) {
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
   form.append('run_label', runLabel);
 
-  els.uploadSubmitBtn.disabled = true;
+  setSubmitButtonLoading('uploaded', true);
   setStatus("Soumission du run d'exposition importée…", 'info');
   try {
     const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
@@ -2766,16 +2830,17 @@ async function submitUpload(event) {
     }
     setStatus(`Job accepté: ${payload.job_id}. Run importé en file d'attente.`, 'info');
     state.selectedDatasetMode = 'uploaded';
-    els.datasetSelect.value = 'uploaded';
     rememberRunLabel(payload.job_id, runLabel);
     if (els.pollJobId) els.pollJobId.value = runLabel;
     refreshRunMemoryList().catch(() => {});
-    await pollJob(payload.job_id, { modeTarget: 'uploaded', immediate: true });
+    await pollJob(payload.job_id, { modeTarget: 'uploaded', immediate: true, submitMode: 'uploaded' });
   } catch (err) {
     showError(`Échec du lancement du run importé: ${err.message}`);
     setStatus(`Échec du lancement du run importé: ${err.message}`, 'error');
   } finally {
-    els.uploadSubmitBtn.disabled = false;
+    if (state.activeSubmitMode !== 'uploaded') {
+      setSubmitButtonLoading('uploaded', false);
+    }
   }
 }
 
@@ -2847,7 +2912,7 @@ async function submitDrawnExposure() {
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
   form.append('run_label', runLabel);
 
-  els.submitDrawingBtn.disabled = true;
+  setSubmitButtonLoading('drawn', true);
   setStatus("Soumission du run d'exposition dessinée…", 'info');
   try {
     const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
@@ -2855,16 +2920,17 @@ async function submitDrawnExposure() {
     if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
     setStatus(`Job accepté: ${payload.job_id}. Run dessiné en file d'attente.`, 'info');
     state.selectedDatasetMode = 'drawn';
-    els.datasetSelect.value = 'drawn';
     rememberRunLabel(payload.job_id, runLabel);
     if (els.pollJobId) els.pollJobId.value = runLabel;
     refreshRunMemoryList().catch(() => {});
-    await pollJob(payload.job_id, { modeTarget: 'drawn', immediate: true });
+    await pollJob(payload.job_id, { modeTarget: 'drawn', immediate: true, submitMode: 'drawn' });
   } catch (err) {
     showError(`Échec du lancement du run dessiné: ${err.message}`);
     setStatus(`Échec du lancement du run dessiné: ${err.message}`, 'error');
   } finally {
-    els.submitDrawingBtn.disabled = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length === 0 : true;
+    if (state.activeSubmitMode !== 'drawn') {
+      setSubmitButtonLoading('drawn', false);
+    }
   }
 }
 
@@ -2946,15 +3012,13 @@ function bindEvents() {
     renderAll();
   });
 
-  els.hazardSelect.addEventListener('change', () => {
-    state.selectedHazard = els.hazardSelect.value;
-    triggerUiComputePulse(700);
-    renderAll();
-  });
-
-  els.datasetSelect.addEventListener('change', () => {
-    switchDatasetMode(els.datasetSelect.value);
-  });
+  if (els.hazardSelect) {
+    els.hazardSelect.addEventListener('change', () => {
+      state.selectedHazard = els.hazardSelect.value;
+      triggerUiComputePulse(700);
+      renderAll();
+    });
+  }
 
   if (els.windOpacitySlider) {
     const onWindOpacityChange = () => syncWindOpacityFromSlider({ forceApply: true });
@@ -3011,7 +3075,6 @@ function bindEvents() {
         setStatus(`Run trouve: "${resolved.runLabel}" (${resolved.jobId}).`, 'info');
       }
       state.selectedDatasetMode = resolved.modeTarget;
-      if (els.datasetSelect) els.datasetSelect.value = resolved.modeTarget;
       await pollJob(resolved.jobId, { modeTarget: resolved.modeTarget, immediate: true });
     } catch (err) {
       showError(`Impossible de recharger le resultat: ${err.message}`);
@@ -3031,7 +3094,6 @@ function bindEvents() {
       rememberRunLabel(jobId, runLabel || jobId);
       if (els.pollJobId) els.pollJobId.value = runLabel || jobId;
       state.selectedDatasetMode = modeTarget;
-      if (els.datasetSelect) els.datasetSelect.value = modeTarget;
       await pollJob(jobId, { modeTarget, immediate: true });
     });
   }

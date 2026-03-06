@@ -313,9 +313,24 @@ button:disabled {
 }
 
 .primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   background: linear-gradient(135deg, rgba(0, 166, 226, 0.38), rgba(106, 185, 111, 0.32));
   border-color: rgba(153, 215, 247, 0.8);
   color: #ffffff;
+}
+
+.btn-spinner-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  animation: ofb-spin 1s linear infinite;
+}
+
+.btn-spinner-logo[hidden] {
+  display: none !important;
 }
 
 .inline-row {
@@ -375,6 +390,10 @@ button:disabled {
   font-weight: 600;
 }
 
+.compute-indicator[hidden] {
+  display: none !important;
+}
+
 .compute-indicator-logo {
   width: 24px;
   height: 24px;
@@ -408,6 +427,39 @@ button:disabled {
   gap: 8px;
 }
 
+.run-memory-details {
+  display: grid;
+  gap: 8px;
+}
+
+.run-memory-details > summary {
+  margin: 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #dff6ff;
+}
+
+.run-memory-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.run-memory-details > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  color: #99d7f7;
+  transform-origin: 50% 50%;
+  transition: transform 0.15s ease;
+}
+
+.run-memory-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
 .run-memory-box h3 {
   margin: 0;
   font-size: 13px;
@@ -436,15 +488,15 @@ button:disabled {
 .run-memory-btn {
   width: 100%;
   text-align: left;
-  min-height: 30px;
-  font-size: 12px;
-  padding: 6px 8px;
+  min-height: 28px;
+  font-size: 11px;
+  padding: 5px 7px;
   border-radius: 7px;
 }
 
 .run-memory-meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.35;
 }
 

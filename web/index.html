@@ -366,7 +366,7 @@
           <div class="run-lab-side">
             <div class="status-box" id="job-status-box" hidden></div>
             <div class="compute-indicator" id="compute-indicator" hidden>
-              <img src="assets/Logo_OFB.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
+              <img src="assets/LogoOFBRond.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
               <span>Calcul backend en cours...</span>
             </div>
           </div>
@@ -414,7 +414,10 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               <label for="run-label">Nom du run</label>
               <input id="run-label" type="text" placeholder="Ex: Test exposition quartier centre" required />
             </div>
-            <button type="submit" class="primary-btn" id="upload-submit-btn">Lancer le run de l'exposition importee</button>
+            <button type="submit" class="primary-btn" id="upload-submit-btn">
+              <img src="assets/LogoOFBRond.png" alt="" class="btn-spinner-logo" hidden />
+              <span class="btn-label">Lancer le run de l'exposition importee</span>
+            </button>
           </form>
 
           <div class="subpanel">
@@ -467,7 +470,10 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               <input id="draw-run-label" type="text" placeholder="Ex: Test dessin secteur nord" />
             </div>
             <div class="inline-row">
-              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Lancer le run de l'exposition dessinee</button>
+              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>
+                <img src="assets/LogoOFBRond.png" alt="" class="btn-spinner-logo" hidden />
+                <span class="btn-label">Lancer le run de l'exposition dessinee</span>
+              </button>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
             <p class="muted small">
@@ -480,10 +486,12 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
 
       <section class="panel run-memory-panel page-block page3" aria-label="Runs en memoire utilisateur">
         <div class="run-memory-box" id="run-memory-box">
-          <h3>Runs en memoire (max 10)</h3>
-          <ul class="run-memory-list" id="run-memory-list">
-            <li class="muted small">Aucun run en memoire.</li>
-          </ul>
+          <details class="run-memory-details" id="run-memory-details">
+            <summary>Runs en memoire (max 10)</summary>
+            <ul class="run-memory-list" id="run-memory-list">
+              <li class="muted small">Aucun run en memoire.</li>
+            </ul>
+          </details>
         </div>
       </section>
 
@@ -497,14 +505,6 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
           <select id="hazard-select">
             <option value="storm">STORM</option>
             <option value="storm_cmcc">STORM_CMCC</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="dataset-select">Jeu de donnees</label>
-          <select id="dataset-select">
-            <option value="uploaded">Exposition importee</option>
-            <option value="drawn">Exposition dessinee</option>
           </select>
         </div>
 
