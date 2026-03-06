@@ -375,6 +375,7 @@
         <div class="run-lab-grid">
           <form id="upload-form" class="subpanel" enctype="multipart/form-data">
             <h3>Import d'exposition</h3>
+            <div id="upload-outside-warning" class="zone-warning danger" hidden></div>
             <p class="muted">
               Le schema recommande repose sur un fichier CSV avec colonnes standard.
               Les memes noms de colonnes peuvent etre utilises en XLSX/GeoJSON/GPKG.
@@ -422,6 +423,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
 
           <div class="subpanel">
             <h3>Dessin d'exposition</h3>
+            <div id="draw-outside-warning" class="zone-warning danger" hidden></div>
             <p class="muted">Dessinez des points, lignes ou polygones sur la carte puis soumettez votre run.</p>
             <div class="field">
               <label for="draw-category">Type d'exposition dessinee</label>

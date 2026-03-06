@@ -33,6 +33,13 @@ const state = {
   networkStates: null,
   networkStatesPromise: null,
   networkLayerVisibility: {},
+  stormCoverageZones: [],
+  stormCoverageGeoJson: null,
+  stormCoveragePromise: null,
+  outsideCoverageByMode: {
+    uploaded: [],
+    drawn: []
+  },
   impactMapHazard: 'storm',
   impactMapScenario: 'event_max'
 };
@@ -40,6 +47,7 @@ const state = {
 const mapRef = {
   instance: null,
   markersLayer: null,
+  stormCoverageLayer: null,
   uploadedLayer: null,
   uploadedFeatureCount: 0,
   drawnItems: null,
@@ -169,6 +177,8 @@ const els = {
   refreshPreviewBtn: document.getElementById('refresh-preview-btn'),
   clearDrawingsBtn: document.getElementById('clear-drawings-btn'),
   drawSummaryList: document.getElementById('draw-summary-list'),
+  uploadOutsideWarning: document.getElementById('upload-outside-warning'),
+  drawOutsideWarning: document.getElementById('draw-outside-warning'),
   jobStatusBox: document.getElementById('job-status-box'),
   computeIndicator: document.getElementById('compute-indicator'),
   runMemoryBox: document.getElementById('run-memory-box'),
@@ -255,6 +265,15 @@ const runtime = {
   isPublicShowcase: false
 };
 runtime.isPublicShowcase = PUBLIC_SHOWCASE_HOSTNAMES.has(runtime.hostname);
+
+const STORM_COVERAGE_SOURCES = [
+  { id: 'guadeloupe', label: 'Guadeloupe', url: '/data/guadeloupe-wind-maps.json' },
+  { id: 'martinique', label: 'Martinique', url: '/data/martinique-wind-maps.json' }
+];
+const STORM_COVERAGE_FALLBACK = [
+  { id: 'guadeloupe', label: 'Guadeloupe', lat_min: 15.5, lat_max: 16.95625, lon_min: -62.48125, lon_max: -60.66875 },
+  { id: 'martinique', label: 'Martinique', lat_min: 14.3, lat_max: 15.1, lon_min: -61.4, lon_max: -60.7 }
+];
 
 const EXPOSURE_TYPE_TO_CATEGORY = {
   habitation: 'habitation',
@@ -509,6 +528,258 @@ function formatDate(value) {
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
+}
+
+function dedupeNonEmptyStrings(values) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const text = String(value || '').trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    out.push(text);
+  });
+  return out;
+}
+
+function parseCoverageZoneFromPayload(payload, fallbackId, fallbackLabel) {
+  const bbox = payload?.meta?.bbox;
+  if (!bbox || typeof bbox !== 'object') return null;
+  const latMin = Number(bbox.lat_min);
+  const latMax = Number(bbox.lat_max);
+  const lonMin = Number(bbox.lon_min);
+  const lonMax = Number(bbox.lon_max);
+  if (![latMin, latMax, lonMin, lonMax].every((v) => Number.isFinite(v))) return null;
+  if (latMin >= latMax || lonMin >= lonMax) return null;
+  const territory = String(payload?.meta?.territory || fallbackId || '').trim() || fallbackId;
+  const territoryLabel = String(fallbackLabel || territory || fallbackId || '').trim() || 'Territoire';
+  return {
+    id: territory,
+    label: territoryLabel,
+    lat_min: latMin,
+    lat_max: latMax,
+    lon_min: lonMin,
+    lon_max: lonMax
+  };
+}
+
+function coverageFeatureCollectionFromZones(zones) {
+  const features = (Array.isArray(zones) ? zones : []).map((zone) => ({
+    type: 'Feature',
+    properties: {
+      zone_id: String(zone.id || ''),
+      label: String(zone.label || zone.id || 'Zone STORM')
+    },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [Number(zone.lon_min), Number(zone.lat_min)],
+        [Number(zone.lon_max), Number(zone.lat_min)],
+        [Number(zone.lon_max), Number(zone.lat_max)],
+        [Number(zone.lon_min), Number(zone.lat_max)],
+        [Number(zone.lon_min), Number(zone.lat_min)]
+      ]]
+    }
+  }));
+  return { type: 'FeatureCollection', features };
+}
+
+async function ensureStormCoverageLoaded() {
+  if (Array.isArray(state.stormCoverageZones) && state.stormCoverageZones.length) {
+    return state.stormCoverageZones;
+  }
+  if (state.stormCoveragePromise) return state.stormCoveragePromise;
+
+  state.stormCoveragePromise = (async () => {
+    let zones = [];
+    try {
+      const payloads = await Promise.all(STORM_COVERAGE_SOURCES.map(async (src) => {
+        const res = await fetch(src.url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const payload = await res.json();
+        return parseCoverageZoneFromPayload(payload, src.id, src.label);
+      }));
+      zones = payloads.filter((zone) => Boolean(zone));
+    } catch (err) {
+      console.warn('STORM coverage load failed, using fallback bounds', err);
+    }
+
+    if (!zones.length) zones = STORM_COVERAGE_FALLBACK.map((zone) => ({ ...zone }));
+    state.stormCoverageZones = zones;
+    state.stormCoverageGeoJson = coverageFeatureCollectionFromZones(zones);
+    renderStormCoverageLayer();
+    if (state.currentPage === 'page3') {
+      setTimeout(() => {
+        if (state.currentPage === 'page3') renderMap();
+      }, 0);
+    }
+    return zones;
+  })().finally(() => {
+    state.stormCoveragePromise = null;
+  });
+
+  return state.stormCoveragePromise;
+}
+
+function renderStormCoverageLayer() {
+  if (!window.L || !mapRef.instance) return;
+  if (mapRef.stormCoverageLayer) {
+    mapRef.instance.removeLayer(mapRef.stormCoverageLayer);
+    mapRef.stormCoverageLayer = null;
+  }
+  const fc = state.stormCoverageGeoJson;
+  if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features) || !fc.features.length) return;
+
+  mapRef.stormCoverageLayer = L.geoJSON(fc, {
+    style: {
+      color: '#ff8f73',
+      weight: 2,
+      opacity: 0.9,
+      fillColor: '#ffca58',
+      fillOpacity: 0.05,
+      dashArray: '8 5'
+    },
+    interactive: false
+  }).addTo(mapRef.instance);
+
+  if (typeof mapRef.stormCoverageLayer.bringToBack === 'function') {
+    mapRef.stormCoverageLayer.bringToBack();
+  }
+}
+
+function getStormCoverageBounds() {
+  const zones = Array.isArray(state.stormCoverageZones) ? state.stormCoverageZones : [];
+  if (!zones.length || !window.L) return null;
+  let bounds = null;
+  zones.forEach((zone) => {
+    const minLat = Number(zone.lat_min);
+    const maxLat = Number(zone.lat_max);
+    const minLon = Number(zone.lon_min);
+    const maxLon = Number(zone.lon_max);
+    if (![minLat, maxLat, minLon, maxLon].every((v) => Number.isFinite(v))) return;
+    const b = L.latLngBounds([minLat, minLon], [maxLat, maxLon]);
+    bounds = bounds ? bounds.extend(b) : b;
+  });
+  return bounds && bounds.isValid() ? bounds : null;
+}
+
+function geometryBoundsFromCoords(coords, acc = { minLon: Number.POSITIVE_INFINITY, minLat: Number.POSITIVE_INFINITY, maxLon: Number.NEGATIVE_INFINITY, maxLat: Number.NEGATIVE_INFINITY, count: 0 }) {
+  if (Array.isArray(coords) && coords.length >= 2 && Number.isFinite(Number(coords[0])) && Number.isFinite(Number(coords[1]))) {
+    const lon = Number(coords[0]);
+    const lat = Number(coords[1]);
+    acc.minLon = Math.min(acc.minLon, lon);
+    acc.minLat = Math.min(acc.minLat, lat);
+    acc.maxLon = Math.max(acc.maxLon, lon);
+    acc.maxLat = Math.max(acc.maxLat, lat);
+    acc.count += 1;
+    return acc;
+  }
+  if (Array.isArray(coords)) {
+    coords.forEach((child) => geometryBoundsFromCoords(child, acc));
+  }
+  return acc;
+}
+
+function geometryBounds(geometry) {
+  if (!geometry || typeof geometry !== 'object') return null;
+  if (geometry.type === 'GeometryCollection' && Array.isArray(geometry.geometries)) {
+    const all = geometry.geometries
+      .map((geom) => geometryBounds(geom))
+      .filter((bbox) => Array.isArray(bbox));
+    if (!all.length) return null;
+    return [
+      Math.min(...all.map((b) => b[0])),
+      Math.min(...all.map((b) => b[1])),
+      Math.max(...all.map((b) => b[2])),
+      Math.max(...all.map((b) => b[3]))
+    ];
+  }
+  const acc = geometryBoundsFromCoords(geometry.coordinates);
+  if (!acc || acc.count <= 0) return null;
+  return [acc.minLon, acc.minLat, acc.maxLon, acc.maxLat];
+}
+
+function bboxIntersectsCoverageZone(a, zone) {
+  const [aMinLon, aMinLat, aMaxLon, aMaxLat] = a;
+  const bMinLon = Number(zone.lon_min);
+  const bMinLat = Number(zone.lat_min);
+  const bMaxLon = Number(zone.lon_max);
+  const bMaxLat = Number(zone.lat_max);
+  if (![aMinLon, aMinLat, aMaxLon, aMaxLat, bMinLon, bMinLat, bMaxLon, bMaxLat].every((v) => Number.isFinite(v))) {
+    return true;
+  }
+  if (aMaxLon < bMinLon) return false;
+  if (aMinLon > bMaxLon) return false;
+  if (aMaxLat < bMinLat) return false;
+  if (aMinLat > bMaxLat) return false;
+  return true;
+}
+
+function featureOutsideStormCoverage(feature) {
+  const zones = Array.isArray(state.stormCoverageZones) ? state.stormCoverageZones : [];
+  if (!zones.length) return false;
+  const bbox = geometryBounds(feature?.geometry);
+  if (!bbox) return false;
+  const intersects = zones.some((zone) => bboxIntersectsCoverageZone(bbox, zone));
+  return !intersects;
+}
+
+function outsideCoverageRefsForFeatureCollection(fc, mode = 'uploaded') {
+  if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) return [];
+  const refs = fc.features.flatMap((feature, idx) => {
+    if (!featureOutsideStormCoverage(feature)) return [];
+    const props = feature?.properties || {};
+    if (mode === 'drawn') {
+      const label = String(props.label || props.asset_label || props.asset_id || `Geometrie ${idx + 1}`).trim();
+      return label ? [label] : [];
+    }
+    const assetId = String(props.asset_id || props.id || props.label || `Ligne ${idx + 1}`).trim();
+    return assetId ? [assetId] : [];
+  });
+  return dedupeNonEmptyStrings(refs);
+}
+
+function drawFeatureCollectionFromMapLayers() {
+  if (!mapRef.drawnItems) return null;
+  const layers = mapRef.drawnItems.getLayers();
+  if (!layers.length) return null;
+  return {
+    type: 'FeatureCollection',
+    features: layers.map((layer) => layer.toGeoJSON())
+  };
+}
+
+function renderOutsideCoverageWarnings() {
+  const uploaded = dedupeNonEmptyStrings(state.outsideCoverageByMode.uploaded || []);
+  if (els.uploadOutsideWarning) {
+    if (!uploaded.length) {
+      els.uploadOutsideWarning.hidden = true;
+      els.uploadOutsideWarning.textContent = '';
+    } else {
+      els.uploadOutsideWarning.hidden = false;
+      els.uploadOutsideWarning.textContent = `Attention, l'asset ID ${uploaded.join(', ')} est hors de la zone d'aléas. Il ne serait donc pas affecté par les aléas.`;
+    }
+  }
+
+  const drawn = dedupeNonEmptyStrings(state.outsideCoverageByMode.drawn || []);
+  if (els.drawOutsideWarning) {
+    if (!drawn.length) {
+      els.drawOutsideWarning.hidden = true;
+      els.drawOutsideWarning.textContent = '';
+    } else if (drawn.length === 1) {
+      els.drawOutsideWarning.hidden = false;
+      els.drawOutsideWarning.textContent = `Attention, la geometrie ${drawn[0]} est hors de la zone d'aléas. Elle ne serait donc pas affectee par les aléas.`;
+    } else {
+      els.drawOutsideWarning.hidden = false;
+      els.drawOutsideWarning.textContent = `Attention, les geometries ${drawn.join(', ')} sont hors de la zone d'aléas. Elles ne seraient donc pas affectees par les aléas.`;
+    }
+  }
+}
+
+function setOutsideCoverageWarning(mode, refs) {
+  const normalized = normalizeDatasetMode(mode);
+  state.outsideCoverageByMode[normalized] = dedupeNonEmptyStrings(refs);
+  renderOutsideCoverageWarnings();
 }
 
 function formatStateTuple(statePct) {
@@ -951,13 +1222,14 @@ async function refreshRunMemoryList() {
   }
 }
 
-function syncMapPreviewFromResult(result) {
+function syncMapPreviewFromResult(result, mode = 'uploaded') {
   const fc = result?.input_features_geojson;
   if (!fc || typeof fc !== 'object' || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
     return;
   }
   if (!ensureMap()) return;
-  setUploadedPreviewGeoJson(fc);
+  const normalizedMode = normalizeDatasetMode(mode);
+  setUploadedPreviewGeoJson(fc, normalizedMode);
   renderTerritorySelectionState();
   renderMap();
 }
@@ -1120,6 +1392,7 @@ function clearUploadedPreview() {
   }
   mapRef.uploadedLayer = null;
   mapRef.uploadedFeatureCount = 0;
+  setOutsideCoverageWarning('uploaded', []);
 }
 
 function parseCsvLine(rawLine) {
@@ -1167,10 +1440,11 @@ function parseCsvToGeoJson(text) {
     const lat = Number(cols[latIdx]);
     const lon = Number(cols[lonIdx]);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const assetId = (assetIdIdx >= 0 ? cols[assetIdIdx] : '') || `Ligne ${idx + 1}`;
     const label = (labelIdx >= 0 ? cols[labelIdx] : '') || (assetIdIdx >= 0 ? cols[assetIdIdx] : '') || `Ligne ${idx + 1}`;
     features.push({
       type: 'Feature',
-      properties: { label: String(label) },
+      properties: { label: String(label), asset_id: String(assetId) },
       geometry: { type: 'Point', coordinates: [lon, lat] }
     });
   });
@@ -1184,7 +1458,7 @@ function normalizeToFeatureCollection(obj) {
   throw new Error('GeoJSON doit etre un FeatureCollection ou Feature');
 }
 
-function setUploadedPreviewGeoJson(fc) {
+function setUploadedPreviewGeoJson(fc, warningMode = 'uploaded') {
   if (!window.L || !mapRef.instance) return;
   clearUploadedPreview();
   const styleLine = { color: '#ffd744', weight: 3, opacity: 0.9 };
@@ -1208,6 +1482,14 @@ function setUploadedPreviewGeoJson(fc) {
     }
   }).addTo(mapRef.instance);
   mapRef.uploadedFeatureCount = Array.isArray(fc.features) ? fc.features.length : 0;
+  const normalizedMode = normalizeDatasetMode(warningMode);
+  ensureStormCoverageLoaded()
+    .then(() => {
+      setOutsideCoverageWarning(normalizedMode, outsideCoverageRefsForFeatureCollection(fc, normalizedMode));
+    })
+    .catch(() => {
+      setOutsideCoverageWarning(normalizedMode, []);
+    });
 }
 
 async function previewUploadedFile(file) {
@@ -1255,10 +1537,24 @@ function ensureMap() {
 
   mapRef.markersLayer = L.layerGroup().addTo(mapRef.instance);
   mapRef.drawnItems = L.featureGroup().addTo(mapRef.instance);
+  renderStormCoverageLayer();
+  ensureStormCoverageLoaded().catch(() => {});
 
   if (window.L.Draw && window.L.Draw.Event) {
     const onDrawChange = () => {
       renderDrawPreview();
+      const drawFc = drawFeatureCollectionFromMapLayers();
+      if (drawFc) {
+        ensureStormCoverageLoaded()
+          .then(() => {
+            setOutsideCoverageWarning('drawn', outsideCoverageRefsForFeatureCollection(drawFc, 'drawn'));
+          })
+          .catch(() => {
+            setOutsideCoverageWarning('drawn', []);
+          });
+      } else {
+        setOutsideCoverageWarning('drawn', []);
+      }
       renderTerritorySelectionState();
       renderMap();
       els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
@@ -1304,7 +1600,8 @@ function renderMap() {
     return;
   }
 
-  els.mapCaption.textContent = "Tracez vos geometries et visualisez vos importations sur cette carte.";
+  renderStormCoverageLayer();
+  els.mapCaption.textContent = "Tracez vos geometries et visualisez vos importations sur cette carte. Les limites orange indiquent la zone de couverture STORM.";
   if (mapRef.markersLayer) mapRef.markersLayer.clearLayers();
 
   const drawnCount = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length : 0;
@@ -1313,6 +1610,11 @@ function renderMap() {
   if (!hasContent) {
     els.mapFallback.hidden = false;
     els.mapFallback.textContent = "Aucune exposition sur la carte pour l'instant (importez un fichier ou dessinez).";
+    const coverageBounds = getStormCoverageBounds();
+    if (!mapRef.hasFitted && coverageBounds && coverageBounds.isValid()) {
+      mapRef.instance.fitBounds(coverageBounds, { padding: [22, 22], maxZoom: 8 });
+      mapRef.hasFitted = true;
+    }
     setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
     return;
   }
@@ -1325,6 +1627,7 @@ function renderMap() {
   const bounds = group.getBounds();
   if (bounds && bounds.isValid()) {
     mapRef.instance.fitBounds(bounds, { padding: [22, 22], maxZoom: 8 });
+    mapRef.hasFitted = true;
   }
   setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
 }
@@ -2528,7 +2831,7 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
   state.activeResultMode = resolvedMode;
   state.selectedDatasetMode = resolvedMode;
   if (resolvedMode) state.resultsByMode[resolvedMode] = result;
-  syncMapPreviewFromResult(result);
+  syncMapPreviewFromResult(result, resolvedMode);
   renderAll();
 }
 
@@ -3141,6 +3444,18 @@ function bindEvents() {
           value_eur: Number(valueInput.value)
         };
       }
+      const drawFc = drawFeatureCollectionFromMapLayers();
+      if (drawFc) {
+        ensureStormCoverageLoaded()
+          .then(() => {
+            setOutsideCoverageWarning('drawn', outsideCoverageRefsForFeatureCollection(drawFc, 'drawn'));
+          })
+          .catch(() => {
+            setOutsideCoverageWarning('drawn', []);
+          });
+      } else {
+        setOutsideCoverageWarning('drawn', []);
+      }
     });
     els.drawSummaryList.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -3152,6 +3467,18 @@ function bindEvents() {
       const layer = mapRef.drawnItems.getLayer(layerId);
       if (!layer) return;
       mapRef.drawnItems.removeLayer(layer);
+      const drawFc = drawFeatureCollectionFromMapLayers();
+      if (drawFc) {
+        ensureStormCoverageLoaded()
+          .then(() => {
+            setOutsideCoverageWarning('drawn', outsideCoverageRefsForFeatureCollection(drawFc, 'drawn'));
+          })
+          .catch(() => {
+            setOutsideCoverageWarning('drawn', []);
+          });
+      } else {
+        setOutsideCoverageWarning('drawn', []);
+      }
       renderDrawPreview();
       renderTerritorySelectionState();
       renderMap();
@@ -3180,6 +3507,7 @@ function bindEvents() {
     if (!mapRef.drawnItems) return;
     disableActiveDrawMode();
     mapRef.drawnItems.clearLayers();
+    setOutsideCoverageWarning('drawn', []);
     renderDrawPreview();
     renderTerritorySelectionState();
     renderMap();
@@ -3204,6 +3532,7 @@ async function bootstrap() {
     clearError();
     applyRuntimeMode();
     bindEvents();
+    ensureStormCoverageLoaded().catch(() => {});
     if (!runtime.isPublicShowcase) {
       await refreshRunMemoryList();
     }

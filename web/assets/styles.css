@@ -418,6 +418,19 @@ button:disabled {
   line-height: 1.4;
 }
 
+.zone-warning {
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.zone-warning.danger {
+  border: 1px solid rgba(255, 143, 115, 0.62);
+  background: rgba(143, 24, 24, 0.26);
+  color: #ffd5ca;
+}
+
 .run-memory-box {
   border: 1px solid rgba(153, 215, 247, 0.45);
   border-radius: 10px;
