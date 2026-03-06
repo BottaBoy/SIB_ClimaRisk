@@ -402,7 +402,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
 
           <div class="subpanel">
             <h3>Dessin d'exposition</h3>
-            <p class="muted">Dessinez des points, lignes ou polygones puis lancez le calcul.</p>
+            <p class="muted">Dessinez des points, lignes ou polygones sur la carte puis soumettez votre run.</p>
             <div class="field">
               <label for="draw-category">Type d'exposition dessinee</label>
               <select id="draw-category">
@@ -422,6 +422,30 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
                 <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
               </select>
             </div>
+            <div class="field">
+              <label>Outils de dessin</label>
+              <div class="draw-mode-buttons" id="draw-mode-buttons">
+                <button type="button" data-draw-mode="marker">Point</button>
+                <button type="button" data-draw-mode="polyline">Ligne</button>
+                <button type="button" data-draw-mode="polygon">Polygone</button>
+                <button type="button" data-draw-mode="rectangle">Rectangle</button>
+              </div>
+            </div>
+            <div class="map-card draw-map-card">
+              <div class="section-head">
+                <div>
+                  <h3>Carte des expositions</h3>
+                  <p class="muted" id="map-caption">Tracez vos geometries et visualisez les expositions chargees.</p>
+                </div>
+                <div class="filter-chip" id="selected-territory-chip">Aucun territoire selectionne</div>
+              </div>
+              <div id="map-fallback" class="fallback" hidden></div>
+              <div id="territory-map" class="map"></div>
+            </div>
+            <div class="field">
+              <label for="draw-value">Valeur monetaire (€) appliquee aux geometries dessinees</label>
+              <input id="draw-value" type="number" min="0" step="1" value="1000000" />
+            </div>
             <ul class="draw-summary-list" id="draw-summary-list">
               <li>Aucun dessin pour le moment.</li>
             </ul>
@@ -430,8 +454,8 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
             <p class="muted small">
-              Les expositions dessinees utilisent une valorisation par defaut par objet.
-              Le nom de run saisi ci-dessus est obligatoire pour chaque lancement.
+              La valeur saisie ci-dessus est appliquee aux geometries dessinees au moment de la soumission.
+              Le nom de run est obligatoire pour chaque lancement.
             </p>
           </div>
         </div>
@@ -453,7 +477,6 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
         <div class="field">
           <label for="dataset-select">Jeu de donnees</label>
           <select id="dataset-select">
-            <option value="demo">Reference Guadeloupe complete</option>
             <option value="uploaded">Exposition importee</option>
             <option value="drawn">Exposition dessinee</option>
           </select>
@@ -470,25 +493,12 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
         <div class="field">
           <label>Actions</label>
           <div class="inline-row">
-            <button id="reset-demo-btn" type="button">Revenir a la reference Guadeloupe</button>
             <button id="clear-drawings-btn" type="button" disabled>Effacer les dessins</button>
           </div>
         </div>
       </section>
 
-      <section class="panel main-grid page-block page3">
-        <div class="map-card">
-          <div class="section-head">
-            <div>
-              <h2>Carte des territoires</h2>
-              <p class="muted" id="map-caption">Taille des points = exposition, couleur = indice de risque pour l'alea selectionne.</p>
-            </div>
-            <div class="filter-chip" id="selected-territory-chip">Aucun territoire selectionne</div>
-          </div>
-          <div id="map-fallback" class="fallback" hidden></div>
-          <div id="territory-map" class="map"></div>
-        </div>
-
+      <section class="panel results-table-panel page-block page3">
         <div class="table-card">
           <div class="section-head">
             <div>

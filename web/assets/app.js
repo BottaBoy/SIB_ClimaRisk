@@ -1,12 +1,10 @@
 const state = {
-  demoResult: null,
   activeResult: null,
   selectedHazard: 'storm',
-  selectedDatasetMode: 'demo',
+  selectedDatasetMode: 'uploaded',
   selectedTerritoryId: null,
   territorySearch: '',
   resultsByMode: {
-    demo: null,
     uploaded: null,
     drawn: null
   },
@@ -37,7 +35,8 @@ const mapRef = {
   instance: null,
   markersLayer: null,
   drawnItems: null,
-  drawControl: null,
+  drawHandlers: {},
+  activeDrawMode: null,
   markerByTerritoryId: new Map(),
   hasFitted: false
 };
@@ -150,13 +149,14 @@ const els = {
   badgeEngine: document.getElementById('badge-engine'),
   hazardSelect: document.getElementById('hazard-select'),
   datasetSelect: document.getElementById('dataset-select'),
-  resetDemoBtn: document.getElementById('reset-demo-btn'),
   pollJobId: document.getElementById('poll-job-id'),
   reloadJobBtn: document.getElementById('reload-job-btn'),
   uploadForm: document.getElementById('upload-form'),
   uploadFile: document.getElementById('upload-file'),
   runLabel: document.getElementById('run-label'),
   drawCategory: document.getElementById('draw-category'),
+  drawValue: document.getElementById('draw-value'),
+  drawModeButtons: document.getElementById('draw-mode-buttons'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
   submitDrawingBtn: document.getElementById('submit-drawing-btn'),
   refreshPreviewBtn: document.getElementById('refresh-preview-btn'),
@@ -381,13 +381,7 @@ function applyRuntimeMode() {
   }
 
   if (els.datasetSelect) {
-    Array.from(els.datasetSelect.options).forEach((option) => {
-      if (option.value === 'uploaded' || option.value === 'drawn') {
-        option.hidden = true;
-        option.disabled = true;
-      }
-    });
-    els.datasetSelect.value = 'demo';
+    els.datasetSelect.disabled = true;
   }
 
   if (els.pollJobId) els.pollJobId.disabled = true;
@@ -852,6 +846,7 @@ function eaiForHazard(row, hazardKey) {
 function renderTerritoryTable() {
   const result = getActiveResult();
   if (!result) {
+    if (els.tableCaption) els.tableCaption.textContent = "Aucun resultat d'impact charge.";
     els.territoryTableBody.innerHTML = '<tr><td colspan="6">Aucune donnée chargée.</td></tr>';
     return;
   }
@@ -912,6 +907,66 @@ function getRadius(val, min, max) {
   return 7 + ((val - min) / (max - min)) * 18;
 }
 
+function drawModeLabel(mode) {
+  if (mode === 'marker') return 'point';
+  if (mode === 'polyline') return 'ligne';
+  if (mode === 'polygon') return 'polygone';
+  if (mode === 'rectangle') return 'rectangle';
+  return mode || 'dessin';
+}
+
+function updateDrawModeButtons() {
+  if (!els.drawModeButtons) return;
+  const buttons = els.drawModeButtons.querySelectorAll('button[data-draw-mode]');
+  buttons.forEach((btn) => {
+    const mode = String(btn.getAttribute('data-draw-mode') || '');
+    if (mode === state.activeDrawMode) btn.classList.add('active');
+    else btn.classList.remove('active');
+  });
+}
+
+function disableActiveDrawMode() {
+  if (!state.activeDrawMode) return;
+  const handler = mapRef.drawHandlers[state.activeDrawMode];
+  if (handler && typeof handler.disable === 'function') handler.disable();
+  state.activeDrawMode = null;
+  updateDrawModeButtons();
+}
+
+function startDrawMode(mode) {
+  if (!ensureMap() || !window.L || !window.L.Draw) {
+    showError("Les outils de dessin Leaflet ne sont pas disponibles.");
+    return;
+  }
+
+  disableActiveDrawMode();
+
+  const optionsByMode = {
+    marker: {},
+    polyline: { shapeOptions: { color: '#dfb85a', weight: 3, opacity: 0.9 } },
+    polygon: { allowIntersection: false, shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } },
+    rectangle: { shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } }
+  };
+  const constructors = {
+    marker: L.Draw.Marker,
+    polyline: L.Draw.Polyline,
+    polygon: L.Draw.Polygon,
+    rectangle: L.Draw.Rectangle
+  };
+  const Handler = constructors[mode];
+  if (!Handler) {
+    showError(`Mode de dessin non supporte: ${mode}`);
+    return;
+  }
+
+  const handler = new Handler(mapRef.instance, optionsByMode[mode] || {});
+  mapRef.drawHandlers[mode] = handler;
+  state.activeDrawMode = mode;
+  updateDrawModeButtons();
+  handler.enable();
+  setStatus(`Mode dessin actif: ${drawModeLabel(mode)}. Cliquez sur la carte pour tracer.`, 'info');
+}
+
 function ensureMap() {
   if (mapRef.instance) return true;
   if (!window.L) return false;
@@ -926,20 +981,7 @@ function ensureMap() {
   mapRef.markersLayer = L.layerGroup().addTo(mapRef.instance);
   mapRef.drawnItems = L.featureGroup().addTo(mapRef.instance);
 
-  if (window.L.Control && window.L.Control.Draw) {
-    mapRef.drawControl = new L.Control.Draw({
-      edit: { featureGroup: mapRef.drawnItems },
-      draw: {
-        polygon: { allowIntersection: false, shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } },
-        rectangle: { shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } },
-        polyline: { shapeOptions: { color: '#dfb85a', weight: 3, opacity: 0.9 } },
-        marker: true,
-        circle: { shapeOptions: { color: '#db6b48', weight: 2, fillOpacity: 0.1 } },
-        circlemarker: false
-      }
-    });
-    mapRef.instance.addControl(mapRef.drawControl);
-
+  if (window.L.Draw && window.L.Draw.Event) {
     const onDrawChange = () => {
       renderDrawPreview();
       els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
@@ -947,10 +989,15 @@ function ensureMap() {
     };
 
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
+      disableActiveDrawMode();
       const exposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+      const drawValue = Number(els.drawValue?.value || '');
+      const nextIdx = mapRef.drawnItems.getLayers().length + 1;
       evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
       evt.layer.feature.properties = {
         ...(evt.layer.feature.properties || {}),
+        label: String(evt.layer.feature.properties?.label || `Geometrie ${nextIdx}`),
+        value_eur: Number.isFinite(drawValue) && drawValue > 0 ? drawValue : 1_000_000,
         exposure_type: exposureType,
         exposure_category: categoryFromExposureType(exposureType),
         asset_type: assetFromExposureType(exposureType)
@@ -967,9 +1014,6 @@ function ensureMap() {
 }
 
 function renderMap() {
-  const result = getActiveResult();
-  if (!result) return;
-
   if (!window.L) {
     els.mapFallback.hidden = false;
     els.mapFallback.textContent = 'Leaflet n’a pas pu être chargé. La carte est indisponible.';
@@ -984,16 +1028,27 @@ function renderMap() {
     return;
   }
 
-  const rows = (result.territory_results || []).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon));
-  const hazardKey = currentHazardKey();
-  els.mapCaption.textContent = `Taille des points = exposition, couleur = indice de risque (${getHazardLabel(hazardKey)}). Cliquez un point pour surligner un territoire.`;
+  const result = getActiveResult();
 
+  const rows = (result?.territory_results || []).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon));
+  const hazardKey = currentHazardKey();
   mapRef.markerByTerritoryId.clear();
   mapRef.markersLayer.clearLayers();
 
+  if (!result) {
+    els.mapCaption.textContent = "Tracez vos geometries et soumettez un run pour afficher les resultats d'impacts territoriaux.";
+    els.mapFallback.hidden = false;
+    els.mapFallback.textContent = "Aucun resultat d'exposition charge pour l'instant.";
+    setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
+    return;
+  }
+
+  els.mapCaption.textContent = `Taille des points = exposition, couleur = indice de risque (${getHazardLabel(hazardKey)}). Cliquez un point pour surligner un territoire.`;
+
   if (!rows.length) {
     els.mapFallback.hidden = false;
-    els.mapFallback.textContent = 'Aucun centroïde cartographiable dans ce résultat. Les agrégats restent disponibles dans le tableau et les graphiques.';
+    els.mapFallback.textContent = 'Aucun centroide cartographiable dans ce resultat.';
+    setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
     return;
   }
 
@@ -2138,7 +2193,6 @@ function renderUserImpactSection(result) {
     return;
   }
   const modeLabel = {
-    demo: "reference cas d'etude",
     uploaded: 'exposition importée',
     drawn: 'exposition dessinée'
   }[state.selectedDatasetMode] || 'résultat actif';
@@ -2168,34 +2222,30 @@ function renderDrawPreview() {
     els.submitDrawingBtn.disabled = true;
     return;
   }
-  const counts = { marker: 0, circle: 0, polyline: 0, polygon: 0, rectangle: 0 };
-  const typeCounts = {};
-  layers.forEach((layer) => {
-    if (!window.L) return;
-    if (layer instanceof L.Circle) counts.circle += 1;
-    else if (layer instanceof L.Marker) counts.marker += 1;
-    else if (layer instanceof L.Polygon) counts.polygon += 1;
-    else if (layer instanceof L.Polyline) counts.polyline += 1;
-    const type = String(layer?.feature?.properties?.exposure_type || els.drawCategory?.value || 'habitation');
-    typeCounts[type] = (typeCounts[type] || 0) + 1;
+
+  const rows = layers.map((layer, idx) => {
+    const props = layer.feature?.properties || {};
+    const lid = String(layer._leaflet_id || idx + 1);
+    const gtype = String(layer.feature?.geometry?.type || layer?.toGeoJSON?.()?.geometry?.type || 'Unknown');
+    const type = String(props.exposure_type || els.drawCategory?.value || 'habitation');
+    const label = String(props.label || `Geometrie ${idx + 1}`);
+    const geomLabel = gtype === 'Polygon' ? 'Polygone'
+      : gtype === 'LineString' ? 'Ligne'
+        : gtype === 'Point' ? 'Point'
+          : gtype === 'Rectangle' ? 'Rectangle'
+            : gtype;
+    const typeLabel = EXPOSURE_TYPE_LABEL[type] || type;
+    return `
+      <li class="draw-item" data-layer-id="${escapeHtml(lid)}">
+        <div class="draw-item-main">
+          <input class="draw-name-input" type="text" value="${escapeHtml(label)}" aria-label="Nom de la geometrie ${escapeHtml(String(idx + 1))}" />
+          <button class="draw-delete-btn" type="button" aria-label="Supprimer la geometrie ${escapeHtml(String(idx + 1))}">&times;</button>
+        </div>
+        <div class="draw-item-meta">${escapeHtml(geomLabel)} · ${escapeHtml(typeLabel)}</div>
+      </li>
+    `;
   });
-  const shapeLabels = {
-    marker: 'points',
-    circle: 'cercles',
-    polyline: 'lignes',
-    polygon: 'polygones',
-    rectangle: 'rectangles'
-  };
-  const lines = [`${layers.length} dessin(s) prêt(s) pour soumission.`];
-  Object.entries(counts).forEach(([k, v]) => {
-    if (v > 0) lines.push(`${shapeLabels[k] || k}: ${v}`);
-  });
-  const typeSummary = Object.entries(typeCounts)
-    .map(([k, v]) => `${EXPOSURE_TYPE_LABEL[k] || k}: ${v}`)
-    .join(' · ');
-  lines.push(`types d'exposition: ${typeSummary}`);
-  lines.push("Le backend applique actuellement une valeur par défaut par objet dessiné.");
-  els.drawSummaryList.innerHTML = lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
+  els.drawSummaryList.innerHTML = rows.join('');
   els.submitDrawingBtn.disabled = layers.length === 0;
 }
 
@@ -2239,6 +2289,13 @@ function renderAll() {
   }
   renderNetworkStateMap();
 
+  if (state.currentPage === 'page3') {
+    renderTerritorySelectionState();
+    renderKpis();
+    renderMap();
+    renderTerritoryTable();
+  }
+
   if (!state.activeResult) {
     return;
   }
@@ -2248,37 +2305,18 @@ function renderAll() {
   updateMetaBadges();
   renderNotes();
 
-  if (state.currentPage === 'page3') {
-    renderTerritorySelectionState();
-    renderKpis();
-    renderMap();
-    renderTerritoryTable();
-  }
 }
 
 function setActiveResult(result, mode = state.selectedDatasetMode) {
+  if (!result) {
+    state.activeResult = null;
+    renderAll();
+    return;
+  }
   ensureResultShape(result);
   state.activeResult = result;
   if (mode) state.resultsByMode[mode] = result;
   renderAll();
-}
-
-async function fetchDemoResult() {
-  const urls = [
-    new URL('/data/guadeloupe-complete-analysis.json', window.location.origin).toString(),
-    new URL('/data/sib-thesis-demo.json', window.location.origin).toString()
-  ];
-  let lastErr = null;
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return ensureResultShape(await res.json());
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr || new Error('Impossible de charger le résultat de référence');
 }
 
 function normalizeCaseStudyTerritory(territory) {
@@ -2543,13 +2581,20 @@ function getDrawnFeatureCollection() {
   const layers = mapRef.drawnItems.getLayers();
   if (!layers.length) return null;
   const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
+  const drawValue = Number(els.drawValue?.value || '');
   const features = layers.map((layer) => {
     const gj = layer.toGeoJSON();
     const currentType = String(layer?.feature?.properties?.exposure_type || gj?.properties?.exposure_type || defaultExposureType);
     const currentCategory = categoryFromExposureType(currentType);
     const currentAssetType = assetFromExposureType(currentType);
+    const currentLabel = String(layer?.feature?.properties?.label || gj?.properties?.label || `Geometrie ${layer._leaflet_id || ''}`).trim();
+    const valueEur = Number.isFinite(drawValue) && drawValue > 0
+      ? drawValue
+      : Number(layer?.feature?.properties?.value_eur || 0) || 1_000_000;
     gj.properties = {
       ...(gj.properties || {}),
+      label: currentLabel || `Geometrie ${layer._leaflet_id || ''}`,
+      value_eur: valueEur,
       exposure_type: currentType,
       exposure_category: currentCategory,
       asset_type: currentAssetType
@@ -2557,6 +2602,8 @@ function getDrawnFeatureCollection() {
     layer.feature = layer.feature || { type: 'Feature', properties: {} };
     layer.feature.properties = {
       ...(layer.feature.properties || {}),
+      label: currentLabel || `Geometrie ${layer._leaflet_id || ''}`,
+      value_eur: valueEur,
       exposure_type: currentType,
       exposure_category: currentCategory,
       asset_type: currentAssetType
@@ -2580,6 +2627,11 @@ async function submitDrawnExposure() {
   const runLabel = els.runLabel.value.trim();
   if (!runLabel) {
     showError("Le nom du run est obligatoire.");
+    return;
+  }
+  const drawValue = Number(els.drawValue?.value || '');
+  if (!Number.isFinite(drawValue) || drawValue <= 0) {
+    showError("Renseignez une valeur monetaire positive pour les geometries dessinees.");
     return;
   }
 
@@ -2611,24 +2663,19 @@ async function submitDrawnExposure() {
 }
 
 function switchDatasetMode(mode) {
-  if (runtime.isPublicShowcase && mode !== 'demo') {
-    setStatus("Le mode vitrine publique n'autorise que le jeu de donnees de reference.", 'info');
-    els.datasetSelect.value = 'demo';
-    mode = 'demo';
-  }
+  if (runtime.isPublicShowcase) return;
   state.selectedDatasetMode = mode;
-  if (mode === 'demo') {
-    state.selectedTerritoryId = null;
-    setActiveResult(state.resultsByMode.demo, 'demo');
-    return;
-  }
 
   const candidate = state.resultsByMode[mode];
   if (!candidate) {
-    setStatus(`Aucun résultat ${mode} n'est encore disponible. Affichage de la référence Guadeloupe.`, 'info');
-    els.datasetSelect.value = 'demo';
-    state.selectedDatasetMode = 'demo';
-    setActiveResult(state.resultsByMode.demo, 'demo');
+    const modeLabel = mode === 'drawn' ? 'dessine' : 'importe';
+    setStatus(`Aucun resultat ${modeLabel} n'est encore disponible.`, 'info');
+    state.selectedTerritoryId = null;
+    setActiveResult(null, mode);
+    renderMap();
+    renderTerritoryTable();
+    renderTerritorySelectionState();
+    renderKpis();
     return;
   }
 
@@ -2740,16 +2787,6 @@ function bindEvents() {
     });
   }
 
-  els.resetDemoBtn.addEventListener('click', () => {
-    stopPolling();
-    state.selectedTerritoryId = null;
-    state.selectedDatasetMode = 'demo';
-    els.datasetSelect.value = 'demo';
-    setActiveResult(state.resultsByMode.demo, 'demo');
-    setStatus('Retour à la référence complète Guadeloupe.', 'success');
-    setActivePage('page3');
-  });
-
   els.reloadJobBtn.addEventListener('click', async () => {
     if (runtime.isPublicShowcase) {
       showError("Le rechargement de jobs est reserve aux collaborateurs autorises.");
@@ -2767,6 +2804,47 @@ function bindEvents() {
   els.uploadForm.addEventListener('submit', submitUpload);
   els.submitDrawingBtn.addEventListener('click', submitDrawnExposure);
   els.refreshPreviewBtn.addEventListener('click', renderDrawPreview);
+  if (els.drawModeButtons) {
+    els.drawModeButtons.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('button[data-draw-mode]') : null;
+      if (!btn) return;
+      const mode = String(btn.getAttribute('data-draw-mode') || '').trim();
+      if (!mode) return;
+      startDrawMode(mode);
+    });
+  }
+  if (els.drawSummaryList) {
+    els.drawSummaryList.addEventListener('input', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const input = target ? target.closest('.draw-name-input') : null;
+      if (!input) return;
+      const row = input.closest('[data-layer-id]');
+      if (!row || !mapRef.drawnItems) return;
+      const layerId = Number(row.getAttribute('data-layer-id'));
+      const layer = mapRef.drawnItems.getLayer(layerId);
+      if (!layer) return;
+      layer.feature = layer.feature || { type: 'Feature', properties: {} };
+      layer.feature.properties = {
+        ...(layer.feature.properties || {}),
+        label: input.value.trim() || `Geometrie ${layerId}`
+      };
+    });
+    els.drawSummaryList.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('.draw-delete-btn') : null;
+      if (!btn) return;
+      const row = btn.closest('[data-layer-id]');
+      if (!row || !mapRef.drawnItems) return;
+      const layerId = Number(row.getAttribute('data-layer-id'));
+      const layer = mapRef.drawnItems.getLayer(layerId);
+      if (!layer) return;
+      mapRef.drawnItems.removeLayer(layer);
+      renderDrawPreview();
+      els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
+      els.submitDrawingBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
+    });
+  }
   if (els.drawCategory) {
     els.drawCategory.addEventListener('change', () => {
       if (!mapRef.drawnItems) return;
@@ -2786,6 +2864,7 @@ function bindEvents() {
 
   els.clearDrawingsBtn.addEventListener('click', () => {
     if (!mapRef.drawnItems) return;
+    disableActiveDrawMode();
     mapRef.drawnItems.clearLayers();
     renderDrawPreview();
     els.clearDrawingsBtn.disabled = true;
@@ -2831,16 +2910,13 @@ async function bootstrap() {
       if (els.conclusionText) els.conclusionText.textContent = 'Conclusion indisponible.';
     }
 
-    const demo = await fetchDemoResult();
-    state.demoResult = demo;
-    state.resultsByMode.demo = demo;
-    state.activeResult = demo;
-    updateMetaBadges();
+    state.activeResult = null;
+    if (els.datasetSelect) els.datasetSelect.value = state.selectedDatasetMode;
     renderAll();
     if (runtime.isPublicShowcase) {
       setStatus("References Guadeloupe/Martinique chargees. Pour collaborer sur des runs personnalises, demande un acces a app.sib.elio.dev.", 'success');
     } else {
-      setStatus("References Guadeloupe/Martinique chargees. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
+      setStatus("Page collaborateur prete. Importez ou dessinez une exposition pour lancer un premier run.", 'success');
     }
   } catch (err) {
     console.error(err);

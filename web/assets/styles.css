@@ -372,6 +372,22 @@ button:disabled {
   gap: 10px;
 }
 
+.draw-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.draw-mode-buttons button.active {
+  border-color: rgba(153, 215, 247, 0.85);
+  background: rgba(0, 166, 226, 0.35);
+  color: #ffffff;
+}
+
+.draw-map-card .map {
+  height: 360px;
+}
+
 .csv-template-box {
   border: 1px dashed rgba(153, 215, 247, 0.55);
   border-radius: 12px;
@@ -598,10 +614,56 @@ button:disabled {
 .muted.small { font-size: 12px; }
 
 .draw-summary-list {
-  margin: 10px 0;
-  padding-left: 18px;
+  margin: 10px 0 0;
+  padding-left: 0;
   color: var(--muted);
   min-height: 72px;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.draw-item {
+  border: 1px solid rgba(153, 215, 247, 0.3);
+  border-radius: 10px;
+  background: rgba(0, 58, 118, 0.42);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.draw-item-main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.draw-name-input {
+  min-height: 34px;
+}
+
+.draw-item-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.draw-delete-btn {
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 110, 110, 0.9);
+  background: rgba(214, 52, 52, 0.3);
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.results-table-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
 }
 
 .disclaimer {

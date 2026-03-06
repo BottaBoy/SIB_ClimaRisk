@@ -145,7 +145,7 @@ def ingest_drawn_geojson(
 
     features: list[NormalizedFeature] = []
     warnings: list[str] = [
-        "Drawn exposure uses a default asset value per drawn feature unless a richer mapping is implemented."
+        "Drawn exposure uses default values when value_eur is not provided in GeoJSON properties."
     ]
 
     for idx, feat in enumerate(features_raw):
@@ -159,14 +159,18 @@ def ingest_drawn_geojson(
         _, centroid = _coords_bbox_and_centroid(geom.get("coordinates"))
         lon = centroid[0] if centroid else None
         lat = centroid[1] if centroid else None
+        value_raw = props.get("value_eur", props.get("value"))
+        value_eur = float(default_value_eur) if value_raw in (None, "") else _to_float(value_raw, "value_eur")
+        label = str(props.get("label") or props.get("name") or f"Drawn {gtype} {idx + 1}")
+        feature_id = str(props.get("asset_id") or idx + 1)
         extra_props: dict[str, Any] = {}
         if props.get("asset_type") is not None:
             extra_props["asset_type"] = props.get("asset_type")
         features.append(
             NormalizedFeature(
-                feature_id=str(idx + 1),
-                label=f"Drawn {gtype} {idx + 1}",
-                value_eur=float(default_value_eur),
+                feature_id=feature_id,
+                label=label,
+                value_eur=value_eur,
                 geometry_type=gtype,
                 exposure_category=_normalize_exposure_category(
                     props.get("exposure_category"),
