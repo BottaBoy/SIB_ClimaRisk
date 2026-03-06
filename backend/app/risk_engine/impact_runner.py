@@ -398,6 +398,13 @@ def _compute_impacts_climada(
         hazard_storm_cmcc_path=settings.hazard_storm_cmcc_path,
         storm_years=max(1, int(settings.storm_years)),
         top_n_events=max(1, int(settings.climada_top_events_count)),
+        prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
+        fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
+        storm_parquet_path=settings.storm_parquet_path,
+        storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
+        wind_unit_in=settings.storm_wind_unit_in,
+        radius_unit_in=settings.storm_radius_unit_in,
+        env_pressure_hpa=float(settings.storm_env_pressure_hpa),
     )
 
     point_count = len(bundle.point_records)

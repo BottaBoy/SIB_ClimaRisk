@@ -2,10 +2,35 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 import copy
+import threading
 
 from .errors import DependencyMissingError
+
+
+@dataclass(frozen=True)
+class BasinCoverage:
+    basin_id: int
+    code: str
+    label: str
+    lat_min: float
+    lat_max: float
+    lon_min: float
+    lon_max: float
+
+
+DEFAULT_BASIN_COVERAGES: tuple[BasinCoverage, ...] = (
+    BasinCoverage(
+        basin_id=1,
+        code="NA",
+        label="North Atlantic",
+        lat_min=5.0,
+        lat_max=60.0,
+        lon_min=-105.0,
+        lon_max=-1.0,
+    ),
+)
 
 
 @dataclass
@@ -14,6 +39,13 @@ class HazardBundle:
     storm_cmcc: Any
     storm_years: int
     normalized_on_copy: bool = True
+    source: str = "precomputed_hdf5"
+    basin_ids: tuple[int, ...] = ()
+    point_count: int = 0
+
+
+_TRACK_CACHE_LOCK = threading.Lock()
+_TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float], Any] = {}
 
 
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
@@ -35,6 +67,390 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
     return hazard_copy
 
 
+def list_default_basin_coverages() -> list[dict[str, Any]]:
+    return [
+        {
+            "basin_id": int(item.basin_id),
+            "code": str(item.code),
+            "label": str(item.label),
+            "lat_min": float(item.lat_min),
+            "lat_max": float(item.lat_max),
+            "lon_min": float(item.lon_min),
+            "lon_max": float(item.lon_max),
+        }
+        for item in DEFAULT_BASIN_COVERAGES
+    ]
+
+
+def _normalize_lon(lon: float) -> float:
+    out = float(lon)
+    while out > 180.0:
+        out -= 360.0
+    while out < -180.0:
+        out += 360.0
+    return out
+
+
+def _lon_in_bbox(lon: float, lon_min: float, lon_max: float) -> bool:
+    if lon_min <= lon_max:
+        return lon_min <= lon <= lon_max
+    # Dateline wrap
+    return lon >= lon_min or lon <= lon_max
+
+
+def _point_in_basin(lat: float, lon: float, basin: BasinCoverage) -> bool:
+    if lat < float(basin.lat_min) or lat > float(basin.lat_max):
+        return False
+    return _lon_in_bbox(_normalize_lon(lon), float(basin.lon_min), float(basin.lon_max))
+
+
+def _basin_ids_for_points(
+    point_coords: Iterable[tuple[float, float]],
+    basins: tuple[BasinCoverage, ...],
+) -> tuple[int, ...]:
+    if not basins:
+        return (1,)
+    selected: set[int] = set()
+    any_point = False
+    for lat, lon in point_coords:
+        any_point = True
+        if lat is None or lon is None:
+            continue
+        try:
+            latf = float(lat)
+            lonf = float(lon)
+        except Exception:
+            continue
+        if not (-90.0 <= latf <= 90.0):
+            continue
+        for basin in basins:
+            if _point_in_basin(latf, lonf, basin):
+                selected.add(int(basin.basin_id))
+    if selected:
+        return tuple(sorted(selected))
+    if not any_point:
+        return (int(basins[0].basin_id),)
+    # Unknown zone: keep all configured basins to avoid false negatives.
+    return tuple(sorted({int(basin.basin_id) for basin in basins}))
+
+
+def _normalize_wind_unit(raw: str) -> str:
+    unit = str(raw or "m/s").strip().lower()
+    aliases = {
+        "m/s": "m/s",
+        "ms": "m/s",
+        "mps": "m/s",
+        "meter_per_second": "m/s",
+        "meters_per_second": "m/s",
+        "knot": "kn",
+        "knots": "kn",
+        "kt": "kn",
+        "kts": "kn",
+        "kn": "kn",
+        "km/h": "km/h",
+        "kmh": "km/h",
+        "kph": "km/h",
+    }
+    if unit not in aliases:
+        raise ValueError(f"Unsupported wind unit '{raw}'. Supported: m/s, kn, km/h")
+    return aliases[unit]
+
+
+def _convert_wind_to_mps(values: Any, unit_in: str) -> Any:
+    import pandas as pd  # type: ignore
+
+    unit = _normalize_wind_unit(unit_in)
+    wind = pd.to_numeric(values, errors="coerce").astype(float)
+    if unit == "m/s":
+        return wind
+    if unit == "kn":
+        return wind * 0.514444
+    return wind / 3.6  # km/h -> m/s
+
+
+def _normalize_distance_unit(raw: str) -> str:
+    unit = str(raw or "km").strip().lower()
+    aliases = {
+        "km": "km",
+        "kilometer": "km",
+        "kilometers": "km",
+        "kilometre": "km",
+        "kilometres": "km",
+        "nm": "nm",
+        "nmi": "nm",
+        "nautical_mile": "nm",
+        "nautical_miles": "nm",
+        "m": "m",
+        "meter": "m",
+        "meters": "m",
+        "metre": "m",
+        "metres": "m",
+    }
+    if unit not in aliases:
+        raise ValueError(f"Unsupported distance unit '{raw}'. Supported: km, nm, m")
+    return aliases[unit]
+
+
+def _convert_radius_to_nm(values: Any, unit_in: str) -> Any:
+    import pandas as pd  # type: ignore
+
+    unit = _normalize_distance_unit(unit_in)
+    radius = pd.to_numeric(values, errors="coerce").astype(float)
+    if unit == "nm":
+        return radius
+    if unit == "km":
+        return radius / 1.852
+    return radius / 1852.0  # m -> nm
+
+
+def _normalize_columns(df: Any) -> Any:
+    rename_map = {}
+    if "Time step" in df.columns:
+        rename_map["Time step"] = "time_step"
+    if "Latitude" in df.columns:
+        rename_map["Latitude"] = "lat"
+    if "Longitude" in df.columns:
+        rename_map["Longitude"] = "lon"
+    if "Minimum pressure" in df.columns:
+        rename_map["Minimum pressure"] = "p_c"
+    if "Maximum wind speed" in df.columns:
+        rename_map["Maximum wind speed"] = "wind_max"
+    if "Radius to maximum winds" in df.columns:
+        rename_map["Radius to maximum winds"] = "rmax"
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
+
+
+def _build_tracks_from_parquet(
+    parquet_path: Path,
+    *,
+    provider_name: str,
+    basin_ids: tuple[int, ...],
+    timestep_hours: int = 3,
+    wind_unit_in: str = "m/s",
+    radius_unit_in: str = "km",
+    env_pressure_hpa: float = 1010.0,
+) -> Any:
+    try:
+        import numpy as np  # type: ignore
+        import pandas as pd  # type: ignore
+        import xarray as xr  # type: ignore
+        from climada.hazard import TCTracks  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("CLIMADA runtime dependencies are required to build hazards from parquet") from exc
+
+    if not parquet_path.exists():
+        raise FileNotFoundError(f"Missing parquet dataset: {parquet_path}")
+
+    read_kwargs: dict[str, Any] = {}
+    if basin_ids:
+        read_kwargs["filters"] = [("Basin ID", "in", [int(b) for b in basin_ids])]
+    try:
+        df = pd.read_parquet(parquet_path, **read_kwargs)
+    except Exception:
+        df = pd.read_parquet(parquet_path)
+    df = _normalize_columns(df)
+
+    if "Basin ID" in df.columns and basin_ids:
+        df = df[df["Basin ID"].astype(int).isin([int(b) for b in basin_ids])].copy()
+    if df.empty:
+        raise ValueError(f"No rows remain after basin filter {list(basin_ids)} on {parquet_path}")
+
+    required = {"Year", "track_id", "time_step", "lat", "lon", "p_c", "wind_max", "rmax"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
+
+    df["lon"] = df["lon"].astype(float)
+    df.loc[df["lon"] > 180.0, "lon"] = df.loc[df["lon"] > 180.0, "lon"] - 360.0
+    df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
+    df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
+
+    df = df.sort_values(["track_id", "time_step"]).reset_index(drop=True)
+    groups = df.groupby("track_id", sort=False)
+
+    track_list: list[Any] = []
+    for idx, (track_id, grp) in enumerate(groups, start=1):
+        grp = grp.sort_values("time_step").drop_duplicates(subset=["time_step"], keep="first")
+        if grp.empty:
+            continue
+
+        step_idx = grp["time_step"].to_numpy(dtype=float)
+        n_steps = len(step_idx)
+        if n_steps >= 2:
+            step_delta_idx = np.diff(step_idx)
+            step_delta_idx = np.where(np.isfinite(step_delta_idx) & (step_delta_idx > 0.0), step_delta_idx, 1.0)
+            time_step_hours = np.empty(n_steps, dtype=float)
+            time_step_hours[1:] = step_delta_idx * float(timestep_hours)
+            time_step_hours[0] = time_step_hours[1]
+        else:
+            time_step_hours = np.array([float(timestep_hours)], dtype=float)
+
+        elapsed_hours = np.zeros(n_steps, dtype=float)
+        if n_steps >= 2:
+            elapsed_hours[1:] = np.cumsum(time_step_hours[1:])
+        times = pd.Timestamp("2000-01-01") + pd.to_timedelta(elapsed_hours, unit="h")
+        year = int(grp["Year"].iloc[0])
+        category_raw = float(grp["Category"].max()) if "Category" in grp.columns else 0.0
+        category = int(category_raw) if np.isfinite(category_raw) else 0
+        central_pressure_hpa = grp["p_c"].to_numpy(dtype=float)
+        env_pressure = np.maximum(central_pressure_hpa + 5.0, float(env_pressure_hpa))
+
+        ds = xr.Dataset(
+            {
+                "time": (("time",), times),
+                "lat": (("time",), grp["lat"].to_numpy(dtype=float)),
+                "lon": (("time",), grp["lon"].to_numpy(dtype=float)),
+                "time_step": (("time",), time_step_hours),
+                "radius_max_wind": (("time",), grp["rmax"].to_numpy(dtype=float)),
+                "max_sustained_wind": (("time",), grp["wind_max"].to_numpy(dtype=float)),
+                "central_pressure": (("time",), central_pressure_hpa),
+                "environmental_pressure": (("time",), env_pressure),
+                "basin": (("time",), np.array(["NA"] * len(grp), dtype=object)),
+            },
+            attrs={
+                "max_sustained_wind_unit": "m/s",
+                "radius_max_wind_unit": "nm",
+                "central_pressure_unit": "hPa",
+                "sid": f"{provider_name}_{year}_{track_id}",
+                "name": f"synthetic_{provider_name}_{year}_{track_id}",
+                "orig_event_flag": False,
+                "data_provider": provider_name,
+                "id_no": int(idx),
+                "category": category,
+            },
+        )
+        track_list.append(ds)
+
+    tracks = TCTracks()
+    tracks.data = track_list
+    return tracks
+
+
+def _get_or_build_tracks(
+    parquet_path: Path,
+    *,
+    provider_name: str,
+    basin_ids: tuple[int, ...],
+    wind_unit_in: str,
+    radius_unit_in: str,
+    env_pressure_hpa: float,
+) -> Any:
+    cache_key = (
+        str(parquet_path.expanduser().resolve(strict=False)),
+        str(provider_name),
+        tuple(sorted(int(b) for b in basin_ids)),
+        str(wind_unit_in),
+        str(radius_unit_in),
+        float(env_pressure_hpa),
+    )
+    with _TRACK_CACHE_LOCK:
+        cached = _TRACK_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    tracks = _build_tracks_from_parquet(
+        parquet_path,
+        provider_name=provider_name,
+        basin_ids=tuple(sorted(int(b) for b in basin_ids)),
+        wind_unit_in=wind_unit_in,
+        radius_unit_in=radius_unit_in,
+        env_pressure_hpa=env_pressure_hpa,
+    )
+    with _TRACK_CACHE_LOCK:
+        _TRACK_CACHE[cache_key] = tracks
+    return tracks
+
+
+def _build_centroids_from_points(point_coords: Iterable[tuple[float, float]]) -> Any:
+    try:
+        from climada.hazard import Centroids  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("CLIMADA is required to build centroids for dynamic hazards") from exc
+
+    seen: set[tuple[float, float]] = set()
+    lat_vals: list[float] = []
+    lon_vals: list[float] = []
+    for lat, lon in point_coords:
+        try:
+            latf = float(lat)
+            lonf = _normalize_lon(float(lon))
+        except Exception:
+            continue
+        if not (-90.0 <= latf <= 90.0 and -180.0 <= lonf <= 180.0):
+            continue
+        key = (round(latf, 5), round(lonf, 5))
+        if key in seen:
+            continue
+        seen.add(key)
+        lat_vals.append(key[0])
+        lon_vals.append(key[1])
+
+    if not lat_vals:
+        raise ValueError("No valid coordinates available to build dynamic hazard centroids")
+    return Centroids.from_lat_lon(lat=lat_vals, lon=lon_vals, crs="EPSG:4326")
+
+
+def _build_hazard_from_tracks(tracks: Any, centroids: Any) -> Any:
+    try:
+        from climada.hazard import TropCyclone  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("CLIMADA is required to build dynamic tropical cyclone hazards") from exc
+    return TropCyclone.from_tracks(
+        tracks,
+        centroids=centroids,
+        ignore_distance_to_coast=True,
+    )
+
+
+def load_storm_hazards_from_parquet_for_points(
+    *,
+    storm_parquet_path: Path,
+    cmcc_parquet_path: Path,
+    point_coords: Iterable[tuple[float, float]],
+    storm_years: int,
+    basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
+    wind_unit_in: str = "m/s",
+    radius_unit_in: str = "km",
+    env_pressure_hpa: float = 1010.0,
+) -> HazardBundle:
+    coords = list(point_coords)
+    if not coords:
+        raise ValueError("Dynamic hazard build requires at least one exposure coordinate")
+
+    basin_ids = _basin_ids_for_points(coords, basin_coverages)
+    centroids = _build_centroids_from_points(coords)
+    tracks_storm = _get_or_build_tracks(
+        storm_parquet_path,
+        provider_name="STORM",
+        basin_ids=basin_ids,
+        wind_unit_in=wind_unit_in,
+        radius_unit_in=radius_unit_in,
+        env_pressure_hpa=env_pressure_hpa,
+    )
+    tracks_cmcc = _get_or_build_tracks(
+        cmcc_parquet_path,
+        provider_name="STORM_CMCC",
+        basin_ids=basin_ids,
+        wind_unit_in=wind_unit_in,
+        radius_unit_in=radius_unit_in,
+        env_pressure_hpa=env_pressure_hpa,
+    )
+
+    storm = _build_hazard_from_tracks(tracks_storm, centroids)
+    storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids)
+    return HazardBundle(
+        storm=_normalize_frequency_safe(storm, storm_years),
+        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years),
+        storm_years=storm_years,
+        normalized_on_copy=True,
+        source="dynamic_parquet",
+        basin_ids=tuple(sorted(int(v) for v in basin_ids)),
+        point_count=int(len(coords)),
+    )
+
+
 def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> HazardBundle:
     try:
         from climada.hazard import Hazard  # type: ignore
@@ -49,4 +465,5 @@ def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> H
         storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years),
         storm_years=storm_years,
         normalized_on_copy=True,
+        source="precomputed_hdf5",
     )

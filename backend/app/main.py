@@ -14,6 +14,7 @@ from .config import Settings, load_settings
 from .job_runner import JobProcessor
 from .job_store import JobStore
 from .models import HealthResponse, JobStatus, RunInputMode
+from .risk_engine.hazard_loader import list_default_basin_coverages
 
 
 UTC = timezone.utc
@@ -62,6 +63,14 @@ def health() -> HealthResponse:
         now_utc=datetime.now(UTC),
         version=app.version,
     )
+
+
+@app.get("/api/v1/hazard/coverage")
+def hazard_coverage():
+    return {
+        "hazards": ["storm", "storm_cmcc"],
+        "coverages": list_default_basin_coverages(),
+    }
 
 
 @app.post("/api/v1/runs")

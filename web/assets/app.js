@@ -177,8 +177,7 @@ const els = {
   refreshPreviewBtn: document.getElementById('refresh-preview-btn'),
   clearDrawingsBtn: document.getElementById('clear-drawings-btn'),
   drawSummaryList: document.getElementById('draw-summary-list'),
-  uploadOutsideWarning: document.getElementById('upload-outside-warning'),
-  drawOutsideWarning: document.getElementById('draw-outside-warning'),
+  impactOutsideWarning: document.getElementById('impact-outside-warning'),
   jobStatusBox: document.getElementById('job-status-box'),
   computeIndicator: document.getElementById('compute-indicator'),
   runMemoryBox: document.getElementById('run-memory-box'),
@@ -266,13 +265,9 @@ const runtime = {
 };
 runtime.isPublicShowcase = PUBLIC_SHOWCASE_HOSTNAMES.has(runtime.hostname);
 
-const STORM_COVERAGE_SOURCES = [
-  { id: 'guadeloupe', label: 'Guadeloupe', url: '/data/guadeloupe-wind-maps.json' },
-  { id: 'martinique', label: 'Martinique', url: '/data/martinique-wind-maps.json' }
-];
+const STORM_COVERAGE_ENDPOINT = '/api/v1/hazard/coverage';
 const STORM_COVERAGE_FALLBACK = [
-  { id: 'guadeloupe', label: 'Guadeloupe', lat_min: 15.5, lat_max: 16.95625, lon_min: -62.48125, lon_max: -60.66875 },
-  { id: 'martinique', label: 'Martinique', lat_min: 14.3, lat_max: 15.1, lon_min: -61.4, lon_max: -60.7 }
+  { id: 'na', label: 'North Atlantic', lat_min: 5.0, lat_max: 60.0, lon_min: -105.0, lon_max: -1.0 }
 ];
 
 const EXPOSURE_TYPE_TO_CATEGORY = {
@@ -543,16 +538,19 @@ function dedupeNonEmptyStrings(values) {
 }
 
 function parseCoverageZoneFromPayload(payload, fallbackId, fallbackLabel) {
-  const bbox = payload?.meta?.bbox;
+  const direct = payload && typeof payload === 'object' && payload.lat_min != null && payload.lat_max != null
+    ? payload
+    : null;
+  const bbox = direct || payload?.meta?.bbox;
   if (!bbox || typeof bbox !== 'object') return null;
   const latMin = Number(bbox.lat_min);
   const latMax = Number(bbox.lat_max);
   const lonMin = Number(bbox.lon_min);
   const lonMax = Number(bbox.lon_max);
   if (![latMin, latMax, lonMin, lonMax].every((v) => Number.isFinite(v))) return null;
-  if (latMin >= latMax || lonMin >= lonMax) return null;
-  const territory = String(payload?.meta?.territory || fallbackId || '').trim() || fallbackId;
-  const territoryLabel = String(fallbackLabel || territory || fallbackId || '').trim() || 'Territoire';
+  if (latMin >= latMax || lonMin === lonMax) return null;
+  const territory = String(payload?.id || payload?.code || payload?.meta?.territory || fallbackId || '').trim() || fallbackId;
+  const territoryLabel = String(payload?.label || fallbackLabel || territory || fallbackId || '').trim() || 'Territoire';
   return {
     id: territory,
     label: territoryLabel,
@@ -593,13 +591,13 @@ async function ensureStormCoverageLoaded() {
   state.stormCoveragePromise = (async () => {
     let zones = [];
     try {
-      const payloads = await Promise.all(STORM_COVERAGE_SOURCES.map(async (src) => {
-        const res = await fetch(src.url, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
-        return parseCoverageZoneFromPayload(payload, src.id, src.label);
-      }));
-      zones = payloads.filter((zone) => Boolean(zone));
+      const res = await fetch(STORM_COVERAGE_ENDPOINT, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      const rawCoverages = Array.isArray(payload?.coverages) ? payload.coverages : [];
+      zones = rawCoverages
+        .map((zone, idx) => parseCoverageZoneFromPayload(zone, `zone-${idx + 1}`, `Zone ${idx + 1}`))
+        .filter((zone) => Boolean(zone));
     } catch (err) {
       console.warn('STORM coverage load failed, using fallback bounds', err);
     }
@@ -751,28 +749,24 @@ function drawFeatureCollectionFromMapLayers() {
 
 function renderOutsideCoverageWarnings() {
   const uploaded = dedupeNonEmptyStrings(state.outsideCoverageByMode.uploaded || []);
-  if (els.uploadOutsideWarning) {
-    if (!uploaded.length) {
-      els.uploadOutsideWarning.hidden = true;
-      els.uploadOutsideWarning.textContent = '';
-    } else {
-      els.uploadOutsideWarning.hidden = false;
-      els.uploadOutsideWarning.textContent = `Attention, l'asset ID ${uploaded.join(', ')} est hors de la zone d'aléas. Il ne serait donc pas affecté par les aléas.`;
-    }
+  const drawn = dedupeNonEmptyStrings(state.outsideCoverageByMode.drawn || []);
+
+  const lines = [];
+  if (uploaded.length) {
+    lines.push(`Attention, l'asset ID ${uploaded.join(', ')} est hors de la zone d'aléas. Il ne serait donc pas affecté par les aléas.`);
+  }
+  if (drawn.length) {
+    lines.push(`Attention, la geometrie ${drawn.join(', ')} est hors de la zone d'aléas. Elle ne serait donc pas affectee par les aléas.`);
   }
 
-  const drawn = dedupeNonEmptyStrings(state.outsideCoverageByMode.drawn || []);
-  if (els.drawOutsideWarning) {
-    if (!drawn.length) {
-      els.drawOutsideWarning.hidden = true;
-      els.drawOutsideWarning.textContent = '';
-    } else if (drawn.length === 1) {
-      els.drawOutsideWarning.hidden = false;
-      els.drawOutsideWarning.textContent = `Attention, la geometrie ${drawn[0]} est hors de la zone d'aléas. Elle ne serait donc pas affectee par les aléas.`;
-    } else {
-      els.drawOutsideWarning.hidden = false;
-      els.drawOutsideWarning.textContent = `Attention, les geometries ${drawn.join(', ')} sont hors de la zone d'aléas. Elles ne seraient donc pas affectees par les aléas.`;
+  if (els.impactOutsideWarning) {
+    if (!lines.length) {
+      els.impactOutsideWarning.hidden = true;
+      els.impactOutsideWarning.textContent = '';
+      return;
     }
+    els.impactOutsideWarning.hidden = false;
+    els.impactOutsideWarning.innerHTML = lines.map((line) => escapeHtml(line)).join('<br />');
   }
 }
 

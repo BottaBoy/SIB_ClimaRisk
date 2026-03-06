@@ -6,7 +6,12 @@ from typing import Any
 
 from .errors import DependencyMissingError
 from .exposure_to_climada import ClimadaExposureBundle
-from .hazard_loader import load_storm_hazards
+from .hazard_loader import (
+    DEFAULT_BASIN_COVERAGES,
+    BasinCoverage,
+    load_storm_hazards,
+    load_storm_hazards_from_parquet_for_points,
+)
 from .impact_functions import try_build_climada_impact_func
 
 
@@ -160,6 +165,14 @@ def run_climada_direct_impacts(
     hazard_storm_cmcc_path: Path,
     storm_years: int,
     top_n_events: int = 20,
+    prefer_dynamic_hazards: bool = True,
+    fallback_to_precomputed_hazards: bool = True,
+    storm_parquet_path: Path | None = None,
+    storm_cmcc_parquet_path: Path | None = None,
+    basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
+    wind_unit_in: str = "m/s",
+    radius_unit_in: str = "km",
+    env_pressure_hpa: float = 1010.0,
 ) -> ClimadaRunResult:
     runtime = _require_runtime()
     np = runtime["np"]
@@ -171,14 +184,53 @@ def run_climada_direct_impacts(
         raise DependencyMissingError("Unable to instantiate CLIMADA impact function for tropical cyclone.")
     impfset = ImpactFuncSet([impf])
 
-    bundle = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, storm_years)
-    hazards = {"storm": bundle.storm, "storm_cmcc": bundle.storm_cmcc}
-
-    out: dict[str, HazardImpactResult] = {}
     notes = [
         "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
         "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
     ]
+
+    bundle = None
+    if (
+        prefer_dynamic_hazards
+        and storm_parquet_path is not None
+        and storm_cmcc_parquet_path is not None
+    ):
+        point_coords = [
+            (float(rec.get("lat")), float(rec.get("lon")))
+            for rec in list(exposure_bundle.point_records or [])
+            if rec.get("lat") is not None and rec.get("lon") is not None
+        ]
+        if point_coords:
+            try:
+                bundle = load_storm_hazards_from_parquet_for_points(
+                    storm_parquet_path=storm_parquet_path,
+                    cmcc_parquet_path=storm_cmcc_parquet_path,
+                    point_coords=point_coords,
+                    storm_years=storm_years,
+                    basin_coverages=basin_coverages,
+                    wind_unit_in=wind_unit_in,
+                    radius_unit_in=radius_unit_in,
+                    env_pressure_hpa=env_pressure_hpa,
+                )
+                notes.append(
+                    f"Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count})."
+                )
+            except Exception as exc:
+                if not fallback_to_precomputed_hazards:
+                    raise
+                notes.append(
+                    f"Dynamic hazard build failed ({type(exc).__name__}): {exc}. Falling back to precomputed HDF5 hazards."
+                )
+
+    if bundle is None:
+        bundle = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, storm_years)
+        notes.append(
+            f"Hazard source: precomputed HDF5 ({hazard_storm_path.name}, {hazard_storm_cmcc_path.name})."
+        )
+
+    hazards = {"storm": bundle.storm, "storm_cmcc": bundle.storm_cmcc}
+
+    out: dict[str, HazardImpactResult] = {}
     hazard_zero_intensity: dict[str, bool] = {}
     for hazard_key, hazard_obj in hazards.items():
         try:
@@ -214,6 +266,9 @@ def run_climada_direct_impacts(
         "frequency_normalized": bool(bundle.normalized_on_copy),
         "top_events_count": int(top_n_events),
         "hazard_zero_intensity": hazard_zero_intensity,
+        "hazard_source": str(bundle.source),
+        "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
+        "hazard_point_count": int(bundle.point_count or 0),
     }
 
     return ClimadaRunResult(hazards=out, modeling=modeling, notes=notes)
