@@ -918,7 +918,7 @@ function startDrawMode(mode) {
   const markerHandler = window.L.Draw.CircleMarker || window.L.Draw.Marker;
   const optionsByMode = {
     marker: window.L.Draw.CircleMarker
-      ? { shapeOptions: { radius: 7, color: '#5bc5f2', fillColor: '#5bc5f2', fillOpacity: 0.92, weight: 2 } }
+      ? { radius: 7, shapeOptions: { color: '#5bc5f2', fillColor: '#5bc5f2', fillOpacity: 0.92, weight: 2 } }
       : { icon: markerIcon },
     polyline: { shapeOptions: { color: '#dfb85a', weight: 3, opacity: 0.9 } },
     polygon: { allowIntersection: false, shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } },
@@ -942,6 +942,16 @@ function startDrawMode(mode) {
   updateDrawModeButtons();
   handler.enable();
   setStatus(`Mode dessin actif: ${drawModeLabel(mode)}. Cliquez sur la carte pour tracer.`, 'info');
+}
+
+function reenableCurrentDrawMode() {
+  if (!state.activeDrawMode) return;
+  const activeMode = state.activeDrawMode;
+  const handler = mapRef.drawHandlers[activeMode];
+  if (!handler || typeof handler.enable !== 'function') return;
+  window.setTimeout(() => {
+    if (state.activeDrawMode === activeMode) handler.enable();
+  }, 0);
 }
 
 function clearUploadedPreview() {
@@ -1096,7 +1106,6 @@ function ensureMap() {
     };
 
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
-      disableActiveDrawMode();
       const exposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
       const nextIdx = mapRef.drawnItems.getLayers().length + 1;
       evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
@@ -1110,6 +1119,7 @@ function ensureMap() {
       };
       mapRef.drawnItems.addLayer(evt.layer);
       onDrawChange();
+      reenableCurrentDrawMode();
     });
     mapRef.instance.on(L.Draw.Event.EDITED, onDrawChange);
     mapRef.instance.on(L.Draw.Event.DELETED, onDrawChange);
@@ -2562,6 +2572,29 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
   }
 }
 
+async function resolveRunLookup(inputValue) {
+  const query = String(inputValue || '').trim();
+  if (!query) {
+    throw new Error('Renseignez un nom de run ou un identifiant de job.');
+  }
+  if (query.startsWith('jr_')) {
+    const modeTarget = els.datasetSelect.value === 'drawn' ? 'drawn' : 'uploaded';
+    return { jobId: query, modeTarget, runLabel: null };
+  }
+  const res = await fetch(`/api/v1/runs/search?run_label=${encodeURIComponent(query)}`, { cache: 'no-store' });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(payload.detail || `HTTP ${res.status}`);
+  }
+  const jobId = String(payload.job_id || '').trim();
+  if (!jobId) {
+    throw new Error("L'API n'a pas renvoye de job_id valide.");
+  }
+  const modeTarget = payload.dataset_mode === 'drawn' ? 'drawn' : 'uploaded';
+  const runLabel = String(payload.run_label || query).trim() || query;
+  return { jobId, modeTarget, runLabel };
+}
+
 async function submitUpload(event) {
   event.preventDefault();
   if (runtime.isPublicShowcase) {
@@ -2827,13 +2860,21 @@ function bindEvents() {
       showError("Le rechargement de jobs est reserve aux collaborateurs autorises.");
       return;
     }
-    const jobId = els.pollJobId.value.trim();
-    if (!jobId) {
-      showError('Renseignez un identifiant de job pour recharger un résultat.');
+    const lookup = els.pollJobId.value.trim();
+    if (!lookup) {
+      showError('Renseignez un nom de run ou un identifiant de job pour recharger un résultat.');
       return;
     }
-    const target = els.datasetSelect.value === 'drawn' ? 'drawn' : 'uploaded';
-    await pollJob(jobId, { modeTarget: target, immediate: true });
+    try {
+      const resolved = await resolveRunLookup(lookup);
+      els.pollJobId.value = resolved.jobId;
+      if (resolved.runLabel) {
+        setStatus(`Run trouve: "${resolved.runLabel}" (${resolved.jobId}).`, 'info');
+      }
+      await pollJob(resolved.jobId, { modeTarget: resolved.modeTarget, immediate: true });
+    } catch (err) {
+      showError(`Impossible de recharger le resultat: ${err.message}`);
+    }
   });
 
   els.uploadForm.addEventListener('submit', submitUpload);

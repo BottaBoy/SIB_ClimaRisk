@@ -376,17 +376,25 @@
             <div class="csv-template-box">
               <p class="muted">
                 Colonnes attendues:
-                <code>asset_id</code>, <code>label</code>, <code>lat</code>, <code>lon</code>,
-                <code>value_eur</code>, <code>asset_type</code>, <code>exposure_category</code>.
               </p>
+              <ul class="csv-column-help">
+                <li><code>asset_id</code>: identifiant unique de l'actif (ex: <code>A001</code>).</li>
+                <li><code>label</code>: nom lisible de l'actif (ex: <code>Maison rue des Alizes</code>).</li>
+                <li><code>lat</code>: latitude en WGS84 (degres decimaux, ex: <code>16.237</code>).</li>
+                <li><code>lon</code>: longitude en WGS84 (degres decimaux, ex: <code>-61.534</code>).</li>
+                <li><code>value_eur</code>: valeur monetaire de l'actif en euros (ex: <code>250000</code>).</li>
+                <li><code>asset_type</code>: type technique pour le moteur (ex: <code>habitation</code>, <code>eau_aep_cana</code>).</li>
+                <li><code>exposure_category</code>: categorie d'exposition (ex: <code>habitation</code>, <code>ouvrage_eau</code>).</li>
+                <li><code>geometry_wkt</code> (optionnel): geometrie WKT si vous n'utilisez pas <code>lat</code>/<code>lon</code>.</li>
+              </ul>
               <p class="muted small">
                 Localisation: utilisez <code>lat</code>/<code>lon</code> (WGS84, EPSG:4326)
                 ou une colonne <code>geometry_wkt</code>.
               </p>
-              <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category
-A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
-              <a class="primary-btn template-download-btn" href="data/exposition-template.csv" download>
-                Telecharger le CSV modele (colonnes uniquement)
+              <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category,geometry_wkt
+A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)</pre>
+              <a class="primary-btn template-download-btn" href="data/exposition-template.xlsx" download>
+                Telecharger le modele XLSX (entetes par colonne)
               </a>
             </div>
             <div class="field">
@@ -464,7 +472,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
       <section class="panel controls-grid page-block page3" aria-label="Parametres de resultats d'impacts">
         <div class="controls-heading">
           <h2>Resultats d'impacts</h2>
-          <p class="muted">Consultez les resultats par territoire pour le run selectionne.</p>
+          <p class="muted">Consultez les resultats par actif importe ou par geometrie dessinee.</p>
         </div>
         <div class="field">
           <label for="hazard-select">Aléa</label>
@@ -485,7 +493,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
         <div class="field">
           <label for="poll-job-id">Recharger un resultat</label>
           <div class="inline-row">
-            <input id="poll-job-id" type="text" placeholder="jr_20260224_abc123" />
+            <input id="poll-job-id" type="text" placeholder="Nom du run ou job_id (jr_...)" />
             <button id="reload-job-btn" type="button">Charger</button>
           </div>
         </div>

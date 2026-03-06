@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 import json
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -17,24 +17,13 @@ from .models import HealthResponse, JobStatus, RunInputMode
 
 
 UTC = timezone.utc
-
-
-def _optional_dependency_status() -> dict[str, bool]:
-    modules = ["fastapi", "pydantic", "numpy", "pandas", "shapely", "pyproj", "geopandas", "matplotlib", "climada"]
-    status: dict[str, bool] = {}
-    for name in modules:
-        try:
-            __import__(name)
-            status[name] = True
-        except Exception:
-            status[name] = False
-    return status
+BOOT_SETTINGS = load_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings: Settings = load_settings()
-    store = JobStore(settings.job_root, ttl_hours=settings.job_ttl_hours)
+    settings: Settings = BOOT_SETTINGS
+    store = JobStore(settings.job_root, ttl_hours=settings.job_ttl_hours, max_runs_kept=settings.max_runs_kept)
     processor = JobProcessor(settings=settings, store=store)
     processor.start()
     app.state.settings = settings
@@ -49,7 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SIB Cyclone Risk API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(BOOT_SETTINGS.cors_allowed_origins),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,30 +56,11 @@ def get_settings() -> Settings:
 @app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     settings = get_settings()
-    store = get_store()
-    optional = _optional_dependency_status()
-    data_files = {
-        "hazard_storm_h5": settings.hazard_storm_path.exists(),
-        "hazard_storm_cmcc_h5": settings.hazard_storm_cmcc_path.exists(),
-        "storm_parquet": settings.storm_parquet_path.exists(),
-        "storm_cmcc_parquet": settings.storm_cmcc_parquet_path.exists(),
-        "example_qgis_points": settings.example_qgis_points_path.exists(),
-        "example_qgis_lines": settings.example_qgis_lines_path.exists(),
-        "example_qgis_polygons": settings.example_qgis_polygons_path.exists(),
-    }
-    required_mods = ("numpy", "pandas", "shapely", "pyproj", "geopandas", "climada")
-    climada_runtime_ready = all(optional.get(name, False) for name in required_mods) and data_files["hazard_storm_h5"] and data_files["hazard_storm_cmcc_h5"]
     return HealthResponse(
         status="ok",
         app=settings.app_name,
         now_utc=datetime.now(UTC),
-        job_root=str(store.root),
-        optional_dependencies=optional,
-        demo_result_available=settings.demo_result_path.exists(),
-        data_files=data_files,
-        climada_runtime_ready=bool(climada_runtime_ready),
-        impact_engine_mode=settings.impact_engine_mode,
-        fallback_allowed=bool(settings.allow_climada_fallback),
+        version=app.version,
     )
 
 
@@ -165,6 +135,15 @@ async def create_run(
 
     app.state.processor.enqueue(envelope.job_id)  # type: ignore[attr-defined]
     return JSONResponse(status_code=202, content=envelope.model_dump(mode="json"))
+
+
+@app.get("/api/v1/runs/search")
+def search_run_by_label(run_label: str = Query(..., min_length=1)):
+    store = get_store()
+    found = store.find_latest_by_run_label(run_label)
+    if not found:
+        raise HTTPException(status_code=404, detail="run not found")
+    return found
 
 
 @app.get("/api/v1/runs/{job_id}")

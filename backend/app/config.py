@@ -12,12 +12,21 @@ def _env_bool(env: dict[str, str], key: str, default: bool) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _env_csv(env: dict[str, str], key: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = env.get(key)
+    if raw is None:
+        return default
+    values = tuple(item.strip() for item in str(raw).split(",") if item.strip())
+    return values or default
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SIB Cyclone Risk API"
     api_prefix: str = "/api/v1"
     job_root: Path = Path("/tmp/sib-risk-jobs")
     job_ttl_hours: int = 24
+    max_runs_kept: int = 10
     max_upload_mb: int = 50
     worker_concurrency: int = 1
     demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
@@ -36,6 +45,10 @@ class Settings:
     climada_metric_crs: str = "EPSG:3857"
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
+    cors_allowed_origins: tuple[str, ...] = (
+        "https://app.sib.elio.dev",
+        "https://sib.dev.elio.bottagisio.com",
+    )
 
 
 def load_settings() -> Settings:
@@ -54,6 +67,7 @@ def load_settings() -> Settings:
         api_prefix=env.get("SIB_RISK_API_PREFIX", "/api/v1"),
         job_root=job_root,
         job_ttl_hours=int(env.get("SIB_RISK_JOB_TTL_HOURS", "24")),
+        max_runs_kept=max(1, int(env.get("SIB_RISK_MAX_RUNS_KEPT", "10"))),
         max_upload_mb=int(env.get("SIB_RISK_MAX_UPLOAD_MB", "50")),
         worker_concurrency=int(env.get("SIB_RISK_WORKER_CONCURRENCY", "1")),
         demo_result_path=demo_result_path,
@@ -72,4 +86,12 @@ def load_settings() -> Settings:
         climada_metric_crs=str(env.get("SIB_RISK_CLIMADA_METRIC_CRS", "EPSG:3857")).strip(),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
+        cors_allowed_origins=_env_csv(
+            env,
+            "SIB_RISK_CORS_ALLOWED_ORIGINS",
+            (
+                "https://app.sib.elio.dev",
+                "https://sib.dev.elio.bottagisio.com",
+            ),
+        ),
     )

@@ -15,9 +15,10 @@ UTC = timezone.utc
 
 
 class JobStore:
-    def __init__(self, root: Path, ttl_hours: int = 24) -> None:
+    def __init__(self, root: Path, ttl_hours: int = 24, max_runs_kept: int = 10) -> None:
         self.root = root
         self.ttl_hours = ttl_hours
+        self.max_runs_kept = max(1, int(max_runs_kept))
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
 
@@ -64,6 +65,7 @@ class JobStore:
             )
             self._write_json(self._job_meta_path(job_id), envelope.model_dump(mode="json"))
             self._write_json(self._job_params_path(job_id), params)
+            self._prune_jobs_locked(exclude_job_ids={job_id})
             return envelope
 
     def get_job(self, job_id: str) -> JobEnvelope:
@@ -148,8 +150,46 @@ class JobStore:
         return path
 
     def cleanup_expired(self) -> list[str]:
-        removed: list[str] = []
-        now = self._now()
+        with self._lock:
+            removed, _ = self._prune_jobs_locked()
+            return removed
+
+    def find_latest_by_run_label(self, run_label_query: str) -> dict[str, Any] | None:
+        query = str(run_label_query or "").strip().lower()
+        if not query:
+            return None
+        with self._lock:
+            records = self._collect_records_locked()
+            if not records:
+                return None
+            exact_matches = [rec for rec in records if rec["run_label"].lower() == query]
+            partial_matches = [rec for rec in records if query in rec["run_label"].lower()]
+            candidates = exact_matches or partial_matches
+            if not candidates:
+                return None
+            candidates.sort(
+                key=lambda rec: (
+                    rec["envelope"].created_at.timestamp(),
+                    rec["envelope"].updated_at.timestamp(),
+                ),
+                reverse=True,
+            )
+            selected = candidates[0]
+            envelope: JobEnvelope = selected["envelope"]
+            input_mode = str(selected["input_mode"]).strip().lower()
+            dataset_mode = "drawn" if input_mode == "drawn_geojson" else "uploaded"
+            return {
+                "job_id": envelope.job_id,
+                "status": envelope.status.value,
+                "created_at": envelope.created_at,
+                "updated_at": envelope.updated_at,
+                "run_label": selected["run_label"],
+                "input_mode": input_mode or "file",
+                "dataset_mode": dataset_mode,
+            }
+
+    def _collect_records_locked(self) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
         for child in self.root.iterdir():
             if not child.is_dir():
                 continue
@@ -160,10 +200,73 @@ class JobStore:
                 envelope = JobEnvelope.model_validate(self._read_json(meta))
             except Exception:
                 continue
-            if envelope.expires_at <= now:
-                shutil.rmtree(child, ignore_errors=True)
-                removed.append(child.name)
-        return removed
+            params: dict[str, Any] = {}
+            params_path = child / "params.json"
+            if params_path.exists():
+                try:
+                    params = self._read_json(params_path)
+                except Exception:
+                    params = {}
+            records.append(
+                {
+                    "dir": child,
+                    "envelope": envelope,
+                    "run_label": str(params.get("run_label") or "").strip(),
+                    "input_mode": str(params.get("input_mode") or "").strip(),
+                }
+            )
+        return records
+
+    def _remove_job_dir_locked(self, job_dir: Path) -> bool:
+        if not job_dir.exists():
+            return False
+        if not job_dir.is_dir():
+            return False
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return True
+
+    def _prune_jobs_locked(self, exclude_job_ids: set[str] | None = None) -> tuple[list[str], list[str]]:
+        removed: list[str] = []
+        kept: list[str] = []
+        excluded = exclude_job_ids or set()
+        now = self._now()
+        records = self._collect_records_locked()
+
+        # Step 1: always delete expired runs first.
+        for record in records:
+            envelope: JobEnvelope = record["envelope"]
+            job_dir: Path = record["dir"]
+            if envelope.expires_at <= now and envelope.job_id not in excluded:
+                if self._remove_job_dir_locked(job_dir):
+                    removed.append(envelope.job_id)
+                continue
+            kept.append(envelope.job_id)
+
+        # Step 2: enforce max retained runs (prefer dropping oldest terminal runs).
+        if len(kept) <= self.max_runs_kept:
+            return removed, kept
+
+        fresh_records = self._collect_records_locked()
+        terminal = {JobStatus.completed, JobStatus.failed, JobStatus.expired}
+        candidates = [
+            rec
+            for rec in fresh_records
+            if rec["envelope"].job_id not in excluded and rec["envelope"].status in terminal
+        ]
+        candidates.sort(key=lambda rec: rec["envelope"].created_at.timestamp())
+
+        idx = 0
+        while len(fresh_records) > self.max_runs_kept and idx < len(candidates):
+            rec = candidates[idx]
+            idx += 1
+            envelope: JobEnvelope = rec["envelope"]
+            job_dir: Path = rec["dir"]
+            if self._remove_job_dir_locked(job_dir):
+                removed.append(envelope.job_id)
+                fresh_records = [r for r in fresh_records if r["envelope"].job_id != envelope.job_id]
+
+        kept = [rec["envelope"].job_id for rec in fresh_records]
+        return removed, kept
 
     @staticmethod
     def _read_json(path: Path) -> dict[str, Any]:
