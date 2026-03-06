@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
+
+from case_study_sources import get_case_study, normalize_territory
 
 
 WGS84 = "EPSG:4326"
@@ -40,42 +43,37 @@ def _load_layer(
 
     gdf_wgs["infra_type"] = infra_type
     gdf_wgs["source_group"] = source_group
-    gdf_wgs["feature_id"] = [f"{infra_type}-{i+1}" for i in range(len(gdf_wgs))]
-    return gdf_wgs[["feature_id", "infra_type", "source_group", "geometry"]]
+    return gdf_wgs[["infra_type", "source_group", "geometry"]]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Guadeloupe water infrastructure GeoJSON for web visualization.")
-    parser.add_argument("--infra-eau-dir", default="/home/ubuntu/uploads/Infra_Eau_Guadeloupe")
-    parser.add_argument("--infra-elec-dir", default="/home/ubuntu/uploads/Infra_Elec_Guadeloupe")
-    parser.add_argument("--out", default="/home/ubuntu/sib-work/web/data/guadeloupe-water-infra.geojson")
+    parser = argparse.ArgumentParser(description="Build territory water+electric infrastructure GeoJSON for web visualization.")
+    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--infra-eau-dir", default=None)
+    parser.add_argument("--infra-elec-dir", default=None)
+    parser.add_argument("--out", default=None)
     parser.add_argument("--simplify-tolerance-m", type=float, default=3.0)
     args = parser.parse_args()
 
-    root = Path(args.infra_eau_dir)
-    elec_root = Path(args.infra_elec_dir)
-    layers = [
-        (root / "AEP" / "cana_aep.gpkg", "aep_cana", "AEP"),
-        (root / "AEP" / "ouvrage_aep.gpkg", "aep_ouvrage", "AEP"),
-        (root / "EU" / "cana_eu.gpkg", "eu_cana", "EU"),
-        (root / "EU" / "pr.gpkg", "eu_pr", "EU"),
-        (root / "EU" / "step.gpkg", "eu_step", "EU"),
-        (elec_root / "lignes-basse-tension-bt-aerien-gua.geojson", "elec_bt_aerien", "ELEC"),
-        (elec_root / "lignes-basse-tension-bt-souterrain-gua.geojson", "elec_bt_souterrain", "ELEC"),
-        (elec_root / "lignes-haute-tension-hta-aerien-gua.geojson", "elec_hta_aerien", "ELEC"),
-        (elec_root / "lignes-haute-tension-hta-souterrain-gua.geojson", "elec_hta_souterrain", "ELEC"),
-    ]
+    territory = normalize_territory(args.territory)
+    cfg = get_case_study(
+        territory,
+        infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
+        infra_eau_dir=Path(args.infra_eau_dir) if args.infra_eau_dir else None,
+    )
+    out = Path(args.out) if args.out else (Path("/home/ubuntu/sib-work/web/data") / f"{territory}-water-infra.geojson")
 
     gdfs: list[gpd.GeoDataFrame] = []
-    for path, infra_type, source_group in layers:
-        gdfs.append(
-            _load_layer(
-                path,
-                infra_type=infra_type,
-                source_group=source_group,
-                simplify_tolerance_m=float(args.simplify_tolerance_m),
+    for layer in cfg["water_map_layers"]:
+        for path in layer["paths"]:
+            gdfs.append(
+                _load_layer(
+                    path,
+                    infra_type=str(layer["infra_type"]),
+                    source_group=str(layer["source_group"]),
+                    simplify_tolerance_m=float(args.simplify_tolerance_m),
+                )
             )
-        )
 
     out_gdf = gpd.GeoDataFrame(
         pd.concat(gdfs, ignore_index=True),
@@ -83,11 +81,20 @@ def main() -> None:
         crs=WGS84,
     )
 
-    out = Path(args.out)
+    counters: dict[str, int] = defaultdict(int)
+    feature_ids: list[str] = []
+    for infra_type in out_gdf["infra_type"].tolist():
+        key = str(infra_type)
+        counters[key] += 1
+        feature_ids.append(f"{key}-{counters[key]}")
+    out_gdf["feature_id"] = feature_ids
+    out_gdf = out_gdf[["feature_id", "infra_type", "source_group", "geometry"]]
+
     out.parent.mkdir(parents=True, exist_ok=True)
     out_gdf.to_file(out, driver="GeoJSON")
 
     print(f"Wrote {out}")
+    print(f"territory={territory}")
     print(f"features={len(out_gdf)}")
     print(out_gdf["infra_type"].value_counts().to_string())
 

@@ -30,13 +30,12 @@ from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
 from app.risk_engine.impact_functions import try_build_climada_impact_func  # noqa: E402
 from app.risk_engine.types import NormalizedExposure  # noqa: E402
 from build_guadeloupe_complete_analysis import (  # noqa: E402
-    METRIC_CRS,
     WGS84,
     _as_wgs84_and_metric,
     _ensure_crs,
     build_complete_exposure,
-    detect_reference_territory,
 )
+from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
 from valuation_ofb import (  # noqa: E402
     SOURCE_LABEL,
     build_valuation_metadata,
@@ -429,44 +428,86 @@ def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
     return max(0.0, total_m / 1000.0)
 
 
-def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path, territory: str) -> dict[str, Any]:
-    elec_bt_aer = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson"))
-    elec_bt_sou = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson"))
-    elec_hta_aer = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson"))
-    elec_hta_sou = _ensure_crs(gpd.read_file(infra_elec_dir / "lignes-haute-tension-hta-souterrain-gua.geojson"))
-    aep_cana = _ensure_crs(gpd.read_file(infra_eau_dir / "AEP" / "cana_aep.gpkg"))
-    eu_cana = _ensure_crs(gpd.read_file(infra_eau_dir / "EU" / "cana_eu.gpkg"))
-    aep_ouvr = _ensure_crs(gpd.read_file(infra_eau_dir / "AEP" / "ouvrage_aep.gpkg"))
-    eu_pr = _ensure_crs(gpd.read_file(infra_eau_dir / "EU" / "pr.gpkg"))
-    eu_step = _ensure_crs(gpd.read_file(infra_eau_dir / "EU" / "step.gpkg"))
+def _count_features(paths: list[Path]) -> int:
+    count = 0
+    for path in paths:
+        gdf = _ensure_crs(gpd.read_file(path))
+        count += int(len(gdf))
+    return count
 
+
+def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for src in case_cfg["aep_ouvrage_sources"]:
+        mode = str(src.get("mode", "")).strip().lower()
+        for path in src["paths"]:
+            gdf = _ensure_crs(gpd.read_file(path))
+            if mode == "fixed_type":
+                code = str(src.get("ovrg_type", "NA") or "NA").strip().upper()
+                counts[code] += int(len(gdf))
+                continue
+            col = str(src.get("field_name", "ovrg_type"))
+            if col in gdf.columns:
+                value_counts = gdf[col].fillna("NA").astype(str).str.upper().value_counts().to_dict()
+                for k, v in value_counts.items():
+                    counts[str(k)] += int(v)
+            else:
+                counts["NA"] += int(len(gdf))
+    return counts
+
+
+def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[str, Any]:
     lengths_km = {
-        "elec_bt_aerien": _line_length_km(elec_bt_aer),
-        "elec_bt_souterrain": _line_length_km(elec_bt_sou),
-        "elec_hta_aerien": _line_length_km(elec_hta_aer),
-        "elec_hta_souterrain": _line_length_km(elec_hta_sou),
-        "eau_aep": _line_length_km(aep_cana),
-        "eau_eu": _line_length_km(eu_cana),
+        "elec_bt_aerien": 0.0,
+        "elec_bt_souterrain": 0.0,
+        "elec_hta_aerien": 0.0,
+        "elec_hta_souterrain": 0.0,
+        "eau_aep": 0.0,
+        "eau_eu": 0.0,
     }
+
+    elec_lines_total = 0
+    water_lines_total = 0
+
+    for src in case_cfg["elec_line_sources"]:
+        class_key = str(src["class_key"])
+        for path in src["paths"]:
+            gdf = _ensure_crs(gpd.read_file(path))
+            lengths_km[class_key] += _line_length_km(gdf)
+            elec_lines_total += int(len(gdf))
+
+    for src in case_cfg["water_line_sources"]:
+        class_key = str(src["class_key"])
+        for path in src["paths"]:
+            gdf = _ensure_crs(gpd.read_file(path))
+            lengths_km[class_key] += _line_length_km(gdf)
+            water_lines_total += int(len(gdf))
 
     value_per_km = get_network_values_per_km(territory)
-    total_value_network = {
-        key: round(lengths_km[key] * value_per_km[key], 2) for key in value_per_km.keys()
-    }
+    total_value_network = {key: round(lengths_km[key] * value_per_km[key], 2) for key in value_per_km.keys()}
     water_values = get_water_values(territory)
 
-    aep_type_counts = aep_ouvr["ovrg_type"].fillna("NA").astype(str).str.upper().value_counts().to_dict()
+    aep_type_counts = _count_aep_ouvrage_types(case_cfg)
     total_value_aep_ouvr = round(sum(get_aep_ouvrage_value(k) * int(v) for k, v in aep_type_counts.items()), 2)
-    total_value_pr = round(float(len(eu_pr)) * float(water_values["eau_eu_pr"]), 2)
-    total_value_step = round(float(len(eu_step)) * float(water_values["eau_eu_step"]), 2)
 
+    eu_pr_total = 0
+    eu_step_total = 0
+    for src in case_cfg["water_point_fixed_sources"]:
+        if str(src["asset_type"]) == "eau_eu_pr":
+            eu_pr_total += _count_features(list(src["paths"]))
+        if str(src["asset_type"]) == "eau_eu_step":
+            eu_step_total += _count_features(list(src["paths"]))
+    total_value_pr = round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2)
+    total_value_step = round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2)
+
+    aep_ouvrages_total = int(sum(int(v) for v in aep_type_counts.values()))
     counts = {
-        "aep_ouvrages_total": int(len(aep_ouvr)),
+        "aep_ouvrages_total": aep_ouvrages_total,
         "aep_ouvrages_by_type": {str(k): int(v) for k, v in aep_type_counts.items()},
-        "eu_pr_total": int(len(eu_pr)),
-        "eu_step_total": int(len(eu_step)),
-        "elec_lines_total": int(len(elec_bt_aer) + len(elec_bt_sou) + len(elec_hta_aer) + len(elec_hta_sou)),
-        "water_lines_total": int(len(aep_cana) + len(eu_cana)),
+        "eu_pr_total": int(eu_pr_total),
+        "eu_step_total": int(eu_step_total),
+        "elec_lines_total": int(elec_lines_total),
+        "water_lines_total": int(water_lines_total),
     }
 
     total_value_by_type = {
@@ -477,8 +518,9 @@ def _build_exposure_metrics(infra_elec_dir: Path, infra_eau_dir: Path, territory
     }
     total_value_all = round(sum(total_value_by_type.values()), 2)
 
+    territory_name = territory_label(territory)
     summary_text = (
-        f"Le jeu de reference comprend {counts['elec_lines_total']} troncons electriques et {counts['water_lines_total']} troncons d'eau. "
+        f"Le jeu de reference {territory_name} comprend {counts['elec_lines_total']} troncons electriques et {counts['water_lines_total']} troncons d'eau. "
         f"Longueurs reseaux: BT aerien {lengths_km['elec_bt_aerien']:.1f} km, BT souterrain {lengths_km['elec_bt_souterrain']:.1f} km, "
         f"HTA aerien {lengths_km['elec_hta_aerien']:.1f} km, HTA souterrain {lengths_km['elec_hta_souterrain']:.1f} km, "
         f"AEP {lengths_km['eau_aep']:.1f} km, EU {lengths_km['eau_eu']:.1f} km. "
@@ -511,29 +553,28 @@ def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(asset_type)
 
 
-def _build_network_geometry_features(infra_elec_dir: Path, infra_eau_dir: Path) -> list[dict[str, Any]]:
+def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
-    def append_lines(path: Path, class_key: str, prefix: str) -> None:
+    def append_lines(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
         gdf = _ensure_crs(gpd.read_file(path)).to_crs(WGS84)
         for idx, geom in enumerate(gdf.geometry, start=1):
             if geom is None or getattr(geom, "is_empty", False):
                 continue
             out.append(
                 {
-                    "feature_id": f"{prefix}-{idx}",
+                    "feature_id": f"{prefix}-{source_idx}-{idx}",
                     "class_key": class_key,
                     "class_label": NETWORK_CLASS_LABELS[class_key],
                     "geometry": geom,
                 }
             )
 
-    append_lines(infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson", "elec_bt_aerien", "elec-bt-aerien")
-    append_lines(infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson", "elec_bt_souterrain", "elec-bt-souterrain")
-    append_lines(infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson", "elec_hta_aerien", "elec-hta-aerien")
-    append_lines(infra_elec_dir / "lignes-haute-tension-hta-souterrain-gua.geojson", "elec_hta_souterrain", "elec-hta-souterrain")
-    append_lines(infra_eau_dir / "AEP" / "cana_aep.gpkg", "eau_aep", "aep-cana")
-    append_lines(infra_eau_dir / "EU" / "cana_eu.gpkg", "eau_eu", "eu-cana")
+    for src in case_cfg["network_geometry_sources"]:
+        class_key = str(src["class_key"])
+        prefix = str(src["prefix"])
+        for source_idx, path in enumerate(src["paths"], start=1):
+            append_lines(path, class_key, prefix, source_idx)
     return out
 
 
@@ -927,13 +968,14 @@ def _build_conclusion_text(exposure_metrics: dict[str, Any], impact_metrics: dic
     )
 
 
-def _load_guadeloupe_wind_comparison_table(doc_path: Path) -> list[dict[str, str]]:
+def _load_zone_wind_comparison_table(doc_path: Path, zone_heading: str) -> list[dict[str, str]]:
     if not doc_path.exists():
         return []
     lines = doc_path.read_text(encoding="utf-8").splitlines()
     start_idx = None
+    target = f"## comparaison vitesses max - zone {zone_heading}".strip().lower()
     for i, line in enumerate(lines):
-        if line.strip().lower() == "## comparaison vitesses max - zone guadeloupe":
+        if line.strip().lower() == target:
             start_idx = i
             break
     if start_idx is None:
@@ -989,9 +1031,10 @@ def _build_state_geojson(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build all computed data for Guadeloupe page 1 (exposition, hazard, impact, conclusion).")
-    parser.add_argument("--infra-elec-dir", default="/home/ubuntu/uploads/Infra_Elec_Guadeloupe")
-    parser.add_argument("--infra-eau-dir", default="/home/ubuntu/uploads/Infra_Eau_Guadeloupe")
+    parser = argparse.ArgumentParser(description="Build all computed data for territory case-study pages (exposition, hazard, impact, conclusion).")
+    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--infra-elec-dir", default=None)
+    parser.add_argument("--infra-eau-dir", default=None)
     parser.add_argument("--storm-source", default="/home/ubuntu/uploads/STORM/STORM_ds")
     parser.add_argument("--cmcc-source", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
     parser.add_argument(
@@ -1000,29 +1043,44 @@ def main() -> None:
         help="Input wind unit in STORM/STORM_CMCC datasets. Supported: m/s, kn, km/h. Output is always m/s.",
     )
     parser.add_argument("--spacing-m", type=float, default=100.0)
-    parser.add_argument("--out-json", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-page1-analysis.json"))
-    parser.add_argument("--out-state-geojson", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-network-states.geojson"))
+    parser.add_argument("--out-json", default=None)
+    parser.add_argument("--out-state-geojson", default=None)
     parser.add_argument("--diagnostic-md", default=str(REPO_ROOT / "docs" / "diagnostic-vents-et-mailles.md"))
     args = parser.parse_args()
 
-    infra_elec_dir = Path(args.infra_elec_dir)
-    infra_eau_dir = Path(args.infra_eau_dir)
-    out_json = Path(args.out_json)
-    out_state_geojson = Path(args.out_state_geojson)
+    territory = normalize_territory(args.territory)
+    case_cfg = get_case_study(
+        territory,
+        infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
+        infra_eau_dir=Path(args.infra_eau_dir) if args.infra_eau_dir else None,
+    )
+    out_json = (
+        Path(args.out_json)
+        if args.out_json
+        else (REPO_ROOT / "web" / "data" / str(case_cfg["analysis_json_name"]))
+    )
+    out_state_geojson = (
+        Path(args.out_state_geojson)
+        if args.out_state_geojson
+        else (REPO_ROOT / "web" / "data" / f"{territory}-network-states.geojson")
+    )
     diagnostic_md = Path(args.diagnostic_md)
 
     settings = load_settings()
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
-    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
     valuation_metadata = build_valuation_metadata(territory)
 
-    exposure_metrics = _build_exposure_metrics(infra_elec_dir, infra_eau_dir, territory)
+    exposure_metrics = _build_exposure_metrics(case_cfg, territory)
     hazard_hist = _build_wind_histograms(
         Path(args.storm_source),
         Path(args.cmcc_source),
         wind_unit_in=normalized_wind_unit,
     )
-    exposure: NormalizedExposure = build_complete_exposure(infra_elec_dir=infra_elec_dir, infra_eau_dir=infra_eau_dir)
+    exposure: NormalizedExposure = build_complete_exposure(
+        infra_elec_dir=case_cfg["infra_elec_dir"],
+        infra_eau_dir=case_cfg["infra_eau_dir"],
+        territory=territory,
+    )
     impact_metrics, aux = _compute_impact_metrics(
         exposure,
         spacing_m=float(args.spacing_m),
@@ -1030,15 +1088,20 @@ def main() -> None:
         network_value_per_km=exposure_metrics["value_per_km_eur"],
     )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
-    guadeloupe_wind_compare_rows = _load_guadeloupe_wind_comparison_table(diagnostic_md)
+    zone_wind_compare_rows = _load_zone_wind_comparison_table(
+        diagnostic_md,
+        str(case_cfg["wind_comparison_heading"]),
+    )
 
-    geometry_features = _build_network_geometry_features(infra_elec_dir, infra_eau_dir)
+    geometry_features = _build_network_geometry_features(case_cfg)
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
 
     payload = {
         "meta": {
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
-            "source": "guadeloupe_page1_computed",
+            "source": f"{territory}_case_study_computed",
+            "case_study_territory": territory,
+            "case_study_label": territory_label(territory),
             "sampling_spacing_m": float(args.spacing_m),
             "hazards": ["STORM", "STORM_CMCC"],
             "storm_years": int(settings.storm_years),
@@ -1058,7 +1121,7 @@ def main() -> None:
             "wind_unit_in": normalized_wind_unit,
             "wind_unit_out": "m/s",
             "wind_histograms": hazard_hist,
-            "guadeloupe_wind_comparison_table": guadeloupe_wind_compare_rows,
+            "zone_wind_comparison_table": zone_wind_compare_rows,
         },
         "impact": impact_metrics,
         "conclusion": {
@@ -1071,6 +1134,7 @@ def main() -> None:
 
     print(f"Wrote {out_json}")
     print(f"Wrote {out_state_geojson}")
+    print(f"territory={territory}")
     print(f"State map features: {len(geometry_features)}")
     print(f"EAI STORM: {impact_metrics['summary_metrics']['storm']['eai_total_eur']}")
     print(f"EAI STORM_CMCC: {impact_metrics['summary_metrics']['storm_cmcc']['eai_total_eur']}")

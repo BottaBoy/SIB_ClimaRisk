@@ -14,6 +14,11 @@ const state = {
   pollTimer: null,
   pollingModeTarget: null,
   currentPage: 'page1',
+  caseStudyTerritory: 'guadeloupe',
+  caseStudyCache: {
+    guadeloupe: null,
+    martinique: null
+  },
   mapReady: false,
   windMaps: null,
   windLayerOpacity: 0.82,
@@ -105,19 +110,6 @@ const STATE_COLORS = {
 
 const WIND_PADDING_CELLS = 6;
 
-const GUA_VALUATION_RULES = [
-  'Elec basse tension aerien: 180 kEUR/km',
-  'Elec basse tension souterrain: 320 kEUR/km',
-  'Elec haute tension aerien: 260 kEUR/km',
-  'Elec haute tension souterrain: 520 kEUR/km',
-  'AEP canalisations (Guadeloupe): 776 386 EUR/km',
-  'EU canalisations (Guadeloupe): 791 691 EUR/km',
-  'EU PR (Guadeloupe): 523 211 EUR/unite',
-  'EU STEP (Guadeloupe): 7 777 800 EUR/unite',
-  'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)',
-  'Source OFB: comparateur de couts, moyenne territoriale observee'
-];
-
 const chartRefs = {
   c1: null,
   c2: null,
@@ -144,8 +136,11 @@ const els = {
   navPage1: document.getElementById('nav-page-1'),
   navPage2: document.getElementById('nav-page-2'),
   navPage3: document.getElementById('nav-page-3'),
+  navPage4: document.getElementById('nav-page-4'),
   runtimeAccessNote: document.getElementById('runtime-access-note'),
   pageBlocks: Array.from(document.querySelectorAll('.page-block')),
+  caseStudyTitle: document.getElementById('case-study-title'),
+  caseStudySubtitle: document.getElementById('case-study-subtitle'),
   errorBanner: document.getElementById('error-banner'),
   badgeSource: document.getElementById('badge-source'),
   badgeUpdated: document.getElementById('badge-updated'),
@@ -196,6 +191,7 @@ const els = {
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
+  waterMapTitle: document.getElementById('water-map-title'),
   waterLayerControls: document.getElementById('water-layer-controls'),
   infraSummary: document.getElementById('infra-summary'),
   expositionSummaryText: document.getElementById('exposition-summary-text'),
@@ -205,6 +201,7 @@ const els = {
   expositionTotalOuvrages: document.getElementById('exposition-total-ouvrages'),
   expositionTotalValue: document.getElementById('exposition-total-value'),
   hazardGuadeloupeCompareBody: document.getElementById('hazard-guadeloupe-compare-body'),
+  hazardCompareTitle: document.getElementById('hazard-compare-title'),
   page1ChartYearCompare: document.getElementById('page1-chart-year-compare'),
   page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
@@ -245,7 +242,8 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', {
 
 const PUBLIC_SHOWCASE_HOSTNAMES = new Set([
   'sib.elio.dev',
-  'sib-copy.dev.elio.bottagisio.com'
+  'sib-copy.dev.elio.bottagisio.com',
+  'visu.sib.dev.elio.bottagisio.com'
 ]);
 
 const runtime = {
@@ -307,13 +305,14 @@ const EXPOSURE_TYPE_LABEL = {
 
 function pageFromHash() {
   const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
-  if (hash === 'page2') return runtime.isPublicShowcase ? 'page1' : 'page2';
-  if (hash === 'page3') return 'page3';
+  if (hash === 'page2') return 'page2';
+  if (hash === 'page3') return runtime.isPublicShowcase ? 'page1' : 'page3';
+  if (hash === 'page4') return 'page4';
   return 'page1';
 }
 
 function setActivePage(pageKey, { updateHash = true } = {}) {
-  if (runtime.isPublicShowcase && pageKey === 'page2') {
+  if (runtime.isPublicShowcase && pageKey === 'page3') {
     pageKey = 'page1';
   }
   state.currentPage = pageKey;
@@ -330,7 +329,8 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
   const tabs = [
     [els.navPage1, 'page1'],
     [els.navPage2, 'page2'],
-    [els.navPage3, 'page3']
+    [els.navPage3, 'page3'],
+    [els.navPage4, 'page4']
   ];
   tabs.forEach(([btn, key]) => {
     if (!btn) return;
@@ -338,7 +338,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     else btn.classList.remove('active');
   });
 
-  if (pageKey === 'page2') {
+  if (pageKey === 'page3') {
     renderMap();
     renderDrawPreview();
     renderHazardCharts();
@@ -355,7 +355,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.user_impact_eventmax) chartRefs.user_impact_eventmax.resize();
     }, 80);
   }
-  if (pageKey === 'page1') {
+  if (pageKey === 'page1' || pageKey === 'page2') {
     setTimeout(() => {
       if (windMapRef.storm.instance) windMapRef.storm.instance.invalidateSize();
       if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
@@ -382,9 +382,9 @@ function applyRuntimeMode() {
 
   document.body.classList.add('runtime-public');
 
-  if (els.navPage2) {
-    els.navPage2.hidden = true;
-    els.navPage2.setAttribute('aria-hidden', 'true');
+  if (els.navPage3) {
+    els.navPage3.hidden = true;
+    els.navPage3.setAttribute('aria-hidden', 'true');
   }
 
   if (els.runtimeAccessNote) {
@@ -492,6 +492,13 @@ function getHazardLabel(hazardKey) {
 }
 
 function updateMetaBadges() {
+  const caseMeta = state.page1Analysis?.meta || null;
+  if ((state.currentPage === 'page1' || state.currentPage === 'page2') && caseMeta) {
+    els.badgeSource.textContent = `Source: ${caseMeta.source || 'inconnue'}`;
+    els.badgeUpdated.textContent = `Mis a jour: ${formatDate(caseMeta.generated_at)}`;
+    els.badgeEngine.textContent = `Moteur: climada_with_interdependency_v1`;
+    return;
+  }
   const result = getActiveResult();
   if (!result) return;
   els.badgeSource.textContent = `Source: ${result.meta?.source || 'inconnue'}`;
@@ -556,6 +563,22 @@ function renderKpis() {
 
 function renderInfraSummary() {
   const analysis = state.page1Analysis;
+  const territory = state.caseStudyTerritory === 'martinique' ? 'martinique' : 'guadeloupe';
+  const territoryLabel = territory === 'martinique' ? 'Martinique' : 'Guadeloupe';
+  const territoryLabelLower = territoryLabel.toLowerCase();
+  if (els.caseStudyTitle) {
+    els.caseStudyTitle.textContent = `Impact des risques physiques sur les infrastructures : etude de cas ${territoryLabel}`;
+  }
+  if (els.caseStudySubtitle) {
+    els.caseStudySubtitle.textContent =
+      `Cette page presente un exercice de demonstration d'une analyse complete des risques cycloniques sur les reseaux d'eau et d'electricite en ${territoryLabel}. Les aleas cycloniques sont modelises a partir des bases STORM (Bloemdaal et al., 2020) et STORM_CMCC (Bloemdaal et al., 2022). Les resultats sont proposes comme prototype methodologique a valider et affiner.`;
+  }
+  if (els.waterMapTitle) {
+    els.waterMapTitle.textContent = `Carte des infrastructures d'eau et d'electricite de ${territoryLabel}`;
+  }
+  if (els.hazardCompareTitle) {
+    els.hazardCompareTitle.textContent = `Comparaison vitesses max - zone ${territoryLabel}`;
+  }
   renderMethodologyValuation(analysis);
   if (!analysis) {
     if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
@@ -585,12 +608,25 @@ function renderMethodologyValuation(analysis) {
     `EU STEP: ${numberFmt.format(Number(nb.eu_step || 0))}`
   ].join(' | ');
   const policy = 'Regle territoriale: Guadeloupe/Martinique par bbox, hors zone = fallback Guadeloupe.';
+  const newValues = valuation.new_values || {};
+  const dynamicRules = [
+    'Elec basse tension aerien: 180 kEUR/km',
+    'Elec basse tension souterrain: 320 kEUR/km',
+    'Elec haute tension aerien: 260 kEUR/km',
+    'Elec haute tension souterrain: 520 kEUR/km',
+    `AEP canalisations (${territory}): ${numberFmt.format(Number(newValues.aep_cana_eur_per_km || 0))} EUR/km`,
+    `EU canalisations (${territory}): ${numberFmt.format(Number(newValues.eu_cana_eur_per_km || 0))} EUR/km`,
+    `EU PR (${territory}): ${numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0))} EUR/unite`,
+    `EU STEP (${territory}): ${numberFmt.format(Number(newValues.eu_step_eur_per_unit || 0))} EUR/unite`,
+    'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)',
+    'Source OFB: comparateur de couts, moyenne territoriale observee'
+  ];
 
   els.methodValuationOfb.innerHTML = `
     <p class="muted small">${escapeHtml(`Source: ${source}. Territoire applique: ${territory}. Version: ${version}.`)}</p>
     <p class="muted small">${escapeHtml(`Nombre de prix compares (${territory}): ${compared}.`)}</p>
     <p class="muted small">${escapeHtml(policy)}</p>
-    <ul>${GUA_VALUATION_RULES.map((rule) => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>
+    <ul>${dynamicRules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join('')}</ul>
   `;
 }
 
@@ -602,9 +638,10 @@ function renderPage1Exposition(analysis) {
   const totals = expo.total_value_by_type_eur || {};
   const valuation = expo.valuation_metadata || {};
   const newValues = valuation.new_values || {};
+  const territory = state.caseStudyTerritory === 'martinique' ? 'Martinique' : 'Guadeloupe';
 
   if (els.expositionSummaryText) {
-    els.expositionSummaryText.textContent = "L’exposition représente tous les enjeux qui peuvent et doivent être protégés face aux risques physiques. Dans ce cas d’étude sur la Guadeloupe, ont été pris en compte les réseaux d’eau potable (AEP), d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain, haute tension aerien, haute tension souterrain).";
+    els.expositionSummaryText.textContent = `L’exposition représente tous les enjeux qui peuvent et doivent être protégés face aux risques physiques. Dans ce cas d’étude sur la ${territory}, ont été pris en compte les réseaux d’eau potable (AEP), d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain, haute tension aerien, haute tension souterrain).`;
   }
 
   if (els.expositionNetworkTableBody) {
@@ -690,7 +727,9 @@ function renderPage1Hazard(analysis) {
   }
 
   if (els.hazardGuadeloupeCompareBody) {
-    const rows = Array.isArray(hazard.guadeloupe_wind_comparison_table) ? hazard.guadeloupe_wind_comparison_table : [];
+    const rows = Array.isArray(hazard.zone_wind_comparison_table)
+      ? hazard.zone_wind_comparison_table
+      : (Array.isArray(hazard.guadeloupe_wind_comparison_table) ? hazard.guadeloupe_wind_comparison_table : []);
     if (!rows.length) {
       els.hazardGuadeloupeCompareBody.innerHTML = '<tr><td colspan="4">Tableau indisponible.</td></tr>';
     } else {
@@ -2017,7 +2056,7 @@ function renderUserImpactSection(result) {
     return;
   }
   const modeLabel = {
-    demo: 'référence Guadeloupe',
+    demo: "reference cas d'etude",
     uploaded: 'exposition importée',
     drawn: 'exposition dessinée'
   }[state.selectedDatasetMode] || 'résultat actif';
@@ -2146,7 +2185,7 @@ function renderAll() {
   renderWaterInfraMap();
   renderInfraSummary();
   renderUserImpactSection(state.activeResult);
-  if (state.currentPage === 'page1') {
+  if (state.currentPage === 'page1' || state.currentPage === 'page2') {
     ensureNetworkStatesLoaded();
   }
   renderNetworkStateMap();
@@ -2160,7 +2199,7 @@ function renderAll() {
   updateMetaBadges();
   renderNotes();
 
-  if (state.currentPage === 'page2') {
+  if (state.currentPage === 'page3') {
     renderTerritorySelectionState();
     renderKpis();
     renderMap();
@@ -2195,8 +2234,17 @@ async function fetchDemoResult() {
   throw lastErr || new Error('Impossible de charger le résultat de référence');
 }
 
-async function fetchWindMaps() {
-  const urls = [new URL('/data/guadeloupe-wind-maps.json', window.location.origin).toString()];
+function normalizeCaseStudyTerritory(territory) {
+  return String(territory || '').trim().toLowerCase() === 'martinique' ? 'martinique' : 'guadeloupe';
+}
+
+function caseStudyFileBase(territory) {
+  return normalizeCaseStudyTerritory(territory);
+}
+
+async function fetchWindMaps(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const urls = [new URL(`/data/${base}-wind-maps.json`, window.location.origin).toString()];
   let lastErr = null;
   for (const url of urls) {
     try {
@@ -2214,8 +2262,9 @@ async function fetchWindMaps() {
   throw lastErr || new Error('Impossible de charger les cartes des vents');
 }
 
-async function fetchWaterInfra() {
-  const url = new URL('/data/guadeloupe-water-infra.geojson', window.location.origin).toString();
+async function fetchWaterInfra(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-water-infra.geojson`, window.location.origin).toString();
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
@@ -2225,19 +2274,22 @@ async function fetchWaterInfra() {
   return payload;
 }
 
-async function fetchPage1Analysis() {
-  const url = new URL('/data/guadeloupe-page1-analysis.json', window.location.origin).toString();
+async function fetchPage1Analysis(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const suffix = base === 'martinique' ? 'page2' : 'page1';
+  const url = new URL(`/data/${base}-${suffix}-analysis.json`, window.location.origin).toString();
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
   if (!payload || !payload.exposition || !payload.hazard || !payload.impact || !payload.conclusion) {
-    throw new Error('Payload analyse page 1 invalide');
+    throw new Error('Payload analyse cas d etude invalide');
   }
   return payload;
 }
 
-async function fetchNetworkStates() {
-  const url = new URL('/data/guadeloupe-network-states.geojson', window.location.origin).toString();
+async function fetchNetworkStates(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-network-states.geojson`, window.location.origin).toString();
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
@@ -2248,11 +2300,18 @@ async function fetchNetworkStates() {
 }
 
 function ensureNetworkStatesLoaded() {
-  if (state.networkStates) return;
+  const territory = normalizeCaseStudyTerritory(state.caseStudyTerritory);
+  const cached = state.caseStudyCache[territory];
+  if (cached && cached.networkStates) {
+    state.networkStates = cached.networkStates;
+    return;
+  }
   if (state.networkStatesPromise) return;
-  state.networkStatesPromise = fetchNetworkStates()
+  state.networkStatesPromise = fetchNetworkStates(territory)
     .then((payload) => {
       state.networkStates = payload;
+      if (!state.caseStudyCache[territory]) state.caseStudyCache[territory] = {};
+      state.caseStudyCache[territory].networkStates = payload;
     })
     .catch((err) => {
       console.warn('Network states could not be loaded', err);
@@ -2264,6 +2323,66 @@ function ensureNetworkStatesLoaded() {
       state.networkStatesPromise = null;
       renderNetworkStateMap();
     });
+}
+
+function resetCaseStudyMapLayers() {
+  windMapRef.storm.hasFitted = false;
+  windMapRef.storm_cmcc.hasFitted = false;
+  if (windMapRef.storm.cellsLayer) windMapRef.storm.cellsLayer.clearLayers();
+  if (windMapRef.storm_cmcc.cellsLayer) windMapRef.storm_cmcc.cellsLayer.clearLayers();
+  if (waterMapRef.instance) {
+    waterMapRef.layersByType.forEach((entry) => {
+      if (entry?.layer && waterMapRef.instance.hasLayer(entry.layer)) waterMapRef.instance.removeLayer(entry.layer);
+    });
+  }
+  waterMapRef.layersByType.clear();
+  waterMapRef.order = [];
+  waterMapRef.hasFitted = false;
+  if (networkMapRef.instance) {
+    networkMapRef.layersByType.forEach((entry) => {
+      if (entry?.layer && networkMapRef.instance.hasLayer(entry.layer)) networkMapRef.instance.removeLayer(entry.layer);
+    });
+  }
+  networkMapRef.layersByType.clear();
+  networkMapRef.order = [];
+  networkMapRef.hasFitted = false;
+}
+
+async function ensureCaseStudyLoaded(territory) {
+  const key = normalizeCaseStudyTerritory(territory);
+  if (state.caseStudyCache[key]?.ready) return state.caseStudyCache[key];
+  if (!state.caseStudyCache[key]) state.caseStudyCache[key] = {};
+  const cache = state.caseStudyCache[key];
+  if (cache.promise) return cache.promise;
+  cache.promise = Promise.all([
+    fetchWindMaps(key),
+    fetchWaterInfra(key),
+    fetchPage1Analysis(key),
+    fetchNetworkStates(key)
+  ]).then(([windMaps, waterInfra, analysis, networkStates]) => {
+    cache.windMaps = windMaps;
+    cache.waterInfra = waterInfra;
+    cache.analysis = analysis;
+    cache.networkStates = networkStates;
+    cache.ready = true;
+    return cache;
+  }).finally(() => {
+    cache.promise = null;
+  });
+  return cache.promise;
+}
+
+function applyCaseStudyState(territory, payload) {
+  const key = normalizeCaseStudyTerritory(territory);
+  const previous = state.caseStudyTerritory;
+  state.caseStudyTerritory = key;
+  if (previous !== key) {
+    resetCaseStudyMapLayers();
+  }
+  state.windMaps = payload?.windMaps || null;
+  state.waterInfra = payload?.waterInfra || null;
+  state.page1Analysis = payload?.analysis || null;
+  state.networkStates = payload?.networkStates || null;
 }
 
 function stopPolling() {
@@ -2462,32 +2581,62 @@ function switchDatasetMode(mode) {
   setActiveResult(candidate, mode);
 }
 
+async function switchCaseStudyPage(pageKey, territory, { updateHash = true } = {}) {
+  setActivePage(pageKey, { updateHash });
+  try {
+    const payload = await ensureCaseStudyLoaded(territory);
+    applyCaseStudyState(territory, payload);
+    renderAll();
+  } catch (err) {
+    console.warn(`Case-study ${territory} could not be loaded`, err);
+    if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
+    if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
+    if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
+    if (els.conclusionText) els.conclusionText.textContent = 'Conclusion indisponible.';
+    renderAll();
+    showError(`Erreur de chargement de l'etude de cas ${territory}: ${err.message}`);
+  }
+}
+
 function bindEvents() {
   if (els.navPage1) {
-    els.navPage1.addEventListener('click', () => {
-      setActivePage('page1');
-      renderAll();
+    els.navPage1.addEventListener('click', async () => {
+      await switchCaseStudyPage('page1', 'guadeloupe');
     });
   }
   if (els.navPage2) {
-    els.navPage2.addEventListener('click', () => {
+    els.navPage2.addEventListener('click', async () => {
+      await switchCaseStudyPage('page2', 'martinique');
+    });
+  }
+  if (els.navPage3) {
+    els.navPage3.addEventListener('click', () => {
       if (runtime.isPublicShowcase) {
         setActivePage('page1');
         setStatus("L'espace collaborateur est disponible sur app.sib.elio.dev.", 'info');
         return;
       }
-      setActivePage('page2');
-      renderAll();
-    });
-  }
-  if (els.navPage3) {
-    els.navPage3.addEventListener('click', () => {
       setActivePage('page3');
       renderAll();
     });
   }
+  if (els.navPage4) {
+    els.navPage4.addEventListener('click', () => {
+      setActivePage('page4');
+      renderAll();
+    });
+  }
   window.addEventListener('hashchange', () => {
-    setActivePage(pageFromHash(), { updateHash: false });
+    const page = pageFromHash();
+    if (page === 'page2') {
+      switchCaseStudyPage('page2', 'martinique', { updateHash: false });
+      return;
+    }
+    if (page === 'page1') {
+      switchCaseStudyPage('page1', 'guadeloupe', { updateHash: false });
+      return;
+    }
+    setActivePage(page, { updateHash: false });
     renderAll();
   });
 
@@ -2535,7 +2684,7 @@ function bindEvents() {
     els.datasetSelect.value = 'demo';
     setActiveResult(state.resultsByMode.demo, 'demo');
     setStatus('Retour à la référence complète Guadeloupe.', 'success');
-    setActivePage('page1');
+    setActivePage('page3');
   });
 
   els.reloadJobBtn.addEventListener('click', async () => {
@@ -2582,7 +2731,7 @@ function bindEvents() {
 
   els.territorySearch.addEventListener('input', () => {
     state.territorySearch = els.territorySearch.value.trim();
-    if (state.currentPage === 'page2') renderTerritoryTable();
+    if (state.currentPage === 'page3') renderTerritoryTable();
   });
 
   els.clearTerritoryFilterBtn.addEventListener('click', () => {
@@ -2598,30 +2747,21 @@ async function bootstrap() {
     clearError();
     applyRuntimeMode();
     bindEvents();
-    setActivePage(pageFromHash(), { updateHash: false });
+    const initialPage = pageFromHash();
+    setActivePage(initialPage, { updateHash: false });
     renderDrawPreview();
-    state.windMaps = await fetchWindMaps().catch((err) => {
-      console.warn('Wind maps could not be loaded', err);
+    const initialTerritory = initialPage === 'page2' ? 'martinique' : 'guadeloupe';
+    const initialCasePayload = await ensureCaseStudyLoaded(initialTerritory).catch((err) => {
+      console.warn(`Case-study ${initialTerritory} payload could not be loaded`, err);
       return null;
     });
-    if (!state.windMaps) {
-      if (els.windStormCaption) els.windStormCaption.textContent = 'Donnees vent indisponibles.';
-      if (els.windCmccCaption) els.windCmccCaption.textContent = 'Donnees vent indisponibles.';
-    }
-
-    state.waterInfra = await fetchWaterInfra().catch((err) => {
-      console.warn('Water infrastructures could not be loaded', err);
-      return null;
-    });
-    if (!state.waterInfra && els.waterMapCaption) {
-      els.waterMapCaption.textContent = "Donnees infrastructures d'eau indisponibles.";
-    }
-
-    state.page1Analysis = await fetchPage1Analysis().catch((err) => {
-      console.warn('Page 1 analysis payload could not be loaded', err);
-      return null;
-    });
-    if (!state.page1Analysis) {
+    if (initialCasePayload) {
+      applyCaseStudyState(initialTerritory, initialCasePayload);
+      const secondaryTerritory = initialTerritory === 'guadeloupe' ? 'martinique' : 'guadeloupe';
+      ensureCaseStudyLoaded(secondaryTerritory).catch((err) => {
+        console.warn(`Case-study ${secondaryTerritory} preload failed`, err);
+      });
+    } else {
       if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
       if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
       if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
@@ -2635,9 +2775,9 @@ async function bootstrap() {
     updateMetaBadges();
     renderAll();
     if (runtime.isPublicShowcase) {
-      setStatus("Reference Guadeloupe complete chargee. Pour collaborer sur des runs personnalises, demande un acces a app.sib.elio.dev.", 'success');
+      setStatus("References Guadeloupe/Martinique chargees. Pour collaborer sur des runs personnalises, demande un acces a app.sib.elio.dev.", 'success');
     } else {
-      setStatus("Reference Guadeloupe complete chargee. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
+      setStatus("References Guadeloupe/Martinique chargees. Importez ou dessinez une exposition pour lancer un run asynchrone.", 'success');
     }
   } catch (err) {
     console.error(err);

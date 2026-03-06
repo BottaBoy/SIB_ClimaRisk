@@ -18,16 +18,19 @@
         <a class="top-menu-brand" href="#page1" aria-label="Accueil OFB">
           <img src="assets/Logo_OFB.png" alt="Logo OFB" />
         </a>
-        <button id="nav-page-1" class="page-tab active" type="button">Exemple risques cycloniques Guadeloupe</button>
-        <button id="nav-page-2" class="page-tab" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
-        <button id="nav-page-3" class="page-tab" type="button">Methodologie detaillée de l'outil</button>
+        <button id="nav-page-1" class="page-tab active" type="button">Etude de cas Guadeloupe</button>
+        <button id="nav-page-2" class="page-tab" type="button">Etude de cas Martinique</button>
+        <button id="nav-page-3" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
+        <button id="nav-page-4" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
       </nav>
 
-      <header class="hero panel page-block page1">
+      <section id="runtime-access-note" class="panel runtime-note" hidden></section>
+
+      <header class="hero panel page-block page1 page2">
         <div>
           <p class="eyebrow">Analyse de reference</p>
-          <h1>Impact des risques physiques sur les infrastructures : etude de cas Guadeloupe</h1>
-          <p class="subtitle">
+          <h1 id="case-study-title">Impact des risques physiques sur les infrastructures : etude de cas Guadeloupe</h1>
+          <p id="case-study-subtitle" class="subtitle">
             Cette page présente un exercice de demonstration d'une analyse complete des risques cycloniques. Cette étude de cas prend en compte
             les reseaux d'eau et d'electricite. Les aleas cycloniques sont modélisés à partir de la base de donnée STORM (Bloemdaal et al. 2020) et STORM_CMCC (Bloemdaal et al., 2022). 
             Les données cartographiques des réseaux d'eau ont été fournis par le SMGEAG, quand à celle des reseaux électriques, elles sont disponible sur le site de EDF Guadeloupe.
@@ -43,7 +46,7 @@
         </div>
       </header>
 
-      <section class="panel exposition-panel page-block page1" aria-labelledby="expo-title">
+      <section class="panel exposition-panel page-block page1 page2" aria-labelledby="expo-title">
         <div class="section-head">
           <div>
             <h2 id="expo-title">Exposition</h2>
@@ -93,14 +96,14 @@
         </div>
         <p class="muted small" id="exposition-total-value">Valeur totale du portefeuille: —</p>
         <div class="subpanel water-map-card">
-          <h3>Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
+          <h3 id="water-map-title">Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Chargement…</p>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
       </section>
 
-      <section class="panel wind-panel page-block page1" aria-labelledby="wind-panel-title">
+      <section class="panel wind-panel page-block page1 page2" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
             <h2 id="wind-panel-title">Analyse des aléas</h2>
@@ -122,7 +125,7 @@
           </div>
         </div>
         <article class="subpanel">
-          <h3>Comparaison vitesses max - zone Guadeloupe</h3>
+          <h3 id="hazard-compare-title">Comparaison vitesses max - zone Guadeloupe</h3>
           <div class="table-wrap compact">
             <table>
               <thead>
@@ -161,7 +164,7 @@
         </div>
       </section>
 
-      <section class="panel impact-panel page-block page1" aria-labelledby="impact-title">
+      <section class="panel impact-panel page-block page1 page2" aria-labelledby="impact-title">
         <div class="section-head">
           <div>
             <h2 id="impact-title">Impact</h2>
@@ -313,7 +316,7 @@
         </div>
       </section>
 
-      <section class="panel conclusion-panel page-block page1" aria-labelledby="conclusion-title">
+      <section class="panel conclusion-panel page-block page1 page2" aria-labelledby="conclusion-title">
         <div class="section-head">
           <div>
             <h2 id="conclusion-title">Conclusion</h2>
@@ -324,7 +327,7 @@
         </div>
       </section>
 
-      <section class="panel disclaimer page-block page1" aria-label="Clause de non responsabilite">
+      <section class="panel disclaimer page-block page1 page2" aria-label="Clause de non responsabilite">
         <p>
           Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
@@ -333,7 +336,7 @@
         </p>
       </section>
 
-      <section class="panel controls-grid page-block page2" aria-label="Parametres d'analyse">
+      <section class="panel controls-grid page-block page3" aria-label="Parametres d'analyse">
         <div class="field">
           <label for="hazard-select">Aléa</label>
           <select id="hazard-select">
@@ -368,9 +371,9 @@
         </div>
       </section>
 
-      <section class="kpi-grid page-block page2" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
+      <section class="kpi-grid page-block page3" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
 
-      <section class="panel main-grid page-block page2">
+      <section class="panel main-grid page-block page3">
         <div class="map-card">
           <div class="section-head">
             <div>
@@ -412,7 +415,7 @@
         </div>
       </section>
 
-      <section class="panel charts-panel page-block page2">
+      <section class="panel charts-panel page-block page3">
         <div class="section-head">
           <div>
             <h2>Graphiques aléas (resultat utilisateur)</h2>
@@ -432,7 +435,7 @@
         </div>
       </section>
 
-      <section class="panel run-lab page-block page2" aria-labelledby="run-lab-title">
+      <section class="panel run-lab page-block page3" aria-labelledby="run-lab-title">
         <div class="run-lab-head">
           <div>
             <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
@@ -544,7 +547,7 @@
         </div>
       </section>
 
-      <section class="panel page-block page2 user-impact-panel" aria-labelledby="user-impact-title">
+      <section class="panel page-block page3 user-impact-panel" aria-labelledby="user-impact-title">
         <div class="section-head">
           <div>
             <h2 id="user-impact-title">Impact (resultat utilisateur)</h2>
@@ -574,7 +577,7 @@
         <p class="muted" id="user-conclusion-text">Conclusion utilisateur en cours de chargement...</p>
       </section>
 
-      <section class="panel disclaimer page-block page2" aria-label="Clause de non responsabilite">
+      <section class="panel disclaimer page-block page3" aria-label="Clause de non responsabilite">
         <p>
           Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
@@ -583,7 +586,7 @@
         </p>
       </section>
 
-      <section class="panel methodology page-block page3">
+      <section class="panel methodology page-block page4">
         <div class="section-head">
           <div>
             <h2>Methodologie detaillee de calcul</h2>
@@ -607,10 +610,16 @@ web/assets/app.js
 
 scripts/build_guadeloupe_complete_analysis.py
   -> cree web/data/guadeloupe-complete-analysis.json
+  -> cree web/data/martinique-complete-analysis.json
+scripts/build_guadeloupe_page1_data.py --territory <guadeloupe|martinique>
+  -> cree web/data/guadeloupe-page1-analysis.json
+  -> cree web/data/martinique-page2-analysis.json
 scripts/build_guadeloupe_wind_maps.py
   -> cree web/data/guadeloupe-wind-maps.json
+  -> cree web/data/martinique-wind-maps.json
 scripts/build_guadeloupe_water_infra_map.py
   -> cree web/data/guadeloupe-water-infra.geojson
+  -> cree web/data/martinique-water-infra.geojson
           </pre>
         </article>
         <div class="method-grid">
@@ -626,7 +635,7 @@ scripts/build_guadeloupe_water_infra_map.py
           <article class="subpanel">
             <h3>Exposition</h3>
             <ul>
-              <li>La page de reference utilise les jeux complets d'infrastructures eau et electricite de Guadeloupe.</li>
+              <li>Les pages de reference utilisent les jeux complets d'infrastructures eau et electricite de Guadeloupe et de Martinique.</li>
               <li>L'exposition represente l'ensemble des enjeux (infrastructures, habitations, etc.).</li>
               <li>Imports utilisateur acceptes: CSV/XLSX et formats SIG (GeoJSON/GPKG).</li>
               <li>Les lignes et polygones sont desagreges en points avant calcul, puis reagreges.</li>
@@ -659,7 +668,7 @@ scripts/build_guadeloupe_water_infra_map.py
         <div class="notes-box" id="notes-box"></div>
       </section>
 
-      <section class="panel disclaimer page-block page3" aria-label="Clause de non responsabilite">
+      <section class="panel disclaimer page-block page4" aria-label="Clause de non responsabilite">
         <p>
           Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.

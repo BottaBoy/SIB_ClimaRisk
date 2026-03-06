@@ -1,7 +1,9 @@
 {
   "meta": {
-    "generated_at": "2026-03-05T14:32:38+00:00",
-    "source": "guadeloupe_page1_computed",
+    "generated_at": "2026-03-06T08:03:59+00:00",
+    "source": "guadeloupe_case_study_computed",
+    "case_study_territory": "guadeloupe",
+    "case_study_label": "Guadeloupe",
     "sampling_spacing_m": 100.0,
     "hazards": [
       "STORM",
@@ -13,7 +15,7 @@
     "valuation_version": "ofb_2026_03_v1"
   },
   "exposition": {
-    "summary_text": "Le jeu de reference comprend 72989 troncons electriques et 45737 troncons d'eau. Longueurs reseaux: BT aerien 3063.9 km, BT souterrain 1616.5 km, HTA aerien 529.8 km, HTA souterrain 1956.8 km, AEP 3151.8 km, EU 819.2 km. Ouvrages eau: 440 AEP, 348 PR, 142 STEP.",
+    "summary_text": "Le jeu de reference Guadeloupe comprend 72989 troncons electriques et 45737 troncons d'eau. Longueurs reseaux: BT aerien 3063.9 km, BT souterrain 1616.5 km, HTA aerien 529.8 km, HTA souterrain 1956.8 km, AEP 3151.8 km, EU 819.2 km. Ouvrages eau: 440 AEP, 348 PR, 142 STEP.",
     "lengths_km": {
       "elec_bt_aerien": 3063.921,
       "elec_bt_souterrain": 1616.507,
@@ -656,7 +658,7 @@
         "year_count": 10000
       }
     },
-    "guadeloupe_wind_comparison_table": [
+    "zone_wind_comparison_table": [
       {
         "indicator": "Nombre d annees actives (>=1 passage dans la zone)",
         "storm": "2 655",

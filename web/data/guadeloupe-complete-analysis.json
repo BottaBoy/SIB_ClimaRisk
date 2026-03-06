@@ -3,7 +3,7 @@
     "title": "Guadeloupe Complete Water+Electric Cyclone Risk",
     "source": "guadeloupe_complete_reference",
     "job_id": "guadeloupe_complete_reference",
-    "updated_at": "2026-03-05T11:28:52+00:00",
+    "updated_at": "2026-03-06T08:03:20+00:00",
     "unit_currency": "EUR",
     "currency_display_unit": "MEUR",
     "sampling_spacing_m": 100.0,
@@ -33,14 +33,15 @@
     },
     "valuation_source": "Comparateur de couts OFB (moyenne territoriale observee)",
     "valuation_territory": "guadeloupe",
-    "valuation_version": "ofb_2026_03_v1"
+    "valuation_version": "ofb_2026_03_v1",
+    "case_study_territory": "guadeloupe"
   },
   "exposure_summary": {
     "asset_count_original": 119655,
     "asset_count_points": 357105,
     "total_exposure_eur": 7122135221.57,
     "source_name": "guadeloupe_complete_infra_reference",
-    "source_format": "mixed_geojson_gpkg",
+    "source_format": "mixed_geojson_gpkg_shp",
     "geometry_type_counts": {
       "LineString": 72989,
       "MultiLineString": 45736,
@@ -58,12 +59,12 @@
       "elec_hta_aerien": 1819,
       "elec_hta_souterrain": 7766,
       "eau_aep_cana": 31941,
+      "eau_eu_cana": 13795,
       "eau_aep_ouvrage_CUV": 202,
       "eau_aep_ouvrage_STPMP": 119,
       "eau_aep_ouvrage_CAP": 68,
       "eau_aep_ouvrage_OUVEB": 11,
       "eau_aep_ouvrage_TRAIT": 40,
-      "eau_eu_cana": 13795,
       "eau_eu_pr": 348,
       "eau_eu_step": 142
     }
@@ -87,7 +88,7 @@
     {
       "territory_id": "cell-+16.20_-61.40",
       "territory_label": "Zone (16.20, -61.40)",
-      "lat": 16.246480102420627,
+      "lat": 16.246480102420634,
       "lon": -61.43181756313824,
       "exposure_eur": 1038425971.94,
       "eai_storm_direct_eur": 19708972.87,
@@ -132,8 +133,8 @@
     {
       "territory_id": "cell-+16.00_-61.80",
       "territory_label": "Zone (16.00, -61.80)",
-      "lat": 16.021586662323074,
-      "lon": -61.73242424452041,
+      "lat": 16.021586662323067,
+      "lon": -61.73242424452044,
       "exposure_eur": 585052387.59,
       "eai_storm_direct_eur": 11161026.96,
       "eai_storm_indirect_eur": 3838164.03,
@@ -147,7 +148,7 @@
     {
       "territory_id": "cell-+16.20_-61.80",
       "territory_label": "Zone (16.20, -61.80)",
-      "lat": 16.190403213718728,
+      "lat": 16.190403213718724,
       "lon": -61.77612964033477,
       "exposure_eur": 337863516.87,
       "eai_storm_direct_eur": 6444040.77,
@@ -178,7 +179,7 @@
       "territory_id": "cell-+16.40_-61.60",
       "territory_label": "Zone (16.40, -61.60)",
       "lat": 16.376890899062378,
-      "lon": -61.584006439205844,
+      "lon": -61.58400643920585,
       "exposure_eur": 243053956.41,
       "eai_storm_direct_eur": 4610447.21,
       "eai_storm_indirect_eur": 1487996.21,
@@ -1082,7 +1083,7 @@
     "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
     "Water valuation based on OFB cost comparator (territory mean).",
     "Valuation source: Comparateur de couts OFB (moyenne territoriale observee).",
-    "Territory selection by bbox: input=guadeloupe, effective=guadeloupe.",
+    "Territory selection fixed by case-study input: guadeloupe, effective=guadeloupe.",
     "All water assets are conservatively assumed dependent on electricity when service propagation is computed.",
     "For full STORM and STORM_CMCC raw catalogs, use official 4TU datasets linked in result notes and README.",
     "Production CLIMADA path should sample geometries in a metric CRS before reprojecting points back to EPSG:4326."

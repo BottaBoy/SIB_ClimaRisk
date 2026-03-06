@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
-from collections.abc import Iterable
 from pathlib import Path
 import sys
 
@@ -20,11 +19,15 @@ from app.risk_engine.analysis_export import build_result_payload  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.impact_runner import compute_impacts  # noqa: E402
 from app.risk_engine.types import NormalizedExposure, NormalizedFeature  # noqa: E402
+from case_study_sources import (  # noqa: E402
+    get_case_study,
+    normalize_territory,
+    territory_label,
+)
 from valuation_ofb import (  # noqa: E402
     SOURCE_LABEL,
     VALUATION_VERSION,
     build_valuation_metadata,
-    detect_territory_bbox,
     get_aep_ouvrage_value,
     get_elec_values,
     get_water_values,
@@ -58,7 +61,7 @@ def _line_features(
 ) -> list[NormalizedFeature]:
     gdf_wgs, gdf_metric = _as_wgs84_and_metric(gdf)
     out: list[NormalizedFeature] = []
-    for idx, (geom_wgs, geom_metric) in enumerate(zip(gdf_wgs.geometry, gdf_metric.geometry)):
+    for idx, (geom_wgs, geom_metric) in enumerate(zip(gdf_wgs.geometry, gdf_metric.geometry, strict=False)):
         if geom_wgs is None or geom_metric is None or getattr(geom_wgs, "is_empty", False) or getattr(geom_metric, "is_empty", False):
             continue
         centroid = geom_wgs.centroid
@@ -114,57 +117,28 @@ def _point_features_fixed_value(
     return out
 
 
-def _aep_ouvrage_value(ovrg_type: str) -> float:
-    return get_aep_ouvrage_value(ovrg_type)
-
-
-def _iter_reference_centroids(infra_elec_dir: Path, infra_eau_dir: Path) -> Iterable[tuple[float, float]]:
-    probe_paths = [
-        infra_eau_dir / "AEP" / "cana_aep.gpkg",
-        infra_eau_dir / "EU" / "cana_eu.gpkg",
-        infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson",
-        infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson",
-        infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson",
-        infra_elec_dir / "lignes-haute-tension-hta-souterrain-gua.geojson",
-    ]
-    for path in probe_paths:
-        if not path.exists():
-            continue
-        gdf = _ensure_crs(gpd.read_file(path)).to_crs(WGS84)
-        for geom in gdf.geometry:
-            if geom is None or getattr(geom, "is_empty", False):
-                continue
-            centroid = geom.centroid
-            if centroid is None or getattr(centroid, "is_empty", False):
-                continue
-            yield float(getattr(centroid, "x", 0.0)), float(getattr(centroid, "y", 0.0))
-
-
-def detect_reference_territory(infra_elec_dir: Path, infra_eau_dir: Path) -> str:
-    for lon, lat in _iter_reference_centroids(infra_elec_dir, infra_eau_dir):
-        territory = detect_territory_bbox(lon, lat)
-        if territory in {"guadeloupe", "martinique"}:
-            return territory
-    return "fallback_guadeloupe"
-
-
-def _point_features_aep_ouvrages(gdf: gpd.GeoDataFrame) -> list[NormalizedFeature]:
+def _point_features_aep_ouvrages_from_field(
+    gdf: gpd.GeoDataFrame,
+    *,
+    feature_prefix: str,
+    field_name: str = "ovrg_type",
+) -> list[NormalizedFeature]:
     gdf_wgs, _ = _as_wgs84_and_metric(gdf)
     out: list[NormalizedFeature] = []
     for idx, row in enumerate(gdf_wgs.itertuples(index=False)):
         geom = getattr(row, "geometry", None)
         if geom is None or getattr(geom, "is_empty", False):
             continue
-        ovrg_type = str(getattr(row, "ovrg_type", "") or "").strip().upper()
+        ovrg_type = str(getattr(row, field_name, "") or "").strip().upper()
         asset_type = f"eau_aep_ouvrage_{ovrg_type or 'NA'}"
         centroid = geom.centroid
         if centroid is None or getattr(centroid, "is_empty", False):
             continue
         out.append(
             NormalizedFeature(
-                feature_id=f"aep-ouvrage-{idx + 1}",
+                feature_id=f"{feature_prefix}-{idx + 1}",
                 label=f"AEP ouvrage {ovrg_type or 'NA'} {idx + 1}",
-                value_eur=_aep_ouvrage_value(ovrg_type),
+                value_eur=get_aep_ouvrage_value(ovrg_type),
                 geometry_type=str(getattr(geom, "geom_type", "Point")),
                 exposure_category="ouvrage_eau",
                 lon=float(getattr(centroid, "x", 0.0)),
@@ -176,107 +150,125 @@ def _point_features_aep_ouvrages(gdf: gpd.GeoDataFrame) -> list[NormalizedFeatur
     return out
 
 
+def _point_features_aep_ouvrages_fixed_type(
+    gdf: gpd.GeoDataFrame,
+    *,
+    feature_prefix: str,
+    ovrg_type: str,
+) -> list[NormalizedFeature]:
+    code = str(ovrg_type or "").strip().upper() or "NA"
+    gdf_wgs, _ = _as_wgs84_and_metric(gdf)
+    out: list[NormalizedFeature] = []
+    for idx, geom in enumerate(gdf_wgs.geometry):
+        if geom is None or getattr(geom, "is_empty", False):
+            continue
+        centroid = geom.centroid
+        if centroid is None or getattr(centroid, "is_empty", False):
+            continue
+        out.append(
+            NormalizedFeature(
+                feature_id=f"{feature_prefix}-{idx + 1}",
+                label=f"AEP ouvrage {code} {idx + 1}",
+                value_eur=get_aep_ouvrage_value(code),
+                geometry_type=str(getattr(geom, "geom_type", "Point")),
+                exposure_category="ouvrage_eau",
+                lon=float(getattr(centroid, "x", 0.0)),
+                lat=float(getattr(centroid, "y", 0.0)),
+                geometry_geojson=None,
+                properties={"asset_type": f"eau_aep_ouvrage_{code}"},
+            )
+        )
+    return out
+
+
 def build_complete_exposure(
     *,
-    infra_elec_dir: Path,
-    infra_eau_dir: Path,
+    infra_elec_dir: Path | None = None,
+    infra_eau_dir: Path | None = None,
+    territory: str = "guadeloupe",
 ) -> NormalizedExposure:
-    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
-    valuation_meta = build_valuation_metadata(territory)
-    water_values = get_water_values(territory)
+    territory_key = normalize_territory(territory)
+    cfg = get_case_study(
+        territory_key,
+        infra_elec_dir=infra_elec_dir,
+        infra_eau_dir=infra_eau_dir,
+    )
+    valuation_meta = build_valuation_metadata(territory_key)
+    water_values = get_water_values(territory_key)
     elec_values = get_elec_values()
     features: list[NormalizedFeature] = []
 
-    # Electricity lines
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-aerien-gua.geojson"),
-            feature_prefix="elec-bt-aerien",
-            asset_type="elec_bt_aerien",
-            exposure_category="ouvrage_electrique",
-            eur_per_km=elec_values["elec_bt_aerien"],
-        )
-    )
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_elec_dir / "lignes-basse-tension-bt-souterrain-gua.geojson"),
-            feature_prefix="elec-bt-souterrain",
-            asset_type="elec_bt_souterrain",
-            exposure_category="ouvrage_electrique",
-            eur_per_km=elec_values["elec_bt_souterrain"],
-        )
-    )
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_elec_dir / "lignes-haute-tension-hta-aerien-gua.geojson"),
-            feature_prefix="elec-hta-aerien",
-            asset_type="elec_hta_aerien",
-            exposure_category="ouvrage_electrique",
-            eur_per_km=elec_values["elec_hta_aerien"],
-        )
-    )
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_elec_dir / "lignes-haute-tension-hta-souterrain-gua.geojson"),
-            feature_prefix="elec-hta-souterrain",
-            asset_type="elec_hta_souterrain",
-            exposure_category="ouvrage_electrique",
-            eur_per_km=elec_values["elec_hta_souterrain"],
-        )
-    )
+    for src in cfg["elec_line_sources"]:
+        eur_per_km = float(elec_values[str(src["asset_type"])])
+        for p_idx, path in enumerate(src["paths"], start=1):
+            features.extend(
+                _line_features(
+                    gpd.read_file(path),
+                    feature_prefix=f"{src['prefix']}-{p_idx}",
+                    asset_type=str(src["asset_type"]),
+                    exposure_category="ouvrage_electrique",
+                    eur_per_km=eur_per_km,
+                )
+            )
 
-    # Potable water
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_eau_dir / "AEP" / "cana_aep.gpkg"),
-            feature_prefix="aep-cana",
-            asset_type="eau_aep_cana",
-            exposure_category="ouvrage_eau",
-            eur_per_km=water_values["eau_aep"],
-        )
-    )
-    features.extend(_point_features_aep_ouvrages(gpd.read_file(infra_eau_dir / "AEP" / "ouvrage_aep.gpkg")))
+    for src in cfg["water_line_sources"]:
+        eur_per_km = float(water_values[str(src["value_key"])])
+        for p_idx, path in enumerate(src["paths"], start=1):
+            features.extend(
+                _line_features(
+                    gpd.read_file(path),
+                    feature_prefix=f"{src['prefix']}-{p_idx}",
+                    asset_type=str(src["asset_type"]),
+                    exposure_category="ouvrage_eau",
+                    eur_per_km=eur_per_km,
+                )
+            )
 
-    # Wastewater
-    features.extend(
-        _line_features(
-            gpd.read_file(infra_eau_dir / "EU" / "cana_eu.gpkg"),
-            feature_prefix="eu-cana",
-            asset_type="eau_eu_cana",
-            exposure_category="ouvrage_eau",
-            eur_per_km=water_values["eau_eu"],
-        )
-    )
-    features.extend(
-        _point_features_fixed_value(
-            gpd.read_file(infra_eau_dir / "EU" / "pr.gpkg"),
-            feature_prefix="eu-pr",
-            asset_type="eau_eu_pr",
-            exposure_category="ouvrage_eau",
-            fixed_value_eur=water_values["eau_eu_pr"],
-        )
-    )
-    features.extend(
-        _point_features_fixed_value(
-            gpd.read_file(infra_eau_dir / "EU" / "step.gpkg"),
-            feature_prefix="eu-step",
-            asset_type="eau_eu_step",
-            exposure_category="ouvrage_eau",
-            fixed_value_eur=water_values["eau_eu_step"],
-        )
-    )
+    for src in cfg["aep_ouvrage_sources"]:
+        mode = str(src.get("mode", "")).strip().lower()
+        for p_idx, path in enumerate(src["paths"], start=1):
+            gdf = gpd.read_file(path)
+            if mode == "fixed_type":
+                features.extend(
+                    _point_features_aep_ouvrages_fixed_type(
+                        gdf,
+                        feature_prefix=f"{src['prefix']}-{p_idx}",
+                        ovrg_type=str(src.get("ovrg_type", "NA")),
+                    )
+                )
+            else:
+                features.extend(
+                    _point_features_aep_ouvrages_from_field(
+                        gdf,
+                        feature_prefix=f"{src['prefix']}-{p_idx}",
+                        field_name=str(src.get("field_name", "ovrg_type")),
+                    )
+                )
+
+    for src in cfg["water_point_fixed_sources"]:
+        fixed_value_eur = float(water_values[str(src["value_key"])])
+        for p_idx, path in enumerate(src["paths"], start=1):
+            features.extend(
+                _point_features_fixed_value(
+                    gpd.read_file(path),
+                    feature_prefix=f"{src['prefix']}-{p_idx}",
+                    asset_type=str(src["asset_type"]),
+                    exposure_category="ouvrage_eau",
+                    fixed_value_eur=fixed_value_eur,
+                )
+            )
 
     warnings = [
         "Water valuation based on OFB cost comparator (territory mean).",
         f"Valuation source: {SOURCE_LABEL}.",
-        f"Territory selection by bbox: input={territory}, effective={valuation_meta['territory_effective']}.",
+        f"Territory selection fixed by case-study input: {territory_key}, effective={valuation_meta['territory_effective']}.",
         "All water assets are conservatively assumed dependent on electricity when service propagation is computed.",
         "For full STORM and STORM_CMCC raw catalogs, use official 4TU datasets linked in result notes and README.",
     ]
 
     return NormalizedExposure(
-        source_name="guadeloupe_complete_infra_reference",
-        source_format="mixed_geojson_gpkg",
+        source_name=f"{territory_key}_complete_infra_reference",
+        source_format="mixed_geojson_gpkg_shp",
         input_mode="reference_dataset",
         features=features,
         warnings=warnings,
@@ -284,32 +276,40 @@ def build_complete_exposure(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build complete Guadeloupe electricity+water risk result JSON.")
-    parser.add_argument("--infra-elec-dir", default="/home/ubuntu/uploads/Infra_Elec_Guadeloupe")
-    parser.add_argument("--infra-eau-dir", default="/home/ubuntu/uploads/Infra_Eau_Guadeloupe")
-    parser.add_argument("--out", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-complete-analysis.json"))
+    parser = argparse.ArgumentParser(description="Build complete territory electricity+water risk result JSON.")
+    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--infra-elec-dir", default=None)
+    parser.add_argument("--infra-eau-dir", default=None)
+    parser.add_argument("--out", default=None)
     parser.add_argument("--sampling-spacing-m", type=float, default=100.0)
     args = parser.parse_args()
 
-    infra_elec_dir = Path(args.infra_elec_dir)
-    infra_eau_dir = Path(args.infra_eau_dir)
-    territory = detect_reference_territory(infra_elec_dir, infra_eau_dir)
-    valuation_meta = build_valuation_metadata(territory)
+    territory_key = normalize_territory(args.territory)
+    case_cfg = get_case_study(
+        territory_key,
+        infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
+        infra_eau_dir=Path(args.infra_eau_dir) if args.infra_eau_dir else None,
+    )
+    out_path = Path(args.out) if args.out else (REPO_ROOT / "web" / "data" / f"{territory_key}-complete-analysis.json")
+
+    valuation_meta = build_valuation_metadata(territory_key)
     exposure = build_complete_exposure(
-        infra_elec_dir=infra_elec_dir,
-        infra_eau_dir=infra_eau_dir,
+        infra_elec_dir=case_cfg["infra_elec_dir"],
+        infra_eau_dir=case_cfg["infra_eau_dir"],
+        territory=territory_key,
     )
     disagg = summarize_disaggregation(exposure, spacing_m=float(args.sampling_spacing_m))
     comp = compute_impacts(exposure, disagg)
 
+    source_key = f"{territory_key}_complete_reference"
     payload = build_result_payload(
-        job_id="guadeloupe_complete_reference",
-        source="guadeloupe_complete_reference",
+        job_id=source_key,
+        source=source_key,
         exposure=exposure,
         disagg=disagg,
         comp=comp,
     )
-    payload["meta"]["title"] = "Guadeloupe Complete Water+Electric Cyclone Risk"
+    payload["meta"]["title"] = f"{territory_label(territory_key)} Complete Water+Electric Cyclone Risk"
     payload["meta"]["dataset_links"] = {
         "storm_present": "https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085",
         "storm_cmcc": "https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2",
@@ -317,15 +317,16 @@ def main() -> None:
     payload["meta"]["valuation_source"] = SOURCE_LABEL
     payload["meta"]["valuation_territory"] = str(valuation_meta["territory_effective"])
     payload["meta"]["valuation_version"] = VALUATION_VERSION
+    payload["meta"]["case_study_territory"] = territory_key
     payload["exposure_summary"]["asset_type_counts"] = dict(
         Counter(str((feat.properties or {}).get("asset_type") or "unknown") for feat in exposure.features)
     )
 
-    out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"Wrote {out_path}")
+    print(f"territory={territory_key}")
     print(f"asset_count={payload['exposure_summary']['asset_count_original']}")
     print(f"total_exposure_eur={payload['exposure_summary']['total_exposure_eur']}")
     print(f"portfolio_eai_storm={payload['portfolio_results']['storm']['eai_eur']}")

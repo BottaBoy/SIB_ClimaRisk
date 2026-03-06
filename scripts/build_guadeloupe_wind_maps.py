@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from case_study_sources import CASE_STUDY_BBOX, normalize_territory
+
 COLUMNS = [
     "Year",
     "Month",
@@ -184,15 +186,16 @@ def _aggregate_mean_wind(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Guadeloupe STORM mean wind map layers from raw STORM text datasets.")
+    parser = argparse.ArgumentParser(description="Build territory STORM mean wind map layers from raw STORM text datasets.")
+    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
     parser.add_argument("--storm-dir", default="/home/ubuntu/uploads/STORM/STORM_ds", help="Directory containing STORM present-climate txt files")
     parser.add_argument("--cmcc-dir", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds", help="Directory containing STORM CMCC txt files")
-    parser.add_argument("--out", default="/home/ubuntu/sib-work/web/data/guadeloupe-wind-maps.json", help="Output JSON path")
+    parser.add_argument("--out", default=None, help="Output JSON path")
     parser.add_argument("--cell-deg", type=float, default=0.05, help="Grid cell size in degrees")
-    parser.add_argument("--lat-min", type=float, default=15.5)
-    parser.add_argument("--lat-max", type=float, default=16.95625)
-    parser.add_argument("--lon-min", type=float, default=-62.48125)
-    parser.add_argument("--lon-max", type=float, default=-60.66875)
+    parser.add_argument("--lat-min", type=float, default=None)
+    parser.add_argument("--lat-max", type=float, default=None)
+    parser.add_argument("--lon-min", type=float, default=None)
+    parser.add_argument("--lon-max", type=float, default=None)
     parser.add_argument("--basin-id", type=int, default=1, help="NA basin id in STORM files")
     parser.add_argument(
         "--wind-unit-in",
@@ -200,11 +203,17 @@ def main() -> None:
         help="Input wind unit in STORM txt files. Supported: m/s, kn, km/h. Output is always m/s.",
     )
     args = parser.parse_args()
+    territory = normalize_territory(args.territory)
+    default_bbox = CASE_STUDY_BBOX[territory]
+    lat_min = float(args.lat_min if args.lat_min is not None else default_bbox["lat_min"])
+    lat_max = float(args.lat_max if args.lat_max is not None else default_bbox["lat_max"])
+    lon_min = float(args.lon_min if args.lon_min is not None else default_bbox["lon_min"])
+    lon_max = float(args.lon_max if args.lon_max is not None else default_bbox["lon_max"])
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
 
     storm_dir = Path(args.storm_dir)
     cmcc_dir = Path(args.cmcc_dir)
-    out = Path(args.out)
+    out = Path(args.out) if args.out else Path(f"/home/ubuntu/sib-work/web/data/{territory}-wind-maps.json")
 
     storm_files = _iter_storm_files(storm_dir, "STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt")
     cmcc_files = _iter_storm_files(cmcc_dir, "STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt")
@@ -213,10 +222,10 @@ def main() -> None:
         storm_files,
         basin_id=args.basin_id,
         wind_unit_in=normalized_wind_unit,
-        lat_min=args.lat_min,
-        lat_max=args.lat_max,
-        lon_min=args.lon_min,
-        lon_max=args.lon_max,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
         cell_deg=args.cell_deg,
     )
 
@@ -224,10 +233,10 @@ def main() -> None:
         cmcc_files,
         basin_id=args.basin_id,
         wind_unit_in=normalized_wind_unit,
-        lat_min=args.lat_min,
-        lat_max=args.lat_max,
-        lon_min=args.lon_min,
-        lon_max=args.lon_max,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
         cell_deg=args.cell_deg,
     )
 
@@ -235,13 +244,14 @@ def main() -> None:
         "meta": {
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
             "bbox": {
-                "lat_min": args.lat_min,
-                "lat_max": args.lat_max,
-                "lon_min": args.lon_min,
-                "lon_max": args.lon_max,
+                "lat_min": lat_min,
+                "lat_max": lat_max,
+                "lon_min": lon_min,
+                "lon_max": lon_max,
             },
             "grid_cell_deg": args.cell_deg,
             "basin_id": args.basin_id,
+            "territory": territory,
             "dataset_links": {
                 "storm_present": "https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085",
                 "storm_cmcc": "https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2",
@@ -271,6 +281,7 @@ def main() -> None:
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"Wrote {out}")
+    print(f"territory={territory} bbox=[{lat_min},{lat_max}]x[{lon_min},{lon_max}]")
     print(f"STORM cells={len(storm_cells)} years={storm_years} tracks~={storm_tracks} mean_wind_range=[{storm_min:.3f},{storm_max:.3f}]")
     print(f"STORM_CMCC cells={len(cmcc_cells)} years={cmcc_years} tracks~={cmcc_tracks} mean_wind_range=[{cmcc_min:.3f},{cmcc_max:.3f}]")
 
