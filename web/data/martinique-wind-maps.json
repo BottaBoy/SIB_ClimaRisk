@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-05T18:23:36+00:00",
+    "generated_at": "2026-03-06T09:02:11+00:00",
     "bbox": {
       "lat_min": 14.3,
       "lat_max": 15.1,
@@ -19,834 +19,1114 @@
   },
   "storm": {
     "years_covered": 10000,
-    "tracks_approx": 107072,
+    "tracks_approx": 107063,
     "cell_count": 63,
     "mean_wind_min_mps": 27.7371,
     "mean_wind_max_mps": 39.8536,
+    "rp100_wind_min_mps": 46.041,
+    "rp100_wind_max_mps": 72.2,
+    "rp1000_wind_min_mps": 46.4541,
+    "rp1000_wind_max_mps": 73.55,
     "cells": [
       {
         "lat": 14.31,
         "lon": -61.39,
         "mean_wind_mps": 38.0076,
+        "rp100_wind_mps": 60.626,
+        "rp1000_wind_mps": 60.6926,
         "sample_count": 38
       },
       {
         "lat": 14.31,
         "lon": -61.31,
         "mean_wind_mps": 31.8371,
+        "rp100_wind_mps": 54.888,
+        "rp1000_wind_mps": 56.0688,
         "sample_count": 33
       },
       {
         "lat": 14.31,
         "lon": -61.19,
         "mean_wind_mps": 35.2259,
+        "rp100_wind_mps": 57.444,
+        "rp1000_wind_mps": 59.3844,
         "sample_count": 29
       },
       {
         "lat": 14.31,
         "lon": -61.11,
         "mean_wind_mps": 34.1596,
+        "rp100_wind_mps": 62.515,
+        "rp1000_wind_mps": 63.4915,
         "sample_count": 32
       },
       {
         "lat": 14.31,
         "lon": -61.01,
         "mean_wind_mps": 29.936,
+        "rp100_wind_mps": 52.772,
+        "rp1000_wind_mps": 54.3272,
         "sample_count": 25
       },
       {
         "lat": 14.31,
         "lon": -60.89,
         "mean_wind_mps": 33.1506,
+        "rp100_wind_mps": 65.65,
+        "rp1000_wind_mps": 67.405,
         "sample_count": 40
       },
       {
         "lat": 14.31,
         "lon": -60.81,
         "mean_wind_mps": 38.6242,
+        "rp100_wind_mps": 72.2,
+        "rp1000_wind_mps": 73.55,
         "sample_count": 21
       },
       {
         "lat": 14.39,
         "lon": -61.39,
         "mean_wind_mps": 32.7636,
+        "rp100_wind_mps": 57.837,
+        "rp1000_wind_mps": 57.8937,
         "sample_count": 22
       },
       {
         "lat": 14.39,
         "lon": -61.31,
         "mean_wind_mps": 33.7732,
+        "rp100_wind_mps": 58.096,
+        "rp1000_wind_mps": 59.4496,
         "sample_count": 33
       },
       {
         "lat": 14.39,
         "lon": -61.19,
         "mean_wind_mps": 30.6138,
+        "rp100_wind_mps": 46.041,
+        "rp1000_wind_mps": 46.4541,
         "sample_count": 29
       },
       {
         "lat": 14.39,
         "lon": -61.11,
         "mean_wind_mps": 33.9651,
+        "rp100_wind_mps": 59.32,
+        "rp1000_wind_mps": 61.912,
         "sample_count": 31
       },
       {
         "lat": 14.39,
         "lon": -61.01,
         "mean_wind_mps": 34.6222,
+        "rp100_wind_mps": 69.36,
+        "rp1000_wind_mps": 70.116,
         "sample_count": 41
       },
       {
         "lat": 14.39,
         "lon": -60.89,
         "mean_wind_mps": 29.2037,
+        "rp100_wind_mps": 47.666,
+        "rp1000_wind_mps": 48.0566,
         "sample_count": 32
       },
       {
         "lat": 14.39,
         "lon": -60.81,
         "mean_wind_mps": 33.3566,
+        "rp100_wind_mps": 58.162,
+        "rp1000_wind_mps": 58.1962,
         "sample_count": 39
       },
       {
         "lat": 14.49,
         "lon": -61.39,
         "mean_wind_mps": 33.067,
+        "rp100_wind_mps": 56.829,
+        "rp1000_wind_mps": 57.9729,
         "sample_count": 32
       },
       {
         "lat": 14.49,
         "lon": -61.31,
         "mean_wind_mps": 39.8536,
+        "rp100_wind_mps": 67.017,
+        "rp1000_wind_mps": 67.7217,
         "sample_count": 30
       },
       {
         "lat": 14.49,
         "lon": -61.19,
         "mean_wind_mps": 33.4347,
+        "rp100_wind_mps": 66.258,
+        "rp1000_wind_mps": 67.3758,
         "sample_count": 28
       },
       {
         "lat": 14.49,
         "lon": -61.11,
         "mean_wind_mps": 35.5508,
+        "rp100_wind_mps": 64.324,
+        "rp1000_wind_mps": 68.0824,
         "sample_count": 37
       },
       {
         "lat": 14.49,
         "lon": -61.01,
         "mean_wind_mps": 35.0616,
+        "rp100_wind_mps": 59.22,
+        "rp1000_wind_mps": 60.192,
         "sample_count": 31
       },
       {
         "lat": 14.49,
         "lon": -60.89,
         "mean_wind_mps": 35.7117,
+        "rp100_wind_mps": 67.002,
+        "rp1000_wind_mps": 67.7202,
         "sample_count": 44
       },
       {
         "lat": 14.49,
         "lon": -60.81,
         "mean_wind_mps": 34.5475,
+        "rp100_wind_mps": 56.569,
+        "rp1000_wind_mps": 57.2269,
         "sample_count": 44
       },
       {
         "lat": 14.59,
         "lon": -61.39,
         "mean_wind_mps": 35.5456,
+        "rp100_wind_mps": 62.02,
+        "rp1000_wind_mps": 63.532,
         "sample_count": 44
       },
       {
         "lat": 14.59,
         "lon": -61.31,
         "mean_wind_mps": 30.2143,
+        "rp100_wind_mps": 65.516,
+        "rp1000_wind_mps": 66.4016,
         "sample_count": 43
       },
       {
         "lat": 14.59,
         "lon": -61.19,
         "mean_wind_mps": 34.1294,
+        "rp100_wind_mps": 64.59,
+        "rp1000_wind_mps": 68.919,
         "sample_count": 38
       },
       {
         "lat": 14.59,
         "lon": -61.11,
         "mean_wind_mps": 34.0123,
+        "rp100_wind_mps": 66.355,
+        "rp1000_wind_mps": 70.9855,
         "sample_count": 36
       },
       {
         "lat": 14.59,
         "lon": -61.01,
         "mean_wind_mps": 33.1903,
+        "rp100_wind_mps": 64.528,
+        "rp1000_wind_mps": 67.6528,
         "sample_count": 32
       },
       {
         "lat": 14.59,
         "lon": -60.89,
         "mean_wind_mps": 32.0587,
+        "rp100_wind_mps": 61.351,
+        "rp1000_wind_mps": 64.7251,
         "sample_count": 24
       },
       {
         "lat": 14.59,
         "lon": -60.81,
         "mean_wind_mps": 36.6667,
+        "rp100_wind_mps": 60.606,
+        "rp1000_wind_mps": 61.0506,
         "sample_count": 39
       },
       {
         "lat": 14.69,
         "lon": -61.39,
         "mean_wind_mps": 29.9026,
+        "rp100_wind_mps": 57.284,
+        "rp1000_wind_mps": 57.4784,
         "sample_count": 37
       },
       {
         "lat": 14.69,
         "lon": -61.31,
         "mean_wind_mps": 33.9942,
+        "rp100_wind_mps": 63.216,
+        "rp1000_wind_mps": 65.5416,
         "sample_count": 39
       },
       {
         "lat": 14.69,
         "lon": -61.19,
         "mean_wind_mps": 32.7901,
+        "rp100_wind_mps": 62.692,
+        "rp1000_wind_mps": 68.8192,
         "sample_count": 47
       },
       {
         "lat": 14.69,
         "lon": -61.11,
         "mean_wind_mps": 32.6557,
+        "rp100_wind_mps": 60.928,
+        "rp1000_wind_mps": 62.4328,
         "sample_count": 45
       },
       {
         "lat": 14.69,
         "lon": -61.01,
         "mean_wind_mps": 32.8914,
+        "rp100_wind_mps": 65.084,
+        "rp1000_wind_mps": 68.8784,
         "sample_count": 32
       },
       {
         "lat": 14.69,
         "lon": -60.89,
         "mean_wind_mps": 33.2807,
+        "rp100_wind_mps": 61.67,
+        "rp1000_wind_mps": 64.127,
         "sample_count": 36
       },
       {
         "lat": 14.69,
         "lon": -60.81,
         "mean_wind_mps": 33.1209,
+        "rp100_wind_mps": 53.676,
+        "rp1000_wind_mps": 53.8776,
         "sample_count": 33
       },
       {
         "lat": 14.81,
         "lon": -61.39,
         "mean_wind_mps": 37.4328,
+        "rp100_wind_mps": 66.108,
+        "rp1000_wind_mps": 66.4608,
         "sample_count": 29
       },
       {
         "lat": 14.81,
         "lon": -61.31,
         "mean_wind_mps": 35.3432,
+        "rp100_wind_mps": 62.442,
+        "rp1000_wind_mps": 62.9442,
         "sample_count": 33
       },
       {
         "lat": 14.81,
         "lon": -61.19,
         "mean_wind_mps": 36.4454,
+        "rp100_wind_mps": 67.1932,
+        "rp1000_wind_mps": 67.2363,
         "sample_count": 38
       },
       {
         "lat": 14.81,
         "lon": -61.11,
         "mean_wind_mps": 37.7467,
+        "rp100_wind_mps": 64.858,
+        "rp1000_wind_mps": 68.6758,
         "sample_count": 43
       },
       {
         "lat": 14.81,
         "lon": -61.01,
         "mean_wind_mps": 30.032,
+        "rp100_wind_mps": 49.832,
+        "rp1000_wind_mps": 49.9832,
         "sample_count": 25
       },
       {
         "lat": 14.81,
         "lon": -60.89,
         "mean_wind_mps": 31.4257,
+        "rp100_wind_mps": 61.211,
+        "rp1000_wind_mps": 63.0011,
         "sample_count": 41
       },
       {
         "lat": 14.81,
         "lon": -60.81,
         "mean_wind_mps": 35.6704,
+        "rp100_wind_mps": 56.344,
+        "rp1000_wind_mps": 56.4844,
         "sample_count": 40
       },
       {
         "lat": 14.89,
         "lon": -61.39,
         "mean_wind_mps": 27.7371,
+        "rp100_wind_mps": 54.25,
+        "rp1000_wind_mps": 55.465,
         "sample_count": 31
       },
       {
         "lat": 14.89,
         "lon": -61.31,
         "mean_wind_mps": 37.9963,
+        "rp100_wind_mps": 69.97,
+        "rp1000_wind_mps": 70.087,
         "sample_count": 27
       },
       {
         "lat": 14.89,
         "lon": -61.19,
         "mean_wind_mps": 29.7099,
+        "rp100_wind_mps": 55.58,
+        "rp1000_wind_mps": 55.868,
         "sample_count": 33
       },
       {
         "lat": 14.89,
         "lon": -61.11,
         "mean_wind_mps": 36.7624,
+        "rp100_wind_mps": 67.132,
+        "rp1000_wind_mps": 67.2302,
         "sample_count": 33
       },
       {
         "lat": 14.89,
         "lon": -61.01,
         "mean_wind_mps": 35.5782,
+        "rp100_wind_mps": 62.992,
+        "rp1000_wind_mps": 64.2592,
         "sample_count": 33
       },
       {
         "lat": 14.89,
         "lon": -60.89,
         "mean_wind_mps": 35.6567,
+        "rp100_wind_mps": 61.017,
+        "rp1000_wind_mps": 61.7217,
         "sample_count": 30
       },
       {
         "lat": 14.89,
         "lon": -60.81,
         "mean_wind_mps": 30.9367,
+        "rp100_wind_mps": 48.674,
+        "rp1000_wind_mps": 48.7874,
         "sample_count": 22
       },
       {
         "lat": 14.99,
         "lon": -61.39,
         "mean_wind_mps": 37.3869,
+        "rp100_wind_mps": 64.88,
+        "rp1000_wind_mps": 65.528,
         "sample_count": 37
       },
       {
         "lat": 14.99,
         "lon": -61.31,
         "mean_wind_mps": 35.7946,
+        "rp100_wind_mps": 63.828,
+        "rp1000_wind_mps": 63.8928,
         "sample_count": 37
       },
       {
         "lat": 14.99,
         "lon": -61.19,
         "mean_wind_mps": 36.425,
+        "rp100_wind_mps": 60.815,
+        "rp1000_wind_mps": 61.7915,
         "sample_count": 32
       },
       {
         "lat": 14.99,
         "lon": -61.11,
         "mean_wind_mps": 37.8364,
+        "rp100_wind_mps": 63.47,
+        "rp1000_wind_mps": 64.307,
         "sample_count": 31
       },
       {
         "lat": 14.99,
         "lon": -61.01,
         "mean_wind_mps": 37.0116,
+        "rp100_wind_mps": 58.65,
+        "rp1000_wind_mps": 59.685,
         "sample_count": 47
       },
       {
         "lat": 14.99,
         "lon": -60.89,
         "mean_wind_mps": 34.4212,
+        "rp100_wind_mps": 63.024,
+        "rp1000_wind_mps": 64.9824,
         "sample_count": 33
       },
       {
         "lat": 14.99,
         "lon": -60.81,
         "mean_wind_mps": 36.2149,
+        "rp100_wind_mps": 56.792,
+        "rp1000_wind_mps": 57.0692,
         "sample_count": 45
       },
       {
         "lat": 15.09,
         "lon": -61.39,
         "mean_wind_mps": 29.4542,
+        "rp100_wind_mps": 49.875,
+        "rp1000_wind_mps": 50.5275,
         "sample_count": 26
       },
       {
         "lat": 15.09,
         "lon": -61.31,
         "mean_wind_mps": 35.3247,
+        "rp100_wind_mps": 64.244,
+        "rp1000_wind_mps": 65.5544,
         "sample_count": 29
       },
       {
         "lat": 15.09,
         "lon": -61.19,
         "mean_wind_mps": 34.7263,
+        "rp100_wind_mps": 61.952,
+        "rp1000_wind_mps": 64.1552,
         "sample_count": 37
       },
       {
         "lat": 15.09,
         "lon": -61.11,
         "mean_wind_mps": 36.3057,
+        "rp100_wind_mps": 59.612,
+        "rp1000_wind_mps": 60.6812,
         "sample_count": 35
       },
       {
         "lat": 15.09,
         "lon": -61.01,
         "mean_wind_mps": 35.792,
+        "rp100_wind_mps": 59.073,
+        "rp1000_wind_mps": 60.0873,
         "sample_count": 24
       },
       {
         "lat": 15.09,
         "lon": -60.89,
         "mean_wind_mps": 35.0891,
+        "rp100_wind_mps": 58.868,
+        "rp1000_wind_mps": 60.9668,
         "sample_count": 45
       },
       {
         "lat": 15.09,
         "lon": -60.81,
         "mean_wind_mps": 33.7314,
+        "rp100_wind_mps": 59.49,
+        "rp1000_wind_mps": 59.949,
         "sample_count": 35
       }
     ]
   },
   "storm_cmcc": {
     "years_covered": 10000,
-    "tracks_approx": 123546,
+    "tracks_approx": 123536,
     "cell_count": 73,
     "mean_wind_min_mps": 18.0,
     "mean_wind_max_mps": 38.0267,
+    "rp100_wind_min_mps": 18.0,
+    "rp100_wind_max_mps": 70.613,
+    "rp1000_wind_min_mps": 18.0,
+    "rp1000_wind_max_mps": 70.9613,
     "cells": [
       {
         "lat": 14.31,
         "lon": -61.39,
         "mean_wind_mps": 33.1781,
+        "rp100_wind_mps": 53.718,
+        "rp1000_wind_mps": 54.3318,
         "sample_count": 32
       },
       {
         "lat": 14.31,
         "lon": -61.31,
         "mean_wind_mps": 32.9,
+        "rp100_wind_mps": 60.322,
+        "rp1000_wind_mps": 61.3822,
         "sample_count": 33
       },
       {
         "lat": 14.31,
         "lon": -61.19,
         "mean_wind_mps": 36.2237,
+        "rp100_wind_mps": 61.364,
+        "rp1000_wind_mps": 62.2064,
         "sample_count": 38
       },
       {
         "lat": 14.31,
         "lon": -61.11,
         "mean_wind_mps": 34.571,
+        "rp100_wind_mps": 61.578,
+        "rp1000_wind_mps": 62.0478,
         "sample_count": 31
       },
       {
         "lat": 14.31,
         "lon": -61.01,
         "mean_wind_mps": 33.048,
+        "rp100_wind_mps": 52.328,
+        "rp1000_wind_mps": 53.4728,
         "sample_count": 25
       },
       {
         "lat": 14.31,
         "lon": -60.89,
         "mean_wind_mps": 31.3594,
+        "rp100_wind_mps": 56.774,
+        "rp1000_wind_mps": 60.8474,
         "sample_count": 32
       },
       {
         "lat": 14.31,
         "lon": -60.81,
         "mean_wind_mps": 33.9431,
+        "rp100_wind_mps": 62.092,
+        "rp1000_wind_mps": 65.1592,
         "sample_count": 51
       },
       {
         "lat": 14.39,
         "lon": -61.39,
         "mean_wind_mps": 32.3424,
+        "rp100_wind_mps": 55.852,
+        "rp1000_wind_mps": 59.1352,
         "sample_count": 33
       },
       {
         "lat": 14.39,
         "lon": -61.31,
         "mean_wind_mps": 35.1811,
+        "rp100_wind_mps": 60.98,
+        "rp1000_wind_mps": 61.628,
         "sample_count": 37
       },
       {
         "lat": 14.39,
         "lon": -61.19,
         "mean_wind_mps": 34.5282,
+        "rp100_wind_mps": 57.07,
+        "rp1000_wind_mps": 60.067,
         "sample_count": 39
       },
       {
         "lat": 14.39,
         "lon": -61.11,
         "mean_wind_mps": 33.8811,
+        "rp100_wind_mps": 64.705,
+        "rp1000_wind_mps": 65.2405,
         "sample_count": 37
       },
       {
         "lat": 14.39,
         "lon": -61.01,
         "mean_wind_mps": 31.9457,
+        "rp100_wind_mps": 56.037,
+        "rp1000_wind_mps": 56.3637,
         "sample_count": 35
       },
       {
         "lat": 14.39,
         "lon": -60.89,
         "mean_wind_mps": 34.3114,
+        "rp100_wind_mps": 52.676,
+        "rp1000_wind_mps": 52.7876,
         "sample_count": 35
       },
       {
         "lat": 14.39,
         "lon": -60.81,
         "mean_wind_mps": 35.3773,
+        "rp100_wind_mps": 63.164,
+        "rp1000_wind_mps": 65.3564,
         "sample_count": 44
       },
       {
         "lat": 14.49,
         "lon": -61.39,
         "mean_wind_mps": 34.134,
+        "rp100_wind_mps": 64.33,
+        "rp1000_wind_mps": 65.653,
         "sample_count": 50
       },
       {
         "lat": 14.49,
         "lon": -61.31,
         "mean_wind_mps": 30.9683,
+        "rp100_wind_mps": 56.536,
+        "rp1000_wind_mps": 57.4936,
         "sample_count": 41
       },
       {
         "lat": 14.49,
         "lon": -61.19,
         "mean_wind_mps": 33.1811,
+        "rp100_wind_mps": 58.1,
+        "rp1000_wind_mps": 59.72,
         "sample_count": 37
       },
       {
         "lat": 14.49,
         "lon": -61.11,
         "mean_wind_mps": 30.7,
+        "rp100_wind_mps": 61.686,
+        "rp1000_wind_mps": 68.2686,
         "sample_count": 50
       },
       {
         "lat": 14.49,
         "lon": -61.01,
         "mean_wind_mps": 34.1442,
+        "rp100_wind_mps": 58.288,
+        "rp1000_wind_mps": 60.4588,
         "sample_count": 39
       },
       {
         "lat": 14.49,
         "lon": -60.89,
         "mean_wind_mps": 31.9192,
+        "rp100_wind_mps": 53.713,
+        "rp1000_wind_mps": 53.7913,
         "sample_count": 30
       },
       {
         "lat": 14.49,
         "lon": -60.81,
         "mean_wind_mps": 32.6631,
+        "rp100_wind_mps": 60.452,
+        "rp1000_wind_mps": 62.1152,
         "sample_count": 34
       },
       {
         "lat": 14.59,
         "lon": -61.39,
         "mean_wind_mps": 32.8185,
+        "rp100_wind_mps": 49.325,
+        "rp1000_wind_mps": 50.4725,
         "sample_count": 27
       },
       {
         "lat": 14.59,
         "lon": -61.31,
         "mean_wind_mps": 29.8875,
+        "rp100_wind_mps": 58.51,
+        "rp1000_wind_mps": 61.831,
         "sample_count": 32
       },
       {
         "lat": 14.59,
         "lon": -61.19,
         "mean_wind_mps": 33.2926,
+        "rp100_wind_mps": 57.275,
+        "rp1000_wind_mps": 57.9275,
         "sample_count": 27
       },
       {
         "lat": 14.59,
         "lon": -61.11,
         "mean_wind_mps": 38.0267,
+        "rp100_wind_mps": 63.356,
+        "rp1000_wind_mps": 63.9356,
         "sample_count": 30
       },
       {
         "lat": 14.59,
         "lon": -61.01,
         "mean_wind_mps": 35.2903,
+        "rp100_wind_mps": 57.424,
+        "rp1000_wind_mps": 58.0324,
         "sample_count": 28
       },
       {
         "lat": 14.59,
         "lon": -60.89,
         "mean_wind_mps": 35.1111,
+        "rp100_wind_mps": 62.072,
+        "rp1000_wind_mps": 63.3572,
         "sample_count": 36
       },
       {
         "lat": 14.59,
         "lon": -60.81,
         "mean_wind_mps": 32.3556,
+        "rp100_wind_mps": 59.546,
+        "rp1000_wind_mps": 60.4946,
         "sample_count": 36
       },
       {
         "lat": 14.69,
         "lon": -61.39,
         "mean_wind_mps": 34.5706,
+        "rp100_wind_mps": 60.296,
+        "rp1000_wind_mps": 62.9096,
         "sample_count": 34
       },
       {
         "lat": 14.69,
         "lon": -61.31,
         "mean_wind_mps": 33.6966,
+        "rp100_wind_mps": 57.924,
+        "rp1000_wind_mps": 58.9824,
         "sample_count": 29
       },
       {
         "lat": 14.69,
         "lon": -61.19,
         "mean_wind_mps": 32.3839,
+        "rp100_wind_mps": 58.036,
+        "rp1000_wind_mps": 58.3636,
         "sample_count": 31
       },
       {
         "lat": 14.69,
         "lon": -61.11,
         "mean_wind_mps": 34.9911,
+        "rp100_wind_mps": 70.613,
+        "rp1000_wind_mps": 70.9613,
         "sample_count": 45
       },
       {
         "lat": 14.69,
         "lon": -61.01,
         "mean_wind_mps": 35.6429,
+        "rp100_wind_mps": 60.962,
+        "rp1000_wind_mps": 61.6262,
         "sample_count": 43
       },
       {
         "lat": 14.69,
         "lon": -60.89,
         "mean_wind_mps": 37.3528,
+        "rp100_wind_mps": 66.122,
+        "rp1000_wind_mps": 66.4622,
         "sample_count": 29
       },
       {
         "lat": 14.69,
         "lon": -60.81,
         "mean_wind_mps": 32.4833,
+        "rp100_wind_mps": 58.928,
+        "rp1000_wind_mps": 60.7928,
         "sample_count": 30
       },
       {
         "lat": 14.71,
         "lon": -61.31,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 5
       },
       {
         "lat": 14.71,
         "lon": -61.19,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.71,
         "lon": -61.11,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.79,
         "lon": -61.39,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.79,
         "lon": -61.31,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.79,
         "lon": -61.19,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 1
       },
       {
         "lat": 14.79,
         "lon": -61.11,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.79,
         "lon": -61.01,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 2
       },
       {
         "lat": 14.79,
         "lon": -60.89,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 1
       },
       {
         "lat": 14.79,
         "lon": -60.81,
         "mean_wind_mps": 18.0,
+        "rp100_wind_mps": 18.0,
+        "rp1000_wind_mps": 18.0,
         "sample_count": 1
       },
       {
         "lat": 14.81,
         "lon": -61.39,
         "mean_wind_mps": 32.1805,
+        "rp100_wind_mps": 57.175,
+        "rp1000_wind_mps": 59.8075,
         "sample_count": 41
       },
       {
         "lat": 14.81,
         "lon": -61.31,
         "mean_wind_mps": 34.7286,
+        "rp100_wind_mps": 62.8,
+        "rp1000_wind_mps": 62.8,
         "sample_count": 35
       },
       {
         "lat": 14.81,
         "lon": -61.19,
         "mean_wind_mps": 34.6413,
+        "rp100_wind_mps": 56.424,
+        "rp1000_wind_mps": 59.1024,
         "sample_count": 32
       },
       {
         "lat": 14.81,
         "lon": -61.11,
         "mean_wind_mps": 31.9386,
+        "rp100_wind_mps": 55.88,
+        "rp1000_wind_mps": 57.608,
         "sample_count": 31
       },
       {
         "lat": 14.81,
         "lon": -61.01,
         "mean_wind_mps": 35.01,
+        "rp100_wind_mps": 59.972,
+        "rp1000_wind_mps": 62.4272,
         "sample_count": 33
       },
       {
         "lat": 14.81,
         "lon": -60.89,
         "mean_wind_mps": 30.4038,
+        "rp100_wind_mps": 55.65,
+        "rp1000_wind_mps": 56.865,
         "sample_count": 26
       },
       {
         "lat": 14.81,
         "lon": -60.81,
         "mean_wind_mps": 32.56,
+        "rp100_wind_mps": 53.711,
+        "rp1000_wind_mps": 54.6011,
         "sample_count": 25
       },
       {
         "lat": 14.89,
         "lon": -61.39,
         "mean_wind_mps": 28.6871,
+        "rp100_wind_mps": 54.25,
+        "rp1000_wind_mps": 57.895,
         "sample_count": 31
       },
       {
         "lat": 14.89,
         "lon": -61.31,
         "mean_wind_mps": 32.5364,
+        "rp100_wind_mps": 58.204,
+        "rp1000_wind_mps": 58.8304,
         "sample_count": 33
       },
       {
         "lat": 14.89,
         "lon": -61.19,
         "mean_wind_mps": 32.8551,
+        "rp100_wind_mps": 51.93,
+        "rp1000_wind_mps": 51.993,
         "sample_count": 37
       },
       {
         "lat": 14.89,
         "lon": -61.11,
         "mean_wind_mps": 34.1956,
+        "rp100_wind_mps": 55.185,
+        "rp1000_wind_mps": 55.3785,
         "sample_count": 45
       },
       {
         "lat": 14.89,
         "lon": -61.01,
         "mean_wind_mps": 31.6154,
+        "rp100_wind_mps": 61.568,
+        "rp1000_wind_mps": 67.1768,
         "sample_count": 39
       },
       {
         "lat": 14.89,
         "lon": -60.89,
         "mean_wind_mps": 31.127,
+        "rp100_wind_mps": 50.204,
+        "rp1000_wind_mps": 52.1804,
         "sample_count": 37
       },
       {
         "lat": 14.89,
         "lon": -60.81,
         "mean_wind_mps": 35.4394,
+        "rp100_wind_mps": 61.669,
+        "rp1000_wind_mps": 61.6969,
         "sample_count": 33
       },
       {
         "lat": 14.99,
         "lon": -61.39,
         "mean_wind_mps": 31.6886,
+        "rp100_wind_mps": 64.325,
+        "rp1000_wind_mps": 65.0225,
         "sample_count": 35
       },
       {
         "lat": 14.99,
         "lon": -61.31,
         "mean_wind_mps": 33.3226,
+        "rp100_wind_mps": 52.024,
+        "rp1000_wind_mps": 52.4524,
         "sample_count": 30
       },
       {
         "lat": 14.99,
         "lon": -61.19,
         "mean_wind_mps": 33.7541,
+        "rp100_wind_mps": 54.955,
+        "rp1000_wind_mps": 55.8055,
         "sample_count": 37
       },
       {
         "lat": 14.99,
         "lon": -61.11,
         "mean_wind_mps": 35.0641,
+        "rp100_wind_mps": 64.086,
+        "rp1000_wind_mps": 65.8986,
         "sample_count": 39
       },
       {
         "lat": 14.99,
         "lon": -61.01,
         "mean_wind_mps": 30.26,
+        "rp100_wind_mps": 49.182,
+        "rp1000_wind_mps": 50.2782,
         "sample_count": 30
       },
       {
         "lat": 14.99,
         "lon": -60.89,
         "mean_wind_mps": 32.1474,
+        "rp100_wind_mps": 63.084,
+        "rp1000_wind_mps": 64.0884,
         "sample_count": 38
       },
       {
         "lat": 14.99,
         "lon": -60.81,
         "mean_wind_mps": 32.6485,
+        "rp100_wind_mps": 57.424,
+        "rp1000_wind_mps": 57.9424,
         "sample_count": 33
       },
       {
         "lat": 15.09,
         "lon": -61.39,
         "mean_wind_mps": 31.2942,
+        "rp100_wind_mps": 63.031,
+        "rp1000_wind_mps": 64.2631,
         "sample_count": 41
       },
       {
         "lat": 15.09,
         "lon": -61.31,
         "mean_wind_mps": 33.58,
+        "rp100_wind_mps": 52.32,
+        "rp1000_wind_mps": 52.662,
         "sample_count": 40
       },
       {
         "lat": 15.09,
         "lon": -61.19,
         "mean_wind_mps": 33.4106,
+        "rp100_wind_mps": 55.955,
+        "rp1000_wind_mps": 57.6155,
         "sample_count": 47
       },
       {
         "lat": 15.09,
         "lon": -61.11,
         "mean_wind_mps": 36.022,
+        "rp100_wind_mps": 62.16,
+        "rp1000_wind_mps": 62.376,
         "sample_count": 41
       },
       {
         "lat": 15.09,
         "lon": -61.01,
         "mean_wind_mps": 33.8686,
+        "rp100_wind_mps": 61.02,
+        "rp1000_wind_mps": 62.892,
         "sample_count": 35
       },
       {
         "lat": 15.09,
         "lon": -60.89,
         "mean_wind_mps": 34.2405,
+        "rp100_wind_mps": 58.33,
+        "rp1000_wind_mps": 59.023,
         "sample_count": 37
       },
       {
         "lat": 15.09,
         "lon": -60.81,
         "mean_wind_mps": 36.5385,
+        "rp100_wind_mps": 56.944,
+        "rp1000_wind_mps": 57.3544,
         "sample_count": 26
       }
     ]

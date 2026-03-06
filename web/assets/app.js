@@ -22,6 +22,7 @@ const state = {
   mapReady: false,
   windMaps: null,
   windLayerOpacity: 0.82,
+  windMapMode: 'mean',
   waterInfra: null,
   waterLayerVisibility: {},
   page1Analysis: null,
@@ -109,6 +110,8 @@ const STATE_COLORS = {
 };
 
 const WIND_PADDING_CELLS = 6;
+const WIND_SCALE_STEP_MPS = 5;
+const WIND_PALETTE = ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'];
 
 const chartRefs = {
   c1: null,
@@ -188,6 +191,9 @@ const els = {
   windCmccCaption: document.getElementById('wind-cmcc-caption'),
   windOpacitySlider: document.getElementById('wind-opacity-slider'),
   windOpacityValue: document.getElementById('wind-opacity-value'),
+  windMapMode: document.getElementById('wind-map-mode'),
+  windMapTitleStorm: document.getElementById('wind-map-title-storm'),
+  windMapTitleCmcc: document.getElementById('wind-map-title-cmcc'),
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
@@ -1052,18 +1058,6 @@ function renderMap() {
   setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
 }
 
-function getWindColor(value) {
-  const v = Number(value);
-  if (!Number.isFinite(v)) return '#d9f0a3';
-  if (v > 45) return '#67000d';
-  if (v > 40) return '#b10026';
-  if (v > 35) return '#e31a1c';
-  if (v > 30) return '#fd8d3c';
-  if (v > 25) return '#feb24c';
-  if (v > 20) return '#fee391';
-  return '#d9f0a3';
-}
-
 function clamp01(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -1078,6 +1072,115 @@ function updateWindOpacityUi() {
   const factor = currentWindOpacityFactor();
   if (els.windOpacitySlider) els.windOpacitySlider.value = String(Math.round(factor * 100));
   if (els.windOpacityValue) els.windOpacityValue.textContent = `${Math.round(factor * 100)}%`;
+}
+
+function normalizeWindMapMode(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'rp100') return 'rp100';
+  if (value === 'rp1000') return 'rp1000';
+  return 'mean';
+}
+
+function currentWindMapMode() {
+  return normalizeWindMapMode(state.windMapMode);
+}
+
+function updateWindModeUi() {
+  if (!els.windMapMode) return;
+  els.windMapMode.value = currentWindMapMode();
+}
+
+function windMetricConfig(modeRaw) {
+  const mode = normalizeWindMapMode(modeRaw);
+  if (mode === 'rp100') {
+    return {
+      mode,
+      valueKey: 'rp100_wind_mps',
+      minKey: 'rp100_wind_min_mps',
+      maxKey: 'rp100_wind_max_mps',
+      legendTitle: 'Vent (retour 100 ans)',
+      captionLabel: 'vitesse du vent (temps de retour 100 ans)',
+      mapLabel: 'temps de retour 100 ans',
+      tooltipLabel: 'Vent (retour 100 ans)'
+    };
+  }
+  if (mode === 'rp1000') {
+    return {
+      mode,
+      valueKey: 'rp1000_wind_mps',
+      minKey: 'rp1000_wind_min_mps',
+      maxKey: 'rp1000_wind_max_mps',
+      legendTitle: 'Vent (retour 1000 ans)',
+      captionLabel: 'vitesse du vent (temps de retour 1000 ans)',
+      mapLabel: 'temps de retour 1000 ans',
+      tooltipLabel: 'Vent (retour 1000 ans)'
+    };
+  }
+  return {
+    mode: 'mean',
+    valueKey: 'mean_wind_mps',
+    minKey: 'mean_wind_min_mps',
+    maxKey: 'mean_wind_max_mps',
+    legendTitle: 'Vent moyen',
+    captionLabel: 'vitesse moyenne du vent',
+    mapLabel: 'vents moyens',
+    tooltipLabel: 'Vent max moyen'
+  };
+}
+
+function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
+  const step = Number(stepMps);
+  const rawMin = Number(minRaw);
+  const rawMax = Number(maxRaw);
+  let minEdge = Number.isFinite(rawMin) ? Math.floor(rawMin / step) * step : 0;
+  let maxEdge = Number.isFinite(rawMax) ? Math.ceil(rawMax / step) * step : minEdge + step;
+  if (!Number.isFinite(minEdge)) minEdge = 0;
+  if (!Number.isFinite(maxEdge)) maxEdge = minEdge + step;
+  if (maxEdge <= minEdge) maxEdge = minEdge + step;
+
+  const edges = [];
+  for (let value = minEdge; value <= maxEdge + 1e-9; value += step) {
+    edges.push(Number(value.toFixed(6)));
+  }
+  if (edges.length < 2) edges.push(Number((minEdge + step).toFixed(6)));
+  return {
+    minEdge: Number(minEdge),
+    maxEdge: Number(maxEdge),
+    step,
+    edges
+  };
+}
+
+function windColorFromScale(valueRaw, scale) {
+  const value = Number(valueRaw);
+  const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 5];
+  const minEdge = Number(edges[0] || 0);
+  const maxEdge = Number(edges[edges.length - 1] || (minEdge + 5));
+  const span = Math.max(1e-9, maxEdge - minEdge);
+  const normalized = Number.isFinite(value) ? (value - minEdge) / span : 0;
+  const clamped = Math.max(0, Math.min(1, normalized));
+  const paletteIdx = Math.round(clamped * (WIND_PALETTE.length - 1));
+  return WIND_PALETTE[Math.max(0, Math.min(WIND_PALETTE.length - 1, paletteIdx))];
+}
+
+function buildWindLegendHtml(scale, metric) {
+  const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 5];
+  const rows = [];
+  for (let idx = 0; idx < edges.length - 1; idx += 1) {
+    const lo = Number(edges[idx]);
+    const hi = Number(edges[idx + 1]);
+    const mid = (lo + hi) / 2;
+    const color = windColorFromScale(mid, scale);
+    rows.push(
+      `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(numberFmt.format(lo))} - ${escapeHtml(numberFmt.format(hi))} m/s</span></div>`
+    );
+  }
+  return [
+    '<div class="wind-legend">',
+    `<div class="wind-legend-title">${escapeHtml(metric?.legendTitle || 'Vent')}</div>`,
+    ...rows,
+    '</div>'
+  ].join('');
 }
 
 function syncWindOpacityFromSlider({ forceApply = false } = {}) {
@@ -1109,27 +1212,7 @@ function applyWindLayerOpacity() {
   applyWindOpacityToMap('storm_cmcc');
 }
 
-function buildWindLegendHtml() {
-  const rows = [
-    { label: '<20 m/s', color: getWindColor(19.99) },
-    { label: '20,01-25 m/s', color: getWindColor(22.5) },
-    { label: '25,01-30 m/s', color: getWindColor(27.5) },
-    { label: '30,01-35 m/s', color: getWindColor(32.5) },
-    { label: '35,01-40 m/s', color: getWindColor(37.5) },
-    { label: '40,01-45 m/s', color: getWindColor(42.5) },
-    { label: '>45 m/s', color: getWindColor(46.0) }
-  ].map((entry) => (
-    `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${entry.color}"></span><span>${entry.label}</span></div>`
-  ));
-  return [
-    '<div class="wind-legend">',
-    '<div class="wind-legend-title">Vent moyen</div>',
-    ...rows,
-    '</div>'
-  ].join('');
-}
-
-function ensureWindLegend(hazardKey) {
+function ensureWindLegend(hazardKey, scale, metric) {
   const ref = windMapRef[hazardKey];
   if (!ref || !ref.instance || !window.L) return;
 
@@ -1144,7 +1227,7 @@ function ensureWindLegend(hazardKey) {
   }
 
   const legendEl = ref.legendControl.getContainer();
-  if (legendEl) legendEl.innerHTML = buildWindLegendHtml();
+  if (legendEl) legendEl.innerHTML = buildWindLegendHtml(scale, metric);
 }
 
 function ensureWindMap(hazardKey) {
@@ -1166,8 +1249,8 @@ function ensureWindMap(hazardKey) {
   return ref;
 }
 
-function nearestWindCellValue(i, j, knownCells, fallbackValue) {
-  if (!knownCells.length) return { mean_wind_mps: fallbackValue, sample_count: 0, extrapolated: true };
+function nearestWindCellValue(i, j, knownCells, fallbackValue, metricKey) {
+  if (!knownCells.length) return { metric_value: fallbackValue, sample_count: 0, extrapolated: true };
   let best = null;
   let bestDist = Number.POSITIVE_INFINITY;
   for (let idx = 0; idx < knownCells.length; idx += 1) {
@@ -1180,8 +1263,9 @@ function nearestWindCellValue(i, j, knownCells, fallbackValue) {
       best = cell;
     }
   }
-  if (!best) return { mean_wind_mps: fallbackValue, sample_count: 0, extrapolated: true };
-  return { mean_wind_mps: best.mean_wind_mps, sample_count: best.sample_count, extrapolated: true };
+  if (!best) return { metric_value: fallbackValue, sample_count: 0, extrapolated: true };
+  const bestMetric = Number(best[metricKey]);
+  return { metric_value: Number.isFinite(bestMetric) ? bestMetric : fallbackValue, sample_count: best.sample_count, extrapolated: true };
 }
 
 function buildSharedWindGridSpec(payload, meta) {
@@ -1225,11 +1309,15 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
   const cells = payload.cells || [];
   if (!cells.length) return;
 
+  const metric = options.metric || windMetricConfig('mean');
+  const metricValueKey = String(metric.valueKey || 'mean_wind_mps');
   const grid = options.gridSpec || buildSharedWindGridSpec(payload, meta);
   if (!grid) return;
 
-  const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(payload.mean_wind_min_mps || 0);
-  const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(payload.mean_wind_max_mps || 0);
+  const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(payload[metric.minKey] || 0);
+  const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(payload[metric.maxKey] || 0);
+  const scale = options.colorScale || buildWindScale(min, max, WIND_SCALE_STEP_MPS);
+  const fallbackValue = Number(scale.minEdge || min || 0);
   const knownCells = [];
   const knownByIndex = new Map();
   const cellDeg = grid.cellDeg;
@@ -1264,9 +1352,10 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     const observed = {
       i,
       j,
-      mean_wind_mps: Number(cell.mean_wind_mps || min),
+      [metricValueKey]: Number(cell[metricValueKey]),
       sample_count: Number(cell.sample_count || 0)
     };
+    if (!Number.isFinite(observed[metricValueKey])) observed[metricValueKey] = fallbackValue;
     knownCells.push(observed);
     if (!knownByIndex.has(key)) knownByIndex.set(key, observed);
   });
@@ -1282,11 +1371,11 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const east = west + cellDeg;
         const key = `${i}|${j}`;
         const observed = knownByIndex.get(key);
-        const data = observed || nearestWindCellValue(i, j, knownCells, min);
-        const meanWind = Number(data.mean_wind_mps ?? min);
+        const data = observed || nearestWindCellValue(i, j, knownCells, fallbackValue, metricValueKey);
+        const metricValue = Number(data.metric_value ?? fallbackValue);
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
-        const color = getWindColor(meanWind);
+        const color = windColorFromScale(metricValue, scale);
         const baseFillOpacity = extrapolated ? 0.86 : 0.97;
         const finalFillOpacity = clamp01(baseFillOpacity * currentWindOpacityFactor());
         const rect = L.rectangle([[south, west], [north, east]], {
@@ -1298,7 +1387,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
-            `Vent max moyen: ${escapeHtml(numberFmt.format(meanWind))} m/s`,
+            `${escapeHtml(metric.tooltipLabel)}: ${escapeHtml(numberFmt.format(metricValue))} m/s`,
             `Echantillons: ${escapeHtml(numberFmt.format(sampleCount))}`,
             extrapolated ? 'Valeur: extrapolee (plus proche maille observee)' : 'Valeur: observee'
           ].join('<br/>'),
@@ -1309,7 +1398,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     }
   }
 
-  ensureWindLegend(hazardKey);
+  ensureWindLegend(hazardKey, scale, metric);
 
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -1320,6 +1409,7 @@ function renderWindMaps() {
   const meta = payload.meta || {};
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
+  const metric = windMetricConfig(currentWindMapMode());
 
   const sharedCells = [
     ...((storm && Array.isArray(storm.cells)) ? storm.cells : []),
@@ -1327,23 +1417,31 @@ function renderWindMaps() {
   ];
   const sharedGrid = buildSharedWindGridSpec({ cells: sharedCells }, meta);
   const sharedMin = Math.min(
-    Number(storm?.mean_wind_min_mps ?? Number.POSITIVE_INFINITY),
-    Number(cmcc?.mean_wind_min_mps ?? Number.POSITIVE_INFINITY)
+    Number(storm?.[metric.minKey] ?? Number.POSITIVE_INFINITY),
+    Number(cmcc?.[metric.minKey] ?? Number.POSITIVE_INFINITY)
   );
   const sharedMax = Math.max(
-    Number(storm?.mean_wind_max_mps ?? Number.NEGATIVE_INFINITY),
-    Number(cmcc?.mean_wind_max_mps ?? Number.NEGATIVE_INFINITY)
+    Number(storm?.[metric.maxKey] ?? Number.NEGATIVE_INFINITY),
+    Number(cmcc?.[metric.maxKey] ?? Number.NEGATIVE_INFINITY)
   );
   const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
   const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
+  const colorScale = buildWindScale(colorMin, colorMax, WIND_SCALE_STEP_MPS);
+
+  if (els.windMapTitleStorm) {
+    els.windMapTitleStorm.textContent = `Carte des aleas vent/tempete ${metric.mapLabel} (STORM)`;
+  }
+  if (els.windMapTitleCmcc) {
+    els.windMapTitleCmcc.textContent = `Carte des aleas vent/tempete ${metric.mapLabel} (STORM_CMCC)`;
+  }
 
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
-    renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax });
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(WIND_SCALE_STEP_MPS)} m/s)`;
+    renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · echelle de classes fixe (<20, 20,01-25, 25,01-30, 30,01-35, 35,01-40, 40,01-45, >45 m/s)`;
-    renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax });
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(WIND_SCALE_STEP_MPS)} m/s)`;
+    renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
   }
   applyWindLayerOpacity();
 }
@@ -2657,6 +2755,14 @@ function bindEvents() {
     });
     updateWindOpacityUi();
     syncWindOpacityFromSlider({ forceApply: true });
+  }
+  if (els.windMapMode) {
+    updateWindModeUi();
+    els.windMapMode.addEventListener('change', () => {
+      state.windMapMode = normalizeWindMapMode(els.windMapMode.value);
+      updateWindModeUi();
+      renderWindMaps();
+    });
   }
 
   if (els.impactMapHazardSelect) {

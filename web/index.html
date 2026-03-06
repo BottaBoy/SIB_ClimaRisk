@@ -116,13 +116,6 @@
               En d’autres termes cela représente la probabilité moyenne des vents sur la zone d’étude d’après les bases de données utilisées.
             </p>
           </div>
-          <div class="wind-opacity-box">
-            <label for="wind-opacity-slider">Transparence couche vent (STORM + STORM_CMCC)</label>
-            <div class="wind-opacity-row">
-              <input id="wind-opacity-slider" type="range" min="0" max="100" step="1" value="82" />
-              <span id="wind-opacity-value" class="wind-opacity-value">82%</span>
-            </div>
-          </div>
         </div>
         <article class="subpanel">
           <h3 id="hazard-compare-title">Comparaison vitesses max - zone Guadeloupe</h3>
@@ -140,14 +133,31 @@
             </table>
           </div>
         </article>
+        <div class="wind-controls-row">
+          <div class="wind-opacity-box">
+            <label for="wind-opacity-slider">Transparence couche vent (STORM + STORM_CMCC)</label>
+            <div class="wind-opacity-row">
+              <input id="wind-opacity-slider" type="range" min="0" max="100" step="1" value="82" />
+              <span id="wind-opacity-value" class="wind-opacity-value">82%</span>
+            </div>
+          </div>
+          <div class="wind-mode-box">
+            <label for="wind-map-mode">Type de carte vent/tempête</label>
+            <select id="wind-map-mode">
+              <option value="mean">Vents moyens</option>
+              <option value="rp100">Temps de retour 100 ans</option>
+              <option value="rp1000">Temps de retour 1000 ans</option>
+            </select>
+          </div>
+        </div>
         <div class="wind-grid">
           <article class="subpanel wind-map-card">
-            <h3>Carte des aleas vent/tempete moyens (STORM)</h3>
+            <h3 id="wind-map-title-storm">Carte des aleas vent/tempete (STORM)</h3>
             <p class="muted small" id="wind-storm-caption">Chargement…</p>
             <div id="wind-map-storm" class="map wind-map"></div>
           </article>
           <article class="subpanel wind-map-card">
-            <h3>Carte des aleas vent/tempete moyens (STORM_CMCC)</h3>
+            <h3 id="wind-map-title-cmcc">Carte des aleas vent/tempete (STORM_CMCC)</h3>
             <p class="muted small" id="wind-cmcc-caption">Chargement…</p>
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>

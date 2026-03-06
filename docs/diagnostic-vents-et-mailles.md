@@ -1,6 +1,6 @@
 # Diagnostic vents et mailles (auto-genere)
 
-- Genere le: 2026-03-05 11:33 UTC
+- Genere le: 2026-03-06 09:02 UTC
 - Unite vent normalisee: m/s
 - Regeneration: `python scripts/build_wind_speed_comparison_doc.py` (met a jour automatiquement tableaux et mailles).
 
@@ -12,8 +12,10 @@
 | Nombre de cyclones/evenements (max par track) | 107 063 | 123 536 | 16 473 |
 | Moyenne des vitesses max annuelles (m/s) | 59,95 | 62,98 | 3,03 |
 | Moyenne des vitesses max par cyclone/evenement (m/s) | 34,67 | 37,25 | 2,58 |
-| P95 des vitesses max annuelles (m/s) | 72,10 | 76,10 | 4,00 |
-| P95 des vitesses max par cyclone/evenement (m/s) | 63,40 | 64,90 | 1,50 |
+| Vitesse max annuelle - temps de retour 100 ans (m/s) | 75,90 | 79,00 | 3,10 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 70,10 | 72,90 | 2,80 |
+| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 79,00 | 81,10 | 2,10 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 75,80 | 78,80 | 3,00 |
 | Max des vitesses max annuelles (m/s) | 83,50 | 84,80 | 1,30 |
 | Max des vitesses max par cyclone/evenement (m/s) | 83,50 | 84,80 | 1,30 |
 ## Comparaison vitesses max - Zone Guadeloupe
@@ -26,8 +28,10 @@
 | Nombre de cyclones/evenements (max par track) | 3 126 | 3 401 | 275 |
 | Moyenne des vitesses max annuelles (m/s) | 37,25 | 36,00 | -1,26 |
 | Moyenne des vitesses max par cyclone/evenement (m/s) | 35,91 | 34,86 | -1,05 |
-| P95 des vitesses max annuelles (m/s) | 58,30 | 59,77 | 1,47 |
-| P95 des vitesses max par cyclone/evenement (m/s) | 57,30 | 58,80 | 1,50 |
+| Vitesse max annuelle - temps de retour 100 ans (m/s) | 63,75 | 65,21 | 1,47 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 63,38 | 65,00 | 1,62 |
+| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 67,00 | 67,60 | 0,60 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 66,99 | 67,52 | 0,53 |
 | Max des vitesses max annuelles (m/s) | 67,80 | 69,60 | 1,80 |
 | Max des vitesses max par cyclone/evenement (m/s) | 67,80 | 69,60 | 1,80 |
 ## Comparaison vitesses max - Zone Martinique
@@ -40,8 +44,10 @@
 | Nombre de cyclones/evenements (max par track) | 1 596 | 1 639 | 43 |
 | Moyenne des vitesses max annuelles (m/s) | 34,46 | 33,78 | -0,68 |
 | Moyenne des vitesses max par cyclone/evenement (m/s) | 34,00 | 33,15 | -0,84 |
-| P95 des vitesses max annuelles (m/s) | 57,18 | 56,19 | -0,98 |
-| P95 des vitesses max par cyclone/evenement (m/s) | 56,80 | 55,40 | -1,40 |
+| Vitesse max annuelle - temps de retour 100 ans (m/s) | 65,13 | 63,10 | -2,04 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 64,43 | 62,80 | -1,63 |
+| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 70,85 | 69,55 | -1,30 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 70,67 | 69,40 | -1,27 |
 | Max des vitesses max annuelles (m/s) | 73,70 | 71,00 | -2,70 |
 | Max des vitesses max par cyclone/evenement (m/s) | 73,70 | 71,00 | -2,70 |
 

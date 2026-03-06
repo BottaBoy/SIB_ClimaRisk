@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-06T08:03:59+00:00",
+    "generated_at": "2026-03-06T09:04:19+00:00",
     "source": "guadeloupe_case_study_computed",
     "case_study_territory": "guadeloupe",
     "case_study_label": "Guadeloupe",
@@ -684,16 +684,28 @@
         "delta": "-1,05"
       },
       {
-        "indicator": "P95 des vitesses max annuelles (m/s)",
-        "storm": "58,30",
-        "storm_cmcc": "59,77",
+        "indicator": "Vitesse max annuelle - temps de retour 100 ans (m/s)",
+        "storm": "63,75",
+        "storm_cmcc": "65,21",
         "delta": "1,47"
       },
       {
-        "indicator": "P95 des vitesses max par cyclone/evenement (m/s)",
-        "storm": "57,30",
-        "storm_cmcc": "58,80",
-        "delta": "1,50"
+        "indicator": "Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s)",
+        "storm": "63,38",
+        "storm_cmcc": "65,00",
+        "delta": "1,62"
+      },
+      {
+        "indicator": "Vitesse max annuelle - temps de retour 1000 ans (m/s)",
+        "storm": "67,00",
+        "storm_cmcc": "67,60",
+        "delta": "0,60"
+      },
+      {
+        "indicator": "Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s)",
+        "storm": "66,99",
+        "storm_cmcc": "67,52",
+        "delta": "0,53"
       },
       {
         "indicator": "Max des vitesses max annuelles (m/s)",

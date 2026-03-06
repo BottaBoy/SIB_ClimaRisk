@@ -154,6 +154,23 @@ button, input, select {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
+.runtime-note {
+  padding: 12px 14px;
+  border-color: rgba(164, 166, 75, 0.78);
+  background: rgba(164, 166, 75, 0.24);
+  color: #ffffff;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+body.runtime-public .page-tab-private {
+  display: none !important;
+}
+
+body.runtime-public .page-block.page3 {
+  display: none !important;
+}
+
 .page-block.hidden-page {
   display: none !important;
 }
@@ -416,6 +433,33 @@ button:disabled {
   color: #ffffff;
   font-size: 12px;
   font-weight: 700;
+}
+
+.wind-controls-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 10px;
+  align-items: end;
+}
+
+.wind-mode-box {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(0, 58, 118, 0.5);
+}
+
+.wind-mode-box label {
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.wind-mode-box select {
+  min-height: 34px;
 }
 
 .wind-grid {
@@ -819,6 +863,7 @@ button:disabled {
   .main-grid,
   .run-lab-grid,
   .wind-grid,
+  .wind-controls-row,
   .expo-grid,
   .impact-tables-grid {
     grid-template-columns: 1fr;

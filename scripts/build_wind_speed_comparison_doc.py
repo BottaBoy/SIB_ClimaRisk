@@ -176,14 +176,20 @@ def _compute_stats(
 
     year_vals = np.array(list(year_max.values()), dtype=float)
     track_vals = np.array(list(track_max.values()), dtype=float)
+    year_q_rp100 = float(np.quantile(year_vals, 0.99)) if year_vals.size else 0.0
+    year_q_rp1000 = float(np.quantile(year_vals, 0.999)) if year_vals.size else 0.0
+    track_q_rp100 = float(np.quantile(track_vals, 0.99)) if track_vals.size else 0.0
+    track_q_rp1000 = float(np.quantile(track_vals, 0.999)) if track_vals.size else 0.0
 
     return {
         "years": int(year_vals.size),
         "tracks": int(track_vals.size),
         "year_max_mean_mps": float(year_vals.mean()) if year_vals.size else 0.0,
         "track_max_mean_mps": float(track_vals.mean()) if track_vals.size else 0.0,
-        "year_max_p95_mps": float(np.percentile(year_vals, 95)) if year_vals.size else 0.0,
-        "track_max_p95_mps": float(np.percentile(track_vals, 95)) if track_vals.size else 0.0,
+        "year_max_rp100_mps": year_q_rp100,
+        "track_max_rp100_mps": track_q_rp100,
+        "year_max_rp1000_mps": year_q_rp1000,
+        "track_max_rp1000_mps": track_q_rp1000,
         "year_max_max_mps": float(year_vals.max()) if year_vals.size else 0.0,
         "track_max_max_mps": float(track_vals.max()) if track_vals.size else 0.0,
     }
@@ -226,8 +232,10 @@ def _table_region(storm: dict[str, Any], cmcc: dict[str, Any]) -> str:
         row("Nombre de cyclones/evenements (max par track)", "tracks", 0),
         row("Moyenne des vitesses max annuelles (m/s)", "year_max_mean_mps", 2),
         row("Moyenne des vitesses max par cyclone/evenement (m/s)", "track_max_mean_mps", 2),
-        row("P95 des vitesses max annuelles (m/s)", "year_max_p95_mps", 2),
-        row("P95 des vitesses max par cyclone/evenement (m/s)", "track_max_p95_mps", 2),
+        row("Vitesse max annuelle - temps de retour 100 ans (m/s)", "year_max_rp100_mps", 2),
+        row("Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s)", "track_max_rp100_mps", 2),
+        row("Vitesse max annuelle - temps de retour 1000 ans (m/s)", "year_max_rp1000_mps", 2),
+        row("Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s)", "track_max_rp1000_mps", 2),
         row("Max des vitesses max annuelles (m/s)", "year_max_max_mps", 2),
         row("Max des vitesses max par cyclone/evenement (m/s)", "track_max_max_mps", 2),
     ]

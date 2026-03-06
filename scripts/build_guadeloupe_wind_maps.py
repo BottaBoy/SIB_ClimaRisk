@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from case_study_sources import CASE_STUDY_BBOX, normalize_territory
@@ -78,7 +79,7 @@ def _iter_storm_files(root: Path, pattern: str) -> list[Path]:
     return files
 
 
-def _aggregate_mean_wind(
+def _aggregate_wind_metrics(
     files: list[Path],
     *,
     basin_id: int,
@@ -88,12 +89,13 @@ def _aggregate_mean_wind(
     lon_min: float,
     lon_max: float,
     cell_deg: float,
-) -> tuple[list[dict], int, int, float, float]:
+) -> tuple[list[dict], int, int, dict[str, float]]:
     sums: dict[tuple[int, int], float] = defaultdict(float)
     counts: dict[tuple[int, int], int] = defaultdict(int)
+    year_cell_max: dict[tuple[int, int, int], float] = {}
 
     year_blocks: set[int] = set()
-    unique_tracks = 0
+    track_keys: set[tuple[int, int]] = set()
 
     usecols = ["Year", "Basin ID", "Latitude", "Longitude", "Maximum wind speed", "TC number"]
 
@@ -132,7 +134,8 @@ def _aggregate_mean_wind(
 
             # Global-year reconstruction: each file is one 1000-year block.
             chunk["year_global"] = chunk["year"].astype(int) + 1000 * block_idx
-            unique_tracks += int(chunk[["year_global", "tc_number"]].drop_duplicates().shape[0])
+            for row in chunk[["year_global", "tc_number"]].drop_duplicates().itertuples(index=False):
+                track_keys.add((int(row.year_global), int(row.tc_number)))
 
             chunk = chunk[
                 (chunk["lat"] >= lat_min)
@@ -150,20 +153,50 @@ def _aggregate_mean_wind(
                 sum_wind=("wind_max", "sum"),
                 n=("wind_max", "count"),
             )
+            grouped_year = chunk.groupby(["i", "j", "year_global"], as_index=False)["wind_max"].max()
 
             for row in grouped.itertuples(index=False):
                 key = (int(row.i), int(row.j))
                 sums[key] += float(row.sum_wind)
                 counts[key] += int(row.n)
+            for row in grouped_year.itertuples(index=False):
+                key = (int(row.i), int(row.j), int(row.year_global))
+                value = float(row.wind_max)
+                prev = year_cell_max.get(key)
+                if prev is None or value > prev:
+                    year_cell_max[key] = value
 
     cells: list[dict] = []
     means: list[float] = []
+    rp100_values: list[float] = []
+    rp1000_values: list[float] = []
+
+    year_values_by_cell: dict[tuple[int, int], dict[int, float]] = defaultdict(dict)
+    for (i, j, y), v in year_cell_max.items():
+        year_values_by_cell[(i, j)][int(y)] = float(v)
 
     for (i, j), total in sums.items():
         n = counts[(i, j)]
         if n <= 0:
             continue
         mean_wind = total / n
+        yearly_vals = year_values_by_cell.get((i, j), {})
+        years_covered = (max(year_blocks) + 1) * 1000 if year_blocks else 0
+        if years_covered > 0:
+            annual_series = np.zeros(years_covered, dtype=float)
+            for year_idx, wind_val in yearly_vals.items():
+                if 0 <= int(year_idx) < years_covered:
+                    annual_series[int(year_idx)] = max(float(annual_series[int(year_idx)]), float(wind_val))
+            active_series = annual_series[annual_series > 0]
+            if active_series.size:
+                rp100_wind = float(np.quantile(active_series, 0.99))
+                rp1000_wind = float(np.quantile(active_series, 0.999))
+            else:
+                rp100_wind = 0.0
+                rp1000_wind = 0.0
+        else:
+            rp100_wind = 0.0
+            rp1000_wind = 0.0
         lat_center = lat_min + (i + 0.5) * cell_deg
         lon_center = lon_min + (j + 0.5) * cell_deg
         cells.append(
@@ -171,18 +204,28 @@ def _aggregate_mean_wind(
                 "lat": round(lat_center, 6),
                 "lon": round(lon_center, 6),
                 "mean_wind_mps": round(mean_wind, 4),
+                "rp100_wind_mps": round(rp100_wind, 4),
+                "rp1000_wind_mps": round(rp1000_wind, 4),
                 "sample_count": int(n),
             }
         )
         means.append(mean_wind)
+        rp100_values.append(rp100_wind)
+        rp1000_values.append(rp1000_wind)
 
     cells.sort(key=lambda c: (c["lat"], c["lon"]))
 
     years_covered = (max(year_blocks) + 1) * 1000 if year_blocks else 0
-    mean_min = min(means) if means else 0.0
-    mean_max = max(means) if means else 0.0
+    ranges = {
+        "mean_wind_min_mps": min(means) if means else 0.0,
+        "mean_wind_max_mps": max(means) if means else 0.0,
+        "rp100_wind_min_mps": min(rp100_values) if rp100_values else 0.0,
+        "rp100_wind_max_mps": max(rp100_values) if rp100_values else 0.0,
+        "rp1000_wind_min_mps": min(rp1000_values) if rp1000_values else 0.0,
+        "rp1000_wind_max_mps": max(rp1000_values) if rp1000_values else 0.0,
+    }
 
-    return cells, years_covered, unique_tracks, mean_min, mean_max
+    return cells, years_covered, len(track_keys), ranges
 
 
 def main() -> None:
@@ -218,7 +261,7 @@ def main() -> None:
     storm_files = _iter_storm_files(storm_dir, "STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt")
     cmcc_files = _iter_storm_files(cmcc_dir, "STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt")
 
-    storm_cells, storm_years, storm_tracks, storm_min, storm_max = _aggregate_mean_wind(
+    storm_cells, storm_years, storm_tracks, storm_ranges = _aggregate_wind_metrics(
         storm_files,
         basin_id=args.basin_id,
         wind_unit_in=normalized_wind_unit,
@@ -229,7 +272,7 @@ def main() -> None:
         cell_deg=args.cell_deg,
     )
 
-    cmcc_cells, cmcc_years, cmcc_tracks, cmcc_min, cmcc_max = _aggregate_mean_wind(
+    cmcc_cells, cmcc_years, cmcc_tracks, cmcc_ranges = _aggregate_wind_metrics(
         cmcc_files,
         basin_id=args.basin_id,
         wind_unit_in=normalized_wind_unit,
@@ -263,16 +306,24 @@ def main() -> None:
             "years_covered": storm_years,
             "tracks_approx": storm_tracks,
             "cell_count": len(storm_cells),
-            "mean_wind_min_mps": round(storm_min, 4),
-            "mean_wind_max_mps": round(storm_max, 4),
+            "mean_wind_min_mps": round(float(storm_ranges["mean_wind_min_mps"]), 4),
+            "mean_wind_max_mps": round(float(storm_ranges["mean_wind_max_mps"]), 4),
+            "rp100_wind_min_mps": round(float(storm_ranges["rp100_wind_min_mps"]), 4),
+            "rp100_wind_max_mps": round(float(storm_ranges["rp100_wind_max_mps"]), 4),
+            "rp1000_wind_min_mps": round(float(storm_ranges["rp1000_wind_min_mps"]), 4),
+            "rp1000_wind_max_mps": round(float(storm_ranges["rp1000_wind_max_mps"]), 4),
             "cells": storm_cells,
         },
         "storm_cmcc": {
             "years_covered": cmcc_years,
             "tracks_approx": cmcc_tracks,
             "cell_count": len(cmcc_cells),
-            "mean_wind_min_mps": round(cmcc_min, 4),
-            "mean_wind_max_mps": round(cmcc_max, 4),
+            "mean_wind_min_mps": round(float(cmcc_ranges["mean_wind_min_mps"]), 4),
+            "mean_wind_max_mps": round(float(cmcc_ranges["mean_wind_max_mps"]), 4),
+            "rp100_wind_min_mps": round(float(cmcc_ranges["rp100_wind_min_mps"]), 4),
+            "rp100_wind_max_mps": round(float(cmcc_ranges["rp100_wind_max_mps"]), 4),
+            "rp1000_wind_min_mps": round(float(cmcc_ranges["rp1000_wind_min_mps"]), 4),
+            "rp1000_wind_max_mps": round(float(cmcc_ranges["rp1000_wind_max_mps"]), 4),
             "cells": cmcc_cells,
         },
     }
@@ -282,8 +333,20 @@ def main() -> None:
 
     print(f"Wrote {out}")
     print(f"territory={territory} bbox=[{lat_min},{lat_max}]x[{lon_min},{lon_max}]")
-    print(f"STORM cells={len(storm_cells)} years={storm_years} tracks~={storm_tracks} mean_wind_range=[{storm_min:.3f},{storm_max:.3f}]")
-    print(f"STORM_CMCC cells={len(cmcc_cells)} years={cmcc_years} tracks~={cmcc_tracks} mean_wind_range=[{cmcc_min:.3f},{cmcc_max:.3f}]")
+    print(
+        "STORM "
+        f"cells={len(storm_cells)} years={storm_years} tracks~={storm_tracks} "
+        f"mean=[{storm_ranges['mean_wind_min_mps']:.3f},{storm_ranges['mean_wind_max_mps']:.3f}] "
+        f"rp100=[{storm_ranges['rp100_wind_min_mps']:.3f},{storm_ranges['rp100_wind_max_mps']:.3f}] "
+        f"rp1000=[{storm_ranges['rp1000_wind_min_mps']:.3f},{storm_ranges['rp1000_wind_max_mps']:.3f}]"
+    )
+    print(
+        "STORM_CMCC "
+        f"cells={len(cmcc_cells)} years={cmcc_years} tracks~={cmcc_tracks} "
+        f"mean=[{cmcc_ranges['mean_wind_min_mps']:.3f},{cmcc_ranges['mean_wind_max_mps']:.3f}] "
+        f"rp100=[{cmcc_ranges['rp100_wind_min_mps']:.3f},{cmcc_ranges['rp100_wind_max_mps']:.3f}] "
+        f"rp1000=[{cmcc_ranges['rp1000_wind_min_mps']:.3f},{cmcc_ranges['rp1000_wind_max_mps']:.3f}]"
+    )
 
 
 if __name__ == "__main__":
