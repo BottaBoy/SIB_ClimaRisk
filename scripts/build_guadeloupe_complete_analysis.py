@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+import os
 from pathlib import Path
 import sys
 
 import geopandas as gpd
+from shapely.geometry import box
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +38,16 @@ from valuation_ofb import (  # noqa: E402
 
 METRIC_CRS = "EPSG:5490"
 WGS84 = "EPSG:4326"
+CASE_HAZARD_PATHS = {
+    "guadeloupe": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
+    ),
+    "martinique": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
+    ),
+}
 
 
 def _ensure_crs(gdf: gpd.GeoDataFrame, fallback: str = WGS84) -> gpd.GeoDataFrame:
@@ -49,6 +61,22 @@ def _as_wgs84_and_metric(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, gpd.G
     gdf_wgs = gdf.to_crs(WGS84)
     gdf_metric = gdf.to_crs(METRIC_CRS)
     return gdf_wgs, gdf_metric
+
+
+def _bbox_polygon_from_cfg(cfg: dict[str, object]):
+    bbox = dict(cfg.get("wind_bbox") or {})
+    return box(
+        float(bbox["lon_min"]),
+        float(bbox["lat_min"]),
+        float(bbox["lon_max"]),
+        float(bbox["lat_max"]),
+    )
+
+
+def _clip_to_bbox(gdf: gpd.GeoDataFrame, bbox_polygon) -> gpd.GeoDataFrame:
+    gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
+    gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(bbox_polygon)
+    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
 
 
 def _line_features(
@@ -197,13 +225,17 @@ def build_complete_exposure(
     water_values = get_water_values(territory_key)
     elec_values = get_elec_values()
     features: list[NormalizedFeature] = []
+    bbox_polygon = _bbox_polygon_from_cfg(cfg)
 
     for src in cfg["elec_line_sources"]:
         eur_per_km = float(elec_values[str(src["asset_type"])])
         for p_idx, path in enumerate(src["paths"], start=1):
+            gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
+            if gdf.empty:
+                continue
             features.extend(
                 _line_features(
-                    gpd.read_file(path),
+                    gdf,
                     feature_prefix=f"{src['prefix']}-{p_idx}",
                     asset_type=str(src["asset_type"]),
                     exposure_category="ouvrage_electrique",
@@ -214,9 +246,12 @@ def build_complete_exposure(
     for src in cfg["water_line_sources"]:
         eur_per_km = float(water_values[str(src["value_key"])])
         for p_idx, path in enumerate(src["paths"], start=1):
+            gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
+            if gdf.empty:
+                continue
             features.extend(
                 _line_features(
-                    gpd.read_file(path),
+                    gdf,
                     feature_prefix=f"{src['prefix']}-{p_idx}",
                     asset_type=str(src["asset_type"]),
                     exposure_category="ouvrage_eau",
@@ -227,7 +262,9 @@ def build_complete_exposure(
     for src in cfg["aep_ouvrage_sources"]:
         mode = str(src.get("mode", "")).strip().lower()
         for p_idx, path in enumerate(src["paths"], start=1):
-            gdf = gpd.read_file(path)
+            gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
+            if gdf.empty:
+                continue
             if mode == "fixed_type":
                 features.extend(
                     _point_features_aep_ouvrages_fixed_type(
@@ -248,9 +285,12 @@ def build_complete_exposure(
     for src in cfg["water_point_fixed_sources"]:
         fixed_value_eur = float(water_values[str(src["value_key"])])
         for p_idx, path in enumerate(src["paths"], start=1):
+            gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
+            if gdf.empty:
+                continue
             features.extend(
                 _point_features_fixed_value(
-                    gpd.read_file(path),
+                    gdf,
                     feature_prefix=f"{src['prefix']}-{p_idx}",
                     asset_type=str(src["asset_type"]),
                     exposure_category="ouvrage_eau",
@@ -299,7 +339,24 @@ def main() -> None:
         territory=territory_key,
     )
     disagg = summarize_disaggregation(exposure, spacing_m=float(args.sampling_spacing_m))
-    comp = compute_impacts(exposure, disagg)
+    hazard_storm_path, hazard_cmcc_path = CASE_HAZARD_PATHS[territory_key]
+    prev_storm = os.environ.get("SIB_RISK_HAZARD_STORM_PATH")
+    prev_cmcc = os.environ.get("SIB_RISK_HAZARD_STORM_CMCC_PATH")
+    if hazard_storm_path.exists():
+        os.environ["SIB_RISK_HAZARD_STORM_PATH"] = str(hazard_storm_path)
+    if hazard_cmcc_path.exists():
+        os.environ["SIB_RISK_HAZARD_STORM_CMCC_PATH"] = str(hazard_cmcc_path)
+    try:
+        comp = compute_impacts(exposure, disagg)
+    finally:
+        if prev_storm is None:
+            os.environ.pop("SIB_RISK_HAZARD_STORM_PATH", None)
+        else:
+            os.environ["SIB_RISK_HAZARD_STORM_PATH"] = prev_storm
+        if prev_cmcc is None:
+            os.environ.pop("SIB_RISK_HAZARD_STORM_CMCC_PATH", None)
+        else:
+            os.environ["SIB_RISK_HAZARD_STORM_CMCC_PATH"] = prev_cmcc
 
     source_key = f"{territory_key}_complete_reference"
     payload = build_result_payload(

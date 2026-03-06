@@ -3,7 +3,7 @@
     "title": "Guadeloupe Complete Water+Electric Cyclone Risk",
     "source": "guadeloupe_complete_reference",
     "job_id": "guadeloupe_complete_reference",
-    "updated_at": "2026-03-06T08:03:20+00:00",
+    "updated_at": "2026-03-06T10:00:44+00:00",
     "unit_currency": "EUR",
     "currency_display_unit": "MEUR",
     "sampling_spacing_m": 100.0,
@@ -37,31 +37,30 @@
     "case_study_territory": "guadeloupe"
   },
   "exposure_summary": {
-    "asset_count_original": 119655,
-    "asset_count_points": 357105,
-    "total_exposure_eur": 7122135221.57,
+    "asset_count_original": 110315,
+    "asset_count_points": 329087,
+    "total_exposure_eur": 6897242082.83,
     "source_name": "guadeloupe_complete_infra_reference",
     "source_format": "mixed_geojson_gpkg_shp",
     "geometry_type_counts": {
-      "LineString": 72989,
-      "MultiLineString": 45736,
-      "Point": 440,
-      "MultiPoint": 490
+      "LineString": 108923,
+      "MultiLineString": 463,
+      "Point": 929
     },
     "exposure_category_counts": {
-      "ouvrage_electrique": 72989,
-      "ouvrage_eau": 46666
+      "ouvrage_electrique": 63650,
+      "ouvrage_eau": 46665
     },
     "metric_crs": "EPSG:3857",
     "asset_type_counts": {
-      "elec_bt_aerien": 30319,
-      "elec_bt_souterrain": 33085,
-      "elec_hta_aerien": 1819,
-      "elec_hta_souterrain": 7766,
+      "elec_bt_aerien": 29952,
+      "elec_bt_souterrain": 24982,
+      "elec_hta_aerien": 1809,
+      "elec_hta_souterrain": 6907,
       "eau_aep_cana": 31941,
       "eau_eu_cana": 13795,
       "eau_aep_ouvrage_CUV": 202,
-      "eau_aep_ouvrage_STPMP": 119,
+      "eau_aep_ouvrage_STPMP": 118,
       "eau_aep_ouvrage_CAP": 68,
       "eau_aep_ouvrage_OUVEB": 11,
       "eau_aep_ouvrage_TRAIT": 40,
@@ -103,15 +102,15 @@
     {
       "territory_id": "cell-+16.40_-61.40",
       "territory_label": "Zone (16.40, -61.40)",
-      "lat": 16.34765299886789,
-      "lon": -61.40820702512741,
-      "exposure_eur": 903079250.67,
-      "eai_storm_direct_eur": 17199977.67,
+      "lat": 16.347652998871876,
+      "lon": -61.40820702562088,
+      "exposure_eur": 903078284.06,
+      "eai_storm_direct_eur": 17199959.26,
       "eai_storm_indirect_eur": 5278821.18,
-      "eai_storm_eur": 22478798.86,
-      "eai_cmcc_direct_eur": 17165153.64,
+      "eai_storm_eur": 22478780.45,
+      "eai_cmcc_direct_eur": 17165135.24,
       "eai_cmcc_indirect_eur": 5268429.2,
-      "eai_cmcc_eur": 22433582.84,
+      "eai_cmcc_eur": 22433564.44,
       "risk_index_storm": 24.89,
       "risk_index_cmcc": 24.84
     },
@@ -150,13 +149,13 @@
       "territory_label": "Zone (16.20, -61.80)",
       "lat": 16.190403213718724,
       "lon": -61.77612964033477,
-      "exposure_eur": 337863516.87,
-      "eai_storm_direct_eur": 6444040.77,
-      "eai_storm_indirect_eur": 2292259.67,
-      "eai_storm_eur": 8736300.45,
-      "eai_cmcc_direct_eur": 6309573.46,
-      "eai_cmcc_indirect_eur": 2243941.71,
-      "eai_cmcc_eur": 8553515.16,
+      "exposure_eur": 337855361.43,
+      "eai_storm_direct_eur": 6443886.07,
+      "eai_storm_indirect_eur": 2292190.06,
+      "eai_storm_eur": 8736076.13,
+      "eai_cmcc_direct_eur": 6309420.45,
+      "eai_cmcc_indirect_eur": 2243872.85,
+      "eai_cmcc_eur": 8553293.3,
       "risk_index_storm": 25.86,
       "risk_index_cmcc": 25.32
     },
@@ -206,21 +205,6 @@
       "risk_index_cmcc": 24.83
     },
     {
-      "territory_id": "cell-+18.00_-63.00",
-      "territory_label": "Zone (18.00, -63.00)",
-      "lat": 18.0754397353311,
-      "lon": -63.05950398345455,
-      "exposure_eur": 109523081.9,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
-    },
-    {
       "territory_id": "cell-+15.80_-61.60",
       "territory_label": "Zone (15.80, -61.60)",
       "lat": 15.862413104106867,
@@ -249,21 +233,6 @@
       "eai_cmcc_eur": 1182857.63,
       "risk_index_storm": 19.08,
       "risk_index_cmcc": 18.14
-    },
-    {
-      "territory_id": "cell-+18.00_-62.80",
-      "territory_label": "Zone (18.00, -62.80)",
-      "lat": 17.907969724885394,
-      "lon": -62.83201872364814,
-      "exposure_eur": 53229990.53,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
     },
     {
       "territory_id": "cell-+16.00_-61.40",
@@ -309,51 +278,6 @@
       "eai_cmcc_eur": 468696.96,
       "risk_index_storm": 19.05,
       "risk_index_cmcc": 18.2
-    },
-    {
-      "territory_id": "cell-+17.80_-62.80",
-      "territory_label": "Zone (17.80, -62.80)",
-      "lat": 17.895411934579304,
-      "lon": -62.83535163896101,
-      "exposure_eur": 23485168.94,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
-    },
-    {
-      "territory_id": "cell-+18.00_-63.20",
-      "territory_label": "Zone (18.00, -63.20)",
-      "lat": 18.063563407328882,
-      "lon": -63.128401339797,
-      "exposure_eur": 20090012.51,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
-    },
-    {
-      "territory_id": "cell-+18.20_-63.00",
-      "territory_label": "Zone (18.20, -63.00)",
-      "lat": 18.104758248181348,
-      "lon": -63.04103005095176,
-      "exposure_eur": 17355762.82,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
     },
     {
       "territory_id": "cell-+15.80_-61.40",
@@ -414,135 +338,120 @@
       "eai_cmcc_eur": 44574.28,
       "risk_index_storm": 26.66,
       "risk_index_cmcc": 27.05
-    },
-    {
-      "territory_id": "cell-+0.00_+00.00",
-      "territory_label": "Zone (0.00, 0.00)",
-      "lat": 0.0,
-      "lon": -2.147892187485942e-10,
-      "exposure_eur": 1200000.0,
-      "eai_storm_direct_eur": 0.0,
-      "eai_storm_indirect_eur": 0.0,
-      "eai_storm_eur": 0.0,
-      "eai_cmcc_direct_eur": 0.0,
-      "eai_cmcc_indirect_eur": 0.0,
-      "eai_cmcc_eur": 0.0,
-      "risk_index_storm": 0.0,
-      "risk_index_cmcc": 0.0
     }
   ],
   "portfolio_results": {
     "storm": {
-      "eai_eur": 173053267.63,
-      "aai_agg_eur": 173053267.63,
-      "max_event_loss_eur": 5339927718.04,
-      "eai_direct_eur": 131380076.46,
-      "eai_indirect_eur": 41673191.13,
-      "pml_10_eur": 452014725.72,
-      "pml_20_eur": 1243507642.77,
-      "pml_50_eur": 2280909367.27,
-      "pml_100_eur": 3105627216.01,
-      "pml_200_eur": 3627794445.51,
-      "tvar_95_eur": 16163685.65
+      "eai_eur": 173053024.9,
+      "aai_agg_eur": 173053024.9,
+      "max_event_loss_eur": 5339919752.0,
+      "eai_direct_eur": 131379903.35,
+      "eai_indirect_eur": 41673121.52,
+      "pml_10_eur": 452014157.94,
+      "pml_20_eur": 1243506803.61,
+      "pml_50_eur": 2280906392.27,
+      "pml_100_eur": 3105623211.08,
+      "pml_200_eur": 3627789264.36,
+      "tvar_95_eur": 16163662.97
     },
     "storm_cmcc": {
-      "eai_eur": 168786753.68,
-      "aai_agg_eur": 168786753.68,
-      "max_event_loss_eur": 5664944445.38,
-      "eai_direct_eur": 128137990.63,
-      "eai_indirect_eur": 40648763.07,
-      "pml_10_eur": 392267312.94,
-      "pml_20_eur": 1155905659.27,
-      "pml_50_eur": 2379266373.26,
-      "pml_100_eur": 3178332752.46,
-      "pml_200_eur": 3773266215.83,
-      "tvar_95_eur": 13662960.89
+      "eai_eur": 168786513.42,
+      "aai_agg_eur": 168786513.42,
+      "max_event_loss_eur": 5664936437.34,
+      "eai_direct_eur": 128137819.22,
+      "eai_indirect_eur": 40648694.21,
+      "pml_10_eur": 392266691.7,
+      "pml_20_eur": 1155905305.87,
+      "pml_50_eur": 2379262863.61,
+      "pml_100_eur": 3178330265.72,
+      "pml_200_eur": 3773260963.88,
+      "tvar_95_eur": 13662941.44
     },
     "delta": {
-      "eai_eur": -4266513.95,
+      "eai_eur": -4266511.48,
       "eai_pct": -2.47
     },
     "component_health": {
       "storm": {
         "elec_aerien": {
-          "health": 0.0099,
-          "L_total": 702073237.0265,
+          "health": 0.0,
+          "L_total": 695125591.9119,
           "L_S1": 0.0,
           "L_S2": 0.0,
           "L_S3": 695125591.9119,
-          "asset_count": 32138
+          "asset_count": 31761
         },
         "elec_souterrain": {
-          "health": 0.1392,
-          "L_total": 1557171347.9035,
+          "health": 0.0,
+          "L_total": 1340434009.7218,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 1340434976.3241,
-          "asset_count": 40851
+          "L_S3": 1340434009.7218,
+          "asset_count": 31889
         },
         "eau_reseau": {
           "health": 0.0,
-          "L_total": 3115765608.636,
+          "L_total": 3115757453.1931,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 3115765608.636,
+          "L_S3": 3115757453.1931,
           "asset_count": 45736
         },
         "eau_ouvrage": {
           "health": 0.0,
-          "L_total": 1747125028.0,
+          "L_total": 1745925028.0,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 1747125028.0,
-          "asset_count": 930
+          "L_S3": 1745925028.0,
+          "asset_count": 929
         }
       },
       "storm_cmcc": {
         "elec_aerien": {
-          "health": 0.0099,
-          "L_total": 702073237.0265,
+          "health": 0.0,
+          "L_total": 695125591.9119,
           "L_S1": 0.0,
           "L_S2": 0.0,
           "L_S3": 695125591.9119,
-          "asset_count": 32138
+          "asset_count": 31761
         },
         "elec_souterrain": {
-          "health": 0.1392,
-          "L_total": 1557171347.9035,
+          "health": 0.0,
+          "L_total": 1340434009.7218,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 1340434976.3241,
-          "asset_count": 40851
+          "L_S3": 1340434009.7218,
+          "asset_count": 31889
         },
         "eau_reseau": {
           "health": 0.0,
-          "L_total": 3115765608.636,
+          "L_total": 3115757453.1931,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 3115765608.636,
+          "L_S3": 3115757453.1931,
           "asset_count": 45736
         },
         "eau_ouvrage": {
           "health": 0.0,
-          "L_total": 1747125028.0,
+          "L_total": 1745925028.0,
           "L_S1": 0.0,
           "L_S2": 0.0,
-          "L_S3": 1747125028.0,
-          "asset_count": 930
+          "L_S3": 1745925028.0,
+          "asset_count": 929
         }
       }
     },
     "interdependency": {
       "electricity_to_water_enabled": true,
       "water_assets_dependency_assumption": "all_water_assets_dependent",
-      "dependency_impacted_assets": 2,
+      "dependency_impacted_assets": 0,
       "dependency_impacted_assets_by_hazard": {
-        "storm": 1,
-        "storm_cmcc": 1
+        "storm": 0,
+        "storm_cmcc": 0
       },
       "electric_health_global": {
-        "storm": 0.099,
-        "storm_cmcc": 0.099
+        "storm": 0.0,
+        "storm_cmcc": 0.0
       },
       "state_thresholds": {
         "S0_to_S1_damage_ratio": 0.05,
@@ -561,140 +470,140 @@
         {
           "event_id": 43318,
           "event_name": "STORM_4050_4_4050_2",
-          "loss_eur": 5339927718.04,
+          "loss_eur": 5339919752.0,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 73140,
           "event_name": "STORM_6849_6_6849_0",
-          "loss_eur": 5060680875.65,
+          "loss_eur": 5060673495.8,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 5397,
           "event_name": "STORM_554_0_554_8",
-          "loss_eur": 4948936734.65,
+          "loss_eur": 4948929722.62,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 76749,
           "event_name": "STORM_7184_7_7184_5",
-          "loss_eur": 4902304375.69,
+          "loss_eur": 4902297302.54,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 44838,
           "event_name": "STORM_4190_4_4190_6",
-          "loss_eur": 4901720848.97,
+          "loss_eur": 4901713071.7,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 21849,
           "event_name": "STORM_2064_2_2064_1",
-          "loss_eur": 4872591173.81,
+          "loss_eur": 4872583758.91,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 51109,
           "event_name": "STORM_4786_4_4786_8",
-          "loss_eur": 4848188611.69,
+          "loss_eur": 4848181592.35,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 28797,
           "event_name": "STORM_2710_2_2710_10",
-          "loss_eur": 4840044484.21,
+          "loss_eur": 4840037555.13,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 78922,
           "event_name": "STORM_7388_7_7388_1",
-          "loss_eur": 4748371923.48,
+          "loss_eur": 4748365489.97,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 3352,
           "event_name": "STORM_37_0_37_5",
-          "loss_eur": 4719762707.41,
+          "loss_eur": 4719755317.47,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 23349,
           "event_name": "STORM_2205_2_2205_5",
-          "loss_eur": 4640636192.73,
+          "loss_eur": 4640629371.32,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 105178,
           "event_name": "STORM_9824_9_9824_7",
-          "loss_eur": 4602327085.8,
+          "loss_eur": 4602320100.66,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 103869,
           "event_name": "STORM_9701_9_9701_4",
-          "loss_eur": 4580451626.49,
+          "loss_eur": 4580445696.74,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 2950,
           "event_name": "STORM_344_0_344_4",
-          "loss_eur": 4506168330.94,
+          "loss_eur": 4506161557.22,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 11641,
           "event_name": "STORM_1104_1_1104_2",
-          "loss_eur": 4488332353.94,
+          "loss_eur": 4488326830.16,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 82481,
           "event_name": "STORM_7712_7_7712_9",
-          "loss_eur": 4460199321.58,
+          "loss_eur": 4460192483.51,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 50128,
           "event_name": "STORM_4694_4_4694_0",
-          "loss_eur": 4440664162.25,
+          "loss_eur": 4440658383.03,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 83235,
           "event_name": "STORM_7780_7_7780_1",
-          "loss_eur": 4395979898.23,
+          "loss_eur": 4395973673.22,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 68714,
           "event_name": "STORM_6434_6_6434_13",
-          "loss_eur": 4360908258.58,
+          "loss_eur": 4360901883.88,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 102383,
           "event_name": "STORM_9562_9_9562_1",
-          "loss_eur": 4324194305.43,
+          "loss_eur": 4324187917.42,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         }
@@ -703,140 +612,140 @@
         {
           "event_id": 101106,
           "event_name": "STORM_CMCC_8189_8_8189_20",
-          "loss_eur": 5664944445.38,
+          "loss_eur": 5664936437.34,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 28181,
           "event_name": "STORM_CMCC_2305_2_2305_6",
-          "loss_eur": 4952373328.48,
+          "loss_eur": 4952367522.39,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 70364,
           "event_name": "STORM_CMCC_5692_5_5692_6",
-          "loss_eur": 4897275085.63,
+          "loss_eur": 4897268366.93,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 52013,
           "event_name": "STORM_CMCC_4231_4_4231_3",
-          "loss_eur": 4870146722.09,
+          "loss_eur": 4870140802.56,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 41644,
           "event_name": "STORM_CMCC_3396_3_3396_7",
-          "loss_eur": 4810769180.92,
+          "loss_eur": 4810761740.26,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 82668,
           "event_name": "STORM_CMCC_6701_6_6701_8",
-          "loss_eur": 4755610032.98,
+          "loss_eur": 4755605091.31,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 33960,
           "event_name": "STORM_CMCC_2780_2_2780_11",
-          "loss_eur": 4650247411.86,
+          "loss_eur": 4650240840.75,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 111204,
           "event_name": "STORM_CMCC_9001_9_9001_13",
-          "loss_eur": 4634515671.74,
+          "loss_eur": 4634509232.7,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 59274,
           "event_name": "STORM_CMCC_4812_4_4812_5",
-          "loss_eur": 4614580097.36,
+          "loss_eur": 4614573303.16,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 118569,
           "event_name": "STORM_CMCC_9599_9_9599_8",
-          "loss_eur": 4614187328.05,
+          "loss_eur": 4614180899.12,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 59628,
           "event_name": "STORM_CMCC_4844_4_4844_4",
-          "loss_eur": 4610539021.7,
+          "loss_eur": 4610534893.75,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 45702,
           "event_name": "STORM_CMCC_3719_3_3719_14",
-          "loss_eur": 4608528760.37,
+          "loss_eur": 4608524579.22,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 71295,
           "event_name": "STORM_CMCC_5770_5_5770_8",
-          "loss_eur": 4585286483.71,
+          "loss_eur": 4585281181.32,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 42544,
           "event_name": "STORM_CMCC_3464_3_3464_3",
-          "loss_eur": 4571535409.05,
+          "loss_eur": 4571528301.57,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 121108,
           "event_name": "STORM_CMCC_9808_9_9808_8",
-          "loss_eur": 4557635186.15,
+          "loss_eur": 4557628105.83,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 24255,
           "event_name": "STORM_CMCC_1988_1_1988_9",
-          "loss_eur": 4500058483.14,
+          "loss_eur": 4500051689.83,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 69865,
           "event_name": "STORM_CMCC_5653_5_5653_9",
-          "loss_eur": 4441182227.88,
+          "loss_eur": 4441177119.01,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 44886,
           "event_name": "STORM_CMCC_3650_3_3650_5",
-          "loss_eur": 4396405752.27,
+          "loss_eur": 4396399174.15,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 113262,
           "event_name": "STORM_CMCC_9167_9_9167_4",
-          "loss_eur": 4377388183.11,
+          "loss_eur": 4377382365.2,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         },
         {
           "event_id": 58853,
           "event_name": "STORM_CMCC_4778_4_4778_7",
-          "loss_eur": 4308304211.22,
+          "loss_eur": 4308296798.41,
           "frequency_annual": 0.0001,
           "return_period_years_approx": 10000.0
         }
@@ -848,13 +757,13 @@
       "wind_year_hist": {
         "title": "STORM - Event loss distribution",
         "bins_mps": [
-          762846816.8633,
-          1525693633.7265,
-          2288540450.5898,
-          3051387267.453,
-          3814234084.3163,
-          4577080901.1795,
-          5339927718.0428
+          762845678.8566,
+          1525691357.7132,
+          2288537036.5698,
+          3051382715.4264,
+          3814228394.2829,
+          4577074073.1395,
+          5339919751.9961
         ],
         "percent": [
           99.31,
@@ -869,13 +778,13 @@
       "wind_track_hist": {
         "title": "STORM - Event loss intensity proxy",
         "bins_mps": [
-          10439.2584,
-          20878.5169,
-          31317.7753,
-          41757.0337,
-          52196.2922,
-          62635.5506,
-          73074.8091
+          10439.2506,
+          20878.5013,
+          31317.7519,
+          41757.0026,
+          52196.2532,
+          62635.5039,
+          73074.7545
         ],
         "percent": [
           98.49,
@@ -897,11 +806,11 @@
           200
         ],
         "damage_eur": [
-          452014725.72,
-          1243507642.77,
-          2280909367.27,
-          3105627216.01,
-          3627794445.51
+          452014157.94,
+          1243506803.61,
+          2280906392.27,
+          3105623211.08,
+          3627789264.36
         ],
         "y_scale": "linear"
       },
@@ -918,11 +827,11 @@
               200
             ],
             "damage_eur": [
-              499476271.92,
-              1374075945.26,
-              2520404850.83,
-              3431718073.69,
-              4008712862.29
+              499475644.52,
+              1374075017.99,
+              2520401563.46,
+              3431713648.24,
+              4008707137.12
             ]
           },
           {
@@ -935,11 +844,11 @@
               200
             ],
             "damage_eur": [
-              531117302.72,
-              1461121480.25,
-              2680068506.54,
-              3649111978.81,
-              4262658473.47
+              531116635.58,
+              1461120494.24,
+              2680065010.92,
+              3649107273.02,
+              4262652385.62
             ]
           }
         ],
@@ -950,13 +859,13 @@
       "wind_year_hist": {
         "title": "STORM_CMCC - Event loss distribution",
         "bins_mps": [
-          809277777.9119,
-          1618555555.8239,
-          2427833333.7358,
-          3237111111.6478,
-          4046388889.5597,
-          4855666667.4716,
-          5664944445.3836
+          809276633.9058,
+          1618553267.8116,
+          2427829901.7174,
+          3237106535.6232,
+          4046383169.529,
+          4855659803.4347,
+          5664936437.3405
         ],
         "percent": [
           99.47,
@@ -971,13 +880,13 @@
       "wind_track_hist": {
         "title": "STORM_CMCC - Event loss intensity proxy",
         "bins_mps": [
-          10752.2607,
-          21504.5215,
-          32256.7822,
-          43009.043,
-          53761.3037,
-          64513.5645,
-          75265.8252
+          10752.2531,
+          21504.5063,
+          32256.7594,
+          43009.0126,
+          53761.2657,
+          64513.5189,
+          75265.772
         ],
         "percent": [
           98.72,
@@ -999,11 +908,11 @@
           200
         ],
         "damage_eur": [
-          392267312.94,
-          1155905659.27,
-          2379266373.26,
-          3178332752.46,
-          3773266215.83
+          392266691.7,
+          1155905305.87,
+          2379262863.61,
+          3178330265.72,
+          3773260963.88
         ],
         "y_scale": "linear"
       },
@@ -1020,11 +929,11 @@
               200
             ],
             "damage_eur": [
-              433455380.8,
-              1277275753.49,
-              2629089342.45,
-              3512057691.47,
-              4169459168.49
+              433454694.33,
+              1277275362.99,
+              2629085464.29,
+              3512054943.62,
+              4169453365.09
             ]
           },
           {
@@ -1037,11 +946,11 @@
               200
             ],
             "damage_eur": [
-              460914092.7,
-              1358189149.64,
-              2795637988.58,
-              3734540984.14,
-              4433587803.6
+              460913362.75,
+              1358188734.4,
+              2795633864.74,
+              3734538062.22,
+              4433581632.56
             ]
           }
         ],
@@ -1060,12 +969,12 @@
         ],
         "values": {
           "annual_eai": [
-            173053267.63,
-            168786753.68
+            173053024.9,
+            168786513.42
           ],
           "max_event_loss": [
-            5339927718.04,
-            5664944445.38
+            5339919752.0,
+            5664936437.34
           ]
         }
       }

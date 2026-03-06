@@ -7,6 +7,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
+from shapely.geometry import box
 
 from case_study_sources import get_case_study, normalize_territory
 
@@ -21,15 +22,33 @@ def _ensure_crs(gdf: gpd.GeoDataFrame, fallback: str = METRIC_CRS) -> gpd.GeoDat
     return gdf
 
 
+def _case_bbox_polygon(case_cfg: dict[str, object]):
+    bbox = dict(case_cfg.get("wind_bbox") or {})
+    return box(
+        float(bbox["lon_min"]),
+        float(bbox["lat_min"]),
+        float(bbox["lon_max"]),
+        float(bbox["lat_max"]),
+    )
+
+
+def _clip_case_gdf(gdf: gpd.GeoDataFrame, case_cfg: dict[str, object]) -> gpd.GeoDataFrame:
+    gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
+    gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(_case_bbox_polygon(case_cfg))
+    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+
+
 def _load_layer(
     path: Path,
+    case_cfg: dict[str, object],
     *,
     infra_type: str,
     source_group: str,
     simplify_tolerance_m: float,
 ) -> gpd.GeoDataFrame:
-    gdf = gpd.read_file(path)
-    gdf = _ensure_crs(gdf)
+    gdf = _clip_case_gdf(gpd.read_file(path), case_cfg)
+    if gdf.empty:
+        return gpd.GeoDataFrame(columns=["infra_type", "source_group", "geometry"], geometry="geometry", crs=WGS84)
 
     gdf_metric = gdf.to_crs(METRIC_CRS)
     line_like = gdf_metric.geom_type.str.contains("Line", case=False, na=False)
@@ -69,11 +88,15 @@ def main() -> None:
             gdfs.append(
                 _load_layer(
                     path,
+                    cfg,
                     infra_type=str(layer["infra_type"]),
                     source_group=str(layer["source_group"]),
                     simplify_tolerance_m=float(args.simplify_tolerance_m),
                 )
             )
+
+    if not gdfs:
+        raise RuntimeError("No infrastructure features found after territory bbox filtering.")
 
     out_gdf = gpd.GeoDataFrame(
         pd.concat(gdfs, ignore_index=True),

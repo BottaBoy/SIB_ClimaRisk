@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from climada.engine import ImpactCalc
 from climada.entity.impact_funcs import ImpactFuncSet
+from shapely.geometry import box
 
 
 UTC = timezone.utc
@@ -91,6 +92,16 @@ GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
 TABLE_SCENARIOS = ("annual", "rp100", "rp1000", "event_max")
 MAP_SCENARIOS = ("annual", "rp100", "rp1000", "event_max", "top10", "top5")
 WIND_BIN_STEP_MPS = 1.0
+CASE_HAZARD_PATHS = {
+    "guadeloupe": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
+    ),
+    "martinique": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
+    ),
+}
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -123,6 +134,22 @@ def _convert_wind_to_mps(values: pd.Series, unit_in: str) -> pd.Series:
     if unit == "kn":
         return wind * 0.514444
     return wind / 3.6  # km/h -> m/s
+
+
+def _case_bbox_polygon(case_cfg: dict[str, Any]):
+    bbox = dict(case_cfg.get("wind_bbox") or {})
+    return box(
+        float(bbox["lon_min"]),
+        float(bbox["lat_min"]),
+        float(bbox["lon_max"]),
+        float(bbox["lat_max"]),
+    )
+
+
+def _clip_case_gdf(gdf: gpd.GeoDataFrame, case_cfg: dict[str, Any]) -> gpd.GeoDataFrame:
+    gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
+    gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(_case_bbox_polygon(case_cfg))
+    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
 
 
 def _state_from_ratio(ratio: float) -> str:
@@ -428,10 +455,10 @@ def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
     return max(0.0, total_m / 1000.0)
 
 
-def _count_features(paths: list[Path]) -> int:
+def _count_features(paths: list[Path], case_cfg: dict[str, Any]) -> int:
     count = 0
     for path in paths:
-        gdf = _ensure_crs(gpd.read_file(path))
+        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
         count += int(len(gdf))
     return count
 
@@ -442,6 +469,9 @@ def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
         mode = str(src.get("mode", "")).strip().lower()
         for path in src["paths"]:
             gdf = _ensure_crs(gpd.read_file(path))
+            gdf = _clip_case_gdf(gdf, case_cfg)
+            if gdf.empty:
+                continue
             if mode == "fixed_type":
                 code = str(src.get("ovrg_type", "NA") or "NA").strip().upper()
                 counts[code] += int(len(gdf))
@@ -472,14 +502,18 @@ def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[st
     for src in case_cfg["elec_line_sources"]:
         class_key = str(src["class_key"])
         for path in src["paths"]:
-            gdf = _ensure_crs(gpd.read_file(path))
+            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+            if gdf.empty:
+                continue
             lengths_km[class_key] += _line_length_km(gdf)
             elec_lines_total += int(len(gdf))
 
     for src in case_cfg["water_line_sources"]:
         class_key = str(src["class_key"])
         for path in src["paths"]:
-            gdf = _ensure_crs(gpd.read_file(path))
+            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+            if gdf.empty:
+                continue
             lengths_km[class_key] += _line_length_km(gdf)
             water_lines_total += int(len(gdf))
 
@@ -494,9 +528,9 @@ def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[st
     eu_step_total = 0
     for src in case_cfg["water_point_fixed_sources"]:
         if str(src["asset_type"]) == "eau_eu_pr":
-            eu_pr_total += _count_features(list(src["paths"]))
+            eu_pr_total += _count_features(list(src["paths"]), case_cfg)
         if str(src["asset_type"]) == "eau_eu_step":
-            eu_step_total += _count_features(list(src["paths"]))
+            eu_step_total += _count_features(list(src["paths"]), case_cfg)
     total_value_pr = round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2)
     total_value_step = round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2)
 
@@ -557,7 +591,9 @@ def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str,
     out: list[dict[str, Any]] = []
 
     def append_lines(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
-        gdf = _ensure_crs(gpd.read_file(path)).to_crs(WGS84)
+        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg).to_crs(WGS84)
+        if gdf.empty:
+            return
         for idx, geom in enumerate(gdf.geometry, start=1):
             if geom is None or getattr(geom, "is_empty", False):
                 continue
@@ -584,6 +620,8 @@ def _compute_impact_metrics(
     spacing_m: float,
     settings: Any,
     network_value_per_km: dict[str, float],
+    hazard_storm_path: Path,
+    hazard_storm_cmcc_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     impf = try_build_climada_impact_func()
     if impf is None:
@@ -597,7 +635,7 @@ def _compute_impact_metrics(
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=settings.climada_max_points_per_feature,
     )
-    hazards = load_storm_hazards(settings.hazard_storm_path, settings.hazard_storm_cmcc_path, settings.storm_years)
+    hazards = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, settings.storm_years)
 
     values = np.array([float(rec["value_eur"]) for rec in bundle.point_records], dtype=float)
     territories = [str(rec["territory_id"]) for rec in bundle.point_records]
@@ -1069,6 +1107,9 @@ def main() -> None:
     settings = load_settings()
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
     valuation_metadata = build_valuation_metadata(territory)
+    default_storm_path, default_cmcc_path = CASE_HAZARD_PATHS[territory]
+    hazard_storm_path = default_storm_path if default_storm_path.exists() else settings.hazard_storm_path
+    hazard_storm_cmcc_path = default_cmcc_path if default_cmcc_path.exists() else settings.hazard_storm_cmcc_path
 
     exposure_metrics = _build_exposure_metrics(case_cfg, territory)
     hazard_hist = _build_wind_histograms(
@@ -1086,6 +1127,8 @@ def main() -> None:
         spacing_m=float(args.spacing_m),
         settings=settings,
         network_value_per_km=exposure_metrics["value_per_km_eur"],
+        hazard_storm_path=hazard_storm_path,
+        hazard_storm_cmcc_path=hazard_storm_cmcc_path,
     )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
     zone_wind_compare_rows = _load_zone_wind_comparison_table(
