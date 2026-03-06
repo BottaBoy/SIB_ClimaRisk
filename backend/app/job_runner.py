@@ -3,7 +3,6 @@ from __future__ import annotations
 from queue import Empty, Queue
 from threading import Event, Thread
 from typing import Any
-import traceback
 
 from .config import Settings
 from .job_store import JobStore
@@ -83,6 +82,5 @@ class JobProcessor:
                 error=JobError(
                     code="UNEXPECTED_ERROR",
                     message=str(exc),
-                    details={"traceback": traceback.format_exc(limit=20)},
                 ),
             )

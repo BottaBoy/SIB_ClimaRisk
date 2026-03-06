@@ -1,7 +1,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name sib-copy.dev.elio.bottagisio.com;
+    server_name visu.sib.dev.elio.bottagisio.com;
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/sib.shared.elio.dev;
@@ -10,16 +10,19 @@ server {
         auth_basic off;
     }
 
-    return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name sib-copy.dev.elio.bottagisio.com;
+    server_name visu.sib.dev.elio.bottagisio.com;
 
-    ssl_certificate /etc/letsencrypt/live/sib-copy.dev.elio.bottagisio.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/sib-copy.dev.elio.bottagisio.com/privkey.pem;
+    root /var/www/sib.shared.elio.dev;
+    index index.html;
+
+    ssl_certificate /etc/letsencrypt/live/visu.sib.dev.elio.bottagisio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/visu.sib.dev.elio.bottagisio.com/privkey.pem;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 10m;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -39,7 +42,13 @@ server {
         auth_basic off;
     }
 
-    return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    location ^~ /api/ {
+        return 404;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
 
     location ~ /\.ht {
         deny all;

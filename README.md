@@ -98,7 +98,12 @@ python scripts/run_backoffice_sample.py --file /path/to/exposure.csv --value-fie
 
 ## Nginx / systemd artifacts (templates)
 
-- Nginx vhost with `/api/` proxy: `config/nginx/sib.dev.elio.bottagisio.com`
+- Nginx public showcase vhost (no API): `config/nginx/sib.elio.dev`
+- Nginx private app vhost (`/api/` proxy): `config/nginx/app.sib.elio.dev`
+- Legacy domains templates:
+  - `config/nginx/sib.dev.elio.bottagisio.com`
+  - `config/nginx/sib-copy.dev.elio.bottagisio.com`
+- API rate-limit zones (http context include): `config/nginx/sib-rate-limits.conf`
 - systemd service/timer examples:
   - `config/systemd/sib-risk-api.service`
   - `config/systemd/sib-risk-cleanup.service`
@@ -107,9 +112,11 @@ python scripts/run_backoffice_sample.py --file /path/to/exposure.csv --value-fie
 
 ## Web deploy (static assets only)
 
-See `DEPLOIEMENT.md`.
+See `DEPLOIEMENT.md` (`scripts/deploy_shared_web.sh` deploys a single shared web artifact).
 
 ## Backend explanation note
 
 - Simplified note with formulas, diagrams and code excerpts:
   - `docs/note-backend-calculatoire.md`
+- Sharing/publication guide:
+  - `docs/SHARING_GUIDE.md`

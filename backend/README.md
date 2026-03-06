@@ -43,6 +43,7 @@ Environment variables:
 - `SIB_RISK_CLIMADA_METRIC_CRS` (default: `EPSG:3857`)
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE` (default: `300`)
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT` (default: `20`)
+- `SIB_RISK_CORS_ALLOWED_ORIGINS` (comma-separated list, default: `https://app.sib.elio.dev,https://sib.dev.elio.bottagisio.com`)
 
 ## API
 
@@ -51,3 +52,5 @@ Environment variables:
 - `GET /api/v1/runs/{job_id}`
 - `GET /api/v1/runs/{job_id}/result`
 - `GET /api/v1/runs/{job_id}/artifacts/{name}`
+
+`GET /api/v1/health` intentionally returns a minimal payload (`status`, `app`, `version`, `now_utc`) to avoid leaking internal paths/runtime details.

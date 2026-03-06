@@ -13,8 +13,9 @@ Cette procedure s'applique a toute modification de contenu web, notamment:
 ## Prerequis
 
 - Les modifications sont presentes localement dans `/home/ubuntu/sib-work`.
-- Le vhost nginx cible sert depuis: `/var/www/sib.dev.elio.bottagisio.com`.
-- Le site public est protege par auth basic sur `sib.dev.elio.bottagisio.com`.
+- Les vhosts nginx public/prive servent depuis un **root partage**: `/var/www/sib.shared.elio.dev`.
+- Domaine public attendu: `sib.elio.dev` (mode vitrine, sans API).
+- Domaine prive attendu: `app.sib.elio.dev` (collaborateurs, avec API).
 
 ## Etapes standard
 
@@ -27,33 +28,35 @@ git -C /home/ubuntu/sib-work status -sb
 2. Deployer le contenu web (sans commit/push):
 
 ```bash
-sudo mkdir -p /var/www/sib.dev.elio.bottagisio.com
-sudo rsync -av --delete /home/ubuntu/sib-work/web/ /var/www/sib.dev.elio.bottagisio.com/
+/home/ubuntu/sib-work/scripts/deploy_shared_web.sh
 ```
 
 3. Verifier que le fichier deploie contient la modification attendue:
 
 ```bash
-rg -n "mot-cle-attendu" /var/www/sib.dev.elio.bottagisio.com/index.html
+rg -n "mot-cle-attendu" /var/www/sib.shared.elio.dev/index.html
 ```
 
-4. Verifier la reponse nginx:
+4. Verifier la reponse nginx - domaine public:
 
 ```bash
-curl -kI --resolve sib.dev.elio.bottagisio.com:443:127.0.0.1 https://sib.dev.elio.bottagisio.com
+curl -kI --resolve sib.elio.dev:443:127.0.0.1 https://sib.elio.dev
 ```
 
-Note: un `401` est normal sans credentials (auth basic active).
+Attendu: `200` sur la racine, et `404` sur `/api/*`.
 
-5. Verification optionnelle avec credentials (si disponibles):
+5. Verifier la reponse nginx - domaine prive:
 
 ```bash
-curl -sk -u "<user>:<pass>" --resolve sib.dev.elio.bottagisio.com:443:127.0.0.1 https://sib.dev.elio.bottagisio.com | head
+curl -kI --resolve app.sib.elio.dev:443:127.0.0.1 https://app.sib.elio.dev
+curl -kI --resolve app.sib.elio.dev:443:127.0.0.1 https://app.sib.elio.dev/api/v1/health
 ```
+
+Attendu: acces controle par la couche d'auth privee (Cloudflare Access / politique equivalente).
 
 6. Informer l'utilisateur:
 - deploiement fait (oui/non)
-- cible deployee: `sib.dev.elio.bottagisio.com`
+- cibles deployees: `sib.elio.dev` (public) et `app.sib.elio.dev` (prive)
 - recommander un hard refresh navigateur (`Ctrl+F5` ou `Cmd+Shift+R`)
 
 ## Regle d'interaction attendue

@@ -149,6 +149,28 @@ Fichier: `backend/app/risk_engine/interdependency.py`
 Hypothese prudente:
 - **tous les actifs eau sont dependants de l’electricite**.
 
+### 7.1 Comment la "partie elec qui alimente la partie eau" est decidee actuellement
+
+Le modele actuel n'utilise pas encore un graphe electrique explicite (poste source -> depart -> pompe/ouvrage eau).
+La dependance est donc calculee avec une regle spatiale robuste et traçable:
+
+1. L'exposition est echantillonnee en points (lignes/polygones -> points).
+2. Chaque point est affecte a une **maille territoriale** (`territory_id`) via ses coordonnees:
+   - fonction ` _territory_for_coords(...) ` dans `exposure_to_climada.py`,
+   - maille fixe de `0.2 deg` (`TERRITORY_GRID_DEG = 0.2`).
+3. Pour un alea donne (STORM ou STORM_CMCC), on calcule d'abord les etats directs des points elec (`S0..S3`).
+4. On calcule ensuite `health_elec` par maille territoriale avec la formule:
+   - `health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3)/L_total`
+5. Chaque point eau prend la sante elec de sa maille:
+   - si la maille n'a pas de points elec, fallback sur la sante elec globale.
+6. Cette sante elec est transformee en etat de dependance (`S0..S3`), puis appliquee aux points eau:
+   - etat final eau = `max(etat_direct_eau, etat_dependance_elec)`,
+   - uplift de perte indirecte: `S0:+0%`, `S1:+10%`, `S2:+25%`, `S3:+45%`.
+
+Conclusion importante:
+- aujourd'hui, la dependance est **locale par maille spatiale**, pas encore "electrique topologique" (pas de rattachement pompe->depart HTA/BT identifie dans les donnees source).
+- c'est volontairement prudent pour eviter de sous-estimer les pertes eau.
+
 Algorithme:
 1. calcul de `health_elec(territoire, alea)` a partir des actifs electriques,
 2. conversion en etat de dependance:
@@ -164,6 +186,25 @@ Formules:
 EAI_indirect(i,h) = EAI_direct(i,h) * uplift(state_dep(t,h))
 EAI_total(i,h) = EAI_direct(i,h) + EAI_indirect(i,h)
 ```
+
+### 7.2 Pourquoi on peut observer des ratios d'etats tres proches (voire identiques) entre STORM et STORM_CMCC
+
+Ce n'est pas forcement une erreur de calcul. Dans les sorties actuelles Guadeloupe/Martinique:
+
+1. Les etats sont discrets (4 classes) avec seuils fixes (`5%`, `15%`, `35%`).
+   - si deux aleas donnent des ratios de dommage differents mais du meme cote d'un seuil, l'etat reste identique.
+2. En scenario annuel, beaucoup d'actifs restent sous `5%` pour les deux aleas:
+   - resultat: `S0` pour STORM et STORM_CMCC, donc memes pourcentages d'etats.
+3. En scenarios severes (RP1000, evenement max), beaucoup d'actifs depassent `35%` dans les deux aleas:
+   - resultat: saturation en `S3`, donc memes ratios d'etats.
+4. Pour l'eau, l'etat final est aussi pilote par la dependance elec (`max(direct, dep)`):
+   - quand la sante elec est deja tres basse dans les deux aleas, l'eau passe dans le meme etat final meme si les montants en euros restent differents.
+5. Les tableaux d'etats sont ponderes par longueur (poids lineaires):
+   - de petites differences locales peuvent ne pas changer la repartition agregée.
+
+Point de verification:
+- on observe bien des differences sur certains cas (ex. scenario RP100 pour plusieurs classes elec), et les `damage_eur` STORM vs STORM_CMCC sont differents.
+- donc le moteur ne "copie" pas les resultats, mais la discretisation en 4 classes peut lisser la difference physique.
 
 ---
 
