@@ -346,7 +346,102 @@
         </p>
       </section>
 
-      <section class="panel controls-grid page-block page3" aria-label="Parametres d'analyse">
+      <section class="panel user-data-intro page-block page3" aria-labelledby="user-data-intro-title">
+        <h2 id="user-data-intro-title">Donnees utilisateurs</h2>
+        <p class="subtitle compact">
+          Sur cette page, vous pouvez ajouter vos propres infrastructures ou habitations pour tester leur exposition aux risques.
+          Vous pouvez televerser un fichier standardise ou dessiner directement vos expositions sur la carte.
+        </p>
+      </section>
+
+      <section class="panel run-lab page-block page3" aria-labelledby="run-lab-title">
+        <div class="run-lab-head">
+          <div>
+            <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
+            <p class="subtitle compact">
+              Importez vos expositions a partir d'un fichier structure (CSV/XLSX/GeoJSON/GPKG) ou dessinez-les sur la carte.
+              Les calculs sont executes de facon asynchrone.
+            </p>
+          </div>
+          <div class="status-box" id="job-status-box" hidden></div>
+        </div>
+
+        <div class="run-lab-grid">
+          <form id="upload-form" class="subpanel" enctype="multipart/form-data">
+            <h3>Import d'exposition</h3>
+            <p class="muted">
+              Le schema recommande repose sur un fichier CSV avec colonnes standard.
+              Les memes noms de colonnes peuvent etre utilises en XLSX/GeoJSON/GPKG.
+            </p>
+            <div class="csv-template-box">
+              <p class="muted">
+                Colonnes attendues:
+                <code>asset_id</code>, <code>label</code>, <code>lat</code>, <code>lon</code>,
+                <code>value_eur</code>, <code>asset_type</code>, <code>exposure_category</code>.
+              </p>
+              <p class="muted small">
+                Localisation: utilisez <code>lat</code>/<code>lon</code> (WGS84, EPSG:4326)
+                ou une colonne <code>geometry_wkt</code>.
+              </p>
+              <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category
+A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
+              <a class="primary-btn template-download-btn" href="data/exposition-template.csv" download>
+                Telecharger le CSV modele (colonnes uniquement)
+              </a>
+            </div>
+            <div class="field">
+              <label for="upload-file">Fichier d'exposition</label>
+              <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
+            </div>
+            <div class="field">
+              <label for="run-label">Nom du run</label>
+              <input id="run-label" type="text" placeholder="Ex: Test exposition quartier centre" required />
+            </div>
+            <button type="submit" class="primary-btn" id="upload-submit-btn">Lancer le run de l'exposition importee</button>
+          </form>
+
+          <div class="subpanel">
+            <h3>Dessin d'exposition</h3>
+            <p class="muted">Dessinez des points, lignes ou polygones puis lancez le calcul.</p>
+            <div class="field">
+              <label for="draw-category">Type d'exposition dessinee</label>
+              <select id="draw-category">
+                <option value="habitation">Habitation</option>
+                <option value="eau_aep">Reseau eau AEP</option>
+                <option value="eau_eu">Reseau eau EU</option>
+                <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
+                <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
+                <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
+                <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
+                <option value="eau_eu_pr">Poste de refoulement EU</option>
+                <option value="eau_eu_step">STEP</option>
+                <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
+                <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
+                <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
+                <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
+                <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
+              </select>
+            </div>
+            <ul class="draw-summary-list" id="draw-summary-list">
+              <li>Aucun dessin pour le moment.</li>
+            </ul>
+            <div class="inline-row">
+              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Lancer le run de l'exposition dessinee</button>
+              <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
+            </div>
+            <p class="muted small">
+              Les expositions dessinees utilisent une valorisation par defaut par objet.
+              Le nom de run saisi ci-dessus est obligatoire pour chaque lancement.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel controls-grid page-block page3" aria-label="Parametres de resultats d'impacts">
+        <div class="controls-heading">
+          <h2>Resultats d'impacts</h2>
+          <p class="muted">Consultez les resultats par territoire pour le run selectionne.</p>
+        </div>
         <div class="field">
           <label for="hazard-select">Aléa</label>
           <select id="hazard-select">
@@ -380,8 +475,6 @@
           </div>
         </div>
       </section>
-
-      <section class="kpi-grid page-block page3" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
 
       <section class="panel main-grid page-block page3">
         <div class="map-card">
@@ -425,137 +518,7 @@
         </div>
       </section>
 
-      <section class="panel charts-panel page-block page3">
-        <div class="section-head">
-          <div>
-            <h2>Graphiques aléas (resultat utilisateur)</h2>
-            <p class="muted" id="charts-caption">Reproduction web des familles de graphiques STORM/STORM_CMCC.</p>
-          </div>
-          <div class="artifact-links" id="artifact-links"></div>
-        </div>
-        <div class="chart-grid">
-          <div class="chart-card"><h3 id="chart-title-1">Vitesse max du vent par annee</h3><div id="chart-1" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-2">Vitesse max du vent par track</h3><div id="chart-2" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-3">FEC annuelle</h3><div id="chart-3" class="chart"></div></div>
-          <div class="chart-card"><h3 id="chart-title-4">FEC longue duree</h3><div id="chart-4" class="chart"></div></div>
-        </div>
-        <div class="chart-card comparison-card">
-          <h3>Comparaison STORM vs STORM_CMCC</h3>
-          <div id="chart-comparison" class="chart wide"></div>
-        </div>
-      </section>
-
-      <section class="panel run-lab page-block page3" aria-labelledby="run-lab-title">
-        <div class="run-lab-head">
-          <div>
-            <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
-            <p class="subtitle compact">
-              Importez vos propres expositions (CSV/XLSX/GeoJSON/GPKG) ou dessinez-les sur la carte.
-              Les calculs sont executes de facon asynchrone et conserves 24h.
-            </p>
-          </div>
-          <div class="status-box" id="job-status-box" hidden></div>
-        </div>
-
-        <div class="run-lab-grid">
-          <form id="upload-form" class="subpanel" enctype="multipart/form-data">
-            <h3>Import d'exposition</h3>
-            <p class="muted">Formats supportes: CSV, XLSX, GeoJSON, GPKG.</p>
-            <div class="field">
-              <label for="upload-file">Fichier d'exposition</label>
-              <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
-            </div>
-            <div class="field">
-              <label for="value-field">Valeur monetaire (€) de l'exposition</label>
-              <input id="value-field" type="text" placeholder="value_eur / operations_op_montant" />
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="id-field">Champ identifiant (optionnel)</label>
-                <input id="id-field" type="text" placeholder="asset_id" />
-              </div>
-              <div class="field">
-                <label for="asset-type-field">Champ type d'actif (optionnel)</label>
-                <input id="asset-type-field" type="text" placeholder="asset_type" />
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="category-field">Type d'exposition (champ optionnel)</label>
-                <input id="category-field" type="text" placeholder="exposure_category" />
-              </div>
-              <div class="field">
-                <label for="default-category">Type d'exposition par defaut</label>
-                <select id="default-category">
-                  <option value="habitation">Habitation</option>
-                  <option value="eau_aep">Reseau eau AEP</option>
-                  <option value="eau_eu">Reseau eau EU</option>
-                  <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
-                  <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
-                  <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
-                  <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
-                  <option value="eau_eu_pr">Poste de refoulement EU</option>
-                  <option value="eau_eu_step">STEP</option>
-                  <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
-                  <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
-                  <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
-                  <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
-                  <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
-                </select>
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="crs-field">CRS (optionnel)</label>
-                <input id="crs-field" type="text" placeholder="EPSG:4326" />
-              </div>
-              <div class="field">
-                <label>Pas d'echantillonnage</label>
-                <input type="text" value="100 m (fixe)" disabled />
-              </div>
-            </div>
-            <div class="field">
-              <label for="run-label">Nom du run (optionnel)</label>
-              <input id="run-label" type="text" placeholder="Test SIB utilisateur" />
-            </div>
-            <button type="submit" class="primary-btn" id="upload-submit-btn">Lancer le run de l'exposition importee</button>
-          </form>
-
-          <div class="subpanel">
-            <h3>Dessin d'exposition</h3>
-            <p class="muted">Dessinez des points, lignes ou polygones puis lancez le calcul.</p>
-            <div class="field">
-              <label for="draw-category">Type d'exposition dessinee</label>
-              <select id="draw-category">
-                <option value="habitation">Habitation</option>
-                <option value="eau_aep">Reseau eau AEP</option>
-                <option value="eau_eu">Reseau eau EU</option>
-                <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
-                <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
-                <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
-                <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
-                <option value="eau_eu_pr">Poste de refoulement EU</option>
-                <option value="eau_eu_step">STEP</option>
-                <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
-                <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
-                <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
-                <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
-                <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
-              </select>
-            </div>
-            <ul class="draw-summary-list" id="draw-summary-list">
-              <li>Aucun dessin pour le moment.</li>
-            </ul>
-            <div class="inline-row">
-              <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Lancer le run de l'exposition dessinee</button>
-              <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
-            </div>
-            <p class="muted small">
-              Les expositions dessinees utilisent une valorisation par defaut au niveau de l'actif. La valorisation par champs est disponible pour les imports tabulaires/GIS.
-            </p>
-          </div>
-        </div>
-      </section>
+      <section class="kpi-grid page-block page3" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
 
       <section class="panel page-block page3 user-impact-panel" aria-labelledby="user-impact-title">
         <div class="section-head">

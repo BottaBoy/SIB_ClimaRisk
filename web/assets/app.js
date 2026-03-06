@@ -155,12 +155,6 @@ const els = {
   reloadJobBtn: document.getElementById('reload-job-btn'),
   uploadForm: document.getElementById('upload-form'),
   uploadFile: document.getElementById('upload-file'),
-  valueField: document.getElementById('value-field'),
-  idField: document.getElementById('id-field'),
-  assetTypeField: document.getElementById('asset-type-field'),
-  categoryField: document.getElementById('category-field'),
-  defaultCategory: document.getElementById('default-category'),
-  crsField: document.getElementById('crs-field'),
   runLabel: document.getElementById('run-label'),
   drawCategory: document.getElementById('draw-category'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
@@ -178,12 +172,6 @@ const els = {
   mapCaption: document.getElementById('map-caption'),
   mapContainer: document.getElementById('territory-map'),
   mapFallback: document.getElementById('map-fallback'),
-  chartsCaption: document.getElementById('charts-caption'),
-  artifactLinks: document.getElementById('artifact-links'),
-  chartTitle1: document.getElementById('chart-title-1'),
-  chartTitle2: document.getElementById('chart-title-2'),
-  chartTitle3: document.getElementById('chart-title-3'),
-  chartTitle4: document.getElementById('chart-title-4'),
   notesBox: document.getElementById('notes-box'),
   windMapStorm: document.getElementById('wind-map-storm'),
   windMapCmcc: document.getElementById('wind-map-cmcc'),
@@ -347,14 +335,8 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
   if (pageKey === 'page3') {
     renderMap();
     renderDrawPreview();
-    renderHazardCharts();
     setTimeout(() => {
       if (mapRef.instance) mapRef.instance.invalidateSize();
-      if (chartRefs.c1) chartRefs.c1.resize();
-      if (chartRefs.c2) chartRefs.c2.resize();
-      if (chartRefs.c3) chartRefs.c3.resize();
-      if (chartRefs.c4) chartRefs.c4.resize();
-      if (chartRefs.comparison) chartRefs.comparison.resize();
       if (chartRefs.user_impact_eai) chartRefs.user_impact_eai.resize();
       if (chartRefs.user_impact_rp100) chartRefs.user_impact_rp100.resize();
       if (chartRefs.user_impact_rp1000) chartRefs.user_impact_rp1000.resize();
@@ -2165,39 +2147,6 @@ function renderUserImpactSection(result) {
   renderUserConclusionText(result);
 }
 
-function renderHazardCharts() {
-  const result = getActiveResult();
-  if (!result) return;
-  const hazardKey = currentHazardKey();
-  const hazardGraphs = result.graphs?.[hazardKey];
-  if (!hazardGraphs) return;
-
-  els.chartsCaption.textContent = `Graphiques du run actif (${getHazardLabel(hazardKey)}), générés depuis les sorties backend.`;
-  els.chartTitle1.textContent = hazardGraphs.wind_year_hist?.title || 'Vitesse max du vent par année';
-  els.chartTitle2.textContent = hazardGraphs.wind_track_hist?.title || 'Vitesse max du vent par track';
-  els.chartTitle3.textContent = hazardGraphs.annual_fec?.title || 'FEC annuelle';
-  els.chartTitle4.textContent = hazardGraphs.lifetime_fec?.title || 'FEC longue durée';
-
-  const color = hazardKey === 'storm_cmcc' ? '#db6b48' : '#4bb1cb';
-  renderHistogramChart('c1', 'chart-1', hazardGraphs.wind_year_hist, color);
-  renderHistogramChart('c2', 'chart-2', hazardGraphs.wind_track_hist, '#dfb85a');
-  renderAnnualFecChart('c3', 'chart-3', hazardGraphs.annual_fec, color);
-  renderLifetimeFecChart('c4', 'chart-4', hazardGraphs.lifetime_fec);
-  renderComparisonChart();
-}
-
-function renderArtifactLinks() {
-  const result = getActiveResult();
-  const downloads = result?.artifacts?.downloads || [];
-  const plots = result?.artifacts?.plots_png || [];
-  const all = [...downloads, ...plots];
-  if (!all.length) {
-    els.artifactLinks.innerHTML = '<span class="muted">Aucun artefact téléchargeable pour ce résultat.</span>';
-    return;
-  }
-  els.artifactLinks.innerHTML = all.map((a) => `<a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.name)}</a>`).join('');
-}
-
 function renderNotes() {
   const result = getActiveResult();
   const notes = Array.isArray(result?.notes) ? result.notes : [];
@@ -2304,8 +2253,6 @@ function renderAll() {
     renderKpis();
     renderMap();
     renderTerritoryTable();
-    renderHazardCharts();
-    renderArtifactLinks();
   }
 }
 
@@ -2553,19 +2500,22 @@ async function submitUpload(event) {
     showError("Sélectionnez un fichier avant de lancer un run d'exposition importée.");
     return;
   }
+  const runLabel = els.runLabel.value.trim();
+  if (!runLabel) {
+    showError("Le nom du run est obligatoire.");
+    return;
+  }
 
   const form = new FormData();
   form.append('input_mode', 'file');
   form.append('exposure_file', file);
-  if (els.valueField.value.trim()) form.append('value_field', els.valueField.value.trim());
-  if (els.idField.value.trim()) form.append('id_field', els.idField.value.trim());
-  if (els.assetTypeField.value.trim()) form.append('asset_type_field', els.assetTypeField.value.trim());
-  if (els.categoryField.value.trim()) form.append('exposure_category_field', els.categoryField.value.trim());
-  const defaultExposureType = (els.defaultCategory?.value || 'habitation').trim() || 'habitation';
-  form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
-  if (els.crsField.value.trim()) form.append('crs', els.crsField.value.trim());
+  form.append('value_field', 'value_eur');
+  form.append('id_field', 'asset_id');
+  form.append('asset_type_field', 'asset_type');
+  form.append('exposure_category_field', 'exposure_category');
+  form.append('default_exposure_category', 'habitation');
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
-  if (els.runLabel.value.trim()) form.append('run_label', els.runLabel.value.trim());
+  form.append('run_label', runLabel);
 
   els.uploadSubmitBtn.disabled = true;
   setStatus("Soumission du run d'exposition importée…", 'info');
@@ -2627,6 +2577,11 @@ async function submitDrawnExposure() {
     showError("Dessinez au moins une géométrie avant de lancer un run d'exposition dessinée.");
     return;
   }
+  const runLabel = els.runLabel.value.trim();
+  if (!runLabel) {
+    showError("Le nom du run est obligatoire.");
+    return;
+  }
 
   const form = new FormData();
   form.append('input_mode', 'drawn_geojson');
@@ -2634,7 +2589,7 @@ async function submitDrawnExposure() {
   const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
   form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
-  if (els.runLabel.value.trim()) form.append('run_label', `${els.runLabel.value.trim()} (dessin)`);
+  form.append('run_label', `${runLabel} (dessin)`);
 
   els.submitDrawingBtn.disabled = true;
   setStatus("Soumission du run d'exposition dessinée…", 'info');

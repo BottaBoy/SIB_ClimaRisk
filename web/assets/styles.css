@@ -257,6 +257,20 @@ h3 { font-size: 18px; font-weight: 600; }
   gap: 10px;
 }
 
+.user-data-intro {
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.user-data-intro h2 {
+  margin: 0;
+}
+
+.controls-heading {
+  grid-column: 1 / -1;
+}
+
 .field, .field-row {
   display: grid;
   gap: 6px;
@@ -356,6 +370,37 @@ button:disabled {
   display: grid;
   grid-template-columns: 1.35fr 1fr;
   gap: 10px;
+}
+
+.csv-template-box {
+  border: 1px dashed rgba(153, 215, 247, 0.55);
+  border-radius: 12px;
+  background: rgba(0, 80, 152, 0.2);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.csv-example {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(153, 215, 247, 0.28);
+  background: rgba(3, 18, 35, 0.78);
+  color: #dff6ff;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.template-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  min-height: 38px;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .wind-panel {
