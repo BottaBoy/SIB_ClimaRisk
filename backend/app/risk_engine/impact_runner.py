@@ -488,6 +488,7 @@ def _compute_impacts_climada(
     return ImpactComputationResult(
         engine="climada_with_interdependency_v1",
         territory_results=aggregated.territory_results,
+        asset_results=aggregated.asset_results,
         portfolio_results=portfolio_results,
         graphs=graphs,
         notes=notes,
@@ -526,6 +527,7 @@ def compute_impacts_fallback(
     elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
 
     territory_acc: dict[str, dict[str, Any]] = {}
+    asset_acc: dict[str, dict[str, Any]] = {}
     infra_buckets_by_hazard: dict[str, dict[str, dict[str, float]]] = {
         hazard: defaultdict(_new_state_bucket) for hazard in HAZARD_KEYS
     }
@@ -560,6 +562,24 @@ def compute_impacts_fallback(
             row["lon_sum"] += float(lon)
             row["loc_count"] += 1
 
+        asset_row = asset_acc.setdefault(
+            str(feat.feature_id),
+            {
+                "asset_id": str(feat.feature_id),
+                "asset_label": str(feat.label or feat.feature_id),
+                "geometry_type": str(feat.geometry_type or "Unknown"),
+                "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                "exposure_eur": 0.0,
+                "eai_storm_direct_eur": 0.0,
+                "eai_storm_indirect_eur": 0.0,
+                "eai_storm_eur": 0.0,
+                "eai_cmcc_direct_eur": 0.0,
+                "eai_cmcc_indirect_eur": 0.0,
+                "eai_cmcc_eur": 0.0,
+            },
+        )
+        asset_row["exposure_eur"] += exposure_value
+
         for hazard in HAZARD_KEYS:
             direct_damage = _direct_damage_ratio(feat, hazard, base_damage)
             direct_state = _state_from_damage_ratio(direct_damage)
@@ -583,10 +603,16 @@ def compute_impacts_fallback(
                 row["eai_storm_direct_eur"] += direct_eai
                 row["eai_storm_indirect_eur"] += indirect_eai
                 row["eai_storm_eur"] += final_eai
+                asset_row["eai_storm_direct_eur"] += direct_eai
+                asset_row["eai_storm_indirect_eur"] += indirect_eai
+                asset_row["eai_storm_eur"] += final_eai
             else:
                 row["eai_cmcc_direct_eur"] += direct_eai
                 row["eai_cmcc_indirect_eur"] += indirect_eai
                 row["eai_cmcc_eur"] += final_eai
+                asset_row["eai_cmcc_direct_eur"] += direct_eai
+                asset_row["eai_cmcc_indirect_eur"] += indirect_eai
+                asset_row["eai_cmcc_eur"] += final_eai
 
             _bucket_add_state(infra_buckets_by_hazard[hazard][infra_class], state=final_state, weight=weight)
 
@@ -635,6 +661,32 @@ def compute_impacts_fallback(
         ]
 
     territory_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
+
+    asset_results: list[dict[str, Any]] = []
+    for row in asset_acc.values():
+        exp_eur = float(row["exposure_eur"])
+        eai_storm = float(row["eai_storm_eur"])
+        eai_cmcc = float(row["eai_cmcc_eur"])
+        risk_index_storm = _clamp((eai_storm / max(exp_eur, 1.0)) * 1000.0, 0.0, 100.0)
+        risk_index_cmcc = _clamp((eai_cmcc / max(exp_eur, 1.0)) * 1000.0, 0.0, 100.0)
+        asset_results.append(
+            {
+                "asset_id": row["asset_id"],
+                "asset_label": row["asset_label"],
+                "geometry_type": row["geometry_type"],
+                "asset_type": row["asset_type"],
+                "exposure_eur": round(exp_eur, 2),
+                "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
+                "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
+                "eai_storm_eur": round(eai_storm, 2),
+                "eai_cmcc_direct_eur": round(float(row["eai_cmcc_direct_eur"]), 2),
+                "eai_cmcc_indirect_eur": round(float(row["eai_cmcc_indirect_eur"]), 2),
+                "eai_cmcc_eur": round(eai_cmcc, 2),
+                "risk_index_storm": round(risk_index_storm, 2),
+                "risk_index_cmcc": round(risk_index_cmcc, 2),
+            }
+        )
+    asset_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
 
     storm_direct = round(sum(float(row["eai_storm_direct_eur"]) for row in territory_results), 2)
     storm_indirect = round(sum(float(row["eai_storm_indirect_eur"]) for row in territory_results), 2)
@@ -721,6 +773,7 @@ def compute_impacts_fallback(
         portfolio_results=portfolio_results,
         graphs=graphs,
         notes=notes,
+        asset_results=asset_results,
         modeling={
             "dependency_mode": "postprocess_electricity_to_water",
             "scenario_mode": "prudent",

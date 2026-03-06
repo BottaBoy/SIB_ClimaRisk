@@ -49,6 +49,7 @@ def build_result_payload(
             "metric_crs": disagg.metric_crs,
         },
         "territory_results": comp.territory_results,
+        "asset_results": comp.asset_results,
         "portfolio_results": comp.portfolio_results,
         "graphs": comp.graphs,
         "artifacts": {

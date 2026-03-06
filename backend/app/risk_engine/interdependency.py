@@ -17,6 +17,7 @@ UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
 @dataclass
 class InterdependencyAggregationResult:
     territory_results: list[dict[str, Any]]
+    asset_results: list[dict[str, Any]]
     portfolio_by_hazard: dict[str, dict[str, float]]
     component_health: dict[str, dict[str, dict[str, float]]]
     interdependency: dict[str, Any]
@@ -121,6 +122,7 @@ def aggregate_impacts_with_interdependency(
     elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
 
     territory_acc: dict[str, dict[str, Any]] = {}
+    asset_acc: dict[str, dict[str, Any]] = {}
     component_buckets_by_hazard: dict[str, dict[str, dict[str, float]]] = {
         hazard: defaultdict(_new_state_bucket) for hazard in hazard_keys
     }
@@ -159,6 +161,24 @@ def aggregate_impacts_with_interdependency(
             row["lon_sum"] += float(lon)
             row["loc_count"] += 1
 
+        asset_row = asset_acc.setdefault(
+            feature_id,
+            {
+                "asset_id": feature_id,
+                "asset_label": str(rec.get("label") or feature_id),
+                "geometry_type": str(rec.get("geometry_type") or "Unknown"),
+                "asset_type": str(rec.get("asset_type") or ""),
+                "exposure_eur": 0.0,
+                "eai_storm_direct_eur": 0.0,
+                "eai_storm_indirect_eur": 0.0,
+                "eai_storm_eur": 0.0,
+                "eai_cmcc_direct_eur": 0.0,
+                "eai_cmcc_indirect_eur": 0.0,
+                "eai_cmcc_eur": 0.0,
+            },
+        )
+        asset_row["exposure_eur"] += value
+
         for hazard in hazard_keys:
             direct_eai = max(0.0, float(hazard_direct_eai[hazard][idx]))
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
@@ -180,10 +200,16 @@ def aggregate_impacts_with_interdependency(
                 row["eai_storm_direct_eur"] += direct_eai
                 row["eai_storm_indirect_eur"] += indirect_eai
                 row["eai_storm_eur"] += total_eai
+                asset_row["eai_storm_direct_eur"] += direct_eai
+                asset_row["eai_storm_indirect_eur"] += indirect_eai
+                asset_row["eai_storm_eur"] += total_eai
             elif hazard == "storm_cmcc":
                 row["eai_cmcc_direct_eur"] += direct_eai
                 row["eai_cmcc_indirect_eur"] += indirect_eai
                 row["eai_cmcc_eur"] += total_eai
+                asset_row["eai_cmcc_direct_eur"] += direct_eai
+                asset_row["eai_cmcc_indirect_eur"] += indirect_eai
+                asset_row["eai_cmcc_eur"] += total_eai
             _bucket_add_state(component_buckets_by_hazard[hazard][infra_class], state=final_state, weight=value)
 
     for _, hazard in dependency_impacted_feature_hazard:
@@ -235,6 +261,32 @@ def aggregate_impacts_with_interdependency(
 
     territory_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
 
+    asset_results: list[dict[str, Any]] = []
+    for row in asset_acc.values():
+        exp_eur = float(row["exposure_eur"])
+        eai_storm = float(row["eai_storm_eur"])
+        eai_cmcc = float(row["eai_cmcc_eur"])
+        risk_index_storm = max(0.0, min(100.0, (eai_storm / max(exp_eur, 1.0)) * 1000.0))
+        risk_index_cmcc = max(0.0, min(100.0, (eai_cmcc / max(exp_eur, 1.0)) * 1000.0))
+        asset_results.append(
+            {
+                "asset_id": row["asset_id"],
+                "asset_label": row["asset_label"],
+                "geometry_type": row["geometry_type"],
+                "asset_type": row["asset_type"],
+                "exposure_eur": round(exp_eur, 2),
+                "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
+                "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
+                "eai_storm_eur": round(eai_storm, 2),
+                "eai_cmcc_direct_eur": round(float(row["eai_cmcc_direct_eur"]), 2),
+                "eai_cmcc_indirect_eur": round(float(row["eai_cmcc_indirect_eur"]), 2),
+                "eai_cmcc_eur": round(eai_cmcc, 2),
+                "risk_index_storm": round(risk_index_storm, 2),
+                "risk_index_cmcc": round(risk_index_cmcc, 2),
+            }
+        )
+    asset_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
+
     portfolio_by_hazard: dict[str, dict[str, float]] = {}
     scaler_by_hazard: dict[str, float] = {}
     for hazard in hazard_keys:
@@ -270,6 +322,7 @@ def aggregate_impacts_with_interdependency(
 
     return InterdependencyAggregationResult(
         territory_results=territory_results,
+        asset_results=asset_results,
         portfolio_by_hazard=portfolio_by_hazard,
         component_health=component_health,
         interdependency=interdependency,

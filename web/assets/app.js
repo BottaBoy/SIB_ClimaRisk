@@ -2,7 +2,6 @@ const state = {
   activeResult: null,
   selectedHazard: 'storm',
   selectedDatasetMode: 'uploaded',
-  selectedTerritoryId: null,
   territorySearch: '',
   resultsByMode: {
     uploaded: null,
@@ -34,10 +33,11 @@ const state = {
 const mapRef = {
   instance: null,
   markersLayer: null,
+  uploadedLayer: null,
+  uploadedFeatureCount: 0,
   drawnItems: null,
   drawHandlers: {},
   activeDrawMode: null,
-  markerByTerritoryId: new Map(),
   hasFitted: false
 };
 
@@ -154,8 +154,8 @@ const els = {
   uploadForm: document.getElementById('upload-form'),
   uploadFile: document.getElementById('upload-file'),
   runLabel: document.getElementById('run-label'),
+  drawRunLabel: document.getElementById('draw-run-label'),
   drawCategory: document.getElementById('draw-category'),
-  drawValue: document.getElementById('draw-value'),
   drawModeButtons: document.getElementById('draw-mode-buttons'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
   submitDrawingBtn: document.getElementById('submit-drawing-btn'),
@@ -454,6 +454,7 @@ function ensureResultShape(raw) {
   if (!raw.meta || !raw.exposure_summary || !Array.isArray(raw.territory_results) || !raw.portfolio_results || !raw.graphs) {
     throw new Error('Payload résultat incomplet');
   }
+  if (!Array.isArray(raw.asset_results)) raw.asset_results = [];
   return raw;
 }
 
@@ -495,19 +496,12 @@ function renderKpis() {
     return;
   }
   const hazardKey = currentHazardKey();
-  const selectedRow = state.selectedTerritoryId
-    ? (result.territory_results || []).find((x) => x.territory_id === state.selectedTerritoryId)
-    : null;
-  const p = selectedRow ? {
-    eai_eur: eaiForHazard(selectedRow, hazardKey),
-    aai_agg_eur: eaiForHazard(selectedRow, hazardKey),
-    max_event_loss_eur: eaiForHazard(selectedRow, hazardKey) * (hazardKey === 'storm_cmcc' ? 4.2 : 4.0)
-  } : getHazardPortfolio(result, hazardKey);
+  const p = getHazardPortfolio(result, hazardKey);
   const delta = result.portfolio_results?.delta || { eai_eur: 0, eai_pct: 0 };
   const summary = result.exposure_summary || {};
-  const exposureForScope = selectedRow ? Number(selectedRow.exposure_eur || 0) : Number(summary.total_exposure_eur || 0);
-  const assetCountForScope = selectedRow ? 1 : Number(summary.asset_count_original || 0);
-  const pointCountForScope = selectedRow ? null : Number(summary.asset_count_points || 0);
+  const exposureForScope = Number(summary.total_exposure_eur || 0);
+  const assetCountForScope = Number(summary.asset_count_original || 0);
+  const pointCountForScope = Number(summary.asset_count_points || 0);
 
   const cards = [
     {
@@ -523,9 +517,7 @@ function renderKpis() {
     {
       label: 'Exposition totale',
       value: formatMoneyMEUR(exposureForScope),
-      sub: selectedRow
-        ? `Territoire sélectionné: ${selectedRow.territory_label}`
-        : `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points désagrégés`
+      sub: `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points désagrégés`
     },
     {
       label: 'Écart CMCC vs STORM',
@@ -820,13 +812,25 @@ function assetFromExposureType(typeValue) {
   return EXPOSURE_TYPE_TO_ASSET[raw] || 'habitation';
 }
 
-function filteredTerritories() {
+function filteredResultRows() {
   const result = getActiveResult();
   if (!result) return [];
-  let rows = [...(result.territory_results || [])];
+  const sourceRows = Array.isArray(result.asset_results) && result.asset_results.length
+    ? result.asset_results
+    : (result.territory_results || []).map((row) => ({
+      asset_id: row.territory_id,
+      asset_label: row.territory_label,
+      geometry_type: 'Aggregate',
+      exposure_eur: row.exposure_eur,
+      eai_storm_eur: row.eai_storm_eur,
+      eai_cmcc_eur: row.eai_cmcc_eur,
+      risk_index_storm: row.risk_index_storm,
+      risk_index_cmcc: row.risk_index_cmcc
+    }));
+  let rows = [...sourceRows];
   if (state.territorySearch) {
     const q = state.territorySearch.toLowerCase();
-    rows = rows.filter((r) => String(r.territory_label || '').toLowerCase().includes(q) || String(r.territory_id || '').toLowerCase().includes(q));
+    rows = rows.filter((r) => String(r.asset_label || '').toLowerCase().includes(q) || String(r.asset_id || '').toLowerCase().includes(q));
   }
   rows.sort((a, b) => {
     const key = currentHazardKey() === 'storm_cmcc' ? 'risk_index_cmcc' : 'risk_index_storm';
@@ -835,34 +839,27 @@ function filteredTerritories() {
   return rows;
 }
 
-function riskForHazard(row, hazardKey) {
-  return hazardKey === 'storm_cmcc' ? Number(row.risk_index_cmcc || 0) : Number(row.risk_index_storm || 0);
-}
-
-function eaiForHazard(row, hazardKey) {
-  return hazardKey === 'storm_cmcc' ? Number(row.eai_cmcc_eur || 0) : Number(row.eai_storm_eur || 0);
-}
-
 function renderTerritoryTable() {
   const result = getActiveResult();
   if (!result) {
     if (els.tableCaption) els.tableCaption.textContent = "Aucun resultat d'impact charge.";
-    els.territoryTableBody.innerHTML = '<tr><td colspan="6">Aucune donnée chargée.</td></tr>';
+    els.territoryTableBody.innerHTML = '<tr><td colspan="7">Aucune donnée chargée.</td></tr>';
     return;
   }
-  const rows = filteredTerritories();
-  els.tableCaption.textContent = `${rows.length} territoire(s) · source ${result.meta?.source || 'inconnue'} · aléa ${getHazardLabel(currentHazardKey())}`;
+  const rows = filteredResultRows();
+  const modeLabel = state.selectedDatasetMode === 'drawn' ? 'géométrie(s) dessinée(s)' : 'actif(s) importé(s)';
+  els.tableCaption.textContent = `${rows.length} ${modeLabel} · source ${result.meta?.source || 'inconnue'} · aléa ${getHazardLabel(currentHazardKey())}`;
 
   if (!rows.length) {
-    els.territoryTableBody.innerHTML = '<tr><td colspan="6">Aucun territoire ne correspond au filtre.</td></tr>';
+    els.territoryTableBody.innerHTML = '<tr><td colspan="7">Aucun actif / géométrie ne correspond au filtre.</td></tr>';
     return;
   }
 
   els.territoryTableBody.innerHTML = rows.map((row) => {
-    const activeClass = state.selectedTerritoryId === row.territory_id ? 'active' : '';
     return `
-      <tr class="${activeClass}" data-territory-id="${escapeHtml(row.territory_id)}">
-        <td>${escapeHtml(row.territory_label)}</td>
+      <tr>
+        <td>${escapeHtml(row.asset_label || row.asset_id || 'Sans label')}</td>
+        <td>${escapeHtml(row.geometry_type || 'Unknown')}</td>
         <td class="num">${escapeHtml(numberFmt.format((row.exposure_eur || 0) / 1_000_000))}</td>
         <td class="num">${escapeHtml(numberFmt.format((row.eai_storm_eur || 0) / 1_000_000))}</td>
         <td class="num">${escapeHtml(numberFmt.format((row.eai_cmcc_eur || 0) / 1_000_000))}</td>
@@ -871,40 +868,12 @@ function renderTerritoryTable() {
       </tr>
     `;
   }).join('');
-
-  Array.from(els.territoryTableBody.querySelectorAll('tr[data-territory-id]')).forEach((tr) => {
-    tr.addEventListener('click', () => {
-      const id = tr.getAttribute('data-territory-id');
-      state.selectedTerritoryId = state.selectedTerritoryId === id ? null : id;
-      renderTerritorySelectionState();
-      renderKpis();
-      renderMap();
-      renderTerritoryTable();
-    });
-  });
 }
 
 function renderTerritorySelectionState() {
-  if (!state.selectedTerritoryId) {
-    els.selectedTerritoryChip.textContent = 'Aucun territoire sélectionné';
-    return;
-  }
-  const result = getActiveResult();
-  const row = (result?.territory_results || []).find((x) => x.territory_id === state.selectedTerritoryId);
-  els.selectedTerritoryChip.textContent = row ? `Sélection: ${row.territory_label}` : 'Aucun territoire sélectionné';
-}
-
-function getRiskColor(risk) {
-  if (risk >= 80) return '#d94832';
-  if (risk >= 70) return '#ea7b2f';
-  if (risk >= 60) return '#d8ba5e';
-  return '#45b493';
-}
-
-function getRadius(val, min, max) {
-  if (!Number.isFinite(val)) return 8;
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return 12;
-  return 7 + ((val - min) / (max - min)) * 18;
+  const drawnCount = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length : 0;
+  const importedCount = Number(mapRef.uploadedFeatureCount || 0);
+  els.selectedTerritoryChip.textContent = `${drawnCount} dessin(s) · ${importedCount} entite(s) importees`;
 }
 
 function drawModeLabel(mode) {
@@ -941,14 +910,22 @@ function startDrawMode(mode) {
 
   disableActiveDrawMode();
 
+  const markerIcon = window.L.divIcon({
+    className: 'draw-point-icon',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+  const markerHandler = window.L.Draw.CircleMarker || window.L.Draw.Marker;
   const optionsByMode = {
-    marker: {},
+    marker: window.L.Draw.CircleMarker
+      ? { shapeOptions: { radius: 7, color: '#5bc5f2', fillColor: '#5bc5f2', fillOpacity: 0.92, weight: 2 } }
+      : { icon: markerIcon },
     polyline: { shapeOptions: { color: '#dfb85a', weight: 3, opacity: 0.9 } },
     polygon: { allowIntersection: false, shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } },
     rectangle: { shapeOptions: { color: '#4bb1cb', weight: 2, fillOpacity: 0.12 } }
   };
   const constructors = {
-    marker: L.Draw.Marker,
+    marker: markerHandler,
     polyline: L.Draw.Polyline,
     polygon: L.Draw.Polygon,
     rectangle: L.Draw.Rectangle
@@ -965,6 +942,134 @@ function startDrawMode(mode) {
   updateDrawModeButtons();
   handler.enable();
   setStatus(`Mode dessin actif: ${drawModeLabel(mode)}. Cliquez sur la carte pour tracer.`, 'info');
+}
+
+function clearUploadedPreview() {
+  if (mapRef.uploadedLayer && mapRef.instance) {
+    mapRef.instance.removeLayer(mapRef.uploadedLayer);
+  }
+  mapRef.uploadedLayer = null;
+  mapRef.uploadedFeatureCount = 0;
+}
+
+function parseCsvLine(rawLine) {
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < rawLine.length; i += 1) {
+    const char = rawLine[i];
+    if (char === '"') {
+      if (inQuotes && rawLine[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      out.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  out.push(current);
+  return out.map((v) => v.trim());
+}
+
+function parseCsvToGeoJson(text) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (!lines.length) throw new Error('CSV vide');
+  const headers = parseCsvLine(lines[0]);
+  const lower = headers.map((h) => h.toLowerCase());
+  const latIdx = lower.indexOf('lat') >= 0 ? lower.indexOf('lat') : lower.indexOf('latitude');
+  const lonIdx = lower.indexOf('lon') >= 0 ? lower.indexOf('lon') : lower.indexOf('longitude');
+  if (latIdx < 0 || lonIdx < 0) {
+    throw new Error('CSV: colonnes lat/lon manquantes pour l’aperçu carte');
+  }
+  const labelIdx = lower.indexOf('label');
+  const assetIdIdx = lower.indexOf('asset_id');
+  const features = [];
+  lines.slice(1).forEach((line, idx) => {
+    const cols = parseCsvLine(line);
+    const lat = Number(cols[latIdx]);
+    const lon = Number(cols[lonIdx]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const label = (labelIdx >= 0 ? cols[labelIdx] : '') || (assetIdIdx >= 0 ? cols[assetIdIdx] : '') || `Ligne ${idx + 1}`;
+    features.push({
+      type: 'Feature',
+      properties: { label: String(label) },
+      geometry: { type: 'Point', coordinates: [lon, lat] }
+    });
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+function normalizeToFeatureCollection(obj) {
+  if (!obj || typeof obj !== 'object') throw new Error('GeoJSON invalide');
+  if (obj.type === 'FeatureCollection' && Array.isArray(obj.features)) return obj;
+  if (obj.type === 'Feature' && obj.geometry) return { type: 'FeatureCollection', features: [obj] };
+  throw new Error('GeoJSON doit etre un FeatureCollection ou Feature');
+}
+
+function setUploadedPreviewGeoJson(fc) {
+  if (!window.L || !mapRef.instance) return;
+  clearUploadedPreview();
+  const styleLine = { color: '#ffd744', weight: 3, opacity: 0.9 };
+  const stylePoly = { color: '#ffd744', weight: 2, fillColor: '#ffd744', fillOpacity: 0.12 };
+  mapRef.uploadedLayer = L.geoJSON(fc, {
+    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+      radius: 6,
+      color: '#ffca58',
+      fillColor: '#ffd744',
+      fillOpacity: 0.9,
+      weight: 1.5
+    }),
+    style: (feature) => {
+      const gtype = String(feature?.geometry?.type || '');
+      if (gtype.includes('Polygon')) return stylePoly;
+      return styleLine;
+    },
+    onEachFeature: (feature, layer) => {
+      const lbl = String(feature?.properties?.label || feature?.properties?.name || '').trim();
+      if (lbl) layer.bindTooltip(escapeHtml(lbl), { sticky: true });
+    }
+  }).addTo(mapRef.instance);
+  mapRef.uploadedFeatureCount = Array.isArray(fc.features) ? fc.features.length : 0;
+}
+
+async function previewUploadedFile(file) {
+  if (!file) {
+    clearUploadedPreview();
+    renderTerritorySelectionState();
+    renderMap();
+    return;
+  }
+  try {
+    const lower = String(file.name || '').toLowerCase();
+    if (lower.endsWith('.csv')) {
+      const text = await file.text();
+      const fc = parseCsvToGeoJson(text);
+      setUploadedPreviewGeoJson(fc);
+      setStatus(`Aperçu carte import: ${mapRef.uploadedFeatureCount} entité(s).`, 'info');
+    } else if (lower.endsWith('.geojson') || lower.endsWith('.json')) {
+      const text = await file.text();
+      const fc = normalizeToFeatureCollection(JSON.parse(text));
+      setUploadedPreviewGeoJson(fc);
+      setStatus(`Aperçu carte import: ${mapRef.uploadedFeatureCount} entité(s).`, 'info');
+    } else {
+      clearUploadedPreview();
+      setStatus("Aperçu carte non disponible pour ce format. Utilisez CSV (lat/lon) ou GeoJSON pour visualiser l'import.", 'info');
+    }
+  } catch (err) {
+    clearUploadedPreview();
+    showError(`Impossible de générer l'aperçu de l'import: ${err.message}`);
+  } finally {
+    renderTerritorySelectionState();
+    renderMap();
+  }
 }
 
 function ensureMap() {
@@ -984,6 +1089,8 @@ function ensureMap() {
   if (window.L.Draw && window.L.Draw.Event) {
     const onDrawChange = () => {
       renderDrawPreview();
+      renderTerritorySelectionState();
+      renderMap();
       els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
       els.submitDrawingBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
     };
@@ -991,13 +1098,12 @@ function ensureMap() {
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
       disableActiveDrawMode();
       const exposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
-      const drawValue = Number(els.drawValue?.value || '');
       const nextIdx = mapRef.drawnItems.getLayers().length + 1;
       evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
       evt.layer.feature.properties = {
         ...(evt.layer.feature.properties || {}),
         label: String(evt.layer.feature.properties?.label || `Geometrie ${nextIdx}`),
-        value_eur: Number.isFinite(drawValue) && drawValue > 0 ? drawValue : 1_000_000,
+        value_eur: Number(evt.layer.feature.properties?.value_eur || 1_000_000),
         exposure_type: exposureType,
         exposure_category: categoryFromExposureType(exposureType),
         asset_type: assetFromExposureType(exposureType)
@@ -1028,70 +1134,28 @@ function renderMap() {
     return;
   }
 
-  const result = getActiveResult();
+  els.mapCaption.textContent = "Tracez vos geometries et visualisez vos importations sur cette carte.";
+  if (mapRef.markersLayer) mapRef.markersLayer.clearLayers();
 
-  const rows = (result?.territory_results || []).filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lon));
-  const hazardKey = currentHazardKey();
-  mapRef.markerByTerritoryId.clear();
-  mapRef.markersLayer.clearLayers();
-
-  if (!result) {
-    els.mapCaption.textContent = "Tracez vos geometries et soumettez un run pour afficher les resultats d'impacts territoriaux.";
+  const drawnCount = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length : 0;
+  const importedCount = Number(mapRef.uploadedFeatureCount || 0);
+  const hasContent = drawnCount > 0 || importedCount > 0;
+  if (!hasContent) {
     els.mapFallback.hidden = false;
-    els.mapFallback.textContent = "Aucun resultat d'exposition charge pour l'instant.";
+    els.mapFallback.textContent = "Aucune exposition sur la carte pour l'instant (importez un fichier ou dessinez).";
     setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
     return;
   }
 
-  els.mapCaption.textContent = `Taille des points = exposition, couleur = indice de risque (${getHazardLabel(hazardKey)}). Cliquez un point pour surligner un territoire.`;
-
-  if (!rows.length) {
-    els.mapFallback.hidden = false;
-    els.mapFallback.textContent = 'Aucun centroide cartographiable dans ce resultat.';
-    setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
-    return;
-  }
-
-  const exposures = rows.map((r) => Number(r.exposure_eur || 0));
-  const min = Math.min(...exposures);
-  const max = Math.max(...exposures);
-  const bounds = [];
-
-  rows.forEach((row) => {
-    const risk = riskForHazard(row, hazardKey);
-    const marker = L.circleMarker([row.lat, row.lon], {
-      radius: getRadius(Number(row.exposure_eur || 0), min, max),
-      color: state.selectedTerritoryId === row.territory_id ? '#ffffff' : 'rgba(8, 16, 22, 0.75)',
-      weight: state.selectedTerritoryId === row.territory_id ? 2.5 : 1.3,
-      fillColor: getRiskColor(risk),
-      fillOpacity: state.selectedTerritoryId === row.territory_id ? 0.95 : 0.84
-    });
-    marker.bindTooltip(
-      [
-        `<strong>${escapeHtml(row.territory_label)}</strong>`,
-        `Exposition: ${escapeHtml(formatMoneyMEUR(row.exposure_eur))}`,
-        `EAI (${escapeHtml(getHazardLabel(hazardKey))}): ${escapeHtml(formatMoneyMEUR(eaiForHazard(row, hazardKey)))}`,
-        `Indice de risque: ${escapeHtml(formatRisk(risk))}`
-      ].join('<br/>'),
-      { sticky: true }
-    );
-    marker.on('click', () => {
-      state.selectedTerritoryId = state.selectedTerritoryId === row.territory_id ? null : row.territory_id;
-      renderTerritorySelectionState();
-      renderKpis();
-      renderMap();
-      renderTerritoryTable();
-    });
-    marker.addTo(mapRef.markersLayer);
-    mapRef.markerByTerritoryId.set(row.territory_id, marker);
-    bounds.push([row.lat, row.lon]);
-  });
-
-  if (!mapRef.hasFitted && bounds.length) {
+  els.mapFallback.hidden = true;
+  els.mapFallback.textContent = '';
+  const group = L.featureGroup();
+  if (mapRef.uploadedLayer) group.addLayer(mapRef.uploadedLayer);
+  if (mapRef.drawnItems && mapRef.drawnItems.getLayers().length) group.addLayer(mapRef.drawnItems);
+  const bounds = group.getBounds();
+  if (bounds && bounds.isValid()) {
     mapRef.instance.fitBounds(bounds, { padding: [22, 22], maxZoom: 8 });
-    mapRef.hasFitted = true;
   }
-
   setTimeout(() => mapRef.instance && mapRef.instance.invalidateSize(), 0);
 }
 
@@ -2229,6 +2293,7 @@ function renderDrawPreview() {
     const gtype = String(layer.feature?.geometry?.type || layer?.toGeoJSON?.()?.geometry?.type || 'Unknown');
     const type = String(props.exposure_type || els.drawCategory?.value || 'habitation');
     const label = String(props.label || `Geometrie ${idx + 1}`);
+    const valueEur = Number(props.value_eur);
     const geomLabel = gtype === 'Polygon' ? 'Polygone'
       : gtype === 'LineString' ? 'Ligne'
         : gtype === 'Point' ? 'Point'
@@ -2242,41 +2307,15 @@ function renderDrawPreview() {
           <button class="draw-delete-btn" type="button" aria-label="Supprimer la geometrie ${escapeHtml(String(idx + 1))}">&times;</button>
         </div>
         <div class="draw-item-meta">${escapeHtml(geomLabel)} · ${escapeHtml(typeLabel)}</div>
+        <div class="draw-item-value">
+          <label>Valeur monetaire (€)</label>
+          <input class="draw-value-input" type="number" min="0" step="1" value="${escapeHtml(String(Number.isFinite(valueEur) && valueEur > 0 ? valueEur : 1000000))}" />
+        </div>
       </li>
     `;
   });
   els.drawSummaryList.innerHTML = rows.join('');
   els.submitDrawingBtn.disabled = layers.length === 0;
-}
-
-function filterResultToSelectedTerritory(result) {
-  if (!result || !state.selectedTerritoryId) return result;
-  const row = (result.territory_results || []).find((x) => x.territory_id === state.selectedTerritoryId);
-  if (!row) return result;
-
-  const clone = deepClone(result);
-  clone.territory_results = [row];
-  const storm = {
-    eai_eur: row.eai_storm_eur,
-    aai_agg_eur: row.eai_storm_eur,
-    max_event_loss_eur: row.eai_storm_eur * 4.0
-  };
-  const cmcc = {
-    eai_eur: row.eai_cmcc_eur,
-    aai_agg_eur: row.eai_cmcc_eur,
-    max_event_loss_eur: row.eai_cmcc_eur * 4.2
-  };
-  clone.portfolio_results = {
-    storm,
-    storm_cmcc: cmcc,
-    delta: {
-      eai_eur: cmcc.eai_eur - storm.eai_eur,
-      eai_pct: storm.eai_eur ? ((cmcc.eai_eur / storm.eai_eur) - 1) * 100 : 0
-    }
-  };
-  clone.exposure_summary.total_exposure_eur = row.exposure_eur;
-  clone.exposure_summary.asset_count_original = 1;
-  return clone;
 }
 
 function renderAll() {
@@ -2298,9 +2337,6 @@ function renderAll() {
 
   if (!state.activeResult) {
     return;
-  }
-  if (state.selectedTerritoryId && !(state.activeResult.territory_results || []).some((x) => x.territory_id === state.selectedTerritoryId)) {
-    state.selectedTerritoryId = null;
   }
   updateMetaBadges();
   renderNotes();
@@ -2581,16 +2617,16 @@ function getDrawnFeatureCollection() {
   const layers = mapRef.drawnItems.getLayers();
   if (!layers.length) return null;
   const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
-  const drawValue = Number(els.drawValue?.value || '');
   const features = layers.map((layer) => {
     const gj = layer.toGeoJSON();
     const currentType = String(layer?.feature?.properties?.exposure_type || gj?.properties?.exposure_type || defaultExposureType);
     const currentCategory = categoryFromExposureType(currentType);
     const currentAssetType = assetFromExposureType(currentType);
     const currentLabel = String(layer?.feature?.properties?.label || gj?.properties?.label || `Geometrie ${layer._leaflet_id || ''}`).trim();
-    const valueEur = Number.isFinite(drawValue) && drawValue > 0
-      ? drawValue
-      : Number(layer?.feature?.properties?.value_eur || 0) || 1_000_000;
+    const valueEur = Number(layer?.feature?.properties?.value_eur || gj?.properties?.value_eur || 0);
+    if (!Number.isFinite(valueEur) || valueEur <= 0) {
+      throw new Error(`La valeur monetaire est invalide pour la geometrie "${currentLabel || layer._leaflet_id}".`);
+    }
     gj.properties = {
       ...(gj.properties || {}),
       label: currentLabel || `Geometrie ${layer._leaflet_id || ''}`,
@@ -2619,19 +2655,20 @@ async function submitDrawnExposure() {
     return;
   }
   clearError();
-  const fc = getDrawnFeatureCollection();
+  let fc = null;
+  try {
+    fc = getDrawnFeatureCollection();
+  } catch (err) {
+    showError(err.message || 'Valeur de geometrie invalide.');
+    return;
+  }
   if (!fc) {
     showError("Dessinez au moins une géométrie avant de lancer un run d'exposition dessinée.");
     return;
   }
-  const runLabel = els.runLabel.value.trim();
+  const runLabel = els.drawRunLabel?.value.trim() || '';
   if (!runLabel) {
-    showError("Le nom du run est obligatoire.");
-    return;
-  }
-  const drawValue = Number(els.drawValue?.value || '');
-  if (!Number.isFinite(drawValue) || drawValue <= 0) {
-    showError("Renseignez une valeur monetaire positive pour les geometries dessinees.");
+    showError("Le nom du run dessine est obligatoire.");
     return;
   }
 
@@ -2670,7 +2707,6 @@ function switchDatasetMode(mode) {
   if (!candidate) {
     const modeLabel = mode === 'drawn' ? 'dessine' : 'importe';
     setStatus(`Aucun resultat ${modeLabel} n'est encore disponible.`, 'info');
-    state.selectedTerritoryId = null;
     setActiveResult(null, mode);
     renderMap();
     renderTerritoryTable();
@@ -2679,7 +2715,6 @@ function switchDatasetMode(mode) {
     return;
   }
 
-  state.selectedTerritoryId = null;
   setActiveResult(candidate, mode);
 }
 
@@ -2802,6 +2837,12 @@ function bindEvents() {
   });
 
   els.uploadForm.addEventListener('submit', submitUpload);
+  if (els.uploadFile) {
+    els.uploadFile.addEventListener('change', async () => {
+      const file = els.uploadFile.files?.[0];
+      await previewUploadedFile(file);
+    });
+  }
   els.submitDrawingBtn.addEventListener('click', submitDrawnExposure);
   els.refreshPreviewBtn.addEventListener('click', renderDrawPreview);
   if (els.drawModeButtons) {
@@ -2818,17 +2859,26 @@ function bindEvents() {
     els.drawSummaryList.addEventListener('input', (event) => {
       const target = event.target instanceof Element ? event.target : null;
       const input = target ? target.closest('.draw-name-input') : null;
-      if (!input) return;
-      const row = input.closest('[data-layer-id]');
+      const valueInput = target ? target.closest('.draw-value-input') : null;
+      if (!input && !valueInput) return;
+      const row = (input || valueInput).closest('[data-layer-id]');
       if (!row || !mapRef.drawnItems) return;
       const layerId = Number(row.getAttribute('data-layer-id'));
       const layer = mapRef.drawnItems.getLayer(layerId);
       if (!layer) return;
       layer.feature = layer.feature || { type: 'Feature', properties: {} };
-      layer.feature.properties = {
-        ...(layer.feature.properties || {}),
-        label: input.value.trim() || `Geometrie ${layerId}`
-      };
+      if (input) {
+        layer.feature.properties = {
+          ...(layer.feature.properties || {}),
+          label: input.value.trim() || `Geometrie ${layerId}`
+        };
+      }
+      if (valueInput) {
+        layer.feature.properties = {
+          ...(layer.feature.properties || {}),
+          value_eur: Number(valueInput.value)
+        };
+      }
     });
     els.drawSummaryList.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -2841,6 +2891,8 @@ function bindEvents() {
       if (!layer) return;
       mapRef.drawnItems.removeLayer(layer);
       renderDrawPreview();
+      renderTerritorySelectionState();
+      renderMap();
       els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
       els.submitDrawingBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
     });
@@ -2867,6 +2919,8 @@ function bindEvents() {
     disableActiveDrawMode();
     mapRef.drawnItems.clearLayers();
     renderDrawPreview();
+    renderTerritorySelectionState();
+    renderMap();
     els.clearDrawingsBtn.disabled = true;
     els.submitDrawingBtn.disabled = true;
   });
@@ -2879,7 +2933,6 @@ function bindEvents() {
   els.clearTerritoryFilterBtn.addEventListener('click', () => {
     els.territorySearch.value = '';
     state.territorySearch = '';
-    state.selectedTerritoryId = null;
     renderAll();
   });
 }

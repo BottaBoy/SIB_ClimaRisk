@@ -442,19 +442,19 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
               <div id="map-fallback" class="fallback" hidden></div>
               <div id="territory-map" class="map"></div>
             </div>
-            <div class="field">
-              <label for="draw-value">Valeur monetaire (€) appliquee aux geometries dessinees</label>
-              <input id="draw-value" type="number" min="0" step="1" value="1000000" />
-            </div>
             <ul class="draw-summary-list" id="draw-summary-list">
               <li>Aucun dessin pour le moment.</li>
             </ul>
+            <div class="field">
+              <label for="draw-run-label">Nom du run dessine</label>
+              <input id="draw-run-label" type="text" placeholder="Ex: Test dessin secteur nord" />
+            </div>
             <div class="inline-row">
               <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>Lancer le run de l'exposition dessinee</button>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
             <p class="muted small">
-              La valeur saisie ci-dessus est appliquee aux geometries dessinees au moment de la soumission.
+              Definissez une valeur monetaire pour chaque geometrie dessinee dans la liste ci-dessus.
               Le nom de run est obligatoire pour chaque lancement.
             </p>
           </div>
@@ -502,11 +502,11 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
         <div class="table-card">
           <div class="section-head">
             <div>
-              <h2>Resultats par territoire</h2>
+              <h2>Resultats par actif / geometrie</h2>
               <p class="muted" id="table-caption">Resultat charge.</p>
             </div>
             <div class="inline-row tight">
-              <input id="territory-search" type="search" placeholder="Filtrer les territoires" />
+              <input id="territory-search" type="search" placeholder="Filtrer les actifs / geometries" />
               <button id="clear-territory-filter-btn" type="button">Effacer</button>
             </div>
           </div>
@@ -514,7 +514,8 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation</pre>
             <table>
               <thead>
                 <tr>
-                  <th>Territoire</th>
+                  <th>Label actif / geometrie</th>
+                  <th>Type geom.</th>
                   <th class="num">Exposition (M€)</th>
                   <th class="num">EAI STORM (M€)</th>
                   <th class="num">EAI CMCC (M€)</th>

@@ -292,6 +292,7 @@ def build_climada_exposure(
                     "point_id": point_id,
                     "feature_id": str(feat.feature_id),
                     "label": str(feat.label),
+                    "geometry_type": str(feat.geometry_type or "Unknown"),
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
