@@ -365,11 +365,9 @@
           </div>
           <div class="run-lab-side">
             <div class="status-box" id="job-status-box" hidden></div>
-            <div class="run-memory-box" id="run-memory-box">
-              <h3>Runs en memoire (max 10)</h3>
-              <ul class="run-memory-list" id="run-memory-list">
-                <li class="muted small">Aucun run en memoire.</li>
-              </ul>
+            <div class="compute-indicator" id="compute-indicator" hidden>
+              <img src="assets/Logo_OFB.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
+              <span>Calcul backend en cours...</span>
             </div>
           </div>
         </div>
@@ -477,6 +475,15 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               Le nom de run est obligatoire pour chaque lancement.
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="panel run-memory-panel page-block page3" aria-label="Runs en memoire utilisateur">
+        <div class="run-memory-box" id="run-memory-box">
+          <h3>Runs en memoire (max 10)</h3>
+          <ul class="run-memory-list" id="run-memory-list">
+            <li class="muted small">Aucun run en memoire.</li>
+          </ul>
         </div>
       </section>
 

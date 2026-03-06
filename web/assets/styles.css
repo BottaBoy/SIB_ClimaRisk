@@ -360,6 +360,33 @@ button:disabled {
   min-width: min(420px, 100%);
 }
 
+.compute-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(153, 215, 247, 0.6);
+  background: rgba(0, 58, 118, 0.58);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.compute-indicator-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  animation: ofb-spin 1s linear infinite;
+}
+
+@keyframes ofb-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .status-box {
   padding: 10px 12px;
   border-radius: 10px;
@@ -419,6 +446,10 @@ button:disabled {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.run-memory-panel {
+  padding: 14px;
 }
 
 .run-lab-grid {

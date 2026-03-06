@@ -7,6 +7,9 @@ const state = {
     uploaded: null,
     drawn: null
   },
+  backendComputeActive: false,
+  uiComputeActive: false,
+  uiComputeTimer: null,
   runLabelsByJob: {},
   recentRuns: [],
   currentJobId: null,
@@ -165,6 +168,7 @@ const els = {
   clearDrawingsBtn: document.getElementById('clear-drawings-btn'),
   drawSummaryList: document.getElementById('draw-summary-list'),
   jobStatusBox: document.getElementById('job-status-box'),
+  computeIndicator: document.getElementById('compute-indicator'),
   runMemoryBox: document.getElementById('run-memory-box'),
   runMemoryList: document.getElementById('run-memory-list'),
   kpiGrid: document.getElementById('kpi-grid'),
@@ -392,6 +396,7 @@ function applyRuntimeMode() {
   if (els.reloadJobBtn) els.reloadJobBtn.disabled = true;
   if (els.clearDrawingsBtn) els.clearDrawingsBtn.disabled = true;
   if (els.runMemoryBox) els.runMemoryBox.hidden = true;
+  if (els.computeIndicator) els.computeIndicator.hidden = true;
 }
 
 function showError(message) {
@@ -424,6 +429,31 @@ function setStatus(message, tone = 'info') {
     els.jobStatusBox.style.borderColor = 'rgba(75, 177, 203, 0.35)';
     els.jobStatusBox.style.background = 'rgba(75, 177, 203, 0.08)';
   }
+}
+
+function refreshComputeIndicator() {
+  if (!els.computeIndicator) return;
+  const shouldShow = Boolean(state.backendComputeActive || state.uiComputeActive);
+  els.computeIndicator.hidden = !shouldShow;
+}
+
+function setBackendComputeActive(active) {
+  state.backendComputeActive = Boolean(active);
+  refreshComputeIndicator();
+}
+
+function triggerUiComputePulse(durationMs = 900) {
+  state.uiComputeActive = true;
+  refreshComputeIndicator();
+  if (state.uiComputeTimer) {
+    clearTimeout(state.uiComputeTimer);
+    state.uiComputeTimer = null;
+  }
+  state.uiComputeTimer = setTimeout(() => {
+    state.uiComputeActive = false;
+    state.uiComputeTimer = null;
+    refreshComputeIndicator();
+  }, Math.max(250, Number(durationMs) || 900));
 }
 
 function formatMoneyMEUR(valueEur) {
@@ -2614,6 +2644,7 @@ function stopPolling() {
     clearTimeout(state.pollTimer);
     state.pollTimer = null;
   }
+  setBackendComputeActive(false);
 }
 
 async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {}) {
@@ -2622,6 +2653,7 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
     return;
   }
   stopPolling();
+  setBackendComputeActive(true);
   state.currentJobId = jobId;
   state.pollingModeTarget = modeTarget;
   if (els.pollJobId && !els.pollJobId.value) els.pollJobId.value = jobId;
@@ -2916,6 +2948,7 @@ function bindEvents() {
 
   els.hazardSelect.addEventListener('change', () => {
     state.selectedHazard = els.hazardSelect.value;
+    triggerUiComputePulse(700);
     renderAll();
   });
 
