@@ -43,8 +43,8 @@ const mapRef = {
 };
 
 const windMapRef = {
-  storm: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null },
-  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null }
+  storm: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-storm' },
+  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-cmcc' }
 };
 
 const waterMapRef = {
@@ -1197,14 +1197,11 @@ function syncWindOpacityFromSlider({ forceApply = false } = {}) {
 
 function applyWindOpacityToMap(hazardKey) {
   const ref = windMapRef[hazardKey];
-  if (!ref || !ref.cellsLayer) return;
+  if (!ref || !ref.instance) return;
   const factor = currentWindOpacityFactor();
-  ref.cellsLayer.eachLayer((layer) => {
-    if (!layer || typeof layer.setStyle !== 'function') return;
-    const base = Number(layer.options?.baseFillOpacity);
-    const finalOpacity = Number.isFinite(base) ? clamp01(base * factor) : factor;
-    layer.setStyle({ fillOpacity: finalOpacity });
-  });
+  const pane = ref.instance.getPane(ref.cellsPaneName);
+  if (!pane) return;
+  pane.style.opacity = String(clamp01(factor));
 }
 
 function applyWindLayerOpacity() {
@@ -1239,12 +1236,17 @@ function ensureWindMap(hazardKey) {
   const container = hazardKey === 'storm' ? els.windMapStorm : els.windMapCmcc;
   if (!container) return null;
 
-  ref.instance = L.map(container, { zoomControl: true, attributionControl: true, preferCanvas: true }).setView([16.25, -61.5], 8);
+  ref.instance = L.map(container, { zoomControl: true, attributionControl: true }).setView([16.25, -61.5], 8);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 11,
     minZoom: 4,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(ref.instance);
+  if (!ref.instance.getPane(ref.cellsPaneName)) {
+    const pane = ref.instance.createPane(ref.cellsPaneName);
+    pane.style.zIndex = '430';
+    pane.style.pointerEvents = 'auto';
+  }
   ref.cellsLayer = L.layerGroup().addTo(ref.instance);
   return ref;
 }
@@ -1349,13 +1351,15 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     const i = Math.round((lat - centerLat0) / cellDeg);
     const j = Math.round((lon - centerLon0) / cellDeg);
     const key = `${i}|${j}`;
+    let observedMetric = Number(cell[metricValueKey]);
+    if (!Number.isFinite(observedMetric)) observedMetric = fallbackValue;
     const observed = {
       i,
       j,
-      [metricValueKey]: Number(cell[metricValueKey]),
+      [metricValueKey]: observedMetric,
+      metric_value: observedMetric,
       sample_count: Number(cell.sample_count || 0)
     };
-    if (!Number.isFinite(observed[metricValueKey])) observed[metricValueKey] = fallbackValue;
     knownCells.push(observed);
     if (!knownByIndex.has(key)) knownByIndex.set(key, observed);
   });
@@ -1376,14 +1380,12 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
         const color = windColorFromScale(metricValue, scale);
-        const baseFillOpacity = extrapolated ? 0.86 : 0.97;
-        const finalFillOpacity = clamp01(baseFillOpacity * currentWindOpacityFactor());
         const rect = L.rectangle([[south, west], [north, east]], {
+          pane: ref.cellsPaneName,
           stroke: false,
           fillColor: color,
-          fillOpacity: finalFillOpacity
+          fillOpacity: 1
         });
-        rect.options.baseFillOpacity = baseFillOpacity;
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
