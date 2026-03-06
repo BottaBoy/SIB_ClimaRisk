@@ -363,7 +363,15 @@
               Les calculs sont executes de facon asynchrone.
             </p>
           </div>
-          <div class="status-box" id="job-status-box" hidden></div>
+          <div class="run-lab-side">
+            <div class="status-box" id="job-status-box" hidden></div>
+            <div class="run-memory-box" id="run-memory-box">
+              <h3>Runs en memoire (max 10)</h3>
+              <ul class="run-memory-list" id="run-memory-list">
+                <li class="muted small">Aucun run en memoire.</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <div class="run-lab-grid">
@@ -384,17 +392,20 @@
                 <li><code>lon</code>: longitude en WGS84 (degres decimaux, ex: <code>-61.534</code>).</li>
                 <li><code>value_eur</code>: valeur monetaire de l'actif en euros (ex: <code>250000</code>).</li>
                 <li><code>asset_type</code>: type technique pour le moteur (ex: <code>habitation</code>, <code>eau_aep_cana</code>).</li>
-                <li><code>exposure_category</code>: categorie d'exposition (ex: <code>habitation</code>, <code>ouvrage_eau</code>).</li>
+                <li><code>exposure_category</code>: categorie metier pour les regles de calcul (ex: <code>habitation</code>, <code>ouvrage_eau</code>, <code>ouvrage_electrique</code>).</li>
                 <li><code>geometry_wkt</code> (optionnel): geometrie WKT si vous n'utilisez pas <code>lat</code>/<code>lon</code>.</li>
               </ul>
               <p class="muted small">
                 Localisation: utilisez <code>lat</code>/<code>lon</code> (WGS84, EPSG:4326)
                 ou une colonne <code>geometry_wkt</code>.
               </p>
+              <p class="muted small">
+                <code>exposure_category</code> sert a classer chaque actif dans la bonne famille d'impact/dependance (habitations, ouvrages eau, ouvrages electriques).
+              </p>
               <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category,geometry_wkt
 A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)</pre>
               <a class="primary-btn template-download-btn" href="data/exposition-template.xlsx" download>
-                Telecharger le modele XLSX (entetes par colonne)
+                Telecharger le modele XLSX
               </a>
             </div>
             <div class="field">

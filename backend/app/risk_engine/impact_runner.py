@@ -441,6 +441,18 @@ def _compute_impacts_climada(
             "pml_50_eur": round(float(storm_direct_metrics.pml_eur.get(50, 0.0)) * storm_scaler, 2),
             "pml_100_eur": round(float(storm_direct_metrics.pml_eur.get(100, 0.0)) * storm_scaler, 2),
             "pml_200_eur": round(float(storm_direct_metrics.pml_eur.get(200, 0.0)) * storm_scaler, 2),
+            "pml_1000_eur": round(
+                float(
+                    storm_direct_metrics.pml_eur.get(
+                        1000,
+                        max(
+                            float(storm_direct_metrics.pml_eur.get(200, 0.0)),
+                            float(storm_direct_metrics.max_event_loss_eur),
+                        ),
+                    )
+                ) * storm_scaler,
+                2,
+            ),
             "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
         },
         "storm_cmcc": {
@@ -454,6 +466,18 @@ def _compute_impacts_climada(
             "pml_50_eur": round(float(cmcc_direct_metrics.pml_eur.get(50, 0.0)) * cmcc_scaler, 2),
             "pml_100_eur": round(float(cmcc_direct_metrics.pml_eur.get(100, 0.0)) * cmcc_scaler, 2),
             "pml_200_eur": round(float(cmcc_direct_metrics.pml_eur.get(200, 0.0)) * cmcc_scaler, 2),
+            "pml_1000_eur": round(
+                float(
+                    cmcc_direct_metrics.pml_eur.get(
+                        1000,
+                        max(
+                            float(cmcc_direct_metrics.pml_eur.get(200, 0.0)),
+                            float(cmcc_direct_metrics.max_event_loss_eur),
+                        ),
+                    )
+                ) * cmcc_scaler,
+                2,
+            ),
             "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
         },
         "delta": {
@@ -714,6 +738,7 @@ def compute_impacts_fallback(
             "pml_50_eur": round(storm_total * 1.7, 2),
             "pml_100_eur": round(storm_total * 1.45, 2),
             "pml_200_eur": round(storm_total * 1.25, 2),
+            "pml_1000_eur": round(storm_total * 1.9, 2),
             "tvar_95_eur": round(storm_total * 1.8, 2),
         },
         "storm_cmcc": {
@@ -727,6 +752,7 @@ def compute_impacts_fallback(
             "pml_50_eur": round(cmcc_total * 1.7, 2),
             "pml_100_eur": round(cmcc_total * 1.45, 2),
             "pml_200_eur": round(cmcc_total * 1.25, 2),
+            "pml_1000_eur": round(cmcc_total * 1.9, 2),
             "tvar_95_eur": round(cmcc_total * 1.8, 2),
         },
         "delta": {

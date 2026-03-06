@@ -354,6 +354,12 @@ button:disabled {
   justify-content: space-between;
 }
 
+.run-lab-side {
+  display: grid;
+  gap: 8px;
+  min-width: min(420px, 100%);
+}
+
 .status-box {
   padding: 10px 12px;
   border-radius: 10px;
@@ -364,6 +370,55 @@ button:disabled {
   max-width: 520px;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.run-memory-box {
+  border: 1px solid rgba(153, 215, 247, 0.45);
+  border-radius: 10px;
+  background: rgba(0, 58, 118, 0.42);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.run-memory-box h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #dff6ff;
+}
+
+.run-memory-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.run-memory-item {
+  border: 1px solid rgba(153, 215, 247, 0.26);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(0, 80, 152, 0.18);
+  display: grid;
+  gap: 4px;
+}
+
+.run-memory-btn {
+  width: 100%;
+  text-align: left;
+  min-height: 30px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+
+.run-memory-meta {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .run-lab-grid {
@@ -715,7 +770,7 @@ button:disabled {
 .kpi-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .kpi-card {

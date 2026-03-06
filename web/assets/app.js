@@ -7,6 +7,8 @@ const state = {
     uploaded: null,
     drawn: null
   },
+  runLabelsByJob: {},
+  recentRuns: [],
   currentJobId: null,
   pollTimer: null,
   pollingModeTarget: null,
@@ -163,6 +165,8 @@ const els = {
   clearDrawingsBtn: document.getElementById('clear-drawings-btn'),
   drawSummaryList: document.getElementById('draw-summary-list'),
   jobStatusBox: document.getElementById('job-status-box'),
+  runMemoryBox: document.getElementById('run-memory-box'),
+  runMemoryList: document.getElementById('run-memory-list'),
   kpiGrid: document.getElementById('kpi-grid'),
   selectedTerritoryChip: document.getElementById('selected-territory-chip'),
   territorySearch: document.getElementById('territory-search'),
@@ -387,6 +391,7 @@ function applyRuntimeMode() {
   if (els.pollJobId) els.pollJobId.disabled = true;
   if (els.reloadJobBtn) els.reloadJobBtn.disabled = true;
   if (els.clearDrawingsBtn) els.clearDrawingsBtn.disabled = true;
+  if (els.runMemoryBox) els.runMemoryBox.hidden = true;
 }
 
 function showError(message) {
@@ -455,6 +460,8 @@ function ensureResultShape(raw) {
     throw new Error('Payload résultat incomplet');
   }
   if (!Array.isArray(raw.asset_results)) raw.asset_results = [];
+  if (!raw.input_features_geojson || typeof raw.input_features_geojson !== 'object') raw.input_features_geojson = null;
+  if (!raw.meta.run_label) raw.meta.run_label = raw.meta.title || '';
   return raw;
 }
 
@@ -502,22 +509,35 @@ function renderKpis() {
   const exposureForScope = Number(summary.total_exposure_eur || 0);
   const assetCountForScope = Number(summary.asset_count_original || 0);
   const pointCountForScope = Number(summary.asset_count_points || 0);
+  const lossRp100 = scenarioLossFromPortfolio(p, 'rp100');
+  const lossRp1000 = scenarioLossFromPortfolio(p, 'rp1000');
+  const lossEventMax = scenarioLossFromPortfolio(p, 'event_max');
 
   const cards = [
+    {
+      label: 'Exposition totale',
+      value: formatMoneyMEUR(exposureForScope),
+      sub: `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points desagreges`
+    },
     {
       label: "EAI de l'aléa sélectionné",
       value: formatMoneyMEUR(p.eai_eur),
       sub: `AAI agg ${formatMoneyMEUR(p.aai_agg_eur)} · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: "Perte de l'événement max",
-      value: formatMoneyMEUR(p.max_event_loss_eur),
-      sub: 'Estimation portefeuille sur le jeu de résultats actif'
+      label: 'Perte evenements temps de retour 100 ans',
+      value: formatMoneyMEUR(lossRp100),
+      sub: `Estimation portefeuille · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: 'Exposition totale',
-      value: formatMoneyMEUR(exposureForScope),
-      sub: `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points désagrégés`
+      label: 'Perte evenements temps de retour 1000 ans',
+      value: formatMoneyMEUR(lossRp1000),
+      sub: `Estimation portefeuille · ${getHazardLabel(hazardKey)}`
+    },
+    {
+      label: "Perte de l'evenement max",
+      value: formatMoneyMEUR(lossEventMax),
+      sub: 'Estimation portefeuille sur le jeu de resultats actif'
     },
     {
       label: 'Écart CMCC vs STORM',
@@ -800,6 +820,76 @@ function escapeHtml(text) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function rememberRunLabel(jobId, runLabel) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  const label = String(runLabel || '').trim();
+  state.runLabelsByJob[id] = label || id;
+}
+
+function runLabelForJob(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return '';
+  return String(state.runLabelsByJob[id] || '').trim();
+}
+
+function resultRunLabel(result) {
+  if (!result || typeof result !== 'object') return '';
+  return String(result?.meta?.run_label || result?.meta?.title || '').trim();
+}
+
+function renderRunMemoryList() {
+  if (!els.runMemoryList) return;
+  const runs = Array.isArray(state.recentRuns) ? state.recentRuns : [];
+  if (!runs.length) {
+    els.runMemoryList.innerHTML = '<li class="muted small">Aucun run en memoire.</li>';
+    return;
+  }
+  els.runMemoryList.innerHTML = runs.map((run) => {
+    const runLabel = String(run?.run_label || run?.job_id || 'Run').trim();
+    const jobId = String(run?.job_id || '').trim();
+    const mode = run?.dataset_mode === 'drawn' ? 'drawn' : 'uploaded';
+    const status = String(run?.status || 'unknown');
+    const updatedAt = formatDate(run?.updated_at);
+    const stage = String(run?.stage || '').trim();
+    return `
+      <li class="run-memory-item">
+        <button type="button" class="run-memory-btn" data-run-job-id="${escapeHtml(jobId)}" data-run-mode="${escapeHtml(mode)}" data-run-label="${escapeHtml(runLabel)}">${escapeHtml(runLabel)}</button>
+        <div class="run-memory-meta">${escapeHtml(status)}${stage ? ` · ${escapeHtml(stage)}` : ''} · ${escapeHtml(updatedAt)} · ${escapeHtml(jobId)}</div>
+      </li>
+    `;
+  }).join('');
+}
+
+async function refreshRunMemoryList() {
+  if (runtime.isPublicShowcase) return;
+  if (!els.runMemoryList) return;
+  try {
+    const res = await fetch('/api/v1/runs/recent?limit=10', { cache: 'no-store' });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
+    const runs = Array.isArray(payload.runs) ? payload.runs : [];
+    state.recentRuns = runs;
+    runs.forEach((run) => {
+      rememberRunLabel(run?.job_id, run?.run_label || run?.job_id);
+    });
+    renderRunMemoryList();
+  } catch (err) {
+    els.runMemoryList.innerHTML = `<li class="muted small">Memoire des runs indisponible (${escapeHtml(err.message)}).</li>`;
+  }
+}
+
+function syncMapPreviewFromResult(result) {
+  const fc = result?.input_features_geojson;
+  if (!fc || typeof fc !== 'object' || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
+    return;
+  }
+  if (!ensureMap()) return;
+  setUploadedPreviewGeoJson(fc);
+  renderTerritorySelectionState();
+  renderMap();
 }
 
 function categoryFromExposureType(typeValue) {
@@ -2360,8 +2450,11 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
     return;
   }
   ensureResultShape(result);
+  const label = resultRunLabel(result);
+  rememberRunLabel(result?.meta?.job_id, label || result?.meta?.job_id);
   state.activeResult = result;
   if (mode) state.resultsByMode[mode] = result;
+  syncMapPreviewFromResult(result);
   renderAll();
 }
 
@@ -2538,22 +2631,28 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false } = {
       const res = await fetch(`/api/v1/runs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const job = await res.json();
-      const msg = `${job.job_id} · ${job.status} · ${job.stage} · ${Math.round((job.progress || 0) * 100)}%${job.message ? ` · ${job.message}` : ''}`;
+      rememberRunLabel(job.job_id, runLabelForJob(jobId) || job.job_id);
+      const runLabel = runLabelForJob(job.job_id);
+      const msg = `${runLabel || job.job_id} · ${job.status} · ${job.stage} · ${Math.round((job.progress || 0) * 100)}%${job.message ? ` · ${job.message}` : ''}${job?.error?.message ? ` · ${job.error.message}` : ''}`;
       setStatus(msg, job.status === 'failed' ? 'error' : (job.status === 'completed' ? 'success' : 'info'));
 
       if (job.status === 'completed') {
         const resultRes = await fetch(`/api/v1/runs/${encodeURIComponent(jobId)}/result`, { cache: 'no-store' });
         if (!resultRes.ok) throw new Error(`Result HTTP ${resultRes.status}`);
         const payload = ensureResultShape(await resultRes.json());
+        const payloadLabel = resultRunLabel(payload);
+        rememberRunLabel(jobId, payloadLabel || runLabelForJob(jobId) || jobId);
         state.resultsByMode[modeTarget] = payload;
         state.selectedDatasetMode = modeTarget;
         els.datasetSelect.value = modeTarget;
         setActiveResult(payload, modeTarget);
+        refreshRunMemoryList().catch(() => {});
         stopPolling();
         return;
       }
 
       if (job.status === 'failed' || job.status === 'expired') {
+        refreshRunMemoryList().catch(() => {});
         stopPolling();
         return;
       }
@@ -2579,7 +2678,7 @@ async function resolveRunLookup(inputValue) {
   }
   if (query.startsWith('jr_')) {
     const modeTarget = els.datasetSelect.value === 'drawn' ? 'drawn' : 'uploaded';
-    return { jobId: query, modeTarget, runLabel: null };
+    return { jobId: query, modeTarget, runLabel: runLabelForJob(query) || query };
   }
   const res = await fetch(`/api/v1/runs/search?run_label=${encodeURIComponent(query)}`, { cache: 'no-store' });
   const payload = await res.json().catch(() => ({}));
@@ -2592,6 +2691,7 @@ async function resolveRunLookup(inputValue) {
   }
   const modeTarget = payload.dataset_mode === 'drawn' ? 'drawn' : 'uploaded';
   const runLabel = String(payload.run_label || query).trim() || query;
+  rememberRunLabel(jobId, runLabel);
   return { jobId, modeTarget, runLabel };
 }
 
@@ -2635,7 +2735,9 @@ async function submitUpload(event) {
     setStatus(`Job accepté: ${payload.job_id}. Run importé en file d'attente.`, 'info');
     state.selectedDatasetMode = 'uploaded';
     els.datasetSelect.value = 'uploaded';
-    els.pollJobId.value = payload.job_id;
+    rememberRunLabel(payload.job_id, runLabel);
+    if (els.pollJobId) els.pollJobId.value = runLabel;
+    refreshRunMemoryList().catch(() => {});
     await pollJob(payload.job_id, { modeTarget: 'uploaded', immediate: true });
   } catch (err) {
     showError(`Échec du lancement du run importé: ${err.message}`);
@@ -2711,7 +2813,7 @@ async function submitDrawnExposure() {
   const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
   form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
-  form.append('run_label', `${runLabel} (dessin)`);
+  form.append('run_label', runLabel);
 
   els.submitDrawingBtn.disabled = true;
   setStatus("Soumission du run d'exposition dessinée…", 'info');
@@ -2722,7 +2824,9 @@ async function submitDrawnExposure() {
     setStatus(`Job accepté: ${payload.job_id}. Run dessiné en file d'attente.`, 'info');
     state.selectedDatasetMode = 'drawn';
     els.datasetSelect.value = 'drawn';
-    els.pollJobId.value = payload.job_id;
+    rememberRunLabel(payload.job_id, runLabel);
+    if (els.pollJobId) els.pollJobId.value = runLabel;
+    refreshRunMemoryList().catch(() => {});
     await pollJob(payload.job_id, { modeTarget: 'drawn', immediate: true });
   } catch (err) {
     showError(`Échec du lancement du run dessiné: ${err.message}`);
@@ -2867,15 +2971,37 @@ function bindEvents() {
     }
     try {
       const resolved = await resolveRunLookup(lookup);
-      els.pollJobId.value = resolved.jobId;
+      if (els.pollJobId) {
+        els.pollJobId.value = resolved.runLabel || lookup;
+      }
       if (resolved.runLabel) {
         setStatus(`Run trouve: "${resolved.runLabel}" (${resolved.jobId}).`, 'info');
       }
+      state.selectedDatasetMode = resolved.modeTarget;
+      if (els.datasetSelect) els.datasetSelect.value = resolved.modeTarget;
       await pollJob(resolved.jobId, { modeTarget: resolved.modeTarget, immediate: true });
     } catch (err) {
       showError(`Impossible de recharger le resultat: ${err.message}`);
     }
   });
+
+  if (els.runMemoryList) {
+    els.runMemoryList.addEventListener('click', async (event) => {
+      if (runtime.isPublicShowcase) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('button[data-run-job-id]') : null;
+      if (!btn) return;
+      const jobId = String(btn.getAttribute('data-run-job-id') || '').trim();
+      const modeTarget = String(btn.getAttribute('data-run-mode') || '').trim() === 'drawn' ? 'drawn' : 'uploaded';
+      const runLabel = String(btn.getAttribute('data-run-label') || '').trim();
+      if (!jobId) return;
+      rememberRunLabel(jobId, runLabel || jobId);
+      if (els.pollJobId) els.pollJobId.value = runLabel || jobId;
+      state.selectedDatasetMode = modeTarget;
+      if (els.datasetSelect) els.datasetSelect.value = modeTarget;
+      await pollJob(jobId, { modeTarget, immediate: true });
+    });
+  }
 
   els.uploadForm.addEventListener('submit', submitUpload);
   if (els.uploadFile) {
@@ -2983,6 +3109,9 @@ async function bootstrap() {
     clearError();
     applyRuntimeMode();
     bindEvents();
+    if (!runtime.isPublicShowcase) {
+      await refreshRunMemoryList();
+    }
     const initialPage = pageFromHash();
     setActivePage(initialPage, { updateHash: false });
     renderDrawPreview();

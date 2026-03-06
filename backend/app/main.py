@@ -146,6 +146,12 @@ def search_run_by_label(run_label: str = Query(..., min_length=1)):
     return found
 
 
+@app.get("/api/v1/runs/recent")
+def list_recent_runs(limit: int = Query(10, ge=1, le=50)):
+    store = get_store()
+    return {"runs": store.list_recent_runs(limit=limit)}
+
+
 @app.get("/api/v1/runs/{job_id}")
 def get_run(job_id: str):
     store = get_store()

@@ -159,6 +159,7 @@ class JobStore:
         if not query:
             return None
         with self._lock:
+            self._prune_jobs_locked()
             records = self._collect_records_locked()
             if not records:
                 return None
@@ -175,18 +176,41 @@ class JobStore:
                 reverse=True,
             )
             selected = candidates[0]
-            envelope: JobEnvelope = selected["envelope"]
-            input_mode = str(selected["input_mode"]).strip().lower()
-            dataset_mode = "drawn" if input_mode == "drawn_geojson" else "uploaded"
-            return {
-                "job_id": envelope.job_id,
-                "status": envelope.status.value,
-                "created_at": envelope.created_at,
-                "updated_at": envelope.updated_at,
-                "run_label": selected["run_label"],
-                "input_mode": input_mode or "file",
-                "dataset_mode": dataset_mode,
-            }
+            return self._record_to_run_summary(selected)
+
+    def list_recent_runs(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        with self._lock:
+            self._prune_jobs_locked()
+            records = self._collect_records_locked()
+            records.sort(
+                key=lambda rec: (
+                    rec["envelope"].created_at.timestamp(),
+                    rec["envelope"].updated_at.timestamp(),
+                ),
+                reverse=True,
+            )
+            out: list[dict[str, Any]] = []
+            for rec in records[: max(1, int(limit))]:
+                out.append(self._record_to_run_summary(rec))
+            return out
+
+    def _record_to_run_summary(self, record: dict[str, Any]) -> dict[str, Any]:
+        envelope: JobEnvelope = record["envelope"]
+        input_mode = str(record["input_mode"]).strip().lower() or "file"
+        dataset_mode = "drawn" if input_mode == "drawn_geojson" else "uploaded"
+        run_label = str(record["run_label"] or "").strip() or envelope.job_id
+        return {
+            "job_id": envelope.job_id,
+            "run_label": run_label,
+            "input_mode": input_mode,
+            "dataset_mode": dataset_mode,
+            "status": envelope.status.value,
+            "stage": envelope.stage,
+            "progress": envelope.progress,
+            "message": envelope.message,
+            "created_at": envelope.created_at,
+            "updated_at": envelope.updated_at,
+        }
 
     def _collect_records_locked(self) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []

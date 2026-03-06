@@ -45,6 +45,7 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
     result = build_result_payload(
         job_id=job_id,
         source="user_run",
+        run_label=str(params.get("run_label") or "").strip() or None,
         exposure=exposure,
         disagg=disagg,
         comp=comp,

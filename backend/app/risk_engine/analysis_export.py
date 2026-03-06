@@ -15,6 +15,7 @@ def build_result_payload(
     *,
     job_id: str,
     source: str,
+    run_label: str | None,
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
     comp: ImpactComputationResult,
@@ -24,10 +25,15 @@ def build_result_payload(
     notes.extend(disagg.warnings)
     notes.extend(exposure.warnings)
     category_counts = Counter((f.exposure_category or "habitation") for f in exposure.features)
+    input_features_geojson, was_truncated = _build_input_features_geojson(exposure, max_features=5000)
+    if was_truncated:
+        notes.append("Input geometry preview was truncated to 5000 features for map rendering.")
+    clean_run_label = str(run_label or "").strip()
 
     payload: dict[str, Any] = {
         "meta": {
-            "title": "SIB Cyclone Risk Thesis Demo",
+            "title": clean_run_label or "SIB Cyclone Risk Thesis Demo",
+            "run_label": clean_run_label or None,
             "source": source,
             "job_id": job_id,
             "updated_at": now.isoformat(),
@@ -58,6 +64,8 @@ def build_result_payload(
         },
         "notes": _dedupe_non_empty(notes),
     }
+    if input_features_geojson is not None:
+        payload["input_features_geojson"] = input_features_geojson
     if comp.modeling:
         payload["meta"]["modeling"] = comp.modeling
     return payload
@@ -129,3 +137,40 @@ def _dedupe_non_empty(items: list[str]) -> list[str]:
         seen.add(text)
         out.append(text)
     return out
+
+
+def _build_input_features_geojson(
+    exposure: NormalizedExposure,
+    *,
+    max_features: int = 5000,
+) -> tuple[dict[str, Any] | None, bool]:
+    features: list[dict[str, Any]] = []
+    truncated = False
+    limit = max(1, int(max_features))
+    for idx, feat in enumerate(exposure.features):
+        if len(features) >= limit:
+            truncated = True
+            break
+        geom = feat.geometry_geojson
+        if not isinstance(geom, dict):
+            if feat.lon is None or feat.lat is None:
+                continue
+            geom = {"type": "Point", "coordinates": [float(feat.lon), float(feat.lat)]}
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "asset_id": str(feat.feature_id),
+                    "label": str(feat.label),
+                    "value_eur": float(feat.value_eur),
+                    "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                    "exposure_category": str(feat.exposure_category or "habitation"),
+                    "geometry_type": str(feat.geometry_type or ""),
+                    "row_index": idx + 1,
+                },
+                "geometry": geom,
+            }
+        )
+    if not features:
+        return None, truncated
+    return {"type": "FeatureCollection", "features": features}, truncated

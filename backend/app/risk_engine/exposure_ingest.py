@@ -36,6 +36,33 @@ EXPOSURE_CATEGORY_ALIASES = {
     "ouvrage_electrique": "ouvrage_electrique",
     "ouvrageelectrique": "ouvrage_electrique",
 }
+ASSET_TYPE_ALIASES = {
+    "habitation": "habitation",
+    "house": "habitation",
+    "housing": "habitation",
+    "eau_aep": "eau_aep_cana",
+    "eau_aep_cana": "eau_aep_cana",
+    "eau_eu": "eau_eu_cana",
+    "eau_eu_cana": "eau_eu_cana",
+    "elec_bt_aerien": "elec_bt_aerien",
+    "elec_bt_souterrain": "elec_bt_souterrain",
+    "elec_hta_aerien": "elec_hta_aerien",
+    "elec_hta_souterrain": "elec_hta_souterrain",
+    "eau_eu_pr": "eau_eu_pr",
+    "eau_eu_step": "eau_eu_step",
+    "aep_ouvrage_trait": "eau_aep_ouvrage_trait",
+    "eau_aep_ouvrage_trait": "eau_aep_ouvrage_trait",
+    "aep_ouvrage_stpmp": "eau_aep_ouvrage_stpmp",
+    "eau_aep_ouvrage_stpmp": "eau_aep_ouvrage_stpmp",
+    "aep_ouvrage_cap": "eau_aep_ouvrage_cap",
+    "eau_aep_ouvrage_cap": "eau_aep_ouvrage_cap",
+    "aep_ouvrage_cuv": "eau_aep_ouvrage_cuv",
+    "eau_aep_ouvrage_cuv": "eau_aep_ouvrage_cuv",
+    "aep_ouvrage_autres": "eau_aep_ouvrage_na",
+    "eau_aep_ouvrage_na": "eau_aep_ouvrage_na",
+}
+VALID_ASSET_TYPES = sorted(set(ASSET_TYPE_ALIASES.values()))
+VALID_EXPOSURE_CATEGORIES = sorted(set(EXPOSURE_CATEGORY_ALIASES.values()))
 
 
 def _to_float(value: Any, field_name: str) -> float:
@@ -48,11 +75,68 @@ def _to_float(value: Any, field_name: str) -> float:
     return result
 
 
-def _normalize_exposure_category(value: Any, default_category: str = "habitation") -> str:
-    raw = str(value or "").strip().lower().replace(" ", "_")
+def _normalize_token(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _normalize_exposure_category(value: Any, default_category: str = "habitation", *, strict: bool = False) -> str:
+    default_raw = _normalize_token(default_category) or "habitation"
+    default_norm = EXPOSURE_CATEGORY_ALIASES.get(default_raw, "habitation")
+    raw = _normalize_token(value)
     if not raw:
-        raw = str(default_category or "habitation").strip().lower().replace(" ", "_")
-    return EXPOSURE_CATEGORY_ALIASES.get(raw, EXPOSURE_CATEGORY_ALIASES.get(str(default_category).lower(), "habitation"))
+        return default_norm
+    normalized = EXPOSURE_CATEGORY_ALIASES.get(raw)
+    if normalized:
+        return normalized
+    if strict:
+        raise InputValidationError(
+            f"Unknown exposure_category {value!r}. Allowed values: {', '.join(VALID_EXPOSURE_CATEGORIES)}"
+        )
+    return default_norm
+
+
+def _normalize_asset_type(value: Any, *, strict: bool = False) -> str:
+    raw = _normalize_token(value)
+    if not raw:
+        if strict:
+            raise InputValidationError("Missing asset_type")
+        return ""
+    normalized = ASSET_TYPE_ALIASES.get(raw)
+    if normalized:
+        return normalized
+    if strict:
+        raise InputValidationError(
+            f"Unknown asset_type {value!r}. Allowed values: {', '.join(VALID_ASSET_TYPES)}"
+        )
+    return raw
+
+
+def _append_row_error(errors: list[dict[str, str]], *, feature_id: str, column: str, detail: str) -> None:
+    errors.append(
+        {
+            "feature_id": str(feature_id or "unknown"),
+            "column": str(column or "unknown"),
+            "detail": str(detail or "Invalid value"),
+        }
+    )
+
+
+def _raise_row_errors(errors: list[dict[str, str]]) -> None:
+    if not errors:
+        return
+    max_items = 16
+    chunks = [
+        f"asset_id={err['feature_id']} [{err['column']}]: {err['detail']}"
+        for err in errors[:max_items]
+    ]
+    suffix = ""
+    if len(errors) > max_items:
+        suffix = f" ... +{len(errors) - max_items} other error(s)"
+    raise InputValidationError(
+        f"Import validation failed ({len(errors)} row error(s)). "
+        + "; ".join(chunks)
+        + suffix
+    )
 
 
 def _coords_bbox_and_centroid(coords: Any) -> tuple[tuple[float, float, float, float] | None, tuple[float, float] | None]:
@@ -105,12 +189,16 @@ def _feature_from_geojson_feature(
 
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
-        extra["asset_type"] = props[asset_type_field]
+        extra["asset_type"] = _normalize_asset_type(props[asset_type_field], strict=True)
     if exposure_category_field and exposure_category_field in props:
         category_raw = props[exposure_category_field]
     else:
         category_raw = props.get("exposure_category")
-    exposure_category = _normalize_exposure_category(category_raw, default_exposure_category)
+    exposure_category = _normalize_exposure_category(
+        category_raw,
+        default_exposure_category,
+        strict=category_raw not in (None, ""),
+    )
 
     return NormalizedFeature(
         feature_id=feature_id,
@@ -271,48 +359,85 @@ def _ingest_csv(
     lat_key = normalized_headers.get("lat") or normalized_headers.get("latitude")
     lon_key = normalized_headers.get("lon") or normalized_headers.get("longitude")
     wkt_key = normalized_headers.get("geometry_wkt") or normalized_headers.get("wkt") or normalized_headers.get("geometry")
+    if value_field and value_field not in headers:
+        value_field = normalized_headers.get(str(value_field).lower()) or value_field
+    if id_field and id_field not in headers:
+        id_field = normalized_headers.get(str(id_field).lower()) or id_field
+    if asset_type_field and asset_type_field not in headers:
+        asset_type_field = normalized_headers.get(str(asset_type_field).lower()) or asset_type_field
+    if exposure_category_field and exposure_category_field not in headers:
+        exposure_category_field = normalized_headers.get(str(exposure_category_field).lower()) or exposure_category_field
 
     if not value_field:
         value_field = normalized_headers.get("value_eur") or normalized_headers.get("value")
     if not value_field:
         raise InputValidationError("CSV requires a value field (e.g. value_eur)")
+    if not asset_type_field:
+        asset_type_field = normalized_headers.get("asset_type")
+    if not asset_type_field:
+        raise InputValidationError("CSV requires an asset_type column.")
     if not exposure_category_field:
         exposure_category_field = normalized_headers.get("exposure_category") or normalized_headers.get("category")
 
+    row_errors: list[dict[str, str]] = []
     for idx, row in enumerate(rows):
         row = {str(k): v for k, v in row.items()}
         feature_id = str(row.get(id_field) if id_field and id_field in row else row.get("asset_id") or idx + 1)
         label = str(row.get("label") or row.get("name") or f"Row {idx + 1}")
-        value_eur = _to_float(row.get(value_field), value_field)
+        try:
+            value_eur = _to_float(row.get(value_field), value_field)
+        except InputValidationError as exc:
+            _append_row_error(row_errors, feature_id=feature_id, column=value_field, detail=str(exc))
+            continue
 
         geometry_type = "Unknown"
         lon = None
         lat = None
         geometry_geojson = None
 
-        if lat_key and lon_key and row.get(lat_key) not in (None, "") and row.get(lon_key) not in (None, ""):
-            lat = _to_float(row.get(lat_key), lat_key)
-            lon = _to_float(row.get(lon_key), lon_key)
-            geometry_type = "Point"
-            geometry_geojson = {"type": "Point", "coordinates": [lon, lat]}
-        elif wkt_key and row.get(wkt_key):
-            if shapely_wkt is None:
-                raise DependencyMissingError("Shapely is required to parse CSV WKT geometry columns")
-            geom = shapely_wkt.loads(str(row[wkt_key]))
-            geometry_type = geom.geom_type
-            lon = getattr(geom.centroid, "x", None)
-            lat = getattr(geom.centroid, "y", None)
-            geometry_geojson = shapely_mapping(geom) if shapely_mapping is not None else None
-        else:
-            raise InputValidationError(
-                "CSV row is missing geometry: provide lat/lon columns or geometry_wkt/WKT/Geometry"
-            )
+        try:
+            if lat_key and lon_key and row.get(lat_key) not in (None, "") and row.get(lon_key) not in (None, ""):
+                lat = _to_float(row.get(lat_key), lat_key)
+                lon = _to_float(row.get(lon_key), lon_key)
+                geometry_type = "Point"
+                geometry_geojson = {"type": "Point", "coordinates": [lon, lat]}
+            elif wkt_key and row.get(wkt_key):
+                if shapely_wkt is None:
+                    raise DependencyMissingError("Shapely is required to parse CSV WKT geometry columns")
+                geom = shapely_wkt.loads(str(row[wkt_key]))
+                geometry_type = geom.geom_type
+                lon = getattr(geom.centroid, "x", None)
+                lat = getattr(geom.centroid, "y", None)
+                geometry_geojson = shapely_mapping(geom) if shapely_mapping is not None else None
+            else:
+                raise InputValidationError(
+                    "CSV row is missing geometry: provide lat/lon columns or geometry_wkt/WKT/Geometry"
+                )
+        except InputValidationError as exc:
+            _append_row_error(row_errors, feature_id=feature_id, column="geometry", detail=str(exc))
+            continue
 
         props: dict[str, Any] = {}
-        if asset_type_field and asset_type_field in row:
-            props["asset_type"] = row[asset_type_field]
+        try:
+            props["asset_type"] = _normalize_asset_type(row.get(asset_type_field), strict=True)
+        except InputValidationError as exc:
+            _append_row_error(row_errors, feature_id=feature_id, column=asset_type_field, detail=str(exc))
+            continue
         category_raw = row.get(exposure_category_field) if exposure_category_field else None
-        exposure_category = _normalize_exposure_category(category_raw, default_exposure_category)
+        try:
+            exposure_category = _normalize_exposure_category(
+                category_raw,
+                default_exposure_category,
+                strict=category_raw not in (None, ""),
+            )
+        except InputValidationError as exc:
+            _append_row_error(
+                row_errors,
+                feature_id=feature_id,
+                column=(exposure_category_field or "exposure_category"),
+                detail=str(exc),
+            )
+            continue
 
         features.append(
             NormalizedFeature(
@@ -327,6 +452,8 @@ def _ingest_csv(
                 properties=props,
             )
         )
+
+    _raise_row_errors(row_errors)
 
     if wkt_key:
         warnings.append("CSV WKT parsing uses Shapely when available; install geospatial dependencies for full fidelity.")
@@ -446,6 +573,7 @@ def _ingest_gpkg(
     features: list[NormalizedFeature] = []
     for pos, (idx, row) in enumerate(gdf_wgs84.iterrows()):
         geom = row.geometry
+        raw_asset_type = row.get(asset_type_field) if asset_type_field and asset_type_field in row else None
         features.append(
             NormalizedFeature(
                 feature_id=str(row.get(id_field) if id_field and id_field in row else idx),
@@ -455,11 +583,12 @@ def _ingest_gpkg(
                 exposure_category=_normalize_exposure_category(
                     (row.get(exposure_category_field) if exposure_category_field and exposure_category_field in row else None),
                     default_exposure_category,
+                    strict=(exposure_category_field is not None and row.get(exposure_category_field) not in (None, "")),
                 ),
                 lon=float(geom.centroid.x) if geom is not None else None,
                 lat=float(geom.centroid.y) if geom is not None else None,
                 geometry_geojson=(json.loads(gdf_wgs84.iloc[[pos]].to_json())["features"][0]["geometry"] if geom is not None else None),
-                properties={"asset_type": row.get(asset_type_field)} if asset_type_field and asset_type_field in row else {},
+                properties={"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {},
             )
         )
 
