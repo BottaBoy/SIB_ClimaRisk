@@ -168,7 +168,7 @@
             <div id="page1-chart-year-compare" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Vitesse max du vent par track (STORM vs STORM_CMCC)</h3>
+            <h3>Vitesse max du vent par evenement cyclonique (STORM vs STORM_CMCC)</h3>
             <div id="page1-chart-track-compare" class="chart"></div>
           </div>
         </div>
@@ -603,8 +603,9 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
             <h2>Methodologie detaillee de calcul</h2>
             <p class="muted">
               Cette page presente le contexte de l'etude des risques physiques sur les infrastructures essentielles en outre-mer
-              et decrit la logique des calculs utilises: calcul d'impact, dependance entre reseaux electriques et reseaux d'eau,
-              et classification des etats de service (S0 a S3).
+              et decrit la logique complete des calculs utilises: preparation des expositions, construction des aleas, calcul des dommages directs,
+              propagation des dependances entre reseaux electriques et reseaux d'eau, puis agregation des indicateurs de risque
+              (EAI, pertes a temps de retour, evenement maximum, courbes de depassement).
             </p>
           </div>
         </div>
@@ -654,11 +655,44 @@ scripts/build_guadeloupe_water_infra_map.py
           </article>
           <article class="subpanel">
             <h3>Impact et dependances</h3>
-            <ul>
-              <li>La fonction d'impact tropical cyclone Eberenz 2021 est utilisee comme base de modelisation.</li>
-              <li>Le moteur applique 4 etats (S0/S1/S2/S3), une sante de composant et une propagation elec -> eau.</li>
-              <li>Tous les actifs eau sont traites de facon prudente comme dependants de l'electricite.</li>
-            </ul>
+            <p>
+              L'etape d'impact transforme l'aléa vent en pertes economiques sur chaque actif, puis en indicateurs synthetiques a l'echelle du territoire.
+              Le calcul est realise en deux couches: dommages directs (actif versus aléa), puis dommages indirects (effet des dependances de service).
+            </p>
+            <ol>
+              <li>
+                <strong>Projection exposition/aléa:</strong> chaque actif (point natif ou point echantillonne depuis ligne/polygone) est associe au champ d'aléa
+                le plus proche pour STORM et STORM_CMCC.
+              </li>
+              <li>
+                <strong>Dommage direct:</strong> la fonction d'impact cyclonique Eberenz 2021 convertit l'intensite de vent en taux de dommage,
+                puis en perte monetaire (valeur d'actif x taux de dommage) pour chaque evenement.
+              </li>
+              <li>
+                <strong>Annualisation:</strong> les frequences d'evenements sont normalisees sur la longueur du catalogue synthétique
+                afin de produire des indicateurs annuels comparables (EAI/AAI agg).
+              </li>
+              <li>
+                <strong>Etats de service S0 a S3:</strong> les taux de dommage sont traduits en classes d'etat
+                (S0 operationnel, S1 degrade, S2 fortement degrade, S3 hors service) pour faciliter l'analyse metier.
+              </li>
+              <li>
+                <strong>Dependances inter-reseaux:</strong> une propagation prudente electricite -> eau est appliquee en post-traitement.
+                Une baisse de sante du reseau electrique peut augmenter les pertes du reseau d'eau.
+              </li>
+              <li>
+                <strong>Re-aggregation:</strong> les pertes sont recomposees par actif, puis par territoire,
+                en conservant les details STORM et STORM_CMCC pour comparaison.
+              </li>
+              <li>
+                <strong>Indicateurs de sortie:</strong> EAI, pertes RP100/RP1000, perte evenement maximum,
+                courbes de depassement (FEC), TVaR95 et liste des evenements dominants.
+              </li>
+            </ol>
+            <p>
+              Ce schema permet d'obtenir des resultats a la fois techniques (sensibles au signal aléa) et operationnels
+              (lisibles pour la priorisation des actifs, la planification de travaux et les analyses de resilience).
+            </p>
           </article>
         </div>
         <article class="subpanel">
