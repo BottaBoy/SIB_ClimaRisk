@@ -1014,7 +1014,7 @@ button:disabled {
 }
 
 .chart.wide { height: 320px; }
-.hazard-compare-grid .chart { height: 240px; }
+.hazard-compare-grid .chart { height: 280px; }
 
 .comparison-card {
   margin-top: 2px;

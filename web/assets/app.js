@@ -2401,7 +2401,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
 
   chart.setOption({
     ...chartThemeCommon(),
-    grid: { left: 24, right: 20, top: 44, bottom: 50, containLabel: true },
+    grid: { left: 72, right: 24, top: 48, bottom: 66, containLabel: true },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
@@ -2427,7 +2427,8 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       type: 'value',
       name: 'Vitesse maximale du vent (m/s)',
       nameLocation: 'middle',
-      nameGap: 32,
+      nameGap: 42,
+      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 600 },
       axisLine: { show: true, lineStyle: { color: 'rgba(177,208,203,0.45)' } },
     },
     yAxis: {
@@ -2435,7 +2436,8 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       type: 'value',
       name: "Part des evenements (%)",
       nameLocation: 'middle',
-      nameGap: 50,
+      nameGap: 56,
+      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 600 },
       min: 0,
       axisLine: { show: true, lineStyle: { color: 'rgba(177,208,203,0.45)' } },
     },
