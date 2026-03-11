@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "source_json": "/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/Hazard_maps/na-wind-maps-rp50-rp100.json",
+    "bounds": {
+      "south": 5.05,
+      "north": 59.949999999999996,
+      "west": -104.95,
+      "east": -1.1
+    },
+    "grid": {
+      "cell_deg": 0.05,
+      "n_lat": 1098,
+      "n_lon": 2077
+    },
+    "colormap": "turbo",
+    "fill_mode": "nearest",
+    "fill_max_distance_cells": 1.5,
+    "cmcc_rp_low_band_hidden_mps_lte": 18.0
+  },
+  "metrics": {
+    "mean": {
+      "min_mps": 6.8506,
+      "max_mps": 76.5804
+    },
+    "rp50": {
+      "min_mps": 6.8506,
+      "max_mps": 80.8683
+    },
+    "rp100": {
+      "min_mps": 6.8506,
+      "max_mps": 81.808
+    }
+  },
+  "overlays": {
+    "storm": {
+      "mean": "leaflet_overlays/na_storm_mean_overlay.png",
+      "rp50": "leaflet_overlays/na_storm_rp50_overlay.png",
+      "rp100": "leaflet_overlays/na_storm_rp100_overlay.png"
+    },
+    "storm_cmcc": {
+      "mean": "leaflet_overlays/na_storm_cmcc_mean_overlay.png",
+      "rp50": "leaflet_overlays/na_storm_cmcc_rp50_overlay.png",
+      "rp100": "leaflet_overlays/na_storm_cmcc_rp100_overlay.png"
+    }
+  }
+}

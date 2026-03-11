@@ -1,0 +1,233 @@
+{
+  "meta": {
+    "generated_at_utc": "2026-03-11T15:31:46.932350+00:00",
+    "source_dir": "/home/ubuntu/uploads/Population",
+    "unit": "people_per_pixel",
+    "palette_hex": [
+      "#f2f2f2",
+      "#d9d9d9",
+      "#bdbdbd",
+      "#969696",
+      "#737373",
+      "#525252",
+      "#3a3a3a",
+      "#1f1f1f",
+      "#000000"
+    ],
+    "normalization": "sqrt(value / global_scale_max)",
+    "scale": {
+      "min_people_per_pixel": 0.0,
+      "max_people_per_pixel": 244.85705566406
+    },
+    "resampled_max_dimension": 2600
+  },
+  "territories": [
+    {
+      "code": "glp",
+      "name": "Guadeloupe",
+      "source_tif": "/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/glp_population_overlay.png",
+      "bounds": {
+        "south": 15.83250027266999,
+        "north": 16.51416693660999,
+        "west": -61.80916713943,
+        "east": -61.001667142660004
+      },
+      "raster": {
+        "source_width": 969,
+        "source_height": 818,
+        "render_width": 969,
+        "render_height": 818
+      },
+      "stats": {
+        "min_people_per_pixel": 0.0004670000053010881,
+        "max_people_per_pixel": 213.90916442871094,
+        "mean_people_per_pixel": 3.8459746837615967
+      }
+    },
+    {
+      "code": "reu",
+      "name": "La Reunion",
+      "source_tif": "/home/ubuntu/uploads/Population/reu_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/reu_population_overlay.png",
+      "bounds": {
+        "south": -21.389166245110015,
+        "north": -20.871666247180016,
+        "west": 55.2166657258,
+        "east": 55.836665723319996
+      },
+      "raster": {
+        "source_width": 744,
+        "source_height": 621,
+        "render_width": 744,
+        "render_height": 621
+      },
+      "stats": {
+        "min_people_per_pixel": 9.999999974752427e-07,
+        "max_people_per_pixel": 244.8570556640625,
+        "mean_people_per_pixel": 7.428779602050781
+      }
+    },
+    {
+      "code": "mtq",
+      "name": "Martinique",
+      "source_tif": "/home/ubuntu/uploads/Population/mtq_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/mtq_population_overlay.png",
+      "bounds": {
+        "south": 14.388333611779988,
+        "north": 14.878333609819988,
+        "west": -61.229167141750004,
+        "east": -60.81000047676
+      },
+      "raster": {
+        "source_width": 503,
+        "source_height": 588,
+        "render_width": 503,
+        "render_height": 588
+      },
+      "stats": {
+        "min_people_per_pixel": 0.002382999984547496,
+        "max_people_per_pixel": 96.92805480957031,
+        "mean_people_per_pixel": 4.7713212966918945
+      }
+    },
+    {
+      "code": "myt",
+      "name": "Mayotte",
+      "source_tif": "/home/ubuntu/uploads/Population/myt_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/myt_population_overlay.png",
+      "bounds": {
+        "south": -13.00499961198002,
+        "north": -12.63666628012002,
+        "west": 45.01833243326,
+        "east": 45.2999990988
+      },
+      "raster": {
+        "source_width": 338,
+        "source_height": 442,
+        "render_width": 338,
+        "render_height": 442
+      },
+      "stats": {
+        "min_people_per_pixel": 0.02089099958539009,
+        "max_people_per_pixel": 124.98727416992188,
+        "mean_people_per_pixel": 19.593427658081055
+      }
+    },
+    {
+      "code": "ncl",
+      "name": "Nouvelle-Caledonie",
+      "source_tif": "/home/ubuntu/uploads/Population/ncl_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/ncl_population_overlay.png",
+      "bounds": {
+        "south": -22.881666239140014,
+        "north": -18.036666258520015,
+        "west": 158.24916531367,
+        "east": 172.08999859164
+      },
+      "raster": {
+        "source_width": 16609,
+        "source_height": 5814,
+        "render_width": 2600,
+        "render_height": 910
+      },
+      "stats": {
+        "min_people_per_pixel": 2.499999936844688e-05,
+        "max_people_per_pixel": 25.061555862426758,
+        "mean_people_per_pixel": 1.5993826389312744
+      }
+    },
+    {
+      "code": "pyf",
+      "name": "Polynesie francaise",
+      "source_tif": "/home/ubuntu/uploads/Population/pyf_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/pyf_population_overlay.png",
+      "bounds": {
+        "south": -27.899999552400015,
+        "north": -7.898332965740014,
+        "west": -154.72333343444,
+        "east": -134.45833351550002
+      },
+      "raster": {
+        "source_width": 24318,
+        "source_height": 24002,
+        "render_width": 2600,
+        "render_height": 2566
+      },
+      "stats": {
+        "min_people_per_pixel": 0.000678999989759177,
+        "max_people_per_pixel": 64.04877471923828,
+        "mean_people_per_pixel": 5.890326976776123
+      }
+    },
+    {
+      "code": "maf",
+      "name": "Saint-Martin",
+      "source_tif": "/home/ubuntu/uploads/Population/maf_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/maf_population_overlay.png",
+      "bounds": {
+        "south": 18.045833597149986,
+        "north": 18.125000263499988,
+        "west": -63.153333800720006,
+        "east": -62.970833801450006
+      },
+      "raster": {
+        "source_width": 219,
+        "source_height": 95,
+        "render_width": 219,
+        "render_height": 95
+      },
+      "stats": {
+        "min_people_per_pixel": 0.011636000126600266,
+        "max_people_per_pixel": 127.58904266357422,
+        "mean_people_per_pixel": 9.110255241394043
+      }
+    },
+    {
+      "code": "spm",
+      "name": "Saint-Pierre-et-Miquelon",
+      "source_tif": "/home/ubuntu/uploads/Population/spm_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/spm_population_overlay.png",
+      "bounds": {
+        "south": 46.75083348232999,
+        "north": 47.144166814089985,
+        "west": -56.405000494380005,
+        "east": -56.125833828830004
+      },
+      "raster": {
+        "source_width": 335,
+        "source_height": 472,
+        "render_width": 335,
+        "render_height": 472
+      },
+      "stats": {
+        "min_people_per_pixel": 0.03660999983549118,
+        "max_people_per_pixel": 21.470855712890625,
+        "mean_people_per_pixel": 3.814211130142212
+      }
+    },
+    {
+      "code": "wlf",
+      "name": "Wallis-et-Futuna",
+      "source_tif": "/home/ubuntu/uploads/Population/wlf_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/wlf_population_overlay.png",
+      "bounds": {
+        "south": -14.362499606550017,
+        "north": -13.183332944600018,
+        "west": -178.18166667394001,
+        "east": -176.12416668217003
+      },
+      "raster": {
+        "source_width": 2469,
+        "source_height": 1415,
+        "render_width": 2469,
+        "render_height": 1415
+      },
+      "stats": {
+        "min_people_per_pixel": 0.04213999956846237,
+        "max_people_per_pixel": 3.9221689701080322,
+        "mean_people_per_pixel": 1.638880729675293
+      }
+    }
+  ]
+}

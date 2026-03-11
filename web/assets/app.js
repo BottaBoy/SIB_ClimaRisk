@@ -29,6 +29,9 @@ const state = {
   windMapMode: 'mean',
   adminVisuMaps: null,
   adminVisuMapsPromise: null,
+  adminPopulationMaps: null,
+  adminPopulationMapsPromise: null,
+  adminPopulationTerritory: 'glp',
   adminVisuOpacity: 0.5,
   adminVisuCards: [
     { hazard: 'storm', scenario: 'mean' },
@@ -77,6 +80,15 @@ const adminVisuMapRef = {
     { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-3', legendControl: null },
     { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-4', legendControl: null }
   ]
+};
+
+const adminPopulationMapRef = {
+  instance: null,
+  overlayLayer: null,
+  overlayUrl: '',
+  overlayPaneName: 'admin-pop-overlay',
+  legendControl: null,
+  currentTerritory: ''
 };
 
 const waterMapRef = {
@@ -145,12 +157,14 @@ const WIND_PADDING_CELLS = 6;
 const WIND_SCALE_STEP_MPS = 5;
 const WIND_PALETTE = ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'];
 const ADMIN_VISU_LEGEND_COLORS = ['#30123b', '#4145ab', '#4685f9', '#39b6f7', '#1bd0d5', '#4be28a', '#a4ef63', '#f1e54e', '#f9b737', '#ed6925', '#c32503'];
+const ADMIN_POP_DEFAULT_LEGEND_COLORS = ['#f2f2f2', '#d9d9d9', '#bdbdbd', '#969696', '#737373', '#525252', '#3a3a3a', '#1f1f1f', '#000000'];
 const WIND_SPEED_MPS_TO_KMH = 3.6;
 const WIND_SPEED_UNIT_DISPLAY = 'km/h';
 const CMCC_VISUAL_MIN_BAND_SAMPLE_MAX = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_RADIUS = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_MIN = 3;
 const CMCC_VISUAL_MIN_BAND_EPS = 0.06;
+const CMCC_RP_LOW_BAND_HIDE_MAX_MPS = 18.0;
 
 const chartRefs = {
   c1: null,
@@ -255,6 +269,9 @@ const els = {
     document.getElementById('admin-visu-caption-3'),
     document.getElementById('admin-visu-caption-4')
   ],
+  adminPopulationTerritorySelect: document.getElementById('admin-population-territory-select'),
+  adminPopulationMap: document.getElementById('admin-population-map'),
+  adminPopulationCaption: document.getElementById('admin-population-caption'),
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
@@ -302,6 +319,9 @@ const els = {
 const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const peopleFmtInt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const peopleFmtOne = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const peopleFmtTwo = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const FIXED_SAMPLING_SPACING_M = 100;
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
@@ -463,10 +483,20 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
           caption.textContent = `Donnees admin indisponibles: ${err.message}`;
         });
       });
+    ensureAdminPopulationMapsLoaded()
+      .then(() => {
+        renderAdminPopulationMap();
+      })
+      .catch((err) => {
+        if (els.adminPopulationCaption) {
+          els.adminPopulationCaption.textContent = `Donnees population indisponibles: ${err.message}`;
+        }
+      });
     setTimeout(() => {
       adminVisuMapRef.cards.forEach((card) => {
         if (card?.instance) card.instance.invalidateSize();
       });
+      if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
     }, 80);
   }
 }
@@ -2270,6 +2300,13 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
         const visualAdjusted = Boolean(data.visual_adjusted);
+        const hideCmccRpLowBand = (
+          hazardKey === 'storm_cmcc'
+          && (metric?.mode === 'rp50' || metric?.mode === 'rp100')
+          && Number.isFinite(metricValue)
+          && metricValue <= (CMCC_RP_LOW_BAND_HIDE_MAX_MPS + CMCC_VISUAL_MIN_BAND_EPS)
+        );
+        if (hideCmccRpLowBand) continue;
         const color = windColorFromScale(metricValue, scale);
         const rect = L.rectangle([[south, west], [north, east]], {
           pane: ref.cellsPaneName,
@@ -2560,6 +2597,206 @@ function renderAdminVisuPage() {
   applyAdminVisuOpacity();
 }
 
+function normalizeAdminPopulationTerritory(raw, payload = null) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!payload || !Array.isArray(payload.territories) || payload.territories.length === 0) {
+    return value || 'glp';
+  }
+  const territories = payload.territories
+    .map((t) => String(t?.code || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (territories.includes(value)) return value;
+  return territories[0] || 'glp';
+}
+
+function adminPopulationLegendColors(payload) {
+  const fromPayload = payload?.meta?.palette_hex;
+  if (Array.isArray(fromPayload)) {
+    const clean = fromPayload
+      .map((v) => String(v || '').trim())
+      .filter((v) => /^#[0-9a-fA-F]{6}$/.test(v));
+    if (clean.length >= 2) return clean;
+  }
+  return ADMIN_POP_DEFAULT_LEGEND_COLORS;
+}
+
+function formatPopulationPerPixel(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return 'n/a';
+  const abs = Math.abs(value);
+  if (abs >= 100) return peopleFmtInt.format(value);
+  if (abs >= 10) return peopleFmtOne.format(value);
+  return peopleFmtTwo.format(value);
+}
+
+function adminPopulationLegendGradientCss(colors) {
+  const safe = Array.isArray(colors) && colors.length >= 2 ? colors : ADMIN_POP_DEFAULT_LEGEND_COLORS;
+  return `linear-gradient(90deg, ${safe.join(', ')})`;
+}
+
+function buildAdminPopulationLegendHtml(minRaw, maxRaw, colors) {
+  const minVal = Number(minRaw);
+  const maxVal = Number(maxRaw);
+  const midVal = Number.isFinite(minVal) && Number.isFinite(maxVal) ? (minVal + maxVal) / 2.0 : NaN;
+  return [
+    '<div class="admin-pop-legend">',
+    '<div class="admin-pop-legend-title">Population (pers./pixel)</div>',
+    `<div class="admin-pop-legend-bar" style="background:${adminPopulationLegendGradientCss(colors)}"></div>`,
+    '<div class="admin-pop-legend-labels">',
+    `<span>${escapeHtml(formatPopulationPerPixel(minVal))}</span>`,
+    `<span>${escapeHtml(formatPopulationPerPixel(midVal))}</span>`,
+    `<span>${escapeHtml(formatPopulationPerPixel(maxVal))}</span>`,
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
+function ensureAdminPopulationLegend(scaleMin, scaleMax, paletteColors) {
+  if (!window.L) return;
+  if (!adminPopulationMapRef.instance) return;
+
+  if (!adminPopulationMapRef.legendControl) {
+    adminPopulationMapRef.legendControl = L.control({ position: 'bottomright' });
+    adminPopulationMapRef.legendControl.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.className = 'leaflet-control wind-legend-control admin-pop-legend-control';
+      return div;
+    };
+    adminPopulationMapRef.legendControl.addTo(adminPopulationMapRef.instance);
+  }
+
+  const legendEl = adminPopulationMapRef.legendControl.getContainer();
+  if (legendEl) {
+    legendEl.innerHTML = buildAdminPopulationLegendHtml(scaleMin, scaleMax, paletteColors);
+  }
+}
+
+function ensureAdminPopulationMap() {
+  if (!window.L || !els.adminPopulationMap) return null;
+  if (adminPopulationMapRef.instance) return adminPopulationMapRef;
+
+  adminPopulationMapRef.instance = L.map(els.adminPopulationMap, {
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true
+  }).setView([17.0, -61.0], 5);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 11,
+    minZoom: 2,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(adminPopulationMapRef.instance);
+
+  if (!adminPopulationMapRef.instance.getPane(adminPopulationMapRef.overlayPaneName)) {
+    const pane = adminPopulationMapRef.instance.createPane(adminPopulationMapRef.overlayPaneName);
+    pane.style.zIndex = '430';
+    pane.style.pointerEvents = 'none';
+  }
+  return adminPopulationMapRef;
+}
+
+function syncAdminPopulationTerritorySelect(payload, selectedCode) {
+  const select = els.adminPopulationTerritorySelect;
+  if (!select || !payload || !Array.isArray(payload.territories)) return;
+
+  const territories = payload.territories
+    .filter((t) => t && String(t.code || '').trim() && String(t.name || '').trim())
+    .map((t) => ({ code: String(t.code).trim().toLowerCase(), name: String(t.name).trim() }));
+  const signature = territories.map((t) => `${t.code}:${t.name}`).join('|');
+  if (select.dataset.signature !== signature) {
+    select.innerHTML = territories
+      .map((t) => `<option value="${escapeHtml(t.code)}">${escapeHtml(t.name)}</option>`)
+      .join('');
+    select.dataset.signature = signature;
+  }
+  select.value = selectedCode;
+}
+
+function renderAdminPopulationMap() {
+  if (!runtime.allowAdminVisu) return;
+  const payload = state.adminPopulationMaps;
+  if (!payload || !Array.isArray(payload.territories) || payload.territories.length === 0) {
+    if (els.adminPopulationCaption) {
+      els.adminPopulationCaption.textContent = 'Chargement des couches population...';
+    }
+    return;
+  }
+
+  const selectedCode = normalizeAdminPopulationTerritory(state.adminPopulationTerritory, payload);
+  state.adminPopulationTerritory = selectedCode;
+  syncAdminPopulationTerritorySelect(payload, selectedCode);
+
+  const territory = payload.territories.find((t) => String(t?.code || '').trim().toLowerCase() === selectedCode);
+  if (!territory) return;
+
+  const ref = ensureAdminPopulationMap();
+  if (!ref || !ref.instance) return;
+
+  const bounds = territory?.bounds || {};
+  const south = Number(bounds.south);
+  const north = Number(bounds.north);
+  const west = Number(bounds.west);
+  const east = Number(bounds.east);
+  const boundsLeaflet = [[south, west], [north, east]];
+
+  if (!Number.isFinite(south) || !Number.isFinite(north) || !Number.isFinite(west) || !Number.isFinite(east)) {
+    if (els.adminPopulationCaption) {
+      els.adminPopulationCaption.textContent = `Emprise geographique indisponible pour ${territory.name || selectedCode}.`;
+    }
+    return;
+  }
+
+  const overlayUrl = adminVisuOverlayUrl(territory?.overlay);
+  if (!overlayUrl) {
+    if (els.adminPopulationCaption) {
+      els.adminPopulationCaption.textContent = `Couche population indisponible pour ${territory.name || selectedCode}.`;
+    }
+    if (ref.overlayLayer) {
+      ref.instance.removeLayer(ref.overlayLayer);
+      ref.overlayLayer = null;
+      ref.overlayUrl = '';
+    }
+    return;
+  }
+
+  const territoryChanged = ref.currentTerritory !== selectedCode;
+  if (!ref.overlayLayer || ref.overlayUrl !== overlayUrl) {
+    if (ref.overlayLayer) ref.instance.removeLayer(ref.overlayLayer);
+    ref.overlayLayer = L.imageOverlay(overlayUrl, boundsLeaflet, {
+      pane: ref.overlayPaneName,
+      opacity: 0.86,
+      interactive: false,
+      crossOrigin: true
+    }).addTo(ref.instance);
+    ref.overlayUrl = overlayUrl;
+  }
+
+  if (territoryChanged || !ref.currentTerritory) {
+    ref.instance.fitBounds(boundsLeaflet, { padding: [12, 12], maxZoom: 9 });
+    ref.currentTerritory = selectedCode;
+  }
+
+  const scaleMeta = payload?.meta?.scale || {};
+  const minPeople = Number(scaleMeta.min_people_per_pixel);
+  const maxPeople = Number(scaleMeta.max_people_per_pixel);
+  const fallbackMax = Number(territory?.stats?.max_people_per_pixel);
+  const scaleMin = Number.isFinite(minPeople) ? minPeople : 0.0;
+  const scaleMax = Number.isFinite(maxPeople) && maxPeople > 0 ? maxPeople : (Number.isFinite(fallbackMax) ? fallbackMax : 0.0);
+  const paletteColors = adminPopulationLegendColors(payload);
+
+  ensureAdminPopulationLegend(scaleMin, scaleMax, paletteColors);
+
+  if (els.adminPopulationCaption) {
+    const name = String(territory?.name || selectedCode).trim();
+    const maxTxt = formatPopulationPerPixel(scaleMax);
+    els.adminPopulationCaption.textContent = `${name} · WorldPop 2020 · echelle 0 a ${maxTxt} personnes/pixel`;
+  }
+
+  setTimeout(() => {
+    if (ref.instance) ref.instance.invalidateSize();
+  }, 0);
+}
+
 function waterInfraStyle(feature) {
   const t = String(feature?.properties?.infra_type || '').toLowerCase();
   if (t === 'aep_cana') return { color: '#003A76', weight: 1.2, opacity: 0.85 };
@@ -2718,7 +2955,7 @@ function renderWaterInfraMap() {
 
 function networkStatePropertyKey() {
   const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
-  const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max', 'top10', 'top5']);
+  const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max']);
   const scenario = allowedScenarios.has(state.impactMapScenario) ? state.impactMapScenario : 'event_max';
   return `state_${scenario}_${hazard}`;
 }
@@ -2874,9 +3111,7 @@ function renderNetworkStateMap() {
       annual: 'moyenne annuelle',
       rp50: 'temps de retour 50 ans',
       rp100: 'temps de retour 100 ans',
-      event_max: 'evenement le plus fort',
-      top10: '10% evenements les plus forts',
-      top5: '5% evenements les plus forts'
+      event_max: 'evenement le plus fort'
     };
     const sc = scenarioLabel[state.impactMapScenario] || scenarioLabel.event_max;
     if (!visibleTypes) {
@@ -3366,6 +3601,7 @@ function renderAll() {
   renderWindMaps();
   if (state.currentPage === 'page5') {
     renderAdminVisuPage();
+    renderAdminPopulationMap();
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -3470,6 +3706,39 @@ function ensureAdminVisuMapsLoaded() {
       state.adminVisuMapsPromise = null;
     });
   return state.adminVisuMapsPromise;
+}
+
+async function fetchAdminPopulationMaps() {
+  const urls = [new URL('/hazard-maps/population-overlays.json', window.location.origin).toString()];
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (!payload || !Array.isArray(payload.territories) || payload.territories.length === 0) {
+        throw new Error('Payload population invalide');
+      }
+      return payload;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Impossible de charger les couches population');
+}
+
+function ensureAdminPopulationMapsLoaded() {
+  if (state.adminPopulationMaps) return Promise.resolve(state.adminPopulationMaps);
+  if (state.adminPopulationMapsPromise) return state.adminPopulationMapsPromise;
+  state.adminPopulationMapsPromise = fetchAdminPopulationMaps()
+    .then((payload) => {
+      state.adminPopulationMaps = payload;
+      return payload;
+    })
+    .finally(() => {
+      state.adminPopulationMapsPromise = null;
+    });
+  return state.adminPopulationMapsPromise;
 }
 
 async function fetchWaterInfra(territory = 'guadeloupe') {
@@ -3927,6 +4196,13 @@ function bindEvents() {
         .catch((err) => {
           setStatus(`Admin visu indisponible: ${err.message}`, 'error');
         });
+      ensureAdminPopulationMapsLoaded()
+        .then(() => {
+          renderAdminPopulationMap();
+        })
+        .catch((err) => {
+          setStatus(`Population admin indisponible: ${err.message}`, 'error');
+        });
     });
   }
   window.addEventListener('hashchange', () => {
@@ -3947,6 +4223,13 @@ function bindEvents() {
         })
         .catch((err) => {
           setStatus(`Admin visu indisponible: ${err.message}`, 'error');
+        });
+      ensureAdminPopulationMapsLoaded()
+        .then(() => {
+          renderAdminPopulationMap();
+        })
+        .catch((err) => {
+          setStatus(`Population admin indisponible: ${err.message}`, 'error');
         });
       return;
     }
@@ -4012,6 +4295,15 @@ function bindEvents() {
       renderAdminVisuCard(idx);
     });
   });
+  if (els.adminPopulationTerritorySelect) {
+    els.adminPopulationTerritorySelect.addEventListener('change', () => {
+      state.adminPopulationTerritory = normalizeAdminPopulationTerritory(
+        els.adminPopulationTerritorySelect.value,
+        state.adminPopulationMaps
+      );
+      renderAdminPopulationMap();
+    });
+  }
 
   if (els.impactMapHazardSelect) {
     els.impactMapHazardSelect.value = state.impactMapHazard;
@@ -4023,7 +4315,7 @@ function bindEvents() {
   if (els.impactMapScenarioSelect) {
     els.impactMapScenarioSelect.value = state.impactMapScenario;
     els.impactMapScenarioSelect.addEventListener('change', () => {
-      const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max', 'top10', 'top5']);
+      const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max']);
       state.impactMapScenario = allowedScenarios.has(els.impactMapScenarioSelect.value)
         ? els.impactMapScenarioSelect.value
         : 'event_max';
@@ -4238,6 +4530,16 @@ async function bootstrap() {
           console.warn('Admin visu preload failed', err);
           if (state.currentPage === 'page5') {
             setStatus(`Admin visu indisponible: ${err.message}`, 'error');
+          }
+        });
+      ensureAdminPopulationMapsLoaded()
+        .then(() => {
+          if (state.currentPage === 'page5') renderAdminPopulationMap();
+        })
+        .catch((err) => {
+          console.warn('Admin population preload failed', err);
+          if (state.currentPage === 'page5') {
+            setStatus(`Population admin indisponible: ${err.message}`, 'error');
           }
         });
     }

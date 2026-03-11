@@ -276,8 +276,6 @@
                 <option value="rp50">Temps de retour 50 ans</option>
                 <option value="rp100">Temps de retour 100 ans</option>
                 <option value="event_max">Evenement le plus fort</option>
-                <option value="top10">10% evenements les plus forts</option>
-                <option value="top5">5% evenements les plus forts</option>
               </select>
             </div>
           </div>
@@ -821,6 +819,18 @@ scripts/build_guadeloupe_water_infra_map.py
             <p class="muted small" id="admin-visu-caption-4">Chargement...</p>
           </article>
         </div>
+
+        <article class="subpanel admin-population-card">
+          <div class="admin-population-head">
+            <h3>Population (WorldPop 2020)</h3>
+            <div class="admin-population-controls">
+              <label for="admin-population-territory-select">Territoire</label>
+              <select id="admin-population-territory-select"></select>
+            </div>
+          </div>
+          <div id="admin-population-map" class="map admin-population-map"></div>
+          <p class="muted small" id="admin-population-caption">Chargement de la couche population...</p>
+        </article>
       </section>
 
       <div id="error-banner" class="error-banner" hidden></div>

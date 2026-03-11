@@ -10,6 +10,9 @@ matplotlib.use("Agg")
 from matplotlib import colormaps
 import numpy as np
 from PIL import Image
+from scipy import ndimage
+
+CMCC_RP_LOW_BAND_HIDE_MAX_MPS = 18.0
 
 
 def _norm_hazard(raw: str) -> str:
@@ -109,6 +112,39 @@ def _grid_to_rgba(grid: np.ndarray, *, vmin: float, vmax: float, cmap_name: str 
     return rgba
 
 
+def _fill_nan_nearest_with_mask(grid: np.ndarray, *, max_distance_cells: float) -> tuple[np.ndarray, np.ndarray]:
+    threshold = float(max_distance_cells)
+    if not np.isfinite(threshold):
+        threshold = 1.5
+    threshold = max(0.0, threshold)
+
+    mask = np.isnan(grid)
+    if not np.any(mask):
+        clean = np.asarray(grid, dtype=np.float32).copy()
+        return clean, np.ones_like(clean, dtype=bool)
+    if np.all(mask):
+        empty = np.zeros_like(grid, dtype=np.float32)
+        return empty, np.zeros_like(empty, dtype=bool)
+
+    distance, nearest_indices = ndimage.distance_transform_edt(mask, return_indices=True)
+    filled = np.asarray(grid, dtype=np.float32).copy()
+    fillable = mask & (distance <= threshold)
+    if np.any(fillable):
+        filled[fillable] = filled[tuple(nearest_indices[:, fillable])]
+    render_mask = (~mask) | fillable
+    return filled, render_mask
+
+
+def _mask_cmcc_low_rp_band(grid_render: np.ndarray, hazard: str, metric: str) -> np.ndarray:
+    if str(hazard).strip().lower() != "storm_cmcc":
+        return grid_render
+    if str(metric).strip().lower() not in {"rp50", "rp100"}:
+        return grid_render
+    out = np.asarray(grid_render, dtype=np.float32).copy()
+    out[out <= float(CMCC_RP_LOW_BAND_HIDE_MAX_MPS)] = np.nan
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build transparent NA wind overlays for Leaflet from NA hazard JSON")
     parser.add_argument(
@@ -122,6 +158,18 @@ def main() -> None:
         help="Output directory for overlays and metadata",
     )
     parser.add_argument("--cmap", default="turbo", help="Matplotlib colormap")
+    parser.add_argument(
+        "--fill-mode",
+        choices=["nearest", "none"],
+        default="nearest",
+        help="Fill mode for empty grid cells before rendering",
+    )
+    parser.add_argument(
+        "--fill-max-distance-cells",
+        type=float,
+        default=1.5,
+        help="Max nearest-fill distance (in grid cells) for transparent overlays",
+    )
     args = parser.parse_args()
 
     input_json = Path(args.input_json)
@@ -167,8 +215,16 @@ def main() -> None:
                 n_lat=n_lat,
                 n_lon=n_lon,
             )
+            render_mask = ~np.isnan(grid)
+            if args.fill_mode == "nearest":
+                grid, render_mask = _fill_nan_nearest_with_mask(
+                    grid,
+                    max_distance_cells=float(args.fill_max_distance_cells),
+                )
+            grid_render = np.where(render_mask, grid, np.nan)
+            grid_render = _mask_cmcc_low_rp_band(grid_render, hazard, metric)
             rgba = _grid_to_rgba(
-                grid,
+                grid_render,
                 vmin=float(metric_ranges[metric]["min_mps"]),
                 vmax=float(metric_ranges[metric]["max_mps"]),
                 cmap_name=args.cmap,
@@ -193,6 +249,9 @@ def main() -> None:
                 "n_lon": int(n_lon),
             },
             "colormap": str(args.cmap),
+            "fill_mode": str(args.fill_mode),
+            "fill_max_distance_cells": float(args.fill_max_distance_cells),
+            "cmcc_rp_low_band_hidden_mps_lte": float(CMCC_RP_LOW_BAND_HIDE_MAX_MPS),
         },
         "metrics": metric_ranges,
         "overlays": overlays,
