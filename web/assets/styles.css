@@ -326,6 +326,9 @@ button:disabled {
   width: 16px;
   height: 16px;
   object-fit: contain;
+  background: transparent;
+  border-radius: 999px;
+  mix-blend-mode: normal;
   animation: ofb-spin 1s linear infinite;
 }
 
@@ -398,6 +401,9 @@ button:disabled {
   width: 24px;
   height: 24px;
   object-fit: contain;
+  background: transparent;
+  border-radius: 999px;
+  mix-blend-mode: normal;
   animation: ofb-spin 1s linear infinite;
 }
 

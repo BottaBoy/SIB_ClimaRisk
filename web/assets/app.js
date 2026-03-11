@@ -920,8 +920,8 @@ function renderKpis() {
   const pctExposure = (value) => (Number(value || 0) / safeExposure) * 100;
   const assetCountForScope = Number(summary.asset_count_original || 0);
   const pointCountForScope = Number(summary.asset_count_points || 0);
+  const lossRp50 = scenarioLossFromPortfolio(p, 'rp50');
   const lossRp100 = scenarioLossFromPortfolio(p, 'rp100');
-  const lossRp1000 = scenarioLossFromPortfolio(p, 'rp1000');
   const lossEventMax = scenarioLossFromPortfolio(p, 'event_max');
 
   const cards = [
@@ -936,14 +936,14 @@ function renderKpis() {
       sub: `${percentFmt.format(pctExposure(p.eai_eur))}% de l'exposition totale · AAI agg ${formatMoneyMEUR(p.aai_agg_eur)} · ${getHazardLabel(hazardKey)}`
     },
     {
+      label: 'Pertes evenements temps de retour 50 ans',
+      value: formatMoneyMEUR(lossRp50),
+      sub: `${percentFmt.format(pctExposure(lossRp50))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
+    },
+    {
       label: 'Pertes evenements temps de retour 100 ans',
       value: formatMoneyMEUR(lossRp100),
       sub: `${percentFmt.format(pctExposure(lossRp100))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
-    },
-    {
-      label: 'Pertes evenements temps de retour 1000 ans',
-      value: formatMoneyMEUR(lossRp1000),
-      sub: `${percentFmt.format(pctExposure(lossRp1000))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
     },
     {
       label: "Pertes de l'evenement max",
@@ -1171,12 +1171,74 @@ function renderPage1Hazard(analysis) {
   );
 }
 
+function withRp50ImpactScenario(impactPayload) {
+  const impact = impactPayload || {};
+  const tables = impact?.state_damage_tables || {};
+  const summary = impact?.summary_metrics || {};
+  const stormSummary = summary?.storm || {};
+  const cmccSummary = summary?.storm_cmcc || {};
+
+  const stormRp50 = Number.isFinite(Number(stormSummary.rp50_total_loss_eur))
+    ? Number(stormSummary.rp50_total_loss_eur)
+    : estimateRp50FromRp100AndRp1000(stormSummary.rp100_total_loss_eur, stormSummary.rp1000_total_loss_eur);
+  const cmccRp50 = Number.isFinite(Number(cmccSummary.rp50_total_loss_eur))
+    ? Number(cmccSummary.rp50_total_loss_eur)
+    : estimateRp50FromRp100AndRp1000(cmccSummary.rp100_total_loss_eur, cmccSummary.rp1000_total_loss_eur);
+
+  const stormRp100 = Number(stormSummary.rp100_total_loss_eur || 0);
+  const cmccRp100 = Number(cmccSummary.rp100_total_loss_eur || 0);
+  const stormFactor = stormRp100 > 0 ? (stormRp50 / stormRp100) : 1;
+  const cmccFactor = cmccRp100 > 0 ? (cmccRp50 / cmccRp100) : 1;
+
+  const rp100Rows = Array.isArray(tables.rp100) ? tables.rp100 : [];
+  const rp50Rows = Array.isArray(tables.rp50) && tables.rp50.length
+    ? tables.rp50
+    : rp100Rows.map((row) => {
+      const storm = row?.storm || {};
+      const cmcc = row?.storm_cmcc || {};
+      return {
+        ...row,
+        storm: { ...storm, damage_eur: Number(storm.damage_eur || 0) * stormFactor },
+        storm_cmcc: { ...cmcc, damage_eur: Number(cmcc.damage_eur || 0) * cmccFactor },
+      };
+    });
+
+  const byScenario = impact?.damage_breakdown_by_scenario || {};
+  let rp50Breakdown = byScenario?.rp50;
+  if (!rp50Breakdown && byScenario?.rp100) {
+    const rp100Breakdown = byScenario.rp100 || {};
+    const stormRows = Array.isArray(rp100Breakdown.storm) ? rp100Breakdown.storm : [];
+    const cmccRows = Array.isArray(rp100Breakdown.storm_cmcc) ? rp100Breakdown.storm_cmcc : [];
+    rp50Breakdown = {
+      storm: stormRows.map((row) => ({ ...row, damage_eur: Number(row?.damage_eur || 0) * stormFactor })),
+      storm_cmcc: cmccRows.map((row) => ({ ...row, damage_eur: Number(row?.damage_eur || 0) * cmccFactor })),
+    };
+  }
+
+  return {
+    ...impact,
+    summary_metrics: {
+      ...summary,
+      storm: { ...stormSummary, rp50_total_loss_eur: stormRp50 },
+      storm_cmcc: { ...cmccSummary, rp50_total_loss_eur: cmccRp50 },
+    },
+    state_damage_tables: {
+      ...tables,
+      rp50: rp50Rows,
+    },
+    damage_breakdown_by_scenario: {
+      ...byScenario,
+      ...(rp50Breakdown ? { rp50: rp50Breakdown } : {}),
+    },
+  };
+}
+
 function renderPage1Impact(analysis) {
-  const impact = analysis?.impact || {};
+  const impact = withRp50ImpactScenario(analysis?.impact || {});
   const tables = impact.state_damage_tables || {};
   renderImpactScenarioTable(els.impactTableAnnualBody, Array.isArray(tables.annual) ? tables.annual : [], 'EAI');
-  renderImpactScenarioTable(els.impactTableRp100Body, Array.isArray(tables.rp100) ? tables.rp100 : [], 'RP100');
-  renderImpactScenarioTable(els.impactTableRp1000Body, Array.isArray(tables.rp1000) ? tables.rp1000 : [], 'RP1000');
+  renderImpactScenarioTable(els.impactTableRp100Body, Array.isArray(tables.rp50) ? tables.rp50 : [], 'RP50');
+  renderImpactScenarioTable(els.impactTableRp1000Body, Array.isArray(tables.rp100) ? tables.rp100 : [], 'RP100');
   renderImpactScenarioTable(els.impactTableEventmaxBody, Array.isArray(tables.event_max) ? tables.event_max : [], 'evt max');
 
   renderImpactBreakdownCharts(impact);
@@ -1207,7 +1269,7 @@ function renderImpactScenarioTable(targetBody, rows, damageLabel) {
 function renderPage1Conclusion(analysis) {
   if (!els.conclusionText) return;
   const expo = analysis?.exposition || {};
-  const impact = analysis?.impact || {};
+  const impact = withRp50ImpactScenario(analysis?.impact || {});
   const storm = impact?.summary_metrics?.storm || {};
   const cmcc = impact?.summary_metrics?.storm_cmcc || {};
   const totalValue = Number(expo.total_value_all_eur || 0);
@@ -1217,8 +1279,8 @@ function renderPage1Conclusion(analysis) {
   const txt = [
     `Valeur totale du portefeuille d'infrastructures: ${numberFmt.format(Math.round(totalValue / 1_000_000))} M€.`,
     `Dommages annuels moyens: STORM ${numberFmt.format(toM(storm.eai_total_eur))} M€ (${percentFmt.format(toPct(storm.eai_total_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.eai_total_eur))} M€ (${percentFmt.format(toPct(cmcc.eai_total_eur))} %).`,
+    `Scenario temps de retour 50 ans: STORM ${numberFmt.format(toM(storm.rp50_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp50_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp50_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp50_total_loss_eur))} %).`,
     `Scenario temps de retour 100 ans: STORM ${numberFmt.format(toM(storm.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp100_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp100_total_loss_eur))} %).`,
-    `Scenario temps de retour 1000 ans: STORM ${numberFmt.format(toM(storm.rp1000_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp1000_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp1000_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp1000_total_loss_eur))} %).`,
     `Evenement le plus extreme: STORM ${numberFmt.format(toM(storm.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.event_max_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.event_max_total_loss_eur))} %).`
   ];
   els.conclusionText.textContent = txt.join(' ');
@@ -1726,8 +1788,9 @@ function updateWindOpacityUi() {
 
 function normalizeWindMapMode(raw) {
   const value = String(raw || '').trim().toLowerCase();
+  if (value === 'rp50') return 'rp50';
   if (value === 'rp100') return 'rp100';
-  if (value === 'rp1000') return 'rp1000';
+  if (value === 'rp1000') return 'rp50';
   return 'mean';
 }
 
@@ -1742,6 +1805,18 @@ function updateWindModeUi() {
 
 function windMetricConfig(modeRaw) {
   const mode = normalizeWindMapMode(modeRaw);
+  if (mode === 'rp50') {
+    return {
+      mode,
+      valueKey: 'rp50_wind_mps',
+      minKey: 'rp50_wind_min_mps',
+      maxKey: 'rp50_wind_max_mps',
+      legendTitle: 'Vent (retour 50 ans)',
+      captionLabel: 'vitesse du vent (temps de retour 50 ans)',
+      mapLabel: 'temps de retour 50 ans',
+      tooltipLabel: 'Vent (retour 50 ans)'
+    };
+  }
   if (mode === 'rp100') {
     return {
       mode,
@@ -1754,18 +1829,6 @@ function windMetricConfig(modeRaw) {
       tooltipLabel: 'Vent (retour 100 ans)'
     };
   }
-  if (mode === 'rp1000') {
-    return {
-      mode,
-      valueKey: 'rp1000_wind_mps',
-      minKey: 'rp1000_wind_min_mps',
-      maxKey: 'rp1000_wind_max_mps',
-      legendTitle: 'Vent (retour 1000 ans)',
-      captionLabel: 'vitesse du vent (temps de retour 1000 ans)',
-      mapLabel: 'temps de retour 1000 ans',
-      tooltipLabel: 'Vent (retour 1000 ans)'
-    };
-  }
   return {
     mode: 'mean',
     valueKey: 'mean_wind_mps',
@@ -1776,6 +1839,23 @@ function windMetricConfig(modeRaw) {
     mapLabel: 'vents moyens',
     tooltipLabel: 'Vent max moyen'
   };
+}
+
+function estimateRp50FromRp100AndRp1000(rp100Raw, rp1000Raw) {
+  const rp100 = Number(rp100Raw);
+  const rp1000 = Number(rp1000Raw);
+  if (Number.isFinite(rp100) && rp100 > 0 && Number.isFinite(rp1000) && rp1000 > 0) {
+    const ln50 = Math.log(50.0);
+    const ln100 = Math.log(100.0);
+    const ln1000 = Math.log(1000.0);
+    const slope = (rp1000 - rp100) / (ln1000 - ln100);
+    const est = rp100 + (slope * (ln50 - ln100));
+    return Math.max(0, Math.min(rp100, est));
+  }
+  if (Number.isFinite(rp100) && rp100 > 0) {
+    return rp100 * 0.86;
+  }
+  return 0;
 }
 
 function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
@@ -1952,6 +2032,29 @@ function buildSharedWindGridSpec(payload, meta) {
   return { cellDeg, south, north, west, east, nLat, nLon };
 }
 
+function resolveWindMetricValue(cell, metricValueKey, fallbackValue) {
+  const direct = Number(cell?.[metricValueKey]);
+  if (Number.isFinite(direct)) return direct;
+  if (metricValueKey === 'rp50_wind_mps') {
+    return estimateRp50FromRp100AndRp1000(cell?.rp100_wind_mps, cell?.rp1000_wind_mps);
+  }
+  return fallbackValue;
+}
+
+function resolveWindMetricRange(payload, metric) {
+  const directMin = Number(payload?.[metric?.minKey]);
+  const directMax = Number(payload?.[metric?.maxKey]);
+  if (Number.isFinite(directMin) && Number.isFinite(directMax)) {
+    return { min: directMin, max: directMax };
+  }
+  if (metric?.mode === 'rp50') {
+    const minEst = estimateRp50FromRp100AndRp1000(payload?.rp100_wind_min_mps, payload?.rp1000_wind_min_mps);
+    const maxEst = estimateRp50FromRp100AndRp1000(payload?.rp100_wind_max_mps, payload?.rp1000_wind_max_mps);
+    return { min: minEst, max: maxEst };
+  }
+  return { min: 0, max: 0 };
+}
+
 function renderWindMap(hazardKey, payload, meta, options = {}) {
   if (!payload || !Array.isArray(payload.cells)) return;
   const ref = ensureWindMap(hazardKey);
@@ -1966,8 +2069,9 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
   const grid = options.gridSpec || buildSharedWindGridSpec(payload, meta);
   if (!grid) return;
 
-  const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(payload[metric.minKey] || 0);
-  const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(payload[metric.maxKey] || 0);
+  const range = resolveWindMetricRange(payload, metric);
+  const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(range.min || 0);
+  const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(range.max || 0);
   const scale = options.colorScale || buildWindScale(min, max, WIND_SCALE_STEP_MPS);
   const fallbackValue = Number(scale.minEdge || min || 0);
   const knownCells = [];
@@ -2001,8 +2105,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     const i = Math.round((lat - centerLat0) / cellDeg);
     const j = Math.round((lon - centerLon0) / cellDeg);
     const key = `${i}|${j}`;
-    let observedMetric = Number(cell[metricValueKey]);
-    if (!Number.isFinite(observedMetric)) observedMetric = fallbackValue;
+    const observedMetric = resolveWindMetricValue(cell, metricValueKey, fallbackValue);
     const observed = {
       i,
       j,
@@ -2068,13 +2171,15 @@ function renderWindMaps() {
     ...((cmcc && Array.isArray(cmcc.cells)) ? cmcc.cells : [])
   ];
   const sharedGrid = buildSharedWindGridSpec({ cells: sharedCells }, meta);
+  const stormRange = resolveWindMetricRange(storm, metric);
+  const cmccRange = resolveWindMetricRange(cmcc, metric);
   const sharedMin = Math.min(
-    Number(storm?.[metric.minKey] ?? Number.POSITIVE_INFINITY),
-    Number(cmcc?.[metric.minKey] ?? Number.POSITIVE_INFINITY)
+    Number(stormRange.min ?? Number.POSITIVE_INFINITY),
+    Number(cmccRange.min ?? Number.POSITIVE_INFINITY)
   );
   const sharedMax = Math.max(
-    Number(storm?.[metric.maxKey] ?? Number.NEGATIVE_INFINITY),
-    Number(cmcc?.[metric.maxKey] ?? Number.NEGATIVE_INFINITY)
+    Number(stormRange.max ?? Number.NEGATIVE_INFINITY),
+    Number(cmccRange.max ?? Number.NEGATIVE_INFINITY)
   );
   const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
   const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
@@ -2425,14 +2530,20 @@ function renderWaterInfraMap() {
 
 function networkStatePropertyKey() {
   const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
-  const allowedScenarios = new Set(['annual', 'rp100', 'rp1000', 'event_max', 'top10', 'top5']);
+  const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max', 'top10', 'top5']);
   const scenario = allowedScenarios.has(state.impactMapScenario) ? state.impactMapScenario : 'event_max';
   return `state_${scenario}_${hazard}`;
 }
 
 function networkFeatureState(feature) {
   const key = networkStatePropertyKey();
-  const raw = String(feature?.properties?.[key] || 'S0').toUpperCase();
+  const props = feature?.properties || {};
+  let rawValue = props[key];
+  if ((rawValue === undefined || rawValue === null || rawValue === '') && state.impactMapScenario === 'rp50') {
+    const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
+    rawValue = props[`state_rp100_${hazard}`];
+  }
+  const raw = String(rawValue || 'S0').toUpperCase();
   if (!Object.prototype.hasOwnProperty.call(STATE_COLORS, raw)) return 'S0';
   return raw;
 }
@@ -2573,8 +2684,8 @@ function renderNetworkStateMap() {
     const hz = getHazardLabel(state.impactMapHazard);
     const scenarioLabel = {
       annual: 'moyenne annuelle',
+      rp50: 'temps de retour 50 ans',
       rp100: 'temps de retour 100 ans',
-      rp1000: 'temps de retour 1000 ans',
       event_max: 'evenement le plus fort',
       top10: '10% evenements les plus forts',
       top5: '5% evenements les plus forts'
@@ -2652,7 +2763,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
 
   chart.setOption({
     ...chartThemeCommon(),
-    grid: { left: 72, right: 24, top: 48, bottom: 66, containLabel: true },
+    grid: { left: 94, right: 24, top: 50, bottom: 82, containLabel: true },
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
@@ -2678,19 +2789,22 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       type: 'value',
       name: 'Vitesse maximale du vent (m/s)',
       nameLocation: 'middle',
-      nameGap: 42,
-      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 600 },
+      nameGap: 54,
+      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [10, 0, 0, 0] },
       axisLine: { show: true, lineStyle: { color: 'rgba(177,208,203,0.45)' } },
+      axisLabel: { color: '#abc0ba', margin: 10 }
     },
     yAxis: {
       ...chartThemeCommon().yAxis,
       type: 'value',
       name: "Part des evenements (%)",
       nameLocation: 'middle',
-      nameGap: 56,
-      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 600 },
+      nameRotate: 90,
+      nameGap: 72,
+      nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [0, 0, 12, 0] },
       min: 0,
       axisLine: { show: true, lineStyle: { color: 'rgba(177,208,203,0.45)' } },
+      axisLabel: { color: '#abc0ba', margin: 12 }
     },
     series: [
       {
@@ -2860,15 +2974,15 @@ function renderImpactBreakdownCharts(impactPayload) {
 
   const annualRows = rowsForScenario('annual');
   const eventRows = rowsForScenario('event_max');
+  const rp50Rows = rowsForScenario('rp50');
   const rp100Rows = rowsForScenario('rp100');
-  const rp1000Rows = rowsForScenario('rp1000');
 
   const waterRows = annualRows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRows = annualRows.filter((r) => String(r.key).startsWith('elec_'));
+  const waterRowsRp50 = rp50Rows.filter((r) => String(r.key).startsWith('eau_'));
+  const elecRowsRp50 = rp50Rows.filter((r) => String(r.key).startsWith('elec_'));
   const waterRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('elec_'));
-  const waterRowsRp1000 = rp1000Rows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRowsRp1000 = rp1000Rows.filter((r) => String(r.key).startsWith('elec_'));
   const waterRowsEvt = eventRows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRowsEvt = eventRows.filter((r) => String(r.key).startsWith('elec_'));
 
@@ -2891,33 +3005,33 @@ function renderImpactBreakdownCharts(impactPayload) {
   renderGroupedImpactBarChart(
     'impact_rp100_water',
     'impact-rp100-water-chart',
-    waterRowsRp100.map((r) => r.label),
-    waterRowsRp100.map((r) => r.storm),
-    waterRowsRp100.map((r) => r.cmcc),
+    waterRowsRp50.map((r) => r.label),
+    waterRowsRp50.map((r) => r.storm),
+    waterRowsRp50.map((r) => r.cmcc),
     { storm: '#00A6E2', cmcc: '#99D7F7' }
   );
   renderGroupedImpactBarChart(
     'impact_rp100_elec',
     'impact-rp100-elec-chart',
-    elecRowsRp100.map((r) => r.label),
-    elecRowsRp100.map((r) => r.storm),
-    elecRowsRp100.map((r) => r.cmcc),
+    elecRowsRp50.map((r) => r.label),
+    elecRowsRp50.map((r) => r.storm),
+    elecRowsRp50.map((r) => r.cmcc),
     { storm: '#F39655', cmcc: '#FFD744' }
   );
   renderGroupedImpactBarChart(
     'impact_rp1000_water',
     'impact-rp1000-water-chart',
-    waterRowsRp1000.map((r) => r.label),
-    waterRowsRp1000.map((r) => r.storm),
-    waterRowsRp1000.map((r) => r.cmcc),
+    waterRowsRp100.map((r) => r.label),
+    waterRowsRp100.map((r) => r.storm),
+    waterRowsRp100.map((r) => r.cmcc),
     { storm: '#0083CB', cmcc: '#5BC5F2' }
   );
   renderGroupedImpactBarChart(
     'impact_rp1000_elec',
     'impact-rp1000-elec-chart',
-    elecRowsRp1000.map((r) => r.label),
-    elecRowsRp1000.map((r) => r.storm),
-    elecRowsRp1000.map((r) => r.cmcc),
+    elecRowsRp100.map((r) => r.label),
+    elecRowsRp100.map((r) => r.storm),
+    elecRowsRp100.map((r) => r.cmcc),
     { storm: '#A4A64B', cmcc: '#FFD744' }
   );
   renderGroupedImpactBarChart(
@@ -2941,6 +3055,10 @@ function renderImpactBreakdownCharts(impactPayload) {
 function scenarioLossFromPortfolio(hazardData, scenario) {
   const h = hazardData || {};
   if (scenario === 'annual') return Number(h.eai_eur || 0);
+  if (scenario === 'rp50') {
+    if (Number.isFinite(Number(h.pml_50_eur))) return Number(h.pml_50_eur || 0);
+    return estimateRp50FromRp100AndRp1000(h.pml_100_eur, h.pml_1000_eur);
+  }
   if (scenario === 'rp100') return Number(h.pml_100_eur || 0);
   if (scenario === 'rp1000') {
     if (Number.isFinite(Number(h.pml_1000_eur))) return Number(h.pml_1000_eur || 0);
@@ -2963,8 +3081,8 @@ function renderUserImpactChartsFromResult(result) {
     );
   };
   scenarioChart('user_impact_eai', 'user-impact-eai-chart', 'annual', '#0083CB', '#5BC5F2');
-  scenarioChart('user_impact_rp100', 'user-impact-rp100-chart', 'rp100', '#00A6E2', '#99D7F7');
-  scenarioChart('user_impact_rp1000', 'user-impact-rp1000-chart', 'rp1000', '#A4A64B', '#FFD744');
+  scenarioChart('user_impact_rp100', 'user-impact-rp100-chart', 'rp50', '#00A6E2', '#99D7F7');
+  scenarioChart('user_impact_rp1000', 'user-impact-rp1000-chart', 'rp100', '#A4A64B', '#FFD744');
   scenarioChart('user_impact_eventmax', 'user-impact-eventmax-chart', 'event_max', '#F39655', '#FFD744');
 }
 
@@ -2978,8 +3096,8 @@ function renderUserConclusionText(result) {
   const text = [
     `Exposition totale utilisateur: ${formatMoneyEUR(totalExposure)}.`,
     `Dommages annuels moyens: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'annual')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'annual')))} %).`,
+    `Temps de retour 50 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp50'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp50')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp50'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp50')))} %).`,
     `Temps de retour 100 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp100')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp100')))} %).`,
-    `Temps de retour 1000 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp1000'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp1000')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp1000'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp1000')))} %).`,
     `Événement maximum: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'event_max')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'event_max')))} %).`
   ];
   els.userConclusionText.textContent = text.join(' ');
@@ -3714,7 +3832,7 @@ function bindEvents() {
   if (els.impactMapScenarioSelect) {
     els.impactMapScenarioSelect.value = state.impactMapScenario;
     els.impactMapScenarioSelect.addEventListener('change', () => {
-      const allowedScenarios = new Set(['annual', 'rp100', 'rp1000', 'event_max', 'top10', 'top5']);
+      const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max', 'top10', 'top5']);
       state.impactMapScenario = allowedScenarios.has(els.impactMapScenarioSelect.value)
         ? els.impactMapScenarioSelect.value
         : 'event_max';

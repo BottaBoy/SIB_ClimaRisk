@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+import math
 from typing import Any
 
 
@@ -67,6 +68,50 @@ def _dependency_state_from_elec_health(health: float) -> str:
     return "S0"
 
 
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    r = 6371.0088
+    lat1r = math.radians(lat1)
+    lat2r = math.radians(lat2)
+    dlat = lat2r - lat1r
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1r) * math.cos(lat2r) * (math.sin(dlon / 2.0) ** 2)
+    return r * (2.0 * math.asin(math.sqrt(a)))
+
+
+def _resolve_electric_health(
+    *,
+    hazard: str,
+    territory_id: str,
+    lat: Any,
+    lon: Any,
+    elec_health_by_territory: dict[str, dict[str, float]],
+    elec_health_global: dict[str, float],
+    elec_territory_centroids: dict[str, tuple[float, float]],
+) -> tuple[float, str]:
+    by_territory = elec_health_by_territory.get(hazard, {})
+    if territory_id in by_territory:
+        return float(by_territory[territory_id]), "local_territory"
+
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and elec_territory_centroids:
+        nearest_tid: str | None = None
+        nearest_dist: float | None = None
+        for candidate_tid, (cand_lat, cand_lon) in elec_territory_centroids.items():
+            if candidate_tid not in by_territory:
+                continue
+            dist = _haversine_km(float(lon), float(lat), float(cand_lon), float(cand_lat))
+            if (
+                nearest_dist is None
+                or dist < nearest_dist
+                or (abs(dist - nearest_dist) <= 1e-12 and nearest_tid is not None and candidate_tid < nearest_tid)
+            ):
+                nearest_tid = candidate_tid
+                nearest_dist = dist
+        if nearest_tid is not None:
+            return float(by_territory[nearest_tid]), "nearest_territory"
+
+    return float(elec_health_global.get(hazard, 1.0)), "global"
+
+
 def _summarize_component_health(
     buckets_by_class: dict[str, dict[str, float]],
 ) -> dict[str, dict[str, float]]:
@@ -101,6 +146,7 @@ def aggregate_impacts_with_interdependency(
         hazard: defaultdict(_new_state_bucket) for hazard in hazard_keys
     }
     elec_global_bucket: dict[str, dict[str, float]] = {hazard: _new_state_bucket() for hazard in hazard_keys}
+    elec_territory_loc_acc: dict[str, dict[str, float]] = {}
 
     for idx, rec in enumerate(point_records):
         value = max(0.0, float(rec.get("value_eur", 0.0)))
@@ -108,6 +154,13 @@ def aggregate_impacts_with_interdependency(
         if infra_class not in elec_classes:
             continue
         territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
+        lat = rec.get("lat")
+        lon = rec.get("lon")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+            loc = elec_territory_loc_acc.setdefault(territory_id, {"lat_sum": 0.0, "lon_sum": 0.0, "count": 0.0})
+            loc["lat_sum"] += float(lat)
+            loc["lon_sum"] += float(lon)
+            loc["count"] += 1.0
         for hazard in hazard_keys:
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             ratio = direct_max_loss / max(value, 1.0)
@@ -120,6 +173,11 @@ def aggregate_impacts_with_interdependency(
         for hazard, buckets in elec_buckets_by_hazard.items()
     }
     elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
+    elec_territory_centroids = {
+        tid: (loc["lat_sum"] / loc["count"], loc["lon_sum"] / loc["count"])
+        for tid, loc in elec_territory_loc_acc.items()
+        if loc.get("count", 0.0) > 0.0
+    }
 
     territory_acc: dict[str, dict[str, Any]] = {}
     asset_acc: dict[str, dict[str, Any]] = {}
@@ -128,6 +186,10 @@ def aggregate_impacts_with_interdependency(
     }
     dependency_impacted_assets_by_hazard = {hazard: 0 for hazard in hazard_keys}
     dependency_impacted_feature_hazard: set[tuple[str, str]] = set()
+    health_resolution_by_hazard = {
+        hazard: {"local_territory": 0, "nearest_territory": 0, "global": 0}
+        for hazard in hazard_keys
+    }
 
     for idx, rec in enumerate(point_records):
         territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
@@ -180,7 +242,7 @@ def aggregate_impacts_with_interdependency(
         asset_row["exposure_eur"] += value
 
         for hazard in hazard_keys:
-            direct_eai = max(0.0, float(hazard_direct_eai[hazard][idx]))
+            direct_eai = min(value, max(0.0, float(hazard_direct_eai[hazard][idx])))
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             direct_ratio = direct_max_loss / max(value, 1.0)
             direct_state = _state_from_damage_ratio(direct_ratio)
@@ -188,14 +250,24 @@ def aggregate_impacts_with_interdependency(
             indirect_eai = 0.0
 
             if infra_class in water_classes:
-                elec_health = float(elec_health_by_territory[hazard].get(territory_id, elec_health_global[hazard]))
+                elec_health, source = _resolve_electric_health(
+                    hazard=hazard,
+                    territory_id=territory_id,
+                    lat=lat,
+                    lon=lon,
+                    elec_health_by_territory=elec_health_by_territory,
+                    elec_health_global=elec_health_global,
+                    elec_territory_centroids=elec_territory_centroids,
+                )
+                health_resolution_by_hazard[hazard][source] += 1
                 dependency_state = _dependency_state_from_elec_health(elec_health)
                 if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
                     dependency_impacted_feature_hazard.add((feature_id, hazard))
                     final_state = dependency_state
-                indirect_eai = direct_eai * UPLIFT_BY_STATE[dependency_state]
+                indirect_eai = max(0.0, direct_eai * UPLIFT_BY_STATE[dependency_state])
 
-            total_eai = direct_eai + indirect_eai
+            total_eai = min(value, direct_eai + indirect_eai)
+            indirect_eai = max(0.0, total_eai - direct_eai)
             if hazard == "storm":
                 row["eai_storm_direct_eur"] += direct_eai
                 row["eai_storm_indirect_eur"] += indirect_eai
@@ -316,6 +388,11 @@ def aggregate_impacts_with_interdependency(
         "dependency_impacted_assets": int(sum(dependency_impacted_assets_by_hazard.values())),
         "dependency_impacted_assets_by_hazard": {k: int(v) for k, v in dependency_impacted_assets_by_hazard.items()},
         "electric_health_global": {hazard: round(elec_health_global[hazard], 4) for hazard in hazard_keys},
+        "electric_health_resolution_rule": "local_territory_else_nearest_electric_territory_else_global",
+        "electric_health_resolution_by_hazard": {
+            hazard: {k: int(v) for k, v in src.items()}
+            for hazard, src in health_resolution_by_hazard.items()
+        },
         "state_thresholds": STATE_THRESHOLDS,
         "uplift_by_state": UPLIFT_BY_STATE,
     }

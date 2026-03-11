@@ -6,3 +6,5 @@ backend/**/__pycache__/
 *.pyc
 config/systemd/sib-risk-api.env
 /data/
+/logs/
+/outputs/

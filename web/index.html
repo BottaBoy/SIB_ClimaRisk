@@ -146,8 +146,8 @@
             <label for="wind-map-mode">Type de carte vent/tempête</label>
             <select id="wind-map-mode">
               <option value="mean">Vents moyens</option>
+              <option value="rp50">Temps de retour 50 ans</option>
               <option value="rp100">Temps de retour 100 ans</option>
-              <option value="rp1000">Temps de retour 1000 ans</option>
             </select>
           </div>
         </div>
@@ -209,6 +209,23 @@
             </div>
           </article>
           <article class="subpanel">
+            <h3>Tableau des impacts causes par les evenements a temps de retour 50 ans</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reseau</th>
+                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM RP50 (€)</th>
+                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
+                    <th class="num">STORM_CMCC RP50 (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-table-rp100-body"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="subpanel">
             <h3>Tableau des impacts causes par les evenements a temps de retour 100 ans</h3>
             <div class="table-wrap compact">
               <table>
@@ -219,23 +236,6 @@
                     <th class="num">STORM RP100 (€)</th>
                     <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
                     <th class="num">STORM_CMCC RP100 (€)</th>
-                  </tr>
-                </thead>
-                <tbody id="impact-table-rp100-body"></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="subpanel">
-            <h3>Tableau des impacts causes par les evenements a temps de retour 1000 ans</h3>
-            <div class="table-wrap compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Reseau</th>
-                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM RP1000 (€)</th>
-                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC RP1000 (€)</th>
                   </tr>
                 </thead>
                 <tbody id="impact-table-rp1000-body"></tbody>
@@ -273,8 +273,8 @@
               </select>
               <select id="impact-map-scenario-select">
                 <option value="annual">Moyenne annuelle</option>
+                <option value="rp50">Temps de retour 50 ans</option>
                 <option value="rp100">Temps de retour 100 ans</option>
-                <option value="rp1000">Temps de retour 1000 ans</option>
                 <option value="event_max">Evenement le plus fort</option>
                 <option value="top10">10% evenements les plus forts</option>
                 <option value="top5">5% evenements les plus forts</option>
@@ -300,19 +300,19 @@
               <div id="impact-eai-elec-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>RP100 eau (STORM vs STORM_CMCC)</h3>
+              <h3>RP50 eau (STORM vs STORM_CMCC)</h3>
               <div id="impact-rp100-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>RP100 electricite (STORM vs STORM_CMCC)</h3>
+              <h3>RP50 electricite (STORM vs STORM_CMCC)</h3>
               <div id="impact-rp100-elec-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>RP1000 eau (STORM vs STORM_CMCC)</h3>
+              <h3>RP100 eau (STORM vs STORM_CMCC)</h3>
               <div id="impact-rp1000-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>RP1000 electricite (STORM vs STORM_CMCC)</h3>
+              <h3>RP100 electricite (STORM vs STORM_CMCC)</h3>
               <div id="impact-rp1000-elec-chart" class="chart"></div>
             </div>
             <div class="chart-card">
@@ -367,7 +367,7 @@
           <div class="run-lab-side">
             <div class="status-box" id="job-status-box" hidden></div>
             <div class="compute-indicator" id="compute-indicator" hidden>
-              <img src="assets/LogoOFBRond.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
+              <img src="assets/LogoOFBRond-spinner.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
               <span>Calcul backend en cours...</span>
             </div>
           </div>
@@ -416,7 +416,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               <input id="run-label" type="text" placeholder="Ex: Test exposition quartier centre" required />
             </div>
             <button type="submit" class="primary-btn" id="upload-submit-btn">
-              <img src="assets/LogoOFBRond.png" alt="" class="btn-spinner-logo" hidden />
+              <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
               <span class="btn-label">Lancer le run de l'exposition importee</span>
             </button>
           </form>
@@ -472,7 +472,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
             </div>
             <div class="inline-row">
               <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>
-                <img src="assets/LogoOFBRond.png" alt="" class="btn-spinner-logo" hidden />
+                <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
                 <span class="btn-label">Lancer le run de l'exposition dessinee</span>
               </button>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
@@ -574,11 +574,11 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
             <div id="user-impact-eai-chart" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Dommages - temps de retour 100 ans</h3>
+            <h3>Dommages - temps de retour 50 ans</h3>
             <div id="user-impact-rp100-chart" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Dommages - temps de retour 1000 ans</h3>
+            <h3>Dommages - temps de retour 100 ans</h3>
             <div id="user-impact-rp1000-chart" class="chart"></div>
           </div>
           <div class="chart-card">
@@ -686,7 +686,7 @@ scripts/build_guadeloupe_water_infra_map.py
                 en conservant les details STORM et STORM_CMCC pour comparaison.
               </li>
               <li>
-                <strong>Indicateurs de sortie:</strong> EAI, pertes RP100/RP1000, perte evenement maximum,
+                <strong>Indicateurs de sortie:</strong> EAI, pertes RP50/RP100, perte evenement maximum,
                 courbes de depassement (FEC), TVaR95 et liste des evenements dominants.
               </li>
             </ol>

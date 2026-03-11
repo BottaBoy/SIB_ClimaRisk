@@ -150,6 +150,40 @@ def _territory_for_feature(feature: Any) -> tuple[str, str, float | None, float 
     )
 
 
+def _resolve_electric_health_for_territory(
+    *,
+    hazard: str,
+    territory_id: str,
+    lat: float | None,
+    lon: float | None,
+    elec_health_by_territory: dict[str, dict[str, float]],
+    elec_health_global: dict[str, float],
+    elec_territory_centroids: dict[str, tuple[float, float]],
+) -> tuple[float, str]:
+    by_territory = elec_health_by_territory.get(hazard, {})
+    if territory_id in by_territory:
+        return float(by_territory[territory_id]), "local_territory"
+
+    if lat is not None and lon is not None and elec_territory_centroids:
+        nearest_tid: str | None = None
+        nearest_dist: float | None = None
+        for candidate_tid, (cand_lat, cand_lon) in elec_territory_centroids.items():
+            if candidate_tid not in by_territory:
+                continue
+            dist = _haversine_km(float(lon), float(lat), float(cand_lon), float(cand_lat))
+            if (
+                nearest_dist is None
+                or dist < nearest_dist
+                or (abs(dist - nearest_dist) <= 1e-12 and nearest_tid is not None and candidate_tid < nearest_tid)
+            ):
+                nearest_tid = candidate_tid
+                nearest_dist = dist
+        if nearest_tid is not None:
+            return float(by_territory[nearest_tid]), "nearest_territory"
+
+    return float(elec_health_global.get(hazard, 1.0)), "global"
+
+
 def _stable_factor(seed: str, lo: float, hi: float) -> float:
     digest = blake2b(seed.encode("utf-8"), digest_size=8).digest()
     raw = int.from_bytes(digest, byteorder="big", signed=False) / float(2**64)
@@ -504,6 +538,8 @@ def _compute_impacts_climada(
         "CLIMADA production engine is active (STORM + STORM_CMCC with annualized frequencies).",
         "Direct impact is computed by CLIMADA and indirect impact is added by conservative electricity-to-water dependency post-processing.",
         "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
+        "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
+        "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
         *climada.notes,
         *bundle.warnings,
     ]
@@ -539,13 +575,19 @@ def compute_impacts_fallback(
         hazard: defaultdict(_new_state_bucket) for hazard in HAZARD_KEYS
     }
     elec_global_bucket: dict[str, dict[str, float]] = {hazard: _new_state_bucket() for hazard in HAZARD_KEYS}
+    elec_territory_loc_acc: dict[str, dict[str, float]] = {}
 
     for feat in exposure.features:
         infra_class = _infer_infra_class(feat)
         if infra_class not in {"elec_aerien", "elec_souterrain"}:
             continue
-        territory_id, _, _, _ = _territory_for_feature(feat)
+        territory_id, _, lat, lon = _territory_for_feature(feat)
         weight = _feature_weight(feat)
+        if lat is not None and lon is not None:
+            loc = elec_territory_loc_acc.setdefault(territory_id, {"lat_sum": 0.0, "lon_sum": 0.0, "count": 0.0})
+            loc["lat_sum"] += float(lat)
+            loc["lon_sum"] += float(lon)
+            loc["count"] += 1.0
         for hazard in HAZARD_KEYS:
             state = _state_from_damage_ratio(_direct_damage_ratio(feat, hazard, base_damage))
             _bucket_add_state(elec_buckets_by_hazard[hazard][territory_id], state=state, weight=weight)
@@ -556,11 +598,20 @@ def compute_impacts_fallback(
         for hazard, buckets in elec_buckets_by_hazard.items()
     }
     elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
+    elec_territory_centroids = {
+        tid: (loc["lat_sum"] / loc["count"], loc["lon_sum"] / loc["count"])
+        for tid, loc in elec_territory_loc_acc.items()
+        if loc.get("count", 0.0) > 0.0
+    }
 
     territory_acc: dict[str, dict[str, Any]] = {}
     asset_acc: dict[str, dict[str, Any]] = {}
     infra_buckets_by_hazard: dict[str, dict[str, dict[str, float]]] = {
         hazard: defaultdict(_new_state_bucket) for hazard in HAZARD_KEYS
+    }
+    health_resolution_by_hazard = {
+        hazard: {"local_territory": 0, "nearest_territory": 0, "global": 0}
+        for hazard in HAZARD_KEYS
     }
 
     dependency_impacted_assets = 0
@@ -618,7 +669,16 @@ def compute_impacts_fallback(
             final_damage = direct_damage
 
             if infra_class in {"eau_reseau", "eau_ouvrage"}:
-                elec_health = elec_health_by_territory[hazard].get(territory_id, elec_health_global[hazard])
+                elec_health, source = _resolve_electric_health_for_territory(
+                    hazard=hazard,
+                    territory_id=territory_id,
+                    lat=lat,
+                    lon=lon,
+                    elec_health_by_territory=elec_health_by_territory,
+                    elec_health_global=elec_health_global,
+                    elec_territory_centroids=elec_territory_centroids,
+                )
+                health_resolution_by_hazard[hazard][source] += 1
                 dependency_state = _dependency_state_from_elec_health(elec_health)
                 if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
                     dependency_impacted_assets += 1
@@ -626,8 +686,10 @@ def compute_impacts_fallback(
                 final_damage = max(final_damage, STATE_DAMAGE_FLOOR[dependency_state])
                 final_damage = _clamp(final_damage + (1.0 - elec_health) * 0.12, 0.0, 0.95)
 
-            direct_eai = exposure_value * (direct_damage * ANNUALIZATION_FACTOR[hazard])
-            final_eai = exposure_value * (final_damage * ANNUALIZATION_FACTOR[hazard])
+            direct_eai = min(exposure_value, max(0.0, exposure_value * (direct_damage * ANNUALIZATION_FACTOR[hazard])))
+            final_eai = min(exposure_value, max(0.0, exposure_value * (final_damage * ANNUALIZATION_FACTOR[hazard])))
+            if final_eai < direct_eai:
+                final_eai = direct_eai
             indirect_eai = max(0.0, final_eai - direct_eai)
 
             if hazard == "storm":
@@ -775,6 +837,11 @@ def compute_impacts_fallback(
                 "storm": round(elec_health_global["storm"], 4),
                 "storm_cmcc": round(elec_health_global["storm_cmcc"], 4),
             },
+            "electric_health_resolution_rule": "local_territory_else_nearest_electric_territory_else_global",
+            "electric_health_resolution_by_hazard": {
+                hazard: {k: int(v) for k, v in src.items()}
+                for hazard, src in health_resolution_by_hazard.items()
+            },
             "state_thresholds": {
                 "S0_to_S1_damage_ratio": 0.05,
                 "S1_to_S2_damage_ratio": 0.15,
@@ -797,6 +864,8 @@ def compute_impacts_fallback(
         "Each asset receives a direct cyclone damage ratio, mapped to four states (S0/S1/S2/S3) and annualized into EAI.",
         "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
         "Water assets are conservatively assumed dependent on electricity; weak local electrical health can escalate water states.",
+        "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
+        "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
         "For uploads without explicit categories, default_exposure_category=habitation is applied unless overridden.",
     ]
 

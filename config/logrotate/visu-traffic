@@ -1,0 +1,13 @@
+/home/ubuntu/sib-work/logs/visu-traffic.log {
+    daily
+    rotate 365
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0620 ubuntu www-data
+    sharedscripts
+    postrotate
+        invoke-rc.d nginx rotate >/dev/null 2>&1
+    endscript
+}

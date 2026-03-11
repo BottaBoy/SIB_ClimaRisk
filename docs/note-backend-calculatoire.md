@@ -140,6 +140,68 @@ Avec:
 - `L_total`: poids total (ici somme des valeurs des actifs/points du composant),
 - `L_S1`, `L_S2`, `L_S3`: poids dans chaque etat.
 
+Important:
+- dans le moteur backend CLIMADA (mode par defaut), `L_*` n'est pas une longueur geometrique en km;
+- le poids est la **valeur economique** (`value_eur`) re-agrégée par etat.
+
+La formule `health` est calculee pour tous les composants presents dans `component_health` (elec, eau, habitation, etc.).
+En revanche, la propagation de dependance utilise **uniquement** la sante electrique pour ajuster les actifs eau.
+
+### 6.3 Reponse directe: "comment est calculee la longueur dans chaque etat ?"
+
+Dans le backend API principal (`interdependency.py`), ce n'est pas une longueur physique mais un poids de valeur:
+
+1. Chaque actif est echantillonne en `n` points (si ligne: pas cible `sampling_spacing_m`, typiquement 100 m):
+
+```text
+n_ligne = min(max_points_per_feature, ceil(longueur_m / spacing_m) + 1)
+```
+2. La valeur de l'actif est repartie uniformement:
+
+```text
+value_point = value_feature / n
+```
+3. Les buckets de sante sont agreges par etat:
+
+```text
+L_total = somme(value_point)
+L_S1 = somme(value_point des points en S1)
+L_S2 = somme(value_point des points en S2)
+L_S3 = somme(value_point des points en S3)
+```
+
+Donc, dans l'API backend:
+- `L_*` est une masse de valeur exposee par etat (pas un km).
+- si `value = longueur_km * cout_km` pour une classe lineaire, `L_*` reste proportionnel a la longueur, mais l'unite reste un poids de valeur.
+
+Note mode fallback (`impact_runner.py`):
+- cette logique existe et peut etre executee (`SIB_RISK_IMPACT_ENGINE_MODE=fallback` ou fallback autorise apres echec CLIMADA);
+- elle n'est pas le chemin nominal de production;
+- dans ce mode, `_feature_weight` peut utiliser une longueur km pour les lignes, avec poids conventionnels `1` (points) et `3` (polygones).
+
+### 6.4 Annexe - longueur impactee apres desagregation (hors moteur API principal)
+
+Cette methode n'est pas utilisee dans le backend API principal; c'est une methode annexe pour des tableaux cartes/scripts d'etude.
+
+Principe:
+1. calculer `len_km(feature)` pour chaque ligne;
+2. distribuer `len_point = len_km(feature) / n_points_feature`;
+3. sommer `len_point` par etat pour obtenir `L_km_S0..S3`.
+
+Equivalent pratique deja utilise dans `scripts/build_guadeloupe_page1_data.py`:
+
+```text
+weights_km(point) = value_point / value_per_km(classe_lineaire)
+```
+
+Puis:
+
+```text
+L_km_Sj = somme(weights_km(point) des points en Sj)
+```
+
+Cette conversion doit rester reservee aux classes lineaires, et exclure les ouvrages ponctuels (PR/STEP/AEP ouvrages).
+
 ---
 
 ## 7) Propagation elec -> eau (post-traitement prudent)
@@ -162,13 +224,14 @@ La dependance est donc calculee avec une regle spatiale robuste et traçable:
 4. On calcule ensuite `health_elec` par maille territoriale avec la formule:
    - `health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3)/L_total`
 5. Chaque point eau prend la sante elec de sa maille:
-   - si la maille n'a pas de points elec, fallback sur la sante elec globale.
+   - si la maille n'a pas de points elec, on prend la sante de la maille electrique la plus proche;
+   - et en dernier recours (aucune maille elec disponible), fallback global.
 6. Cette sante elec est transformee en etat de dependance (`S0..S3`), puis appliquee aux points eau:
    - etat final eau = `max(etat_direct_eau, etat_dependance_elec)`,
    - uplift de perte indirecte: `S0:+0%`, `S1:+10%`, `S2:+25%`, `S3:+45%`.
 
 Conclusion importante:
-- aujourd'hui, la dependance est **locale par maille spatiale**, pas encore "electrique topologique" (pas de rattachement pompe->depart HTA/BT identifie dans les donnees source).
+- aujourd'hui, la dependance est **spatiale par maille** (maille locale puis maille elec la plus proche), pas encore "electrique topologique" (pas de rattachement pompe->depart HTA/BT identifie dans les donnees source).
 - c'est volontairement prudent pour eviter de sous-estimer les pertes eau.
 
 Algorithme:
@@ -177,14 +240,20 @@ Algorithme:
    - `health < 0.75` -> au moins `S1`
    - `health < 0.55` -> au moins `S2`
    - `health < 0.35` -> `S3`
-3. pour les actifs eau, uplift d’EAI indirect:
+3. pour les actifs eau uniquement, uplift d’EAI indirect:
    - `S0: +0%`, `S1: +10%`, `S2: +25%`, `S3: +45%`
+4. pour les actifs non-eau (dont elec), `EAI_indirect = 0`.
+5. garde-fou par actif/point: `EAI_total <= exposure_eur`.
 
 Formules:
 
 ```text
-EAI_indirect(i,h) = EAI_direct(i,h) * uplift(state_dep(t,h))
-EAI_total(i,h) = EAI_direct(i,h) + EAI_indirect(i,h)
+si actif_eau:
+  EAI_indirect(i,h) = EAI_direct(i,h) * uplift(state_dep(t,h))
+sinon:
+  EAI_indirect(i,h) = 0
+
+EAI_total(i,h) = min(exposure_eur(i), EAI_direct(i,h) + EAI_indirect(i,h))
 ```
 
 ### 7.2 Pourquoi on peut observer des ratios d'etats tres proches (voire identiques) entre STORM et STORM_CMCC
@@ -199,7 +268,7 @@ Ce n'est pas forcement une erreur de calcul. Dans les sorties actuelles Guadelou
    - resultat: saturation en `S3`, donc memes ratios d'etats.
 4. Pour l'eau, l'etat final est aussi pilote par la dependance elec (`max(direct, dep)`):
    - quand la sante elec est deja tres basse dans les deux aleas, l'eau passe dans le meme etat final meme si les montants en euros restent differents.
-5. Les tableaux d'etats sont ponderes par longueur (poids lineaires):
+5. Les tableaux d'etats peuvent etre ponderes par un poids agregé (souvent valeur exposee dans le backend API, ou longueur proxy dans certains scripts front):
    - de petites differences locales peuvent ne pas changer la repartition agregée.
 
 Point de verification:
@@ -222,6 +291,12 @@ Le backend agrège par maille territoriale (`territory_id`) et produit:
 risk_index = clamp((EAI_total / exposure_eur) * 1000, 0, 100)
 ```
 
+Interpretation:
+- c'est un indice relatif sans unite (pas une perte en euros, pas une probabilite);
+- `EAI_total / exposure_eur` mesure la "pression de risque annualisee" rapportee a l'exposition;
+- le facteur `*1000` augmente la lisibilite numerique pour l'UI;
+- `clamp(0,100)` borne l'indice pour eviter des valeurs extrêmes en affichage.
+
 ### 8.2 Portfolio
 Pour chaque alea:
 - `eai_eur`, `aai_agg_eur`, `max_event_loss_eur`
@@ -234,22 +309,41 @@ Autres blocs:
 - `portfolio_results.interdependency`
 - `portfolio_results.event_summary` (`storm_top_events`, `storm_cmcc_top_events`)
 
+Signification detaillee des variables portfolio:
+- `eai_eur`: perte annuelle moyenne totale (direct + indirect) du portefeuille.
+- `aai_agg_eur`: meme ordre de grandeur que `eai_eur` dans le payload de sortie actuel (champ garde pour compatibilite).
+- `eai_direct_eur`: part directe calculee par alea.
+- `eai_indirect_eur`: part additionnelle due a la dependance elec -> eau.
+- `max_event_loss_eur`: perte du pire evenement estime pour l'alea.
+- `pml_10/20/50/100/200/1000_eur`: pertes de reference par periode de retour.
+- `tvar_95_eur`: moyenne des pertes dans la queue de distribution au-dela du quantile 95%.
+- `delta.eai_eur`: ecart absolu STORM_CMCC - STORM.
+- `delta.eai_pct`: ecart relatif STORM_CMCC vs STORM en pourcentage.
+- `component_health`: sante par composant (inclut `health`, `L_total`, `L_S1`, `L_S2`, `L_S3`, `asset_count`).
+- `interdependency`: hypothese de dependance, seuils d'etat, uplift, metriques de resolution de sante elec.
+- `event_summary`: liste des evenements les plus dommageables par alea.
+
 ---
 
 ## 9) Contrat de sortie JSON (compatibilite + extensions)
 
-Compatibilite legacy conservee:
+Le payload conserve la structure historique pour le front:
 - `meta`, `exposure_summary`, `territory_results`, `portfolio_results`, `graphs`, `notes`.
 
-Ajouts:
-- `meta.engine = "climada_with_interdependency_v1"`
-- `meta.modeling = {storm_years, frequency_normalized, dependency_mode, scenario_mode, ...}`
-- nouveaux champs directs/indirects/PML/TVaR/top events.
+Extensions actuelles (additives):
+- `meta.engine` identifie le moteur effectif (`climada_with_interdependency_v1` ou fallback).
+- `meta.modeling` explicite les choix de modelisation (storm_years, hazard_source, dependency_mode, scenario_mode, sampling, etc.).
+- `asset_results` fournit le detail par actif en plus de `territory_results`.
+- `portfolio_results` expose les composantes direct/indirect et les blocs `component_health`, `interdependency`, `event_summary`.
+
+Politique de compatibilite:
+- pas de rupture de schema sur les cles top-level principales;
+- ajouts principalement en nouveaux champs, pour conserver la compatibilite front existante.
 
 Artefacts telechargeables:
-- `territory_results.csv`
-- `graphs.json`
-- `top_events.csv` (si `event_summary` disponible)
+- `territory_results.csv`: export tabulaire des resultats territoriaux.
+- `graphs.json`: export des series graphiques backend.
+- `top_events.csv`: export des evenements dominants (si `event_summary` present).
 
 ---
 
