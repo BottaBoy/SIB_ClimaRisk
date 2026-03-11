@@ -72,10 +72,10 @@ const windMapRef = {
 
 const adminVisuMapRef = {
   cards: [
-    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-1' },
-    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-2' },
-    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-3' },
-    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-4' }
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-1', legendControl: null },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-2', legendControl: null },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-3', legendControl: null },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-4', legendControl: null }
   ]
 };
 
@@ -144,6 +144,13 @@ const STATE_COLORS = {
 const WIND_PADDING_CELLS = 6;
 const WIND_SCALE_STEP_MPS = 5;
 const WIND_PALETTE = ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'];
+const ADMIN_VISU_LEGEND_COLORS = ['#30123b', '#4145ab', '#4685f9', '#39b6f7', '#1bd0d5', '#4be28a', '#a4ef63', '#f1e54e', '#f9b737', '#ed6925', '#c32503'];
+const WIND_SPEED_MPS_TO_KMH = 3.6;
+const WIND_SPEED_UNIT_DISPLAY = 'km/h';
+const CMCC_VISUAL_MIN_BAND_SAMPLE_MAX = 5;
+const CMCC_VISUAL_MIN_BAND_NEIGHBOR_RADIUS = 5;
+const CMCC_VISUAL_MIN_BAND_NEIGHBOR_MIN = 3;
+const CMCC_VISUAL_MIN_BAND_EPS = 0.06;
 
 const chartRefs = {
   c1: null,
@@ -193,6 +200,8 @@ const els = {
   drawModeButtons: document.getElementById('draw-mode-buttons'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
   submitDrawingBtn: document.getElementById('submit-drawing-btn'),
+  uploadRunEstimate: document.getElementById('upload-run-estimate'),
+  drawRunEstimate: document.getElementById('draw-run-estimate'),
   refreshPreviewBtn: document.getElementById('refresh-preview-btn'),
   clearDrawingsBtn: document.getElementById('clear-drawings-btn'),
   drawSummaryList: document.getElementById('draw-summary-list'),
@@ -594,6 +603,73 @@ function formatMoneyEUR(valueEur) {
 
 function formatRisk(value) {
   return numberFmt.format(Number(value) || 0);
+}
+
+function windMpsToKmh(valueRaw) {
+  const value = Number(valueRaw);
+  if (!Number.isFinite(value)) return Number.NaN;
+  return value * WIND_SPEED_MPS_TO_KMH;
+}
+
+function formatWindSpeed(valueRaw) {
+  const kmh = windMpsToKmh(valueRaw);
+  return Number.isFinite(kmh) ? numberFmt.format(kmh) : 'n/a';
+}
+
+function formatWindBinLabel(valueRaw) {
+  const kmh = windMpsToKmh(valueRaw);
+  if (!Number.isFinite(kmh)) return String(valueRaw ?? '');
+  return numberFmt.format(kmh);
+}
+
+function parseLocaleNumber(valueRaw) {
+  const text = String(valueRaw ?? '').trim();
+  if (!text) return Number.NaN;
+  const normalized = text.replace(/\s+/g, '').replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function isWindMpsIndicator(indicatorRaw) {
+  return String(indicatorRaw || '').toLowerCase().includes('m/s');
+}
+
+function indicatorDisplayUnit(indicatorRaw) {
+  return String(indicatorRaw || '').replace(/\(\s*m\/s\s*\)/gi, `(${WIND_SPEED_UNIT_DISPLAY})`);
+}
+
+function formatWindTableValueFromMps(valueRaw) {
+  const parsed = parseLocaleNumber(valueRaw);
+  const kmh = windMpsToKmh(parsed);
+  if (!Number.isFinite(kmh)) return String(valueRaw ?? '');
+  return numberFmt.format(kmh);
+}
+
+function estimatedRunDurationMessage(mode) {
+  const normalized = normalizeDatasetMode(mode);
+  const isFirstRun = !Array.isArray(state.recentRuns) || state.recentRuns.length === 0;
+  if (normalized === 'drawn') {
+    if (isFirstRun) return 'Temps estime du run: environ 2 a 6 min (premier lancement souvent plus long).';
+    return 'Temps estime du run: environ 1 a 3 min (selon la charge serveur et le nombre de geometries).';
+  }
+  if (isFirstRun) return 'Temps estime du run: environ 3 a 8 min (premier lancement souvent plus long).';
+  return "Temps estime du run: environ 1 a 4 min (selon la taille du fichier et la charge serveur).";
+}
+
+function showRunDurationEstimate(mode) {
+  if (els.uploadRunEstimate) {
+    els.uploadRunEstimate.hidden = true;
+    els.uploadRunEstimate.textContent = '';
+  }
+  if (els.drawRunEstimate) {
+    els.drawRunEstimate.hidden = true;
+    els.drawRunEstimate.textContent = '';
+  }
+  const normalized = normalizeDatasetMode(mode);
+  const target = normalized === 'drawn' ? els.drawRunEstimate : els.uploadRunEstimate;
+  if (!target) return;
+  target.textContent = estimatedRunDurationMessage(normalized);
+  target.hidden = false;
 }
 
 function formatDate(value) {
@@ -1140,10 +1216,10 @@ function renderPage1Hazard(analysis) {
     } else {
       els.hazardGuadeloupeCompareBody.innerHTML = rows.map((row) => `
         <tr>
-          <td>${escapeHtml(String(row.indicator || ''))}</td>
-          <td class="num">${escapeHtml(String(row.storm || ''))}</td>
-          <td class="num">${escapeHtml(String(row.storm_cmcc || ''))}</td>
-          <td class="num">${escapeHtml(String(row.delta || ''))}</td>
+          <td>${escapeHtml(isWindMpsIndicator(row.indicator) ? indicatorDisplayUnit(row.indicator) : String(row.indicator || ''))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm) : String(row.storm || ''))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm_cmcc) : String(row.storm_cmcc || ''))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.delta) : String(row.delta || ''))}</td>
         </tr>
       `).join('');
     }
@@ -1811,10 +1887,10 @@ function windMetricConfig(modeRaw) {
       valueKey: 'rp50_wind_mps',
       minKey: 'rp50_wind_min_mps',
       maxKey: 'rp50_wind_max_mps',
-      legendTitle: 'Vent (retour 50 ans)',
+      legendTitle: 'Vents (retour 50 ans)',
       captionLabel: 'vitesse du vent (temps de retour 50 ans)',
       mapLabel: 'temps de retour 50 ans',
-      tooltipLabel: 'Vent (retour 50 ans)'
+      tooltipLabel: 'Vents (retour 50 ans)'
     };
   }
   if (mode === 'rp100') {
@@ -1823,10 +1899,10 @@ function windMetricConfig(modeRaw) {
       valueKey: 'rp100_wind_mps',
       minKey: 'rp100_wind_min_mps',
       maxKey: 'rp100_wind_max_mps',
-      legendTitle: 'Vent (retour 100 ans)',
+      legendTitle: 'Vents (retour 100 ans)',
       captionLabel: 'vitesse du vent (temps de retour 100 ans)',
       mapLabel: 'temps de retour 100 ans',
-      tooltipLabel: 'Vent (retour 100 ans)'
+      tooltipLabel: 'Vents (retour 100 ans)'
     };
   }
   return {
@@ -1834,10 +1910,10 @@ function windMetricConfig(modeRaw) {
     valueKey: 'mean_wind_mps',
     minKey: 'mean_wind_min_mps',
     maxKey: 'mean_wind_max_mps',
-    legendTitle: 'Vent moyen',
+    legendTitle: 'Vents moyens',
     captionLabel: 'vitesse moyenne du vent',
     mapLabel: 'vents moyens',
-    tooltipLabel: 'Vent max moyen'
+    tooltipLabel: 'Vents moyens'
   };
 }
 
@@ -1902,12 +1978,12 @@ function buildWindLegendHtml(scale, metric) {
     const mid = (lo + hi) / 2;
     const color = windColorFromScale(mid, scale);
     rows.push(
-      `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(numberFmt.format(lo))} - ${escapeHtml(numberFmt.format(hi))} m/s</span></div>`
+      `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(formatWindSpeed(lo))} - ${escapeHtml(formatWindSpeed(hi))} ${WIND_SPEED_UNIT_DISPLAY}</span></div>`
     );
   }
   return [
     '<div class="wind-legend">',
-    `<div class="wind-legend-title">${escapeHtml(metric?.legendTitle || 'Vent')}</div>`,
+    `<div class="wind-legend-title">${escapeHtml(metric?.legendTitle || 'Vents')}</div>`,
     ...rows,
     '</div>'
   ].join('');
@@ -2055,6 +2131,63 @@ function resolveWindMetricRange(payload, metric) {
   return { min: 0, max: 0 };
 }
 
+function isCaseStudyCmccMeanVisualSmoothingEnabled(hazardKey, metric, meta) {
+  if (hazardKey !== 'storm_cmcc') return false;
+  if (String(metric?.mode || '').toLowerCase() !== 'mean') return false;
+  const territory = String(meta?.territory || '').trim().toLowerCase();
+  return territory === 'guadeloupe' || territory === 'martinique';
+}
+
+function collectNeighborValuesForVisualSmoothing(i, j, knownByIndex, metricValueKey, floorValue) {
+  const out = [];
+  const radius = CMCC_VISUAL_MIN_BAND_NEIGHBOR_RADIUS;
+  for (let di = -radius; di <= radius; di += 1) {
+    for (let dj = -radius; dj <= radius; dj += 1) {
+      if (di === 0 && dj === 0) continue;
+      const neighbor = knownByIndex.get(`${i + di}|${j + dj}`);
+      if (!neighbor) continue;
+      const value = Number(neighbor[metricValueKey]);
+      const sampleCount = Number(neighbor.sample_count || 0);
+      if (!Number.isFinite(value)) continue;
+      if (value <= floorValue + CMCC_VISUAL_MIN_BAND_EPS) continue;
+      if (sampleCount <= CMCC_VISUAL_MIN_BAND_SAMPLE_MAX) continue;
+      const dist2 = (di * di) + (dj * dj);
+      out.push({ value, dist2 });
+    }
+  }
+  return out.sort((a, b) => a.dist2 - b.dist2);
+}
+
+function applyCaseStudyCmccMinBandVisualSmoothing(knownCells, knownByIndex, payload, metricValueKey) {
+  const floorValue = Number(payload?.mean_wind_min_mps);
+  if (!Number.isFinite(floorValue)) return;
+
+  const candidates = knownCells.filter((cell) => {
+    const value = Number(cell[metricValueKey]);
+    const sampleCount = Number(cell.sample_count || 0);
+    return (
+      Number.isFinite(value)
+      && Math.abs(value - floorValue) <= CMCC_VISUAL_MIN_BAND_EPS
+      && sampleCount <= CMCC_VISUAL_MIN_BAND_SAMPLE_MAX
+    );
+  });
+  if (!candidates.length) return;
+
+  candidates.forEach((cell) => {
+    const i = Number(cell.i);
+    const j = Number(cell.j);
+    if (!Number.isFinite(i) || !Number.isFinite(j)) return;
+    const neighbors = collectNeighborValuesForVisualSmoothing(i, j, knownByIndex, metricValueKey, floorValue);
+    if (neighbors.length < CMCC_VISUAL_MIN_BAND_NEIGHBOR_MIN) return;
+    const take = neighbors.slice(0, 6);
+    const avg = take.reduce((acc, item) => acc + item.value, 0) / take.length;
+    if (!Number.isFinite(avg)) return;
+    cell[metricValueKey] = avg;
+    cell.metric_value = avg;
+    cell.visual_adjusted = true;
+  });
+}
+
 function renderWindMap(hazardKey, payload, meta, options = {}) {
   if (!payload || !Array.isArray(payload.cells)) return;
   const ref = ensureWindMap(hazardKey);
@@ -2117,6 +2250,10 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
     if (!knownByIndex.has(key)) knownByIndex.set(key, observed);
   });
 
+  if (isCaseStudyCmccMeanVisualSmoothingEnabled(hazardKey, metric, meta)) {
+    applyCaseStudyCmccMinBandVisualSmoothing(knownCells, knownByIndex, payload, metricValueKey);
+  }
+
   if (
     Number.isFinite(latMin) && Number.isFinite(latMax) && Number.isFinite(lonMin) && Number.isFinite(lonMax) && Number.isFinite(cellDeg)
   ) {
@@ -2132,6 +2269,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const metricValue = Number(data.metric_value ?? fallbackValue);
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
+        const visualAdjusted = Boolean(data.visual_adjusted);
         const color = windColorFromScale(metricValue, scale);
         const rect = L.rectangle([[south, west], [north, east]], {
           pane: ref.cellsPaneName,
@@ -2142,9 +2280,11 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         rect.bindTooltip(
           [
             `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
-            `${escapeHtml(metric.tooltipLabel)}: ${escapeHtml(numberFmt.format(metricValue))} m/s`,
+            `${escapeHtml(metric.tooltipLabel)}: ${escapeHtml(formatWindSpeed(metricValue))} ${WIND_SPEED_UNIT_DISPLAY}`,
             `Echantillons: ${escapeHtml(numberFmt.format(sampleCount))}`,
-            extrapolated ? 'Valeur: extrapolee (plus proche maille observee)' : 'Valeur: observee'
+            extrapolated
+              ? 'Valeur: extrapolee (plus proche maille observee)'
+              : (visualAdjusted ? 'Valeur: lissage visuel (sans impact calcul)' : 'Valeur: observee')
           ].join('<br/>'),
           { sticky: true }
         );
@@ -2193,11 +2333,13 @@ function renderWindMaps() {
   }
 
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(WIND_SCALE_STEP_MPS)} m/s)`;
+    const stepKmh = WIND_SCALE_STEP_MPS * WIND_SPEED_MPS_TO_KMH;
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(stepKmh)} ${WIND_SPEED_UNIT_DISPLAY})`;
     renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(WIND_SCALE_STEP_MPS)} m/s)`;
+    const stepKmh = WIND_SCALE_STEP_MPS * WIND_SPEED_MPS_TO_KMH;
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(stepKmh)} ${WIND_SPEED_UNIT_DISPLAY})`;
     renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
   }
   applyWindLayerOpacity();
@@ -2216,9 +2358,9 @@ function normalizeAdminVisuScenario(raw) {
 
 function adminVisuScenarioConfig(raw) {
   const scenario = normalizeAdminVisuScenario(raw);
-  if (scenario === 'rp50') return { key: 'rp50', label: 'temps de retour 50 ans' };
-  if (scenario === 'rp100') return { key: 'rp100', label: 'temps de retour 100 ans' };
-  return { key: 'mean', label: 'vents moyens' };
+  if (scenario === 'rp50') return { key: 'rp50', label: 'temps de retour 50 ans', legendTitle: 'Vents (retour 50 ans)' };
+  if (scenario === 'rp100') return { key: 'rp100', label: 'temps de retour 100 ans', legendTitle: 'Vents (retour 100 ans)' };
+  return { key: 'mean', label: 'vents moyens', legendTitle: 'Vents moyens' };
 }
 
 function currentAdminVisuOpacityFactor() {
@@ -2250,6 +2392,50 @@ function syncAdminVisuOpacityFromSlider({ forceApply = false } = {}) {
   if (changed) state.adminVisuOpacity = next;
   updateAdminVisuOpacityUi();
   if (changed || forceApply) applyAdminVisuOpacity();
+}
+
+function adminVisuLegendGradientCss() {
+  return `linear-gradient(90deg, ${ADMIN_VISU_LEGEND_COLORS.join(', ')})`;
+}
+
+function buildAdminVisuLegendHtml(minRaw, maxRaw, legendTitle) {
+  const minVal = Number(minRaw);
+  const maxVal = Number(maxRaw);
+  const minTxt = Number.isFinite(minVal) ? formatWindSpeed(minVal) : 'n/a';
+  const maxTxt = Number.isFinite(maxVal) ? formatWindSpeed(maxVal) : 'n/a';
+  const midTxt = Number.isFinite(minVal) && Number.isFinite(maxVal)
+    ? formatWindSpeed((minVal + maxVal) / 2)
+    : 'n/a';
+  return [
+    '<div class="admin-wind-legend">',
+    `<div class="admin-wind-legend-title">${escapeHtml(legendTitle || 'Vents')}</div>`,
+    `<div class="admin-wind-legend-bar" style="background:${adminVisuLegendGradientCss()}"></div>`,
+    '<div class="admin-wind-legend-labels">',
+    `<span>${escapeHtml(minTxt)} ${WIND_SPEED_UNIT_DISPLAY}</span>`,
+    `<span>${escapeHtml(midTxt)} ${WIND_SPEED_UNIT_DISPLAY}</span>`,
+    `<span>${escapeHtml(maxTxt)} ${WIND_SPEED_UNIT_DISPLAY}</span>`,
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
+function ensureAdminVisuLegend(cardIdx, metricMin, metricMax, legendTitle) {
+  if (!window.L) return;
+  const ref = adminVisuMapRef.cards[cardIdx];
+  if (!ref?.instance) return;
+
+  if (!ref.legendControl) {
+    ref.legendControl = L.control({ position: 'bottomright' });
+    ref.legendControl.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.className = 'leaflet-control wind-legend-control admin-wind-legend-control';
+      return div;
+    };
+    ref.legendControl.addTo(ref.instance);
+  }
+
+  const legendEl = ref.legendControl.getContainer();
+  if (legendEl) legendEl.innerHTML = buildAdminVisuLegendHtml(metricMin, metricMax, legendTitle);
 }
 
 function adminVisuOverlayUrl(pathValue) {
@@ -2347,10 +2533,12 @@ function renderAdminVisuCard(cardIdx) {
   }
 
   if (caption) {
-    const minTxt = Number.isFinite(metricMin) ? numberFmt.format(metricMin) : 'n/a';
-    const maxTxt = Number.isFinite(metricMax) ? numberFmt.format(metricMax) : 'n/a';
-    caption.textContent = `${hazardLabel} · ${scenarioCfg.label} · echelle ${minTxt} a ${maxTxt} m/s`;
+    const minTxt = Number.isFinite(metricMin) ? formatWindSpeed(metricMin) : 'n/a';
+    const maxTxt = Number.isFinite(metricMax) ? formatWindSpeed(metricMax) : 'n/a';
+    caption.textContent = `${hazardLabel} · ${scenarioCfg.label} · echelle ${minTxt} a ${maxTxt} ${WIND_SPEED_UNIT_DISPLAY}`;
   }
+
+  ensureAdminVisuLegend(cardIdx, metricMin, metricMax, scenarioCfg.legendTitle);
 
   setTimeout(() => {
     if (ref.instance) ref.instance.invalidateSize();
@@ -2738,10 +2926,11 @@ function ensureChart(refKey, domId) {
 function renderHistogramChart(refKey, domId, graph, color) {
   const chart = ensureChart(refKey, domId);
   if (!chart || !graph) return;
+  const binsKmh = (graph.bins_mps || []).map((value) => formatWindBinLabel(value));
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: { trigger: 'axis' },
-    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: (graph.bins_mps || []).map(String), name: 'm/s' },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: binsKmh, name: WIND_SPEED_UNIT_DISPLAY },
     yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '%' },
     series: [{ type: 'bar', data: graph.percent || [], itemStyle: { color }, barMaxWidth: 26 }]
   }, true);
@@ -2755,10 +2944,10 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
   const rawPctA = Array.isArray(graphA.percent) ? graphA.percent : [];
   const rawPctB = Array.isArray(graphB.percent) ? graphB.percent : [];
   const seriesA = rawBinsA
-    .map((x, idx) => [Number(x), Number(rawPctA[idx] || 0)])
+    .map((x, idx) => [windMpsToKmh(x), Number(rawPctA[idx] || 0)])
     .filter(([x]) => Number.isFinite(x));
   const seriesB = rawBinsB
-    .map((x, idx) => [Number(x), Number(rawPctB[idx] || 0)])
+    .map((x, idx) => [windMpsToKmh(x), Number(rawPctB[idx] || 0)])
     .filter(([x]) => Number.isFinite(x));
 
   chart.setOption({
@@ -2774,7 +2963,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
         const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[1] || 0);
         const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[1] || 0);
         return [
-          `<strong>${escapeHtml(numberFmt.format(binValue))} m/s</strong>`,
+          `<strong>${escapeHtml(numberFmt.format(binValue))} ${WIND_SPEED_UNIT_DISPLAY}</strong>`,
           `${escapeHtml(labelA)}: ${escapeHtml(numberFmt.format(valA))}%`,
           `${escapeHtml(labelB)}: ${escapeHtml(numberFmt.format(valB))}%`
         ].join('<br/>');
@@ -2787,7 +2976,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     xAxis: {
       ...chartThemeCommon().xAxis,
       type: 'value',
-      name: 'Vitesse maximale du vent (m/s)',
+      name: `Vitesse maximale du vent (${WIND_SPEED_UNIT_DISPLAY})`,
       nameLocation: 'middle',
       nameGap: 54,
       nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [10, 0, 0, 0] },
@@ -3543,6 +3732,7 @@ async function submitUpload(event) {
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
   form.append('run_label', runLabel);
 
+  showRunDurationEstimate('uploaded');
   setSubmitButtonLoading('uploaded', true);
   setStatus("Soumission du run d'exposition importée…", 'info');
   try {
@@ -3635,6 +3825,7 @@ async function submitDrawnExposure() {
   form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
   form.append('run_label', runLabel);
 
+  showRunDurationEstimate('drawn');
   setSubmitButtonLoading('drawn', true);
   setStatus("Soumission du run d'exposition dessinée…", 'info');
   try {

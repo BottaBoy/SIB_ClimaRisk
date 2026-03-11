@@ -419,6 +419,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
               <span class="btn-label">Lancer le run de l'exposition importee</span>
             </button>
+            <p class="muted small run-estimate" id="upload-run-estimate" hidden></p>
           </form>
 
           <div class="subpanel">
@@ -477,6 +478,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               </button>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
+            <p class="muted small run-estimate" id="draw-run-estimate" hidden></p>
             <p class="muted small">
               Definissez une valeur monetaire pour chaque geometrie dessinee dans la liste ci-dessus.
               Le nom de run est obligatoire pour chaque lancement.
@@ -745,7 +747,7 @@ scripts/build_guadeloupe_water_infra_map.py
         <div class="admin-visu-grid">
           <article class="subpanel admin-visu-card">
             <div class="admin-visu-card-head">
-              <h3>Bloc 1</h3>
+              <h3>Visualisation aléa 1</h3>
               <div class="admin-visu-selects">
                 <select id="admin-visu-hazard-1">
                   <option value="storm">STORM</option>
@@ -764,7 +766,7 @@ scripts/build_guadeloupe_water_infra_map.py
 
           <article class="subpanel admin-visu-card">
             <div class="admin-visu-card-head">
-              <h3>Bloc 2</h3>
+              <h3>Visualisation aléa 2</h3>
               <div class="admin-visu-selects">
                 <select id="admin-visu-hazard-2">
                   <option value="storm">STORM</option>
@@ -783,7 +785,7 @@ scripts/build_guadeloupe_water_infra_map.py
 
           <article class="subpanel admin-visu-card">
             <div class="admin-visu-card-head">
-              <h3>Bloc 3</h3>
+              <h3>Visualisation aléa 3</h3>
               <div class="admin-visu-selects">
                 <select id="admin-visu-hazard-3">
                   <option value="storm" selected>STORM</option>
@@ -802,7 +804,7 @@ scripts/build_guadeloupe_water_infra_map.py
 
           <article class="subpanel admin-visu-card">
             <div class="admin-visu-card-head">
-              <h3>Bloc 4</h3>
+              <h3>Visualisation aléa 4</h3>
               <div class="admin-visu-selects">
                 <select id="admin-visu-hazard-4">
                   <option value="storm">STORM</option>
