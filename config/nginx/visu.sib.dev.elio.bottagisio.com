@@ -20,6 +20,7 @@ server {
 
     root /var/www/sib.shared.elio.dev;
     index index.html;
+    access_log /home/ubuntu/sib-work/logs/visu-traffic.log visu_traffic_json;
 
     ssl_certificate /etc/letsencrypt/live/visu.sib.dev.elio.bottagisio.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/visu.sib.dev.elio.bottagisio.com/privkey.pem;
@@ -43,6 +44,14 @@ server {
     }
 
     location ^~ /api/ {
+        return 404;
+    }
+
+    location ^~ /logs/ {
+        return 404;
+    }
+
+    location ^~ /hazard-maps/ {
         return 404;
     }
 

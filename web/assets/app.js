@@ -27,6 +27,15 @@ const state = {
   windMaps: null,
   windLayerOpacity: 0.82,
   windMapMode: 'mean',
+  adminVisuMaps: null,
+  adminVisuMapsPromise: null,
+  adminVisuOpacity: 0.5,
+  adminVisuCards: [
+    { hazard: 'storm', scenario: 'mean' },
+    { hazard: 'storm_cmcc', scenario: 'mean' },
+    { hazard: 'storm', scenario: 'rp50' },
+    { hazard: 'storm_cmcc', scenario: 'rp100' }
+  ],
   waterInfra: null,
   waterLayerVisibility: {},
   page1Analysis: null,
@@ -59,6 +68,15 @@ const mapRef = {
 const windMapRef = {
   storm: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-storm' },
   storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-cmcc' }
+};
+
+const adminVisuMapRef = {
+  cards: [
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-1' },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-2' },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-3' },
+    { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-4' }
+  ]
 };
 
 const waterMapRef = {
@@ -154,6 +172,7 @@ const els = {
   navPage2: document.getElementById('nav-page-2'),
   navPage3: document.getElementById('nav-page-3'),
   navPage4: document.getElementById('nav-page-4'),
+  navPage5: document.getElementById('nav-page-5'),
   runtimeAccessNote: document.getElementById('runtime-access-note'),
   pageBlocks: Array.from(document.querySelectorAll('.page-block')),
   caseStudyTitle: document.getElementById('case-study-title'),
@@ -201,6 +220,32 @@ const els = {
   windMapMode: document.getElementById('wind-map-mode'),
   windMapTitleStorm: document.getElementById('wind-map-title-storm'),
   windMapTitleCmcc: document.getElementById('wind-map-title-cmcc'),
+  adminVisuOpacitySlider: document.getElementById('admin-visu-opacity-slider'),
+  adminVisuOpacityValue: document.getElementById('admin-visu-opacity-value'),
+  adminVisuHazardSelects: [
+    document.getElementById('admin-visu-hazard-1'),
+    document.getElementById('admin-visu-hazard-2'),
+    document.getElementById('admin-visu-hazard-3'),
+    document.getElementById('admin-visu-hazard-4')
+  ],
+  adminVisuScenarioSelects: [
+    document.getElementById('admin-visu-scenario-1'),
+    document.getElementById('admin-visu-scenario-2'),
+    document.getElementById('admin-visu-scenario-3'),
+    document.getElementById('admin-visu-scenario-4')
+  ],
+  adminVisuMapContainers: [
+    document.getElementById('admin-visu-map-1'),
+    document.getElementById('admin-visu-map-2'),
+    document.getElementById('admin-visu-map-3'),
+    document.getElementById('admin-visu-map-4')
+  ],
+  adminVisuCaptions: [
+    document.getElementById('admin-visu-caption-1'),
+    document.getElementById('admin-visu-caption-2'),
+    document.getElementById('admin-visu-caption-3'),
+    document.getElementById('admin-visu-caption-4')
+  ],
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
@@ -258,12 +303,19 @@ const PUBLIC_SHOWCASE_HOSTNAMES = new Set([
   'sib-copy.dev.elio.bottagisio.com',
   'visu.sib.dev.elio.bottagisio.com'
 ]);
+const ADMIN_VISU_ALLOWED_HOSTNAMES = new Set([
+  'sib.dev.elio.bottagisio.com',
+  'localhost',
+  '127.0.0.1'
+]);
 
 const runtime = {
   hostname: String(window.location.hostname || '').toLowerCase(),
-  isPublicShowcase: false
+  isPublicShowcase: false,
+  allowAdminVisu: true
 };
 runtime.isPublicShowcase = PUBLIC_SHOWCASE_HOSTNAMES.has(runtime.hostname);
+runtime.allowAdminVisu = ADMIN_VISU_ALLOWED_HOSTNAMES.has(runtime.hostname);
 
 const STORM_COVERAGE_ENDPOINT = '/api/v1/hazard/coverage';
 const STORM_COVERAGE_FALLBACK = [
@@ -326,11 +378,15 @@ function pageFromHash() {
   if (hash === 'page2') return 'page2';
   if (hash === 'page3') return runtime.isPublicShowcase ? 'page1' : 'page3';
   if (hash === 'page4') return 'page4';
+  if (hash === 'page5') return runtime.allowAdminVisu ? 'page5' : 'page1';
   return 'page1';
 }
 
 function setActivePage(pageKey, { updateHash = true } = {}) {
   if (runtime.isPublicShowcase && pageKey === 'page3') {
+    pageKey = 'page1';
+  }
+  if (!runtime.allowAdminVisu && pageKey === 'page5') {
     pageKey = 'page1';
   }
   state.currentPage = pageKey;
@@ -348,7 +404,8 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     [els.navPage1, 'page1'],
     [els.navPage2, 'page2'],
     [els.navPage3, 'page3'],
-    [els.navPage4, 'page4']
+    [els.navPage4, 'page4'],
+    [els.navPage5, 'page5']
   ];
   tabs.forEach(([btn, key]) => {
     if (!btn) return;
@@ -385,9 +442,34 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
     }, 80);
   }
+  if (pageKey === 'page5') {
+    ensureAdminVisuMapsLoaded()
+      .then(() => {
+        renderAdminVisuPage();
+      })
+      .catch((err) => {
+        console.warn('Admin visu maps could not be loaded', err);
+        (els.adminVisuCaptions || []).forEach((caption) => {
+          if (!caption) return;
+          caption.textContent = `Donnees admin indisponibles: ${err.message}`;
+        });
+      });
+    setTimeout(() => {
+      adminVisuMapRef.cards.forEach((card) => {
+        if (card?.instance) card.instance.invalidateSize();
+      });
+    }, 80);
+  }
 }
 
 function applyRuntimeMode() {
+  if (!runtime.allowAdminVisu) {
+    if (els.navPage5) {
+      els.navPage5.hidden = true;
+      els.navPage5.setAttribute('aria-hidden', 'true');
+    }
+  }
+
   if (!runtime.isPublicShowcase) {
     return;
   }
@@ -2016,6 +2098,175 @@ function renderWindMaps() {
   applyWindLayerOpacity();
 }
 
+function normalizeAdminVisuHazard(raw) {
+  return String(raw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
+}
+
+function normalizeAdminVisuScenario(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'rp50') return 'rp50';
+  if (value === 'rp100') return 'rp100';
+  return 'mean';
+}
+
+function adminVisuScenarioConfig(raw) {
+  const scenario = normalizeAdminVisuScenario(raw);
+  if (scenario === 'rp50') return { key: 'rp50', label: 'temps de retour 50 ans' };
+  if (scenario === 'rp100') return { key: 'rp100', label: 'temps de retour 100 ans' };
+  return { key: 'mean', label: 'vents moyens' };
+}
+
+function currentAdminVisuOpacityFactor() {
+  return clamp01(state.adminVisuOpacity ?? 0.5);
+}
+
+function updateAdminVisuOpacityUi() {
+  const factor = currentAdminVisuOpacityFactor();
+  if (els.adminVisuOpacitySlider) els.adminVisuOpacitySlider.value = String(Math.round(factor * 100));
+  if (els.adminVisuOpacityValue) els.adminVisuOpacityValue.textContent = `${Math.round(factor * 100)}%`;
+}
+
+function applyAdminVisuOpacity() {
+  const factor = currentAdminVisuOpacityFactor();
+  adminVisuMapRef.cards.forEach((card) => {
+    if (card?.overlayLayer && typeof card.overlayLayer.setOpacity === 'function') {
+      card.overlayLayer.setOpacity(factor);
+    }
+  });
+}
+
+function syncAdminVisuOpacityFromSlider({ forceApply = false } = {}) {
+  if (!els.adminVisuOpacitySlider) return;
+  const pct = Number(els.adminVisuOpacitySlider.value);
+  if (!Number.isFinite(pct)) return;
+  const next = clamp01(pct / 100);
+  const previous = currentAdminVisuOpacityFactor();
+  const changed = Math.abs(next - previous) > 0.0001;
+  if (changed) state.adminVisuOpacity = next;
+  updateAdminVisuOpacityUi();
+  if (changed || forceApply) applyAdminVisuOpacity();
+}
+
+function adminVisuOverlayUrl(pathValue) {
+  const raw = String(pathValue || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  if (raw.startsWith('/')) return new URL(raw, window.location.origin).toString();
+  return new URL(`/hazard-maps/${raw}`, window.location.origin).toString();
+}
+
+function ensureAdminVisuMap(cardIdx) {
+  if (!window.L) return null;
+  const ref = adminVisuMapRef.cards[cardIdx];
+  if (!ref) return null;
+  if (ref.instance) return ref;
+  const container = Array.isArray(els.adminVisuMapContainers) ? els.adminVisuMapContainers[cardIdx] : null;
+  if (!container) return null;
+
+  ref.instance = L.map(container, { zoomControl: true, attributionControl: true, preferCanvas: true }).setView([24.0, -58.0], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 8,
+    minZoom: 2,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(ref.instance);
+
+  if (!ref.instance.getPane(ref.overlayPaneName)) {
+    const pane = ref.instance.createPane(ref.overlayPaneName);
+    pane.style.zIndex = '430';
+    pane.style.pointerEvents = 'none';
+  }
+
+  return ref;
+}
+
+function renderAdminVisuCard(cardIdx) {
+  if (!runtime.allowAdminVisu) return;
+  const payload = state.adminVisuMaps;
+  if (!payload) return;
+  const ref = ensureAdminVisuMap(cardIdx);
+  if (!ref || !ref.instance) return;
+
+  const cardState = state.adminVisuCards[cardIdx] || { hazard: 'storm', scenario: 'mean' };
+  const hazard = normalizeAdminVisuHazard(cardState.hazard);
+  const scenarioCfg = adminVisuScenarioConfig(cardState.scenario);
+  const scenario = scenarioCfg.key;
+
+  const hazardSelect = Array.isArray(els.adminVisuHazardSelects) ? els.adminVisuHazardSelects[cardIdx] : null;
+  const scenarioSelect = Array.isArray(els.adminVisuScenarioSelects) ? els.adminVisuScenarioSelects[cardIdx] : null;
+  if (hazardSelect) hazardSelect.value = hazard;
+  if (scenarioSelect) scenarioSelect.value = scenario;
+
+  const bounds = payload?.meta?.bounds || {};
+  const south = Number(bounds.south);
+  const north = Number(bounds.north);
+  const west = Number(bounds.west);
+  const east = Number(bounds.east);
+  if (!Number.isFinite(south) || !Number.isFinite(north) || !Number.isFinite(west) || !Number.isFinite(east)) {
+    return;
+  }
+
+  const overlayPath = payload?.overlays?.[hazard]?.[scenario];
+  const overlayUrl = adminVisuOverlayUrl(overlayPath);
+  const caption = Array.isArray(els.adminVisuCaptions) ? els.adminVisuCaptions[cardIdx] : null;
+  const metricMeta = payload?.metrics?.[scenario] || {};
+  const metricMin = Number(metricMeta.min_mps);
+  const metricMax = Number(metricMeta.max_mps);
+  const hazardLabel = hazard === 'storm_cmcc' ? 'STORM_CMCC' : 'STORM';
+  const boundsLeaflet = [[south, west], [north, east]];
+
+  if (!overlayUrl) {
+    if (caption) caption.textContent = 'Couche indisponible pour cette combinaison.';
+    if (ref.overlayLayer) {
+      ref.instance.removeLayer(ref.overlayLayer);
+      ref.overlayLayer = null;
+      ref.overlayUrl = '';
+    }
+    return;
+  }
+
+  if (!ref.overlayLayer || ref.overlayUrl !== overlayUrl) {
+    if (ref.overlayLayer) ref.instance.removeLayer(ref.overlayLayer);
+    ref.overlayLayer = L.imageOverlay(overlayUrl, boundsLeaflet, {
+      pane: ref.overlayPaneName,
+      opacity: currentAdminVisuOpacityFactor(),
+      interactive: false,
+      crossOrigin: true
+    }).addTo(ref.instance);
+    ref.overlayUrl = overlayUrl;
+    ref.hasFitted = false;
+  }
+
+  if (!ref.hasFitted) {
+    ref.instance.fitBounds(boundsLeaflet, { padding: [8, 8], maxZoom: 6 });
+    ref.hasFitted = true;
+  }
+
+  if (caption) {
+    const minTxt = Number.isFinite(metricMin) ? numberFmt.format(metricMin) : 'n/a';
+    const maxTxt = Number.isFinite(metricMax) ? numberFmt.format(metricMax) : 'n/a';
+    caption.textContent = `${hazardLabel} · ${scenarioCfg.label} · echelle ${minTxt} a ${maxTxt} m/s`;
+  }
+
+  setTimeout(() => {
+    if (ref.instance) ref.instance.invalidateSize();
+  }, 0);
+}
+
+function renderAdminVisuPage() {
+  if (!runtime.allowAdminVisu) return;
+  if (!state.adminVisuMaps) {
+    (els.adminVisuCaptions || []).forEach((caption) => {
+      if (!caption) return;
+      caption.textContent = 'Chargement des couches admin...';
+    });
+    return;
+  }
+  for (let idx = 0; idx < adminVisuMapRef.cards.length; idx += 1) {
+    renderAdminVisuCard(idx);
+  }
+  applyAdminVisuOpacity();
+}
+
 function waterInfraStyle(feature) {
   const t = String(feature?.properties?.infra_type || '').toLowerCase();
   if (t === 'aep_cana') return { color: '#003A76', weight: 1.2, opacity: 0.85 };
@@ -2806,6 +3057,9 @@ function renderDrawPreview() {
 
 function renderAll() {
   renderWindMaps();
+  if (state.currentPage === 'page5') {
+    renderAdminVisuPage();
+  }
   renderWaterInfraMap();
   renderInfraSummary();
   renderUserImpactSection(state.activeResult);
@@ -2873,6 +3127,42 @@ async function fetchWindMaps(territory = 'guadeloupe') {
     }
   }
   throw lastErr || new Error('Impossible de charger les cartes des vents');
+}
+
+async function fetchAdminVisuMaps() {
+  const urls = [
+    new URL('/hazard-maps/na-leaflet-overlays.json', window.location.origin).toString(),
+    new URL('/hazard-maps/na_wind_leaflet_overlays.json', window.location.origin).toString()
+  ];
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (!payload?.meta?.bounds || !payload?.overlays?.storm || !payload?.overlays?.storm_cmcc) {
+        throw new Error('Payload admin visu invalide');
+      }
+      return payload;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Impossible de charger les couches admin visu');
+}
+
+function ensureAdminVisuMapsLoaded() {
+  if (state.adminVisuMaps) return Promise.resolve(state.adminVisuMaps);
+  if (state.adminVisuMapsPromise) return state.adminVisuMapsPromise;
+  state.adminVisuMapsPromise = fetchAdminVisuMaps()
+    .then((payload) => {
+      state.adminVisuMaps = payload;
+      return payload;
+    })
+    .finally(() => {
+      state.adminVisuMapsPromise = null;
+    });
+  return state.adminVisuMapsPromise;
 }
 
 async function fetchWaterInfra(territory = 'guadeloupe') {
@@ -3313,6 +3603,23 @@ function bindEvents() {
       renderAll();
     });
   }
+  if (els.navPage5) {
+    els.navPage5.addEventListener('click', () => {
+      if (!runtime.allowAdminVisu) {
+        setActivePage('page1');
+        setStatus("La page Admin visu n'est pas disponible sur ce domaine.", 'info');
+        return;
+      }
+      setActivePage('page5');
+      ensureAdminVisuMapsLoaded()
+        .then(() => {
+          renderAdminVisuPage();
+        })
+        .catch((err) => {
+          setStatus(`Admin visu indisponible: ${err.message}`, 'error');
+        });
+    });
+  }
   window.addEventListener('hashchange', () => {
     const page = pageFromHash();
     if (page === 'page2') {
@@ -3321,6 +3628,17 @@ function bindEvents() {
     }
     if (page === 'page1') {
       switchCaseStudyPage('page1', 'guadeloupe', { updateHash: false });
+      return;
+    }
+    if (page === 'page5') {
+      setActivePage('page5', { updateHash: false });
+      ensureAdminVisuMapsLoaded()
+        .then(() => {
+          renderAdminVisuPage();
+        })
+        .catch((err) => {
+          setStatus(`Admin visu indisponible: ${err.message}`, 'error');
+        });
       return;
     }
     setActivePage(page, { updateHash: false });
@@ -3352,6 +3670,39 @@ function bindEvents() {
       renderWindMaps();
     });
   }
+  if (els.adminVisuOpacitySlider) {
+    const onAdminOpacityChange = () => syncAdminVisuOpacityFromSlider({ forceApply: true });
+    const sliderEvents = ['input', 'change', 'pointermove', 'pointerup', 'touchmove', 'touchend', 'mousemove', 'mouseup', 'keyup'];
+    sliderEvents.forEach((eventName) => {
+      els.adminVisuOpacitySlider.addEventListener(eventName, onAdminOpacityChange);
+    });
+    updateAdminVisuOpacityUi();
+    syncAdminVisuOpacityFromSlider({ forceApply: true });
+  }
+  (els.adminVisuHazardSelects || []).forEach((select, idx) => {
+    if (!select) return;
+    select.value = normalizeAdminVisuHazard(state.adminVisuCards[idx]?.hazard);
+    select.addEventListener('change', () => {
+      state.adminVisuCards[idx] = {
+        ...(state.adminVisuCards[idx] || {}),
+        hazard: normalizeAdminVisuHazard(select.value),
+        scenario: normalizeAdminVisuScenario(state.adminVisuCards[idx]?.scenario)
+      };
+      renderAdminVisuCard(idx);
+    });
+  });
+  (els.adminVisuScenarioSelects || []).forEach((select, idx) => {
+    if (!select) return;
+    select.value = normalizeAdminVisuScenario(state.adminVisuCards[idx]?.scenario);
+    select.addEventListener('change', () => {
+      state.adminVisuCards[idx] = {
+        ...(state.adminVisuCards[idx] || {}),
+        hazard: normalizeAdminVisuHazard(state.adminVisuCards[idx]?.hazard),
+        scenario: normalizeAdminVisuScenario(select.value)
+      };
+      renderAdminVisuCard(idx);
+    });
+  });
 
   if (els.impactMapHazardSelect) {
     els.impactMapHazardSelect.value = state.impactMapHazard;
@@ -3567,6 +3918,19 @@ async function bootstrap() {
       if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
       if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
       if (els.conclusionText) els.conclusionText.textContent = 'Conclusion indisponible.';
+    }
+
+    if (runtime.allowAdminVisu) {
+      ensureAdminVisuMapsLoaded()
+        .then(() => {
+          if (state.currentPage === 'page5') renderAdminVisuPage();
+        })
+        .catch((err) => {
+          console.warn('Admin visu preload failed', err);
+          if (state.currentPage === 'page5') {
+            setStatus(`Admin visu indisponible: ${err.message}`, 'error');
+          }
+        });
     }
 
     state.activeResult = null;

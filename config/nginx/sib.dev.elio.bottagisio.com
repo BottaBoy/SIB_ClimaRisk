@@ -77,6 +77,13 @@ server {
         proxy_pass http://127.0.0.1:8000;
     }
 
+    location ^~ /hazard-maps/ {
+        auth_basic "Restricted";
+        auth_basic_user_file /etc/nginx/.htpasswd-sib-copy;
+        alias /var/www/sib.shared.elio.dev/hazard-maps/;
+        add_header Cache-Control "private, max-age=300";
+    }
+
     location / {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/.htpasswd-sib-copy;

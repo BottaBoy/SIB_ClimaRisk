@@ -114,7 +114,7 @@ button, input, select {
 
 .top-menu {
   display: grid;
-  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  grid-template-columns: auto repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 10px;
   position: sticky;
@@ -697,6 +697,42 @@ button:disabled {
   height: 420px;
 }
 
+.admin-visu-panel {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-visu-opacity-box {
+  max-width: 520px;
+}
+
+.admin-visu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-visu-card {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-visu-card-head {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-visu-selects {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-visu-map {
+  height: 420px;
+}
+
 .water-panel,
 .damage-head {
   padding: 14px;
@@ -1155,6 +1191,7 @@ button:disabled {
   .main-grid,
   .run-lab-grid,
   .wind-grid,
+  .admin-visu-grid,
   .wind-controls-row,
   .expo-grid,
   .impact-tables-grid {
@@ -1178,6 +1215,7 @@ button:disabled {
   .inline-row.tight input { min-width: 0; }
   .map { height: 360px; }
   .wind-map { height: 340px; }
+  .admin-visu-map { height: 340px; }
   .water-map { height: 340px; }
   .table-wrap th, .table-wrap td { font-size: 12px; padding: 8px; }
 }

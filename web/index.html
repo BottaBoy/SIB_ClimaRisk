@@ -22,6 +22,7 @@
         <button id="nav-page-2" class="page-tab" type="button">Etude de cas Martinique</button>
         <button id="nav-page-3" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
         <button id="nav-page-4" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
+        <button id="nav-page-5" class="page-tab page-tab-admin" type="button">Admin visu</button>
       </nav>
 
       <section id="runtime-access-note" class="panel runtime-note" hidden></section>
@@ -720,6 +721,104 @@ scripts/build_guadeloupe_water_infra_map.py
           Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
           L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
         </p>
+      </section>
+
+      <section class="panel admin-visu-panel page-block page5" aria-labelledby="admin-visu-title">
+        <div class="section-head">
+          <div>
+            <h2 id="admin-visu-title">Admin visu</h2>
+            <p class="muted">
+              Comparateur de 4 cartes d'alea NA (STORM et STORM_CMCC).
+              Selectionnez l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans) pour chaque bloc.
+            </p>
+          </div>
+        </div>
+
+        <div class="wind-opacity-box admin-visu-opacity-box">
+          <label for="admin-visu-opacity-slider">Transparence couche alea (4 cartes)</label>
+          <div class="wind-opacity-row">
+            <input id="admin-visu-opacity-slider" type="range" min="0" max="100" step="1" value="50" />
+            <span id="admin-visu-opacity-value" class="wind-opacity-value">50%</span>
+          </div>
+        </div>
+
+        <div class="admin-visu-grid">
+          <article class="subpanel admin-visu-card">
+            <div class="admin-visu-card-head">
+              <h3>Bloc 1</h3>
+              <div class="admin-visu-selects">
+                <select id="admin-visu-hazard-1">
+                  <option value="storm">STORM</option>
+                  <option value="storm_cmcc">STORM_CMCC</option>
+                </select>
+                <select id="admin-visu-scenario-1">
+                  <option value="mean">Vents moyens</option>
+                  <option value="rp50">Temps de retour 50 ans</option>
+                  <option value="rp100">Temps de retour 100 ans</option>
+                </select>
+              </div>
+            </div>
+            <div id="admin-visu-map-1" class="map admin-visu-map"></div>
+            <p class="muted small" id="admin-visu-caption-1">Chargement...</p>
+          </article>
+
+          <article class="subpanel admin-visu-card">
+            <div class="admin-visu-card-head">
+              <h3>Bloc 2</h3>
+              <div class="admin-visu-selects">
+                <select id="admin-visu-hazard-2">
+                  <option value="storm">STORM</option>
+                  <option value="storm_cmcc" selected>STORM_CMCC</option>
+                </select>
+                <select id="admin-visu-scenario-2">
+                  <option value="mean" selected>Vents moyens</option>
+                  <option value="rp50">Temps de retour 50 ans</option>
+                  <option value="rp100">Temps de retour 100 ans</option>
+                </select>
+              </div>
+            </div>
+            <div id="admin-visu-map-2" class="map admin-visu-map"></div>
+            <p class="muted small" id="admin-visu-caption-2">Chargement...</p>
+          </article>
+
+          <article class="subpanel admin-visu-card">
+            <div class="admin-visu-card-head">
+              <h3>Bloc 3</h3>
+              <div class="admin-visu-selects">
+                <select id="admin-visu-hazard-3">
+                  <option value="storm" selected>STORM</option>
+                  <option value="storm_cmcc">STORM_CMCC</option>
+                </select>
+                <select id="admin-visu-scenario-3">
+                  <option value="mean">Vents moyens</option>
+                  <option value="rp50" selected>Temps de retour 50 ans</option>
+                  <option value="rp100">Temps de retour 100 ans</option>
+                </select>
+              </div>
+            </div>
+            <div id="admin-visu-map-3" class="map admin-visu-map"></div>
+            <p class="muted small" id="admin-visu-caption-3">Chargement...</p>
+          </article>
+
+          <article class="subpanel admin-visu-card">
+            <div class="admin-visu-card-head">
+              <h3>Bloc 4</h3>
+              <div class="admin-visu-selects">
+                <select id="admin-visu-hazard-4">
+                  <option value="storm">STORM</option>
+                  <option value="storm_cmcc" selected>STORM_CMCC</option>
+                </select>
+                <select id="admin-visu-scenario-4">
+                  <option value="mean">Vents moyens</option>
+                  <option value="rp50">Temps de retour 50 ans</option>
+                  <option value="rp100" selected>Temps de retour 100 ans</option>
+                </select>
+              </div>
+            </div>
+            <div id="admin-visu-map-4" class="map admin-visu-map"></div>
+            <p class="muted small" id="admin-visu-caption-4">Chargement...</p>
+          </article>
+        </div>
       </section>
 
       <div id="error-banner" class="error-banner" hidden></div>
