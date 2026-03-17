@@ -29,6 +29,9 @@ def build_result_payload(
     if was_truncated:
         notes.append("Input geometry preview was truncated to 5000 features for map rendering.")
     clean_run_label = str(run_label or "").strip()
+    impact_function_label = "Eberenz_2021_TC"
+    if isinstance(comp.modeling, dict):
+        impact_function_label = str(comp.modeling.get("impact_function_profile") or impact_function_label)
 
     payload: dict[str, Any] = {
         "meta": {
@@ -40,7 +43,7 @@ def build_result_payload(
             "unit_currency": "EUR",
             "currency_display_unit": "MEUR",
             "sampling_spacing_m": float(disagg.spacing_m),
-            "impact_function": "Eberenz_2021_TC",
+            "impact_function": impact_function_label,
             "hazards": ["STORM", "STORM_CMCC"],
             "engine": comp.engine,
         },

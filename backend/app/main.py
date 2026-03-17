@@ -15,6 +15,7 @@ from .job_runner import JobProcessor
 from .job_store import JobStore
 from .models import HealthResponse, JobStatus, RunInputMode
 from .risk_engine.hazard_loader import list_default_basin_coverages
+from .risk_engine.impact_functions import get_tc_vulnerability_payload
 
 
 UTC = timezone.utc
@@ -71,6 +72,11 @@ def hazard_coverage():
         "hazards": ["storm", "storm_cmcc"],
         "coverages": list_default_basin_coverages(),
     }
+
+
+@app.get("/api/v1/vulnerability/curves")
+def vulnerability_curves():
+    return get_tc_vulnerability_payload()
 
 
 @app.post("/api/v1/runs")

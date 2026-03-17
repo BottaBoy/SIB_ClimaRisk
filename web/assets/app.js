@@ -31,6 +31,8 @@ const state = {
   adminVisuMapsPromise: null,
   adminPopulationMaps: null,
   adminPopulationMapsPromise: null,
+  adminVulnerabilityCurves: null,
+  adminVulnerabilityCurvesPromise: null,
   adminPopulationTerritory: 'glp',
   adminVisuOpacity: 0.5,
   adminVisuCards: [
@@ -272,6 +274,8 @@ const els = {
   adminPopulationTerritorySelect: document.getElementById('admin-population-territory-select'),
   adminPopulationMap: document.getElementById('admin-population-map'),
   adminPopulationCaption: document.getElementById('admin-population-caption'),
+  adminVulnerabilityGrid: document.getElementById('admin-vulnerability-grid'),
+  adminVulnerabilityCaption: document.getElementById('admin-vulnerability-caption'),
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
@@ -492,11 +496,21 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
           els.adminPopulationCaption.textContent = `Donnees population indisponibles: ${err.message}`;
         }
       });
+    ensureAdminVulnerabilityCurvesLoaded()
+      .then(() => {
+        renderAdminVulnerabilityCurves();
+      })
+      .catch((err) => {
+        if (els.adminVulnerabilityCaption) {
+          els.adminVulnerabilityCaption.textContent = `Courbes de vulnerabilite indisponibles: ${err.message}`;
+        }
+      });
     setTimeout(() => {
       adminVisuMapRef.cards.forEach((card) => {
         if (card?.instance) card.instance.invalidateSize();
       });
       if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
+      resizeAdminVulnerabilityCharts();
     }, 80);
   }
 }
@@ -650,6 +664,67 @@ function formatWindBinLabel(valueRaw) {
   const kmh = windMpsToKmh(valueRaw);
   if (!Number.isFinite(kmh)) return String(valueRaw ?? '');
   return numberFmt.format(kmh);
+}
+
+function toFiniteNumberArray(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v));
+}
+
+function vulnerabilityIntensityToKmh(valueRaw, unitRaw) {
+  const value = Number(valueRaw);
+  if (!Number.isFinite(value)) return Number.NaN;
+  const unit = String(unitRaw || '').trim().toLowerCase();
+  if (unit.includes('km/h') || unit.includes('kmh')) return value;
+  return windMpsToKmh(value);
+}
+
+function normalizeAdminVulnerabilityPayload(payload) {
+  if (!payload || !Array.isArray(payload.curves)) {
+    throw new Error('Payload de courbes de vulnerabilite invalide');
+  }
+  const curves = payload.curves
+    .map((curveRaw) => {
+      const intensityRaw = toFiniteNumberArray(curveRaw?.intensity);
+      const mddRaw = toFiniteNumberArray(curveRaw?.mdd);
+      if (!intensityRaw.length || !mddRaw.length) return null;
+      const len = Math.min(intensityRaw.length, mddRaw.length);
+      if (len <= 1) return null;
+
+      const intensity = intensityRaw.slice(0, len);
+      const mdd = mddRaw.slice(0, len).map((v) => clamp01(v));
+      const uncertaintyLowerRaw = toFiniteNumberArray(curveRaw?.uncertainty_lower);
+      const uncertaintyUpperRaw = toFiniteNumberArray(curveRaw?.uncertainty_upper);
+      let uncertaintyLower = null;
+      let uncertaintyUpper = null;
+      if (uncertaintyLowerRaw.length >= len && uncertaintyUpperRaw.length >= len) {
+        uncertaintyLower = uncertaintyLowerRaw.slice(0, len).map((v) => clamp01(v));
+        uncertaintyUpper = uncertaintyUpperRaw.slice(0, len).map((v) => clamp01(v));
+      }
+
+      return {
+        impf_id: Number(curveRaw?.impf_id),
+        code: String(curveRaw?.code || 'n/a'),
+        name: String(curveRaw?.name || curveRaw?.code || 'Courbe'),
+        source: String(curveRaw?.source || 'source inconnue'),
+        geography: String(curveRaw?.geography || 'geographie non renseignee'),
+        intensity_unit: String(curveRaw?.intensity_unit || payload?.intensity_unit || 'm/s'),
+        intensity,
+        mdd,
+        uncertaintyLower,
+        uncertaintyUpper
+      };
+    })
+    .filter(Boolean);
+
+  if (!curves.length) throw new Error('Aucune courbe exploitable dans le payload de vulnerabilite');
+
+  return {
+    profile: String(payload.profile || 'unknown'),
+    curves
+  };
 }
 
 function parseLocaleNumber(valueRaw) {
@@ -2797,6 +2872,190 @@ function renderAdminPopulationMap() {
   }, 0);
 }
 
+function adminVulnerabilityRefKey(curve) {
+  const code = String(curve?.code || 'curve').replace(/[^a-zA-Z0-9_-]+/g, '_');
+  const impfId = Number(curve?.impf_id);
+  const id = Number.isFinite(impfId) ? String(Math.trunc(impfId)) : 'na';
+  return `admin_vulnerability_${id}_${code}`;
+}
+
+function adminVulnerabilityDomId(curve) {
+  return adminVulnerabilityRefKey(curve).replace(/_/g, '-');
+}
+
+function disposeAdminVulnerabilityCharts() {
+  Object.keys(chartRefs)
+    .filter((key) => key.startsWith('admin_vulnerability_'))
+    .forEach((key) => {
+      try {
+        if (chartRefs[key] && typeof chartRefs[key].dispose === 'function') chartRefs[key].dispose();
+      } catch (err) {
+        console.warn('Unable to dispose vulnerability chart', key, err);
+      }
+      chartRefs[key] = null;
+    });
+}
+
+function ensureAdminVulnerabilityCurveCards(payload) {
+  const grid = els.adminVulnerabilityGrid;
+  if (!grid || !payload || !Array.isArray(payload.curves)) return;
+  const signature = payload.curves
+    .map((curve) => `${curve.impf_id}:${curve.code}:${curve.name}`)
+    .join('|');
+  if (grid.dataset.signature === signature) return;
+
+  disposeAdminVulnerabilityCharts();
+
+  grid.innerHTML = payload.curves.map((curve) => {
+    const domId = adminVulnerabilityDomId(curve);
+    const code = String(curve.code || 'n/a');
+    const title = String(curve.name || code);
+    const source = String(curve.source || 'source inconnue');
+    const geography = String(curve.geography || 'geographie non renseignee');
+    return `
+      <article class="admin-vulnerability-item">
+        <div class="admin-vulnerability-item-title">${escapeHtml(code)} · ${escapeHtml(title)}</div>
+        <div class="admin-vulnerability-item-meta">${escapeHtml(source)} · ${escapeHtml(geography)}</div>
+        <div id="${escapeHtml(domId)}" class="admin-vulnerability-chart"></div>
+      </article>
+    `;
+  }).join('');
+  grid.dataset.signature = signature;
+}
+
+function renderAdminVulnerabilityCurveChart(curve) {
+  const domId = adminVulnerabilityDomId(curve);
+  const refKey = adminVulnerabilityRefKey(curve);
+  const chart = ensureChart(refKey, domId);
+  if (!chart) return;
+
+  const intensity = Array.isArray(curve.intensity) ? curve.intensity : [];
+  const mdd = Array.isArray(curve.mdd) ? curve.mdd : [];
+  const len = Math.min(intensity.length, mdd.length);
+  if (len <= 1) return;
+
+  const xValues = intensity.slice(0, len).map((v) => vulnerabilityIntensityToKmh(v, curve.intensity_unit));
+  const mainPoints = xValues.map((x, idx) => [x, clamp01(mdd[idx]) * 100]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+
+  const lowerArr = Array.isArray(curve.uncertaintyLower) ? curve.uncertaintyLower : [];
+  const upperArr = Array.isArray(curve.uncertaintyUpper) ? curve.uncertaintyUpper : [];
+  const hasUncertainty = lowerArr.length >= len && upperArr.length >= len;
+  const lowerPoints = hasUncertainty
+    ? xValues.map((x, idx) => [x, clamp01(lowerArr[idx]) * 100]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    : [];
+  const upperPoints = hasUncertainty
+    ? xValues.map((x, idx) => [x, clamp01(upperArr[idx]) * 100]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    : [];
+
+  const series = [];
+  if (hasUncertainty && lowerPoints.length && upperPoints.length) {
+    series.push({
+      name: 'Borne basse',
+      type: 'line',
+      data: lowerPoints,
+      showSymbol: false,
+      symbol: 'none',
+      lineStyle: { width: 1, type: 'dashed', color: 'rgba(91, 197, 242, 0.65)' }
+    });
+    series.push({
+      name: 'Borne haute',
+      type: 'line',
+      data: upperPoints,
+      showSymbol: false,
+      symbol: 'none',
+      lineStyle: { width: 1, type: 'dashed', color: 'rgba(255, 215, 68, 0.70)' }
+    });
+  }
+  series.push({
+    name: 'Vulnérabilité',
+    type: 'line',
+    data: mainPoints,
+    showSymbol: false,
+    symbol: 'none',
+    lineStyle: { width: 2, color: '#F39655' },
+    areaStyle: { color: 'rgba(243, 150, 85, 0.18)' }
+  });
+
+  chart.setOption({
+    ...chartThemeCommon(),
+    grid: { left: 52, right: 20, top: 26, bottom: 44, containLabel: true },
+    legend: hasUncertainty ? { top: 0, right: 0, textStyle: { color: '#abc0ba', fontSize: 10 } } : undefined,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const rows = Array.isArray(params) ? params : [params];
+        if (!rows.length) return '';
+        const speed = Number(rows[0]?.value?.[0] ?? 0);
+        const body = rows.map((row) => {
+          const label = String(row?.seriesName || '');
+          const val = Number(row?.value?.[1] ?? row?.data?.[1] ?? 0);
+          return `${escapeHtml(label)}: ${escapeHtml(numberFmt.format(val))}%`;
+        });
+        return [`<strong>${escapeHtml(numberFmt.format(speed))} ${WIND_SPEED_UNIT_DISPLAY}</strong>`, ...body].join('<br/>');
+      }
+    },
+    xAxis: {
+      ...chartThemeCommon().xAxis,
+      type: 'value',
+      name: `Vitesse vent (${WIND_SPEED_UNIT_DISPLAY})`,
+      nameLocation: 'middle',
+      nameGap: 30,
+      axisLabel: {
+        color: '#abc0ba',
+        formatter: (value) => numberFmt.format(Number(value) || 0)
+      }
+    },
+    yAxis: {
+      ...chartThemeCommon().yAxis,
+      type: 'value',
+      min: 0,
+      max: 100,
+      name: 'Dommage (%)',
+      axisLabel: {
+        color: '#abc0ba',
+        formatter: (value) => `${numberFmt.format(Number(value) || 0)}%`
+      }
+    },
+    series
+  }, true);
+}
+
+function resizeAdminVulnerabilityCharts() {
+  Object.keys(chartRefs)
+    .filter((key) => key.startsWith('admin_vulnerability_'))
+    .forEach((key) => {
+      if (chartRefs[key] && typeof chartRefs[key].resize === 'function') chartRefs[key].resize();
+    });
+}
+
+function renderAdminVulnerabilityCurves() {
+  if (!runtime.allowAdminVisu) return;
+  const payload = state.adminVulnerabilityCurves;
+  if (!payload || !Array.isArray(payload.curves)) {
+    if (els.adminVulnerabilityCaption) {
+      els.adminVulnerabilityCaption.textContent = 'Chargement des courbes de vulnerabilite...';
+    }
+    return;
+  }
+
+  ensureAdminVulnerabilityCurveCards(payload);
+  payload.curves.forEach((curve) => {
+    renderAdminVulnerabilityCurveChart(curve);
+  });
+
+  if (els.adminVulnerabilityCaption) {
+    const curveCount = payload.curves.length;
+    const hasUncertainty = payload.curves.some((curve) => Array.isArray(curve.uncertaintyLower) && Array.isArray(curve.uncertaintyUpper));
+    const uncertaintyText = hasUncertainty ? 'incertitude visible (bornes basse/haute)' : 'incertitude non disponible dans la source';
+    els.adminVulnerabilityCaption.textContent = `${curveCount} courbes (${payload.profile}) · axe X en ${WIND_SPEED_UNIT_DISPLAY} · ${uncertaintyText}.`;
+  }
+
+  setTimeout(() => {
+    resizeAdminVulnerabilityCharts();
+  }, 0);
+}
+
 function waterInfraStyle(feature) {
   const t = String(feature?.properties?.infra_type || '').toLowerCase();
   if (t === 'aep_cana') return { color: '#003A76', weight: 1.2, opacity: 0.85 };
@@ -3602,6 +3861,7 @@ function renderAll() {
   if (state.currentPage === 'page5') {
     renderAdminVisuPage();
     renderAdminPopulationMap();
+    renderAdminVulnerabilityCurves();
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -3739,6 +3999,28 @@ function ensureAdminPopulationMapsLoaded() {
       state.adminPopulationMapsPromise = null;
     });
   return state.adminPopulationMapsPromise;
+}
+
+async function fetchAdminVulnerabilityCurves() {
+  const url = new URL('/api/v1/vulnerability/curves', window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  return normalizeAdminVulnerabilityPayload(payload);
+}
+
+function ensureAdminVulnerabilityCurvesLoaded() {
+  if (state.adminVulnerabilityCurves) return Promise.resolve(state.adminVulnerabilityCurves);
+  if (state.adminVulnerabilityCurvesPromise) return state.adminVulnerabilityCurvesPromise;
+  state.adminVulnerabilityCurvesPromise = fetchAdminVulnerabilityCurves()
+    .then((payload) => {
+      state.adminVulnerabilityCurves = payload;
+      return payload;
+    })
+    .finally(() => {
+      state.adminVulnerabilityCurvesPromise = null;
+    });
+  return state.adminVulnerabilityCurvesPromise;
 }
 
 async function fetchWaterInfra(territory = 'guadeloupe') {
@@ -4203,6 +4485,13 @@ function bindEvents() {
         .catch((err) => {
           setStatus(`Population admin indisponible: ${err.message}`, 'error');
         });
+      ensureAdminVulnerabilityCurvesLoaded()
+        .then(() => {
+          renderAdminVulnerabilityCurves();
+        })
+        .catch((err) => {
+          setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
+        });
     });
   }
   window.addEventListener('hashchange', () => {
@@ -4230,6 +4519,13 @@ function bindEvents() {
         })
         .catch((err) => {
           setStatus(`Population admin indisponible: ${err.message}`, 'error');
+        });
+      ensureAdminVulnerabilityCurvesLoaded()
+        .then(() => {
+          renderAdminVulnerabilityCurves();
+        })
+        .catch((err) => {
+          setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
         });
       return;
     }
@@ -4540,6 +4836,16 @@ async function bootstrap() {
           console.warn('Admin population preload failed', err);
           if (state.currentPage === 'page5') {
             setStatus(`Population admin indisponible: ${err.message}`, 'error');
+          }
+        });
+      ensureAdminVulnerabilityCurvesLoaded()
+        .then(() => {
+          if (state.currentPage === 'page5') renderAdminVulnerabilityCurves();
+        })
+        .catch((err) => {
+          console.warn('Admin vulnerability curves preload failed', err);
+          if (state.currentPage === 'page5') {
+            setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
           }
         });
     }

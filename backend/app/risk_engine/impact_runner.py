@@ -9,6 +9,7 @@ from ..config import Settings, load_settings
 from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
 from .errors import DependencyMissingError
 from .exposure_to_climada import build_climada_exposure
+from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
 from .types import DisaggregationSummary, ImpactComputationResult, NormalizedExposure
 
@@ -424,7 +425,7 @@ def _compute_impacts_climada(
         spacing_m=float(disagg.spacing_m),
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
-        impact_func_id=2,
+        impact_func_id_resolver=resolve_tc_impact_func_id,
     )
     climada = run_climada_direct_impacts(
         bundle,

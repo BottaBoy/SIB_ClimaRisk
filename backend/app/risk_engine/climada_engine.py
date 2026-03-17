@@ -12,7 +12,7 @@ from .hazard_loader import (
     load_storm_hazards,
     load_storm_hazards_from_parquet_for_points,
 )
-from .impact_functions import try_build_climada_impact_func
+from .impact_functions import get_tc_vulnerability_payload, try_build_climada_impact_funcs
 
 
 RETURN_PERIODS = (10, 20, 50, 100, 200)
@@ -179,14 +179,16 @@ def run_climada_direct_impacts(
     ImpactCalc = runtime["ImpactCalc"]
     ImpactFuncSet = runtime["ImpactFuncSet"]
 
-    impf = try_build_climada_impact_func()
-    if impf is None:
-        raise DependencyMissingError("Unable to instantiate CLIMADA impact function for tropical cyclone.")
-    impfset = ImpactFuncSet([impf])
+    vulnerability_payload = get_tc_vulnerability_payload()
+    impact_funcs = try_build_climada_impact_funcs()
+    if impact_funcs is None:
+        raise DependencyMissingError("Unable to instantiate CLIMADA impact functions for tropical cyclone.")
+    impfset = ImpactFuncSet(impact_funcs)
 
     notes = [
         "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
         "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+        f"Impact functions: profile={vulnerability_payload.get('profile')} with {len(impact_funcs)} TC curves.",
     ]
 
     bundle = None
@@ -280,6 +282,9 @@ def run_climada_direct_impacts(
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
         "hazard_point_count": int(bundle.point_count or 0),
+        "impact_function_profile": str(vulnerability_payload.get("profile") or "unknown"),
+        "impact_function_default_curve": vulnerability_payload.get("default_curve"),
+        "impact_function_mapping": vulnerability_payload.get("explicit_asset_type_mapping") or {},
     }
 
     return ClimadaRunResult(hazards=out, modeling=modeling, notes=notes)

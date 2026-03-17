@@ -97,7 +97,10 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
    - STORM_CMCC: `tc_hazard_guadeloupe_CMCC.h5`
 2. normalisation de frequence:
    - `hazard.frequency = hazard.frequency / storm_years` (`storm_years=10000` par defaut)
-3. creation fonction d’impact tropical cyclone (Eberenz 2021) via `impact_functions.py`
+3. creation d'un profil multicourbe tropical cyclone via `impact_functions.py`:
+   - courbe Eberenz Caraibes (`Eberenz_2021_TC`) conservee comme courbe par defaut,
+   - courbes D2 (vulnerabilite uniquement) chargees depuis `data/tc_vulnerability_curves_sib_v1.json`,
+   - mapping explicite `asset_type -> impf_TC` applique dans `exposure_to_climada.py`.
 4. calcul CLIMADA:
    - `ImpactCalc(exposures, impfset, hazard).impact(...)`
 
@@ -110,6 +113,29 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 - `pml_eur` pour RP 10/20/50/100/200,
 - `tvar_95_eur`,
 - `top_events` (top N, defaut 20).
+
+### 5.1 Tableau des courbes de vulnerabilite appliquees (windstorm, vulnerabilite uniquement)
+
+| Type d'infrastructure (asset_type) | Courbe de vulnerabilite retenue | Code courbe | Provenance geographique | Justification (resume) |
+|---|---|---|---|---|
+| `elec_bt_aerien` | D2_W3.10 | `W3.10` | Mexique | Courbe reseau electrique aerien (Reinoso et al., 2020) |
+| `elec_hta_aerien` | D2_W3.14 | `W3.14` | Mexique | Courbe reseau electrique aerien HTA (Reinoso et al., 2020) |
+| `elec_bt_souterrain` | D2_W16.1 | `W16.1` | Global | Option prudente non nulle pour reseau enterre (Miyamoto International, 2019) |
+| `elec_hta_souterrain` | D2_W16.1 | `W16.1` | Global | Option prudente non nulle pour reseau enterre (Miyamoto International, 2019) |
+| `eau_aep_cana` | D2_W16.1 | `W16.1` | Global | Reseau eau lineaire, dommage vent faible mais non nul |
+| `eau_eu_cana` | D2_W19.1 | `W19.1` | Global | Reseau EU lineaire, dommage vent faible mais non nul |
+| `eau_eu_pr` | Eberenz Caraibes | `EBERENZ_2021_TC` | Caraibes (generalise) | Choix utilisateur: conserver Eberenz pour PR |
+| `eau_eu_step` | D2_W21.2 | `W21.2` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_trait` | D2_W21.2 | `W21.2` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_stpmp` | D2_W21.4 | `W21.4` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_cap` | D2_W21.10 | `W21.10` | Philippines | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_cuv` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_ouveb` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
+| `eau_aep_ouvrage_na` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Valeur de repli ouvrage AEP |
+
+Notes:
+- seules des **courbes de vulnerabilite** sont utilisees (pas de courbes de fragilite),
+- l'endpoint `GET /api/v1/vulnerability/curves` expose le profil actif pour audit/visualisation admin.
 
 ---
 
@@ -381,23 +407,26 @@ Endpoint sante:
 ## 12) Valorisation monetaire prudente (OFB)
 
 La valeur des reseaux eau est basee sur la moyenne observee par territoire dans le comparateur de couts OFB.
-Les reseaux electriques et les ouvrages AEP (`ovrg_type`) sont conserves inchanges.
+Pour les reseaux electriques, une mise a jour hybride est appliquee:
+- BT/HTA souterrain: base D3 (`Table_D3_Costs_V1.1.0`, ICF 2002),
+- BT/HTA aerien: valeurs internes conservees,
+- ouvrages AEP (`ovrg_type`): inchanges.
 
-| Territoire | Type d'actif | Regle de valorisation | Valeur initiale retenue | Nouvelle valeur OFB | Nombre de prix compares |
-|---|---|---|---|---|---|
-| Guadeloupe | AEP canalisations | EUR par km | 280 000 EUR/km | 776 386 EUR/km | 24 |
-| Guadeloupe | EU canalisations | EUR par km | 340 000 EUR/km | 791 691 EUR/km | 10 |
-| Guadeloupe | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 523 211 EUR | 6 |
-| Guadeloupe | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 777 800 EUR | 1 |
-| Martinique | AEP canalisations | EUR par km | 280 000 EUR/km | 653 445 EUR/km | 16 |
-| Martinique | EU canalisations | EUR par km | 340 000 EUR/km | 831 815 EUR/km | 6 |
-| Martinique | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 44 257 EUR | 1 |
-| Martinique | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 923 344 EUR | 2 |
-| Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | inchange | n/a |
-| Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | inchange | n/a |
-| Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | inchange | n/a |
-| Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | inchange | n/a |
-| Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | n/a |
+| Territoire | Type d'actif | Regle de valorisation | Valeur initiale retenue | Nouvelle valeur | Provenance geographique / source | Nombre de prix compares |
+|---|---|---|---|---|---|---|
+| Guadeloupe | AEP canalisations | EUR par km | 280 000 EUR/km | 776 386 EUR/km | Guadeloupe, comparateur OFB | 24 |
+| Guadeloupe | EU canalisations | EUR par km | 340 000 EUR/km | 791 691 EUR/km | Guadeloupe, comparateur OFB | 10 |
+| Guadeloupe | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 523 211 EUR | Guadeloupe, comparateur OFB | 6 |
+| Guadeloupe | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 777 800 EUR | Guadeloupe, comparateur OFB | 1 |
+| Martinique | AEP canalisations | EUR par km | 280 000 EUR/km | 653 445 EUR/km | Martinique, comparateur OFB | 16 |
+| Martinique | EU canalisations | EUR par km | 340 000 EUR/km | 831 815 EUR/km | Martinique, comparateur OFB | 6 |
+| Martinique | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 44 257 EUR | Martinique, comparateur OFB | 1 |
+| Martinique | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 923 344 EUR | Martinique, comparateur OFB | 2 |
+| Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | 180 000 EUR/km (inchange) | Hypothese interne SIB (reference locale) | n/a |
+| Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | 1 336 480 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), derive de 1 994,39 EUR/m * (167 060 / 249 299) * 1000 | n/a |
+| Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | 260 000 EUR/km (inchange) | Hypothese interne SIB (reference locale) | n/a |
+| Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | 1 994 390 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), 1 994,39 EUR/m * 1000 | n/a |
+| Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | Hypothese interne SIB | n/a |
 
 Details techniques:
 - lineaires: `value_eur = max(5000, longueur_km * cout_km)`
@@ -418,7 +447,22 @@ Details techniques:
 
 ---
 
-## 14) Limites connues
+## 14) Note de mise a jour visuelle cartes NA (2026-03-11)
+
+Une mise a jour a ete appliquee sur le rendu des cartes d'alea NA pour supprimer les bandes visuelles (lignes blanches / mailles minimales apparentes) dans les exports cartographiques et overlays web.
+
+Portee de la mise a jour:
+- remplissage visuel des mailles vides en mode `nearest` lors du rendu (`scripts/build_na_wind_leaflet_overlays.py`), limite a une distance locale de mailles pour eviter de recouvrir les zones hors donnees,
+- nouveau script d'export statique NA (`scripts/render_na_wind_static_maps.py`) pour produire les 6 cartes sans basemap et les 6 cartes basemap alpha50.
+
+Important:
+- cette mise a jour est strictement **visuelle**;
+- aucun changement n'est applique au pipeline de calcul d'impact CLIMADA;
+- aucun changement des fichiers hazard utilises pour les calculs (`*.h5`) ni des resultats d'impact (`portfolio_results`, `territory_results`).
+
+---
+
+## 15) Limites connues
 
 - La propagation elec->eau est prudente et non basee sur un graphe electrique explicite poste-source -> equipement.
 - Le couplage indirect est applique en multiplicateur d’EAI direct (pas encore simulation dynamique multi-etapes par evenement).
@@ -426,7 +470,7 @@ Details techniques:
 
 ---
 
-## 15) Sources STORM completes
+## 16) Sources STORM completes
 
 - STORM present climate (all basins):  
   https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085

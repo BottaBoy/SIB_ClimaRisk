@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any
+from typing import Any, Callable
 
 from .errors import DependencyMissingError, InputValidationError
 from .types import NormalizedExposure, NormalizedFeature
@@ -233,6 +233,7 @@ def build_climada_exposure(
     metric_crs: str = DEFAULT_METRIC_CRS,
     max_points_per_feature: int = DEFAULT_MAX_POINTS_PER_FEATURE,
     impact_func_id: int = 2,
+    impact_func_id_resolver: Callable[[str | None], int] | None = None,
 ) -> ClimadaExposureBundle:
     deps = _require_geo_dependencies()
     gpd = deps["gpd"]
@@ -268,12 +269,18 @@ def build_climada_exposure(
         split_value = max(0.0, float(feat.value_eur)) / float(len(sampled))
         infra_class = _infer_infra_class(feat)
         asset_type = str((feat.properties or {}).get("asset_type") or "")
+        point_impact_func_id = int(impact_func_id)
+        if impact_func_id_resolver is not None:
+            try:
+                point_impact_func_id = int(impact_func_id_resolver(asset_type))
+            except Exception:
+                point_impact_func_id = int(impact_func_id)
         for idx, (lon, lat) in enumerate(sampled, start=1):
             territory_id, territory_label = _territory_for_coords(lat, lon)
             point_id = f"{feat.feature_id}::p{idx}"
             row = {
                 "value": float(split_value),
-                "impf_TC": int(impact_func_id),
+                "impf_TC": int(point_impact_func_id),
                 "point_id": point_id,
                 "feature_id": str(feat.feature_id),
                 "label": str(feat.label),
@@ -296,6 +303,7 @@ def build_climada_exposure(
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
+                    "impf_tc": int(point_impact_func_id),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "territory_id": territory_id,
                     "territory_label": territory_label,

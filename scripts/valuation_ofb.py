@@ -69,9 +69,9 @@ NB_PRIX_COMPARES: dict[str, dict[str, int]] = {
 
 ELECTRIC_VALUES = {
     "elec_bt_aerien": 180_000.0,
-    "elec_bt_souterrain": 320_000.0,
+    "elec_bt_souterrain": 1_336_480.0,
     "elec_hta_aerien": 260_000.0,
-    "elec_hta_souterrain": 520_000.0,
+    "elec_hta_souterrain": 1_994_390.0,
 }
 
 AEP_OUVRAGE_VALUES = {
@@ -180,4 +180,3 @@ def build_valuation_metadata(territory: str | None) -> dict[str, Any]:
         "nb_prix_compares": dict(NB_PRIX_COMPARES[territory_effective]),
         "policy_outside_bbox": "fallback_guadeloupe",
     }
-
