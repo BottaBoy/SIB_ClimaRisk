@@ -362,6 +362,7 @@ def main() -> None:
     payload = build_result_payload(
         job_id=source_key,
         source=source_key,
+        run_label=None,
         exposure=exposure,
         disagg=disagg,
         comp=comp,

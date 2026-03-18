@@ -33,6 +33,46 @@ D2_IMPF_ID_BY_CODE = {
     "W21.10": 2110,
 }
 
+D2_MODELED_INFRA_BY_CODE = {
+    "W3.10": {
+        "type": "Power tower",
+        "characteristics": "Design speed 160 km/h, urban terrain",
+    },
+    "W3.14": {
+        "type": "Power tower",
+        "characteristics": "Design speed 200 km/h, urban terrain",
+    },
+    "W16.1": {
+        "type": "Transmission and distribution pipelines",
+        "characteristics": "Buried pipelines",
+    },
+    "W19.1": {
+        "type": "Sewers & interceptors",
+        "characteristics": "Buried pipelines",
+    },
+    "W21.2": {
+        "type": "School",
+        "characteristics": "Building design: BLSB1",
+    },
+    "W21.4": {
+        "type": "School",
+        "characteristics": "Building design: DECS std.",
+    },
+    "W21.5": {
+        "type": "School",
+        "characteristics": "Building design: DepEd STD",
+    },
+    "W21.10": {
+        "type": "School",
+        "characteristics": "Wooden roof structure",
+    },
+}
+
+EBERENZ_MODELED_INFRA = {
+    "type": "Caribbean buildings (generic)",
+    "characteristics": "TC vulnerability model (Eberenz et al., 2021)",
+}
+
 # Normalized (lower-case) asset_type mapping used in SIB work.
 ASSET_TYPE_TO_CURVE_CODE = {
     "elec_bt_aerien": "W3.10",
@@ -116,6 +156,8 @@ def _build_curve_catalog() -> dict[int, dict[str, Any]]:
             "intensity": [float(v) for v in eberenz["intensity"]],
             "mdd": [float(v) for v in eberenz["mdd"]],
             "paa": [1.0 for _ in eberenz["intensity"]],
+            "modeled_infrastructure_type": str(EBERENZ_MODELED_INFRA["type"]),
+            "modeled_infrastructure_characteristics": str(EBERENZ_MODELED_INFRA["characteristics"]),
             "uncertainty_lower": None,
             "uncertainty_upper": None,
         }
@@ -130,6 +172,7 @@ def _build_curve_catalog() -> dict[int, dict[str, Any]]:
         mdd = [float(v) for v in list(curve.get("mdd") or [])]
         if not intensity or not mdd or len(intensity) != len(mdd):
             continue
+        modeled = D2_MODELED_INFRA_BY_CODE.get(str(code), {})
         catalog[int(impf_id)] = {
             "impf_id": int(impf_id),
             "code": str(code),
@@ -141,6 +184,8 @@ def _build_curve_catalog() -> dict[int, dict[str, Any]]:
             "intensity": intensity,
             "mdd": mdd,
             "paa": [1.0 for _ in intensity],
+            "modeled_infrastructure_type": str(modeled.get("type") or "Unknown"),
+            "modeled_infrastructure_characteristics": str(modeled.get("characteristics") or "N/A"),
             "uncertainty_lower": curve.get("uncertainty_lower"),
             "uncertainty_upper": curve.get("uncertainty_upper"),
         }
@@ -164,7 +209,18 @@ def resolve_tc_impact_func_id(asset_type: str | None) -> int:
 
 def get_tc_vulnerability_payload() -> dict[str, Any]:
     catalog = get_tc_curve_catalog()
-    curves = sorted(catalog.values(), key=lambda item: int(item.get("impf_id", 0)))
+    asset_types_by_code: dict[str, list[str]] = {}
+    for asset_type, code in ASSET_TYPE_TO_CURVE_CODE.items():
+        asset_types_by_code.setdefault(str(code), []).append(str(asset_type))
+    for code in asset_types_by_code:
+        asset_types_by_code[code] = sorted(asset_types_by_code[code])
+
+    curves = []
+    for curve in sorted(catalog.values(), key=lambda item: int(item.get("impf_id", 0))):
+        curve_item = dict(curve)
+        curve_code = str(curve_item.get("code") or "")
+        curve_item["sib_asset_types"] = list(asset_types_by_code.get(curve_code, []))
+        curves.append(curve_item)
     explicit_mapping = {}
     for asset_type, code in ASSET_TYPE_TO_CURVE_CODE.items():
         if code == "EBERENZ_2021_TC":

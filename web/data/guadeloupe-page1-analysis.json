@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-06T10:02:26+00:00",
+    "generated_at": "2026-03-18T06:57:06+00:00",
     "source": "guadeloupe_case_study_computed",
     "case_study_territory": "guadeloupe",
     "case_study_label": "Guadeloupe",
@@ -41,23 +41,23 @@
     "value_per_km_eur": {
       "eau_aep": 776386.0,
       "eau_eu": 791691.0,
-      "elec_bt_souterrain": 320000.0,
+      "elec_bt_souterrain": 1336480.0,
       "elec_bt_aerien": 180000.0,
-      "elec_hta_souterrain": 520000.0,
+      "elec_hta_souterrain": 1994390.0,
       "elec_hta_aerien": 260000.0
     },
     "total_value_by_type_eur": {
       "eau_aep": 2447021842.86,
       "eau_eu": 648518585.64,
-      "elec_bt_souterrain": 404813886.73,
+      "elec_bt_souterrain": 1690705197.91,
       "elec_bt_aerien": 546417329.66,
-      "elec_hta_souterrain": 917189909.63,
+      "elec_hta_souterrain": 3517758430.5,
       "elec_hta_aerien": 136064418.3,
       "eau_aep_ouvrages": 459400000.0,
       "eau_eu_pr": 182077428.0,
       "eau_eu_step": 1104447600.0
     },
-    "total_value_all_eur": 6845951000.82,
+    "total_value_all_eur": 10732410832.87,
     "valuation_metadata": {
       "source": "Comparateur de couts OFB (moyenne territoriale observee)",
       "valuation_version": "ofb_2026_03_v1",
@@ -722,19 +722,19 @@
     ]
   },
   "impact": {
-    "summary_text": "STORM: EAI 131379903 €, RP100 2846072821 €, RP1000 4320076388 €, evt max 4875878784 €. STORM_CMCC: EAI 128137819 €, RP100 2941181171 €, RP1000 4226361733 €, evt max 5172564023 €.",
+    "summary_text": "STORM: EAI 205109252 €, RP100 4179347878 €, RP1000 6317659991 €, evt max 7130757202 €. STORM_CMCC: EAI 199984334 €, RP100 4310243687 €, RP1000 6188843316 €, evt max 7584543425 €.",
     "summary_metrics": {
       "storm": {
         "direct_hs_pct_annual": 0.0,
         "direct_hs_pct_event_max": 100.0,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 131379903.35,
-        "rp100_total_loss_eur": 2846072821.44,
-        "rp1000_total_loss_eur": 4320076388.26,
-        "event_max_total_loss_eur": 4875878783.65,
-        "top10_total_loss_eur": 122704682.32,
-        "top5_total_loss_eur": 245386446.31,
+        "eai_total_eur": 205109252.44,
+        "rp100_total_loss_eur": 4179347877.76,
+        "rp1000_total_loss_eur": 6317659991.24,
+        "event_max_total_loss_eur": 7130757201.6,
+        "top10_total_loss_eur": 191565566.87,
+        "top5_total_loss_eur": 383095353.83,
         "event_id_max": 43318
       },
       "storm_cmcc": {
@@ -742,12 +742,12 @@
         "direct_hs_pct_event_max": 100.0,
         "indirect_hs_pct_annual": 0.0,
         "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 128137819.21,
-        "rp100_total_loss_eur": 2941181171.37,
-        "rp1000_total_loss_eur": 4226361732.85,
-        "event_max_total_loss_eur": 5172564022.74,
-        "top10_total_loss_eur": 103721725.12,
-        "top5_total_loss_eur": 207443450.24,
+        "eai_total_eur": 199984333.65,
+        "rp100_total_loss_eur": 4310243686.74,
+        "rp1000_total_loss_eur": 6188843316.42,
+        "event_max_total_loss_eur": 7584543425.05,
+        "top10_total_loss_eur": 161878204.35,
+        "top5_total_loss_eur": 323756408.7,
         "event_id_max": 101106
       }
     },
@@ -807,7 +807,7 @@
               "S2": 0.0,
               "S3": 0.0
             },
-            "damage_eur": 8031266.82
+            "damage_eur": 32240821.53
           },
           "storm_cmcc": {
             "state_pct": {
@@ -816,7 +816,7 @@
               "S2": 0.0,
               "S3": 0.0
             },
-            "damage_eur": 7818954.57
+            "damage_eur": 31388033.85
           }
         },
         {
@@ -851,7 +851,7 @@
               "S2": 0.0,
               "S3": 0.0
             },
-            "damage_eur": 17501274.76
+            "damage_eur": 67021069.14
           },
           "storm_cmcc": {
             "state_pct": {
@@ -860,7 +860,7 @@
               "S2": 0.0,
               "S3": 0.0
             },
-            "damage_eur": 17062169.13
+            "damage_eur": 65339604.28
           }
         },
         {
@@ -938,10 +938,10 @@
             "state_pct": {
               "S0": 0.0,
               "S1": 0.0,
-              "S2": 58.252,
-              "S3": 41.748
+              "S2": 60.247,
+              "S3": 39.753
             },
-            "damage_eur": 147616245.81
+            "damage_eur": 592312506.42
           },
           "storm_cmcc": {
             "state_pct": {
@@ -950,7 +950,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 151873178.89
+            "damage_eur": 609602919.2
           }
         },
         {
@@ -985,16 +985,16 @@
               "S2": 100.0,
               "S3": 0.0
             },
-            "damage_eur": 314042986.4
+            "damage_eur": 1202621782.1
           },
           "storm_cmcc": {
             "state_pct": {
               "S0": 0.0,
               "S1": 0.0,
-              "S2": 55.059,
-              "S3": 44.941
+              "S2": 55.055,
+              "S3": 44.945
             },
-            "damage_eur": 322156435.32
+            "damage_eur": 1233489210.39
           }
         },
         {
@@ -1075,7 +1075,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 220241718.16
+            "damage_eur": 884025231.44
           },
           "storm_cmcc": {
             "state_pct": {
@@ -1084,7 +1084,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 215088846.02
+            "damage_eur": 863579004.15
           }
         },
         {
@@ -1119,7 +1119,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 471406090.48
+            "damage_eur": 1805206180.18
           },
           "storm_cmcc": {
             "state_pct": {
@@ -1128,7 +1128,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 464392224.16
+            "damage_eur": 1778383649.59
           }
         },
         {
@@ -1209,7 +1209,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 248294468.19
+            "damage_eur": 996721655.4
           },
           "storm_cmcc": {
             "state_pct": {
@@ -1218,7 +1218,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 263396495.95
+            "damage_eur": 1057364205.85
           }
         },
         {
@@ -1253,7 +1253,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 532423734.08
+            "damage_eur": 2038874964.81
           },
           "storm_cmcc": {
             "state_pct": {
@@ -1262,7 +1262,7 @@
               "S2": 0.0,
               "S3": 100.0
             },
-            "damage_eur": 571842667.33
+            "damage_eur": 2189854359.75
           }
         },
         {
@@ -1378,8 +1378,8 @@
             "S2": 0.0,
             "S3": 100.0
           },
-          "eai_eur": 8031266.82,
-          "event_max_loss_eur": 248294468.19
+          "eai_eur": 32240821.53,
+          "event_max_loss_eur": 996721655.4
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1394,8 +1394,8 @@
             "S2": 0.0,
             "S3": 100.0
           },
-          "eai_eur": 7818954.57,
-          "event_max_loss_eur": 263396495.95
+          "eai_eur": 31388033.85,
+          "event_max_loss_eur": 1057364205.85
         }
       },
       {
@@ -1450,8 +1450,8 @@
             "S2": 0.0,
             "S3": 100.0
           },
-          "eai_eur": 17501274.76,
-          "event_max_loss_eur": 532423734.08
+          "eai_eur": 67021069.14,
+          "event_max_loss_eur": 2038874964.81
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1466,8 +1466,8 @@
             "S2": 0.0,
             "S3": 100.0
           },
-          "eai_eur": 17062169.13,
-          "event_max_loss_eur": 571842667.33
+          "eai_eur": 65339604.28,
+          "event_max_loss_eur": 2189854359.75
         }
       },
       {
@@ -1524,8 +1524,8 @@
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
-          "eai_eur": 8031266.82,
-          "event_max_loss_eur": 248294468.19
+          "eai_eur": 32240821.53,
+          "event_max_loss_eur": 996721655.4
         },
         {
           "class_key": "elec_bt_aerien",
@@ -1536,8 +1536,8 @@
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
-          "eai_eur": 17501274.76,
-          "event_max_loss_eur": 532423734.08
+          "eai_eur": 67021069.14,
+          "event_max_loss_eur": 2038874964.81
         },
         {
           "class_key": "elec_hta_aerien",
@@ -1580,8 +1580,8 @@
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
-          "eai_eur": 7818954.57,
-          "event_max_loss_eur": 263396495.95
+          "eai_eur": 31388033.85,
+          "event_max_loss_eur": 1057364205.85
         },
         {
           "class_key": "elec_bt_aerien",
@@ -1592,8 +1592,8 @@
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
-          "eai_eur": 17062169.13,
-          "event_max_loss_eur": 571842667.33
+          "eai_eur": 65339604.28,
+          "event_max_loss_eur": 2189854359.75
         },
         {
           "class_key": "elec_hta_aerien",
@@ -1637,7 +1637,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 8031266.82
+            "damage_eur": 32240821.53
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1647,7 +1647,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 17501274.76
+            "damage_eur": 67021069.14
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1684,7 +1684,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 7818954.57
+            "damage_eur": 31388033.85
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1694,7 +1694,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 17062169.13
+            "damage_eur": 65339604.28
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1733,7 +1733,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 147616245.81
+            "damage_eur": 592312506.42
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1743,7 +1743,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 314042986.4
+            "damage_eur": 1202621782.1
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1780,7 +1780,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 151873178.89
+            "damage_eur": 609602919.2
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1790,7 +1790,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 322156435.32
+            "damage_eur": 1233489210.39
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1829,7 +1829,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 220241718.16
+            "damage_eur": 884025231.44
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1839,7 +1839,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 471406090.48
+            "damage_eur": 1805206180.18
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1876,7 +1876,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 215088846.02
+            "damage_eur": 863579004.15
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1886,7 +1886,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 464392224.16
+            "damage_eur": 1778383649.59
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1925,7 +1925,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 248294468.19
+            "damage_eur": 996721655.4
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1935,7 +1935,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 532423734.08
+            "damage_eur": 2038874964.81
           },
           {
             "class_key": "elec_hta_aerien",
@@ -1972,7 +1972,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 263396495.95
+            "damage_eur": 1057364205.85
           },
           {
             "class_key": "elec_bt_aerien",
@@ -1982,7 +1982,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 571842667.33
+            "damage_eur": 2189854359.75
           },
           {
             "class_key": "elec_hta_aerien",
@@ -2021,7 +2021,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 7500949.68
+            "damage_eur": 30111909.53
           },
           {
             "class_key": "elec_bt_aerien",
@@ -2031,7 +2031,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 16345638.15
+            "damage_eur": 62595562.85
           },
           {
             "class_key": "elec_hta_aerien",
@@ -2068,7 +2068,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 6329087.39
+            "damage_eur": 25407182.98
           },
           {
             "class_key": "elec_bt_aerien",
@@ -2078,7 +2078,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 13811048.35
+            "damage_eur": 52889431.99
           },
           {
             "class_key": "elec_hta_aerien",
@@ -2117,7 +2117,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 15000498.36
+            "damage_eur": 60218194.86
           },
           {
             "class_key": "elec_bt_aerien",
@@ -2127,7 +2127,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 32688223.31
+            "damage_eur": 125179434.33
           },
           {
             "class_key": "elec_hta_aerien",
@@ -2164,7 +2164,7 @@
           {
             "class_key": "elec_bt_souterrain",
             "class_label": "Basse tension souterrain",
-            "damage_eur": 12658174.79
+            "damage_eur": 50814365.95
           },
           {
             "class_key": "elec_bt_aerien",
@@ -2174,7 +2174,7 @@
           {
             "class_key": "elec_hta_souterrain",
             "class_label": "Haute tension souterrain",
-            "damage_eur": 27622096.69
+            "damage_eur": 105778863.98
           },
           {
             "class_key": "elec_hta_aerien",
@@ -2205,6 +2205,6 @@
     }
   },
   "conclusion": {
-    "text": "Valeur totale du portefeuille d'infrastructures: 6846 M€. Dommages annuels moyens: STORM 131 M€ (1.92 %), STORM_CMCC 128 M€ (1.87 %). Scenario temps de retour 100 ans: STORM 2846 M€ (41.57 %), STORM_CMCC 2941 M€ (42.96 %). Scenario temps de retour 1000 ans: STORM 4320 M€ (63.10 %), STORM_CMCC 4226 M€ (61.74 %). Evenement le plus extreme: STORM 4876 M€ (71.22 %), STORM_CMCC 5173 M€ (75.56 %)."
+    "text": "Valeur totale du portefeuille d'infrastructures: 10732 M€. Dommages annuels moyens: STORM 205 M€ (1.91 %), STORM_CMCC 200 M€ (1.86 %). Scenario temps de retour 100 ans: STORM 4179 M€ (38.94 %), STORM_CMCC 4310 M€ (40.16 %). Scenario temps de retour 1000 ans: STORM 6318 M€ (58.87 %), STORM_CMCC 6189 M€ (57.66 %). Evenement le plus extreme: STORM 7131 M€ (66.44 %), STORM_CMCC 7585 M€ (70.67 %)."
   }
 }

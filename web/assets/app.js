@@ -148,6 +148,23 @@ const NETWORK_LAYER_LABEL = {
   elec_hta_aerien: 'Reseau haute tension aerien'
 };
 
+const ASSET_TYPE_ADMIN_LABEL = {
+  elec_bt_aerien: 'Electricite BT aerien',
+  elec_hta_aerien: 'Electricite HTA aerien',
+  elec_bt_souterrain: 'Electricite BT souterrain',
+  elec_hta_souterrain: 'Electricite HTA souterrain',
+  eau_aep_cana: 'Eau AEP canalisations',
+  eau_eu_cana: 'Eau EU canalisations',
+  eau_eu_pr: 'Eau EU postes de refoulement (PR)',
+  eau_eu_step: "Eau EU stations d'epuration (STEP)",
+  eau_aep_ouvrage_trait: 'Eau AEP ouvrage TRAIT',
+  eau_aep_ouvrage_stpmp: 'Eau AEP ouvrage STPMP',
+  eau_aep_ouvrage_cap: 'Eau AEP ouvrage CAP',
+  eau_aep_ouvrage_cuv: 'Eau AEP ouvrage CUV',
+  eau_aep_ouvrage_ouveb: 'Eau AEP ouvrage OUVEB',
+  eau_aep_ouvrage_na: 'Eau AEP ouvrage NA'
+};
+
 const STATE_COLORS = {
   S0: '#6AB96F',
   S1: '#f2b66f',
@@ -710,6 +727,9 @@ function normalizeAdminVulnerabilityPayload(payload) {
         name: String(curveRaw?.name || curveRaw?.code || 'Courbe'),
         source: String(curveRaw?.source || 'source inconnue'),
         geography: String(curveRaw?.geography || 'geographie non renseignee'),
+        modeledInfrastructureType: String(curveRaw?.modeled_infrastructure_type || 'N/A'),
+        modeledInfrastructureCharacteristics: String(curveRaw?.modeled_infrastructure_characteristics || 'N/A'),
+        sibAssetTypes: Array.isArray(curveRaw?.sib_asset_types) ? curveRaw.sib_asset_types.map((v) => String(v || '').trim()).filter(Boolean) : [],
         intensity_unit: String(curveRaw?.intensity_unit || payload?.intensity_unit || 'm/s'),
         intensity,
         mdd,
@@ -2912,10 +2932,17 @@ function ensureAdminVulnerabilityCurveCards(payload) {
     const title = String(curve.name || code);
     const source = String(curve.source || 'source inconnue');
     const geography = String(curve.geography || 'geographie non renseignee');
+    const modeledType = String(curve.modeledInfrastructureType || 'N/A');
+    const modeledCharacteristics = String(curve.modeledInfrastructureCharacteristics || 'N/A');
+    const sibAssetLabels = (Array.isArray(curve.sibAssetTypes) ? curve.sibAssetTypes : [])
+      .map((assetType) => ASSET_TYPE_ADMIN_LABEL[assetType] || assetType)
+      .join(' · ');
     return `
       <article class="admin-vulnerability-item">
         <div class="admin-vulnerability-item-title">${escapeHtml(code)} · ${escapeHtml(title)}</div>
         <div class="admin-vulnerability-item-meta">${escapeHtml(source)} · ${escapeHtml(geography)}</div>
+        <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(modeledType)} (${escapeHtml(modeledCharacteristics)})</div>
+        <div class="admin-vulnerability-item-meta"><strong>Infra etude SIB:</strong> ${escapeHtml(sibAssetLabels || 'Aucune affectation')}</div>
         <div id="${escapeHtml(domId)}" class="admin-vulnerability-chart"></div>
       </article>
     `;

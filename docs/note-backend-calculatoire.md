@@ -476,3 +476,38 @@ Important:
   https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085
 - STORM CMCC:  
   https://data.4tu.nl/datasets/98900e17-8e01-4d70-b3b6-ca1a1da2f194/2
+
+---
+
+## 17) Comparatif runs de reference (mise a jour du 18 mars 2026)
+
+Runs relances:
+- `guadeloupe-complete-analysis.json` (avant: 6 mars 2026, apres: 17 mars 2026),
+- `martinique-complete-analysis.json` (avant: 6 mars 2026, apres: 17 mars 2026).
+
+Constat backend:
+- moteur avant/apres: `climada_with_interdependency_v1` (identique),
+- courbe d'impact avant: `Eberenz_2021_TC`,
+- courbe d'impact apres: `sib_tc_multicurve_v1`,
+- points d'exposition inchanges (meme maillage): Guadeloupe `329 087`, Martinique `403 040`.
+
+Comparatif portefeuille:
+
+| Territoire | Indicateur | Avant | Apres | Delta | Delta % |
+|---|---|---:|---:|---:|---:|
+| Guadeloupe | Exposition totale (EUR) | 6 897 242 082.83 | 10 767 992 318.90 | +3 870 750 236.07 | +56.12% |
+| Guadeloupe | EAI STORM (EUR) | 173 053 024.90 | 46 209 737.46 | -126 843 287.44 | -73.30% |
+| Guadeloupe | EAI STORM_CMCC (EUR) | 168 786 513.42 | 45 548 637.16 | -123 237 876.26 | -73.01% |
+| Guadeloupe | PML100 STORM (EUR) | 3 105 623 211.08 | 666 977 757.83 | -2 438 645 453.25 | -78.52% |
+| Guadeloupe | PML100 STORM_CMCC (EUR) | 3 178 330 265.72 | 681 780 384.09 | -2 496 549 881.63 | -78.55% |
+| Martinique | Exposition totale (EUR) | 6 920 334 413.21 | 9 736 920 570.42 | +2 816 586 157.21 | +40.70% |
+| Martinique | EAI STORM (EUR) | 183 234 379.13 | 62 898 044.92 | -120 336 334.21 | -65.67% |
+| Martinique | EAI STORM_CMCC (EUR) | 158 602 734.52 | 57 924 498.78 | -100 678 235.74 | -63.48% |
+| Martinique | PML100 STORM (EUR) | 3 370 891 097.00 | 835 313 923.13 | -2 535 577 173.87 | -75.22% |
+| Martinique | PML100 STORM_CMCC (EUR) | 3 047 373 432.97 | 774 474 989.26 | -2 272 898 443.71 | -74.59% |
+
+Verification page Donnee utilisateur (`/api/v1/runs`):
+- run test: `jr_20260318_000313_aeb0e3`,
+- `meta.engine = climada_with_interdependency_v1`,
+- `meta.impact_function = sib_tc_multicurve_v1`,
+- `meta.modeling.impact_function_profile = sib_tc_multicurve_v1`.
