@@ -28,7 +28,10 @@ from app.config import load_settings  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.exposure_to_climada import build_climada_exposure  # noqa: E402
 from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
-from app.risk_engine.impact_functions import try_build_climada_impact_func  # noqa: E402
+from app.risk_engine.impact_functions import (  # noqa: E402
+    resolve_tc_impact_func_id,
+    try_build_climada_impact_funcs,
+)
 from app.risk_engine.types import NormalizedExposure  # noqa: E402
 from build_guadeloupe_complete_analysis import (  # noqa: E402
     WGS84,
@@ -623,10 +626,10 @@ def _compute_impact_metrics(
     hazard_storm_path: Path,
     hazard_storm_cmcc_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    impf = try_build_climada_impact_func()
-    if impf is None:
-        raise RuntimeError("Unable to instantiate CLIMADA impact function")
-    impfset = ImpactFuncSet([impf])
+    impact_funcs = try_build_climada_impact_funcs()
+    if impact_funcs is None:
+        raise RuntimeError("Unable to instantiate CLIMADA impact functions")
+    impfset = ImpactFuncSet(impact_funcs)
 
     disagg = summarize_disaggregation(exposure, spacing_m=spacing_m)
     bundle = build_climada_exposure(
@@ -634,6 +637,7 @@ def _compute_impact_metrics(
         spacing_m=spacing_m,
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=settings.climada_max_points_per_feature,
+        impact_func_id_resolver=resolve_tc_impact_func_id,
     )
     hazards = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, settings.storm_years)
 

@@ -68,9 +68,9 @@ NB_PRIX_COMPARES: dict[str, dict[str, int]] = {
 }
 
 ELECTRIC_VALUES = {
-    "elec_bt_aerien": 180_000.0,
+    "elec_bt_aerien": 167_060.0,
     "elec_bt_souterrain": 1_336_480.0,
-    "elec_hta_aerien": 260_000.0,
+    "elec_hta_aerien": 249_299.0,
     "elec_hta_souterrain": 1_994_390.0,
 }
 

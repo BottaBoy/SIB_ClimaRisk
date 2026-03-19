@@ -183,7 +183,6 @@ const CMCC_VISUAL_MIN_BAND_SAMPLE_MAX = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_RADIUS = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_MIN = 3;
 const CMCC_VISUAL_MIN_BAND_EPS = 0.06;
-const CMCC_RP_LOW_BAND_HIDE_MAX_MPS = 18.0;
 
 const chartRefs = {
   c1: null,
@@ -340,6 +339,9 @@ const els = {
 const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const tableNumberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const tablePercentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const tableMoneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const peopleFmtInt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const peopleFmtOne = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
 const peopleFmtTwo = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
@@ -666,6 +668,18 @@ function formatRisk(value) {
   return numberFmt.format(Number(value) || 0);
 }
 
+function formatTableNumber(valueRaw) {
+  return tableNumberFmt.format(Number(valueRaw) || 0);
+}
+
+function formatTableMoneyEUR(valueEur) {
+  return `${tableMoneyFmt.format(Number(valueEur) || 0)} €`;
+}
+
+function formatTableRisk(valueRaw) {
+  return tableNumberFmt.format(Number(valueRaw) || 0);
+}
+
 function windMpsToKmh(valueRaw) {
   const value = Number(valueRaw);
   if (!Number.isFinite(value)) return Number.NaN;
@@ -767,7 +781,13 @@ function formatWindTableValueFromMps(valueRaw) {
   const parsed = parseLocaleNumber(valueRaw);
   const kmh = windMpsToKmh(parsed);
   if (!Number.isFinite(kmh)) return String(valueRaw ?? '');
-  return numberFmt.format(kmh);
+  return formatTableNumber(kmh);
+}
+
+function formatGenericTableCellValue(valueRaw) {
+  const parsed = parseLocaleNumber(valueRaw);
+  if (Number.isFinite(parsed)) return formatTableNumber(parsed);
+  return String(valueRaw ?? '');
 }
 
 function estimatedRunDurationMessage(mode) {
@@ -1061,7 +1081,7 @@ function setOutsideCoverageWarning(mode, refs) {
 
 function formatStateTuple(statePct) {
   const p = statePct || {};
-  return `S0 ${percentFmt.format(Number(p.S0 || 0))} · S1 ${percentFmt.format(Number(p.S1 || 0))} · S2 ${percentFmt.format(Number(p.S2 || 0))} · S3 ${percentFmt.format(Number(p.S3 || 0))}`;
+  return `S0 ${tablePercentFmt.format(Number(p.S0 || 0))} · S1 ${tablePercentFmt.format(Number(p.S1 || 0))} · S2 ${tablePercentFmt.format(Number(p.S2 || 0))} · S3 ${tablePercentFmt.format(Number(p.S3 || 0))}`;
 }
 
 function ensureResultShape(raw) {
@@ -1216,10 +1236,10 @@ function renderMethodologyValuation(analysis) {
   const policy = 'Regle territoriale: Guadeloupe/Martinique par bbox, hors zone = fallback Guadeloupe.';
   const newValues = valuation.new_values || {};
   const dynamicRules = [
-    'Elec basse tension aerien: 180 kEUR/km',
-    'Elec basse tension souterrain: 320 kEUR/km',
-    'Elec haute tension aerien: 260 kEUR/km',
-    'Elec haute tension souterrain: 520 kEUR/km',
+    'Elec basse tension aerien: 167 060 EUR/km (D3 overhead line 220kV)',
+    'Elec basse tension souterrain: 1 336 480 EUR/km (derive D3)',
+    'Elec haute tension aerien: 249 299 EUR/km (D3 overhead line 380kV)',
+    'Elec haute tension souterrain: 1 994 390 EUR/km (D3)',
     `AEP canalisations (${territory}): ${numberFmt.format(Number(newValues.aep_cana_eur_per_km || 0))} EUR/km`,
     `EU canalisations (${territory}): ${numberFmt.format(Number(newValues.eu_cana_eur_per_km || 0))} EUR/km`,
     `EU PR (${territory}): ${numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0))} EUR/unite`,
@@ -1261,16 +1281,16 @@ function renderPage1Exposition(analysis) {
     els.expositionNetworkTableBody.innerHTML = networkRows.map((row) => `
       <tr>
         <td>${escapeHtml(row.label)}</td>
-        <td class="num">${escapeHtml(numberFmt.format(row.lengthKm || 0))}</td>
-        <td class="num">${escapeHtml(numberFmt.format(row.valuePerKm || 0))}</td>
-        <td class="num">${escapeHtml(formatMoneyEUR(row.total || 0))}</td>
+        <td class="num">${escapeHtml(formatTableNumber(row.lengthKm || 0))}</td>
+        <td class="num">${escapeHtml(formatTableNumber(row.valuePerKm || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(row.total || 0))}</td>
       </tr>
     `).join('') + `
       <tr class="table-total-row">
         <td><strong>Total reseaux</strong></td>
         <td class="num">—</td>
         <td class="num">—</td>
-        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalNetworks))}</strong></td>
+        <td class="num"><strong>${escapeHtml(formatTableMoneyEUR(totalNetworks))}</strong></td>
       </tr>
     `;
     if (els.expositionTotalNetworks) {
@@ -1289,13 +1309,13 @@ function renderPage1Exposition(analysis) {
       {
         label: 'Postes de refoulement EU',
         count: Number(counts.eu_pr_total || 0),
-        valuePerUnitText: numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0)),
+        valuePerUnitText: formatTableNumber(Number(newValues.eu_pr_eur_per_unit || 0)),
         total: Number(totals.eau_eu_pr || 0)
       },
       {
         label: 'STEP',
         count: Number(counts.eu_step_total || 0),
-        valuePerUnitText: numberFmt.format(Number(newValues.eu_step_eur_per_unit || 0)),
+        valuePerUnitText: formatTableNumber(Number(newValues.eu_step_eur_per_unit || 0)),
         total: Number(totals.eau_eu_step || 0)
       }
     ];
@@ -1303,16 +1323,16 @@ function renderPage1Exposition(analysis) {
     els.expositionOuvrageTableBody.innerHTML = ouvrageRows.map((row) => `
       <tr>
         <td>${escapeHtml(row.label)}</td>
-        <td class="num">${escapeHtml(numberFmt.format(row.count || 0))}</td>
+        <td class="num">${escapeHtml(formatTableNumber(row.count || 0))}</td>
         <td class="num">${escapeHtml(row.valuePerUnitText)}</td>
-        <td class="num">${escapeHtml(formatMoneyEUR(row.total || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(row.total || 0))}</td>
       </tr>
     `).join('') + `
       <tr class="table-total-row">
         <td><strong>Total ouvrages</strong></td>
         <td class="num">—</td>
         <td class="num">—</td>
-        <td class="num"><strong>${escapeHtml(formatMoneyEUR(totalOuvrages))}</strong></td>
+        <td class="num"><strong>${escapeHtml(formatTableMoneyEUR(totalOuvrages))}</strong></td>
       </tr>
     `;
     if (els.expositionTotalOuvrages) {
@@ -1342,9 +1362,9 @@ function renderPage1Hazard(analysis) {
       els.hazardGuadeloupeCompareBody.innerHTML = rows.map((row) => `
         <tr>
           <td>${escapeHtml(isWindMpsIndicator(row.indicator) ? indicatorDisplayUnit(row.indicator) : String(row.indicator || ''))}</td>
-          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm) : String(row.storm || ''))}</td>
-          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm_cmcc) : String(row.storm_cmcc || ''))}</td>
-          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.delta) : String(row.delta || ''))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm) : formatGenericTableCellValue(row.storm))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.storm_cmcc) : formatGenericTableCellValue(row.storm_cmcc))}</td>
+          <td class="num">${escapeHtml(isWindMpsIndicator(row.indicator) ? formatWindTableValueFromMps(row.delta) : formatGenericTableCellValue(row.delta))}</td>
         </tr>
       `).join('');
     }
@@ -1459,9 +1479,9 @@ function renderImpactScenarioTable(targetBody, rows, damageLabel) {
       <tr>
         <td>${escapeHtml(String(rowLabel))}</td>
         <td class="num">${escapeHtml(formatStateTuple(storm.state_pct))}</td>
-        <td class="num">${escapeHtml(formatMoneyEUR(storm.damage_eur || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(storm.damage_eur || 0))}</td>
         <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct))}</td>
-        <td class="num">${escapeHtml(formatMoneyEUR(cmcc.damage_eur || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(cmcc.damage_eur || 0))}</td>
       </tr>
     `;
   }).join('');
@@ -1631,11 +1651,11 @@ function renderTerritoryTable() {
       <tr>
         <td>${escapeHtml(row.asset_label || row.asset_id || 'Sans label')}</td>
         <td>${escapeHtml(row.geometry_type || 'Unknown')}</td>
-        <td class="num">${escapeHtml(numberFmt.format((row.exposure_eur || 0) / 1_000_000))}</td>
-        <td class="num">${escapeHtml(numberFmt.format((row.eai_storm_eur || 0) / 1_000_000))}</td>
-        <td class="num">${escapeHtml(numberFmt.format((row.eai_cmcc_eur || 0) / 1_000_000))}</td>
-        <td class="num">${escapeHtml(formatRisk(row.risk_index_storm))}</td>
-        <td class="num">${escapeHtml(formatRisk(row.risk_index_cmcc))}</td>
+        <td class="num">${escapeHtml(formatTableNumber((row.exposure_eur || 0) / 1_000_000))}</td>
+        <td class="num">${escapeHtml(formatTableNumber((row.eai_storm_eur || 0) / 1_000_000))}</td>
+        <td class="num">${escapeHtml(formatTableNumber((row.eai_cmcc_eur || 0) / 1_000_000))}</td>
+        <td class="num">${escapeHtml(formatTableRisk(row.risk_index_storm))}</td>
+        <td class="num">${escapeHtml(formatTableRisk(row.risk_index_cmcc))}</td>
       </tr>
     `;
   }).join('');
@@ -2395,13 +2415,6 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
         const visualAdjusted = Boolean(data.visual_adjusted);
-        const hideCmccRpLowBand = (
-          hazardKey === 'storm_cmcc'
-          && (metric?.mode === 'rp50' || metric?.mode === 'rp100')
-          && Number.isFinite(metricValue)
-          && metricValue <= (CMCC_RP_LOW_BAND_HIDE_MAX_MPS + CMCC_VISUAL_MIN_BAND_EPS)
-        );
-        if (hideCmccRpLowBand) continue;
         const color = windColorFromScale(metricValue, scale);
         const rect = L.rectangle([[south, west], [north, east]], {
           pane: ref.cellsPaneName,
@@ -2786,6 +2799,7 @@ function ensureAdminPopulationMap() {
     const pane = adminPopulationMapRef.instance.createPane(adminPopulationMapRef.overlayPaneName);
     pane.style.zIndex = '430';
     pane.style.pointerEvents = 'none';
+    pane.style.filter = 'brightness(0.72) contrast(1.35)';
   }
   return adminPopulationMapRef;
 }
@@ -2859,7 +2873,7 @@ function renderAdminPopulationMap() {
     if (ref.overlayLayer) ref.instance.removeLayer(ref.overlayLayer);
     ref.overlayLayer = L.imageOverlay(overlayUrl, boundsLeaflet, {
       pane: ref.overlayPaneName,
-      opacity: 0.86,
+      opacity: 0.95,
       interactive: false,
       crossOrigin: true
     }).addTo(ref.instance);
@@ -2939,7 +2953,7 @@ function ensureAdminVulnerabilityCurveCards(payload) {
       .join(' · ');
     return `
       <article class="admin-vulnerability-item">
-        <div class="admin-vulnerability-item-title">${escapeHtml(code)} · ${escapeHtml(title)}</div>
+        <div class="admin-vulnerability-item-title">${escapeHtml(title)}</div>
         <div class="admin-vulnerability-item-meta">${escapeHtml(source)} · ${escapeHtml(geography)}</div>
         <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(modeledType)} (${escapeHtml(modeledCharacteristics)})</div>
         <div class="admin-vulnerability-item-meta"><strong>Infra etude SIB:</strong> ${escapeHtml(sibAssetLabels || 'Aucune affectation')}</div>
@@ -3025,6 +3039,8 @@ function renderAdminVulnerabilityCurveChart(curve) {
     xAxis: {
       ...chartThemeCommon().xAxis,
       type: 'value',
+      min: 0,
+      max: 500,
       name: `Vitesse vent (${WIND_SPEED_UNIT_DISPLAY})`,
       nameLocation: 'middle',
       nameGap: 30,

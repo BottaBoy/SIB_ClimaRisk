@@ -407,10 +407,8 @@ Endpoint sante:
 ## 12) Valorisation monetaire prudente (OFB)
 
 La valeur des reseaux eau est basee sur la moyenne observee par territoire dans le comparateur de couts OFB.
-Pour les reseaux electriques, une mise a jour hybride est appliquee:
-- BT/HTA souterrain: base D3 (`Table_D3_Costs_V1.1.0`, ICF 2002),
-- BT/HTA aerien: valeurs internes conservees,
-- ouvrages AEP (`ovrg_type`): inchanges.
+Pour les reseaux electriques, les quatre classes BT/HTA aerien/souterrain utilisent des valeurs D3 (`Table_D3_Costs_V1.1.0`, ICF 2002).
+Les ouvrages AEP (`ovrg_type`) restent inchanges.
 
 | Territoire | Type d'actif | Regle de valorisation | Valeur initiale retenue | Nouvelle valeur | Provenance geographique / source | Nombre de prix compares |
 |---|---|---|---|---|---|---|
@@ -422,9 +420,9 @@ Pour les reseaux electriques, une mise a jour hybride est appliquee:
 | Martinique | EU canalisations | EUR par km | 340 000 EUR/km | 831 815 EUR/km | Martinique, comparateur OFB | 6 |
 | Martinique | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 44 257 EUR | Martinique, comparateur OFB | 1 |
 | Martinique | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 923 344 EUR | Martinique, comparateur OFB | 2 |
-| Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | 180 000 EUR/km (inchange) | Hypothese interne SIB (reference locale) | n/a |
+| Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | 167 060 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 220kV | n/a |
 | Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | 1 336 480 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), derive de 1 994,39 EUR/m * (167 060 / 249 299) * 1000 | n/a |
-| Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | 260 000 EUR/km (inchange) | Hypothese interne SIB (reference locale) | n/a |
+| Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | 249 299 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 380kV | n/a |
 | Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | 1 994 390 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), 1 994,39 EUR/m * 1000 | n/a |
 | Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | Hypothese interne SIB | n/a |
 
@@ -482,8 +480,8 @@ Important:
 ## 17) Comparatif runs de reference (mise a jour du 18 mars 2026)
 
 Runs relances:
-- `guadeloupe-complete-analysis.json` (avant: 6 mars 2026, apres: 17 mars 2026),
-- `martinique-complete-analysis.json` (avant: 6 mars 2026, apres: 17 mars 2026).
+- `guadeloupe-complete-analysis.json` (avant: 6 mars 2026, apres: 19 mars 2026),
+- `martinique-complete-analysis.json` (avant: 6 mars 2026, apres: 19 mars 2026).
 
 Constat backend:
 - moteur avant/apres: `climada_with_interdependency_v1` (identique),
@@ -495,16 +493,16 @@ Comparatif portefeuille:
 
 | Territoire | Indicateur | Avant | Apres | Delta | Delta % |
 |---|---|---:|---:|---:|---:|
-| Guadeloupe | Exposition totale (EUR) | 6 897 242 082.83 | 10 767 992 318.90 | +3 870 750 236.07 | +56.12% |
-| Guadeloupe | EAI STORM (EUR) | 173 053 024.90 | 46 209 737.46 | -126 843 287.44 | -73.30% |
-| Guadeloupe | EAI STORM_CMCC (EUR) | 168 786 513.42 | 45 548 637.16 | -123 237 876.26 | -73.01% |
-| Guadeloupe | PML100 STORM (EUR) | 3 105 623 211.08 | 666 977 757.83 | -2 438 645 453.25 | -78.52% |
-| Guadeloupe | PML100 STORM_CMCC (EUR) | 3 178 330 265.72 | 681 780 384.09 | -2 496 549 881.63 | -78.55% |
-| Martinique | Exposition totale (EUR) | 6 920 334 413.21 | 9 736 920 570.42 | +2 816 586 157.21 | +40.70% |
-| Martinique | EAI STORM (EUR) | 183 234 379.13 | 62 898 044.92 | -120 336 334.21 | -65.67% |
-| Martinique | EAI STORM_CMCC (EUR) | 158 602 734.52 | 57 924 498.78 | -100 678 235.74 | -63.48% |
-| Martinique | PML100 STORM (EUR) | 3 370 891 097.00 | 835 313 923.13 | -2 535 577 173.87 | -75.22% |
-| Martinique | PML100 STORM_CMCC (EUR) | 3 047 373 432.97 | 774 474 989.26 | -2 272 898 443.71 | -74.59% |
+| Guadeloupe | Exposition totale (EUR) | 6 897 242 082.83 | 10 724 270 292.36 | +3 827 028 209.53 | +55.49% |
+| Guadeloupe | EAI STORM (EUR) | 173 053 024.90 | 45 658 339.84 | -127 394 685.06 | -73.62% |
+| Guadeloupe | EAI STORM_CMCC (EUR) | 168 786 513.42 | 45 000 203.36 | -123 786 310.06 | -73.34% |
+| Guadeloupe | PML100 STORM (EUR) | 3 105 623 211.08 | 652 391 930.03 | -2 453 231 281.05 | -78.99% |
+| Guadeloupe | PML100 STORM_CMCC (EUR) | 3 178 330 265.72 | 666 187 625.37 | -2 512 142 640.35 | -79.04% |
+| Martinique | Exposition totale (EUR) | 6 920 334 413.21 | 9 700 592 279.76 | +2 780 257 866.55 | +40.18% |
+| Martinique | EAI STORM (EUR) | 183 234 379.13 | 62 421 784.11 | -120 812 595.02 | -65.93% |
+| Martinique | EAI STORM_CMCC (EUR) | 158 602 734.52 | 57 548 784.82 | -101 053 949.70 | -63.72% |
+| Martinique | PML100 STORM (EUR) | 3 370 891 097.00 | 822 440 899.41 | -2 548 450 197.59 | -75.60% |
+| Martinique | PML100 STORM_CMCC (EUR) | 3 047 373 432.97 | 763 538 222.03 | -2 283 835 210.94 | -74.94% |
 
 Verification page Donnee utilisateur (`/api/v1/runs`):
 - run test: `jr_20260318_000313_aeb0e3`,

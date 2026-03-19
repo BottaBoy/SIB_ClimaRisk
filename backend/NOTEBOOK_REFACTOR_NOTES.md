@@ -34,3 +34,15 @@ This backend scaffold is designed to replace the monolithic notebook execution p
 
 The full CLIMADA + geopandas stack is not installed yet, so the backend currently uses a deterministic fallback engine while keeping the API and result schema stable.
 
+## Impact humains
+
+- Population rasters currently available in `/home/ubuntu/uploads/Population`:
+  - `mtq_pop_2020_CN_100m_R2025A_v1.tif` (Martinique)
+  - `glp_pop_2020_CN_100m_R2025A_v1.tif` (Guadeloupe)
+  - `pyf_pop_2020_CN_100m_R2025A_v1.tif` (Polynesie francaise)
+- Technical characteristics (from file metadata + provided doc):
+  - GeoTIFF, CRS `EPSG:4326` (WGS84), ~100 m grid (3 arc-seconds).
+  - Pixel unit = `number of people per pixel` (NoData = `-99999`).
+- Source:
+  - WorldPop Global Demographic Data Project, constrained population counts 2015-2030, release `R2025A v1`.
+  - DOI: `10.5258/SOTON/WP00839`.
