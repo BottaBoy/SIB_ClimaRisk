@@ -29,8 +29,8 @@ const state = {
   windMapMode: 'mean',
   selectedHazardComponents: {
     wind: true,
-    rain: true,
-    surge: true
+    rain: false,
+    surge: false
   },
   adminVisuMaps: null,
   adminVisuMapsPromise: null,
@@ -69,7 +69,8 @@ const state = {
     drawn: []
   },
   impactMapHazard: 'storm',
-  impactMapScenario: 'event_max'
+  impactMapScenario: 'event_max',
+  impactTableScenario: 'annual'
 };
 
 const mapRef = {
@@ -252,14 +253,8 @@ const chartRefs = {
   comparison: null,
   page1_year_compare: null,
   page1_track_compare: null,
-  impact_eai_water: null,
-  impact_eai_elec: null,
-  impact_rp100_water: null,
-  impact_rp100_elec: null,
-  impact_rp1000_water: null,
-  impact_rp1000_elec: null,
-  impact_evt_water: null,
-  impact_evt_elec: null,
+  impact_overview_water: null,
+  impact_overview_elec: null,
   user_impact_eai: null,
   user_impact_rp100: null,
   user_impact_rp1000: null,
@@ -373,21 +368,17 @@ const els = {
   expositionTotalValue: document.getElementById('exposition-total-value'),
   hazardGuadeloupeCompareBody: document.getElementById('hazard-guadeloupe-compare-body'),
   hazardCompareTitle: document.getElementById('hazard-compare-title'),
+  hazardChartYearTitle: document.getElementById('hazard-chart-year-title'),
+  hazardChartEventTitle: document.getElementById('hazard-chart-event-title'),
   page1ChartYearCompare: document.getElementById('page1-chart-year-compare'),
   page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
-  impactTableAnnualBody: document.getElementById('impact-table-annual-body'),
-  impactTableRp100Body: document.getElementById('impact-table-rp100-body'),
-  impactTableRp1000Body: document.getElementById('impact-table-rp1000-body'),
-  impactTableEventmaxBody: document.getElementById('impact-table-eventmax-body'),
-  impactEaiWaterChart: document.getElementById('impact-eai-water-chart'),
-  impactEaiElecChart: document.getElementById('impact-eai-elec-chart'),
-  impactRp100WaterChart: document.getElementById('impact-rp100-water-chart'),
-  impactRp100ElecChart: document.getElementById('impact-rp100-elec-chart'),
-  impactRp1000WaterChart: document.getElementById('impact-rp1000-water-chart'),
-  impactRp1000ElecChart: document.getElementById('impact-rp1000-elec-chart'),
-  impactEvtWaterChart: document.getElementById('impact-evt-water-chart'),
-  impactEvtElecChart: document.getElementById('impact-evt-elec-chart'),
+  impactTableStormBody: document.getElementById('impact-table-storm-body'),
+  impactTableCmccBody: document.getElementById('impact-table-cmcc-body'),
+  impactTableScenarioSelect: document.getElementById('impact-table-scenario-select'),
+  impactTableTitle: document.getElementById('impact-table-title'),
+  impactOverviewWaterChart: document.getElementById('impact-overview-water-chart'),
+  impactOverviewElecChart: document.getElementById('impact-overview-elec-chart'),
   userImpactSummaryText: document.getElementById('user-impact-summary-text'),
   userImpactEaiChart: document.getElementById('user-impact-eai-chart'),
   userImpactRp100Chart: document.getElementById('user-impact-rp100-chart'),
@@ -522,22 +513,17 @@ function loadAdminPage5Panels() {
         els.adminPopulationCaption.textContent = `Donnees population indisponibles: ${err.message}`;
       }
     });
-  ensureAdminVulnerabilityCurvesLoaded()
+  Promise.all([
+    ensureAdminVulnerabilityCurvesLoaded(),
+    ensureAdminHydroVulnerabilityCurvesLoaded('rain'),
+    ensureAdminHydroVulnerabilityCurvesLoaded('surge')
+  ])
     .then(() => {
-      renderAdminVulnerabilityCurves();
+      renderAdminVulnerabilityOverviewCurves();
     })
     .catch((err) => {
       if (els.adminVulnerabilityCaption) {
         els.adminVulnerabilityCaption.textContent = `Courbes de vulnerabilite indisponibles: ${err.message}`;
-      }
-    });
-  ensureAdminHydroVulnerabilityCurvesLoaded(state.adminHydroHazardComponent)
-    .then(() => {
-      renderAdminHydroVulnerabilityCurves();
-    })
-    .catch((err) => {
-      if (els.adminHydroVulnerabilityCaption) {
-        els.adminHydroVulnerabilityCaption.textContent = `Courbes pluie/submersion indisponibles: ${err.message}`;
       }
     });
 }
@@ -592,14 +578,8 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (networkMapRef.instance) networkMapRef.instance.invalidateSize();
       if (chartRefs.page1_year_compare) chartRefs.page1_year_compare.resize();
       if (chartRefs.page1_track_compare) chartRefs.page1_track_compare.resize();
-      if (chartRefs.impact_eai_water) chartRefs.impact_eai_water.resize();
-      if (chartRefs.impact_eai_elec) chartRefs.impact_eai_elec.resize();
-      if (chartRefs.impact_rp100_water) chartRefs.impact_rp100_water.resize();
-      if (chartRefs.impact_rp100_elec) chartRefs.impact_rp100_elec.resize();
-      if (chartRefs.impact_rp1000_water) chartRefs.impact_rp1000_water.resize();
-      if (chartRefs.impact_rp1000_elec) chartRefs.impact_rp1000_elec.resize();
-      if (chartRefs.impact_evt_water) chartRefs.impact_evt_water.resize();
-      if (chartRefs.impact_evt_elec) chartRefs.impact_evt_elec.resize();
+      if (chartRefs.impact_overview_water) chartRefs.impact_overview_water.resize();
+      if (chartRefs.impact_overview_elec) chartRefs.impact_overview_elec.resize();
     }, 80);
   }
   if (pageKey === 'page5') {
@@ -609,8 +589,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
         if (card?.instance) card.instance.invalidateSize();
       });
       if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
-      resizeAdminVulnerabilityCharts();
-      resizeAdminVulnerabilityCharts('hydro');
+      resizeAdminVulnerabilityOverviewCharts();
     }, 80);
   }
 }
@@ -792,8 +771,23 @@ function isHazardComponentVisible(component) {
   return Boolean(state.selectedHazardComponents?.[key]);
 }
 
+function getSelectedHazardComponent() {
+  const active = HAZARD_COMPONENT_ORDER.find((component) => isHazardComponentVisible(component));
+  return active || 'wind';
+}
+
+function setSelectedHazardComponent(componentRaw) {
+  const selected = normalizeHazardComponent(componentRaw);
+  state.selectedHazardComponents = {
+    wind: selected === 'wind',
+    rain: selected === 'rain',
+    surge: selected === 'surge'
+  };
+  updateHazardLayerUi();
+}
+
 function currentVisibleHazardComponents() {
-  return HAZARD_COMPONENT_ORDER.filter((component) => isHazardComponentVisible(component));
+  return [getSelectedHazardComponent()];
 }
 
 function toFiniteNumberArray(values) {
@@ -899,7 +893,7 @@ function formatWindTableValueFromMps(valueRaw) {
 
 function formatGenericTableCellValue(valueRaw) {
   const parsed = parseLocaleNumber(valueRaw);
-  if (Number.isFinite(parsed)) return formatTableNumber(parsed);
+  if (Number.isFinite(parsed)) return numberFmt.format(parsed);
   return String(valueRaw ?? '');
 }
 
@@ -1316,7 +1310,7 @@ function renderInfraSummary() {
     els.waterMapTitle.textContent = `Carte des infrastructures d'eau et d'electricite de ${territoryLabel}`;
   }
   if (els.hazardCompareTitle) {
-    els.hazardCompareTitle.textContent = `Comparaison vitesses max - zone ${territoryLabel}`;
+    els.hazardCompareTitle.textContent = `Comparaison aléas - zone ${territoryLabel}`;
   }
   renderMethodologyValuation(analysis);
   if (!analysis) {
@@ -1458,17 +1452,216 @@ function renderPage1Exposition(analysis) {
   }
 }
 
+function finiteMetricValuesFromCells(cells, metricKey) {
+  if (!Array.isArray(cells)) return [];
+  return cells
+    .map((cell) => Number(cell?.[metricKey]))
+    .filter((value) => Number.isFinite(value));
+}
+
+function averageFinite(values) {
+  if (!Array.isArray(values) || !values.length) return Number.NaN;
+  const sum = values.reduce((acc, value) => acc + Number(value || 0), 0);
+  return sum / values.length;
+}
+
+function buildHistogramFromValues(values, minRaw, maxRaw, binCount = 14) {
+  const safeValues = Array.isArray(values) ? values.filter((value) => Number.isFinite(Number(value))).map((value) => Number(value)) : [];
+  if (!safeValues.length) return null;
+  const min = Number(minRaw);
+  const max = Number(maxRaw);
+  const finiteMin = Number.isFinite(min) ? min : Math.min(...safeValues);
+  const finiteMax = Number.isFinite(max) ? max : Math.max(...safeValues);
+  const span = Math.max(1e-9, finiteMax - finiteMin);
+  const binsCount = Math.max(6, Math.min(28, Math.trunc(binCount) || 14));
+  const step = span / binsCount;
+  const counts = new Array(binsCount).fill(0);
+  safeValues.forEach((value) => {
+    const relative = (value - finiteMin) / span;
+    const idx = Math.max(0, Math.min(binsCount - 1, Math.floor(relative * binsCount)));
+    counts[idx] += 1;
+  });
+  const total = safeValues.length;
+  return {
+    bins: counts.map((_, idx) => finiteMin + ((idx + 0.5) * step)),
+    percent: counts.map((count) => (count / total) * 100)
+  };
+}
+
+function buildSharedHistogramPair(valuesStorm, valuesCmcc, binCount = 14) {
+  const stormValues = Array.isArray(valuesStorm) ? valuesStorm : [];
+  const cmccValues = Array.isArray(valuesCmcc) ? valuesCmcc : [];
+  const all = [...stormValues, ...cmccValues].filter((value) => Number.isFinite(Number(value))).map((value) => Number(value));
+  if (!all.length) {
+    return { storm: null, storm_cmcc: null };
+  }
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  return {
+    storm: buildHistogramFromValues(stormValues, min, max, binCount),
+    storm_cmcc: buildHistogramFromValues(cmccValues, min, max, binCount)
+  };
+}
+
+function selectedHazardChartConfig(componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  if (component === 'rain') {
+    return {
+      component,
+      yearTitle: 'Intensité pluie proxy par annee (STORM vs STORM_CMCC)',
+      eventTitle: 'Intensité pluie proxy par evenement cyclonique (STORM vs STORM_CMCC)',
+      xAxisLabel: 'Intensité pluie proxy',
+      unitDisplay: 'mm/h',
+      yAxisName: 'Part des mailles (%)'
+    };
+  }
+  if (component === 'surge') {
+    return {
+      component,
+      yearTitle: "Hauteur d'eau submersion côtière par annee (STORM vs STORM_CMCC)",
+      eventTitle: "Hauteur d'eau submersion côtière par evenement cyclonique (STORM vs STORM_CMCC)",
+      xAxisLabel: "Hauteur d'eau",
+      unitDisplay: 'm',
+      yAxisName: 'Part des mailles (%)'
+    };
+  }
+  return {
+    component: 'wind',
+    yearTitle: 'Vitesse max du vent par annee (STORM vs STORM_CMCC)',
+    eventTitle: 'Vitesse max du vent par evenement cyclonique (STORM vs STORM_CMCC)',
+    xAxisLabel: 'Vitesse maximale du vent',
+    unitDisplay: WIND_SPEED_UNIT_DISPLAY,
+    yAxisName: 'Part des evenements (%)'
+  };
+}
+
+function buildAdditionalHazardComparisonRows(componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  if (component === 'wind') return [];
+  const storm = state.windMaps?.storm;
+  const cmcc = state.windMaps?.storm_cmcc;
+  if (!storm || !cmcc) return [];
+
+  const scenarios = [
+    { key: 'mean', label: 'Moyenne annuelle' },
+    { key: 'rp50', label: 'Temps de retour 50 ans' },
+    { key: 'rp100', label: 'Temps de retour 100 ans' },
+    { key: 'event_max', label: 'Evenement le plus fort' }
+  ];
+  const componentLabel = component === 'rain' ? 'Pluie proxy' : 'Inondation côtière';
+  const unit = component === 'rain' ? 'mm/h' : 'm';
+  const rows = [];
+
+  scenarios.forEach((scenario) => {
+    const metric = hazardMetricConfig(component, scenario.key);
+    const stormValues = finiteMetricValuesFromCells(storm.cells, metric.valueKey);
+    const cmccValues = finiteMetricValuesFromCells(cmcc.cells, metric.valueKey);
+    if (!stormValues.length || !cmccValues.length) return;
+    const stormAvg = averageFinite(stormValues);
+    const cmccAvg = averageFinite(cmccValues);
+    if (!Number.isFinite(stormAvg) || !Number.isFinite(cmccAvg)) return;
+    rows.push({
+      indicator: `${componentLabel} - ${scenario.label} (${unit})`,
+      storm: stormAvg,
+      storm_cmcc: cmccAvg,
+      delta: cmccAvg - stormAvg
+    });
+  });
+
+  return rows;
+}
+
+function renderSelectedHazardComparisonCharts(analysis, componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  const cfg = selectedHazardChartConfig(component);
+  if (els.hazardChartYearTitle) els.hazardChartYearTitle.textContent = cfg.yearTitle;
+  if (els.hazardChartEventTitle) els.hazardChartEventTitle.textContent = cfg.eventTitle;
+
+  if (component === 'wind') {
+    const hist = analysis?.hazard?.wind_histograms || {};
+    renderHistogramComparisonChart(
+      'page1_year_compare',
+      'page1-chart-year-compare',
+      hist?.storm?.year_max_hist,
+      hist?.storm_cmcc?.year_max_hist,
+      'STORM',
+      'STORM_CMCC',
+      '#0083CB',
+      '#F39655',
+      cfg
+    );
+    renderHistogramComparisonChart(
+      'page1_track_compare',
+      'page1-chart-track-compare',
+      hist?.storm?.track_max_hist,
+      hist?.storm_cmcc?.track_max_hist,
+      'STORM',
+      'STORM_CMCC',
+      '#00A6E2',
+      '#A4A64B',
+      cfg
+    );
+    return;
+  }
+
+  const storm = state.windMaps?.storm;
+  const cmcc = state.windMaps?.storm_cmcc;
+  if (!storm || !cmcc) {
+    renderHistogramComparisonChart('page1_year_compare', 'page1-chart-year-compare', null, null, 'STORM', 'STORM_CMCC', '#0083CB', '#F39655', cfg);
+    renderHistogramComparisonChart('page1_track_compare', 'page1-chart-track-compare', null, null, 'STORM', 'STORM_CMCC', '#00A6E2', '#A4A64B', cfg);
+    return;
+  }
+
+  const metricYear = hazardMetricConfig(component, 'mean');
+  const metricEvent = hazardMetricConfig(component, 'event_max');
+  const yearHist = buildSharedHistogramPair(
+    finiteMetricValuesFromCells(storm.cells, metricYear.valueKey),
+    finiteMetricValuesFromCells(cmcc.cells, metricYear.valueKey),
+    14
+  );
+  const eventHist = buildSharedHistogramPair(
+    finiteMetricValuesFromCells(storm.cells, metricEvent.valueKey),
+    finiteMetricValuesFromCells(cmcc.cells, metricEvent.valueKey),
+    14
+  );
+
+  renderHistogramComparisonChart(
+    'page1_year_compare',
+    'page1-chart-year-compare',
+    yearHist.storm,
+    yearHist.storm_cmcc,
+    'STORM',
+    'STORM_CMCC',
+    '#0083CB',
+    '#F39655',
+    cfg
+  );
+  renderHistogramComparisonChart(
+    'page1_track_compare',
+    'page1-chart-track-compare',
+    eventHist.storm,
+    eventHist.storm_cmcc,
+    'STORM',
+    'STORM_CMCC',
+    '#00A6E2',
+    '#A4A64B',
+    cfg
+  );
+}
+
 function renderPage1Hazard(analysis) {
   const hazard = analysis?.hazard || {};
-  const hist = hazard.wind_histograms || {};
   if (els.hazardSummaryText) {
     els.hazardSummaryText.innerHTML = escapeHtml(String(hazard.summary_text || '')).replaceAll('\n', '<br />');
   }
 
   if (els.hazardGuadeloupeCompareBody) {
-    const rows = Array.isArray(hazard.zone_wind_comparison_table)
+    const windRows = Array.isArray(hazard.zone_wind_comparison_table)
       ? hazard.zone_wind_comparison_table
       : (Array.isArray(hazard.guadeloupe_wind_comparison_table) ? hazard.guadeloupe_wind_comparison_table : []);
+    const rainRows = buildAdditionalHazardComparisonRows('rain');
+    const surgeRows = buildAdditionalHazardComparisonRows('surge');
+    const rows = [...windRows, ...rainRows, ...surgeRows];
     if (!rows.length) {
       els.hazardGuadeloupeCompareBody.innerHTML = '<tr><td colspan="4">Tableau indisponible.</td></tr>';
     } else {
@@ -1483,26 +1676,7 @@ function renderPage1Hazard(analysis) {
     }
   }
 
-  renderHistogramComparisonChart(
-    'page1_year_compare',
-    'page1-chart-year-compare',
-    hist?.storm?.year_max_hist,
-    hist?.storm_cmcc?.year_max_hist,
-    'STORM',
-    'STORM_CMCC',
-    '#0083CB',
-    '#F39655'
-  );
-  renderHistogramComparisonChart(
-    'page1_track_compare',
-    'page1-chart-track-compare',
-    hist?.storm?.track_max_hist,
-    hist?.storm_cmcc?.track_max_hist,
-    'STORM',
-    'STORM_CMCC',
-    '#00A6E2',
-    '#A4A64B'
-  );
+  renderSelectedHazardComparisonCharts(analysis, getSelectedHazardComponent());
 }
 
 function impactComponentOrder(impactPayload) {
@@ -1623,42 +1797,69 @@ function withRp50ImpactScenario(impactPayload) {
   };
 }
 
+function normalizeImpactTableScenario(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value === 'rp50') return 'rp50';
+  if (value === 'rp100') return 'rp100';
+  if (value === 'event_max') return 'event_max';
+  return 'annual';
+}
+
+function impactTableScenarioMeta(scenarioRaw) {
+  const scenario = normalizeImpactTableScenario(scenarioRaw);
+  if (scenario === 'rp50') {
+    return { key: 'rp50', title: 'Tableau des impacts causes par les evenements a temps de retour 50 ans' };
+  }
+  if (scenario === 'rp100') {
+    return { key: 'rp100', title: 'Tableau des impacts causes par les evenements a temps de retour 100 ans' };
+  }
+  if (scenario === 'event_max') {
+    return { key: 'event_max', title: "Tableau des impacts causes par l'evenement le plus fort" };
+  }
+  return { key: 'annual', title: 'Tableau des impacts annuels (moyenne)' };
+}
+
 function renderPage1Impact(analysis) {
   const impact = withRp50ImpactScenario(analysis?.impact || {});
   const tables = impact.state_damage_tables || {};
-  renderImpactScenarioTable(els.impactTableAnnualBody, Array.isArray(tables.annual) ? tables.annual : [], 'EAI');
-  renderImpactScenarioTable(els.impactTableRp100Body, Array.isArray(tables.rp50) ? tables.rp50 : [], 'RP50');
-  renderImpactScenarioTable(els.impactTableRp1000Body, Array.isArray(tables.rp100) ? tables.rp100 : [], 'RP100');
-  renderImpactScenarioTable(els.impactTableEventmaxBody, Array.isArray(tables.event_max) ? tables.event_max : [], 'evt max');
+  const scenarioMeta = impactTableScenarioMeta(state.impactTableScenario);
+  state.impactTableScenario = scenarioMeta.key;
+  const rows = Array.isArray(tables[scenarioMeta.key]) ? tables[scenarioMeta.key] : [];
+  renderImpactScenarioTables(rows);
+  if (els.impactTableTitle) {
+    els.impactTableTitle.textContent = scenarioMeta.title;
+  }
+  if (els.impactTableScenarioSelect) {
+    els.impactTableScenarioSelect.value = scenarioMeta.key;
+  }
 
   renderImpactBreakdownCharts(impact);
 }
 
-function renderImpactScenarioTable(targetBody, rows, damageLabel) {
+function renderImpactScenarioTables(rows) {
+  renderImpactScenarioTableForHazard(els.impactTableStormBody, rows, 'storm');
+  renderImpactScenarioTableForHazard(els.impactTableCmccBody, rows, 'storm_cmcc');
+}
+
+function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw) {
   if (!targetBody) return;
+  const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
   if (!rows.length) {
-    targetBody.innerHTML = '<tr><td colspan="11">Aucune donnee d\'impact disponible.</td></tr>';
+    targetBody.innerHTML = '<tr><td colspan="6">Aucune donnee d\'impact disponible.</td></tr>';
     return;
   }
   targetBody.innerHTML = rows.map((row) => {
-    const storm = row.storm || {};
-    const cmcc = row.storm_cmcc || {};
-    const stormComponents = normalizeDamageComponentMap(storm.damage_components_eur, storm.damage_eur);
-    const cmccComponents = normalizeDamageComponentMap(cmcc.damage_components_eur, cmcc.damage_eur);
+    const hazardRow = hazardKey === 'storm_cmcc' ? (row.storm_cmcc || {}) : (row.storm || {});
+    const components = normalizeDamageComponentMap(hazardRow.damage_components_eur, hazardRow.damage_eur);
     const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
     return `
       <tr>
         <td>${escapeHtml(String(rowLabel))}</td>
-        <td class="num">${escapeHtml(formatStateTuple(storm.state_pct))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.wind || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.rain || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.surge || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(storm.damage_eur || 0))}</td>
-        <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.wind || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.rain || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.surge || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(cmcc.damage_eur || 0))}</td>
+        <td class="num">${escapeHtml(formatStateTuple(hazardRow.state_pct))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(components.wind || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(components.rain || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(components.surge || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(hazardRow.damage_eur || 0))}</td>
       </tr>
     `;
   }).join('');
@@ -2511,14 +2712,17 @@ function buildWindLegendHtml(scale, metric) {
 }
 
 function updateHazardLayerUi() {
+  const selected = getSelectedHazardComponent();
   if (els.hazardLayerWind) els.hazardLayerWind.checked = isHazardComponentVisible('wind');
   if (els.hazardLayerRain) els.hazardLayerRain.checked = isHazardComponentVisible('rain');
   if (els.hazardLayerSurge) els.hazardLayerSurge.checked = isHazardComponentVisible('surge');
+  if (els.hazardLayerWind && selected === 'wind') els.hazardLayerWind.checked = true;
+  if (els.hazardLayerRain && selected === 'rain') els.hazardLayerRain.checked = true;
+  if (els.hazardLayerSurge && selected === 'surge') els.hazardLayerSurge.checked = true;
 }
 
 function currentHazardLayerPaneOpacity() {
-  const visibleCount = Math.max(1, currentVisibleHazardComponents().length);
-  return clamp01(currentWindOpacityFactor() / Math.sqrt(visibleCount));
+  return clamp01(currentWindOpacityFactor());
 }
 
 function syncWindOpacityFromSlider({ forceApply = false } = {}) {
@@ -2795,6 +2999,40 @@ function clearHazardMapLayers(hazardKey) {
   });
 }
 
+function resetHazardMapFitState() {
+  if (windMapRef.storm) windMapRef.storm.hasFitted = false;
+  if (windMapRef.storm_cmcc) windMapRef.storm_cmcc.hasFitted = false;
+}
+
+function initialHazardMapBounds(meta, grid) {
+  const bbox = meta?.bbox || {};
+  const bboxLatMin = Number(bbox.lat_min);
+  const bboxLatMax = Number(bbox.lat_max);
+  const bboxLonMin = Number(bbox.lon_min);
+  const bboxLonMax = Number(bbox.lon_max);
+  if (
+    Number.isFinite(bboxLatMin)
+    && Number.isFinite(bboxLatMax)
+    && Number.isFinite(bboxLonMin)
+    && Number.isFinite(bboxLonMax)
+  ) {
+    return [[bboxLatMin, bboxLonMin], [bboxLatMax, bboxLonMax]];
+  }
+  const latMin = Number(grid?.south);
+  const latMax = Number(grid?.north);
+  const lonMin = Number(grid?.west);
+  const lonMax = Number(grid?.east);
+  if (
+    Number.isFinite(latMin)
+    && Number.isFinite(latMax)
+    && Number.isFinite(lonMin)
+    && Number.isFinite(lonMax)
+  ) {
+    return [[latMin, lonMin], [latMax, lonMax]];
+  }
+  return null;
+}
+
 function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, options = {}) {
   if (!payload || !Array.isArray(payload.cells)) return;
   const component = normalizeHazardComponent(componentRaw);
@@ -2829,14 +3067,11 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
   const centerLon0 = lonMin + (cellDeg / 2.0);
   const allowExtrapolation = !Boolean(meta?.territory_mask_path || meta?.cell_clip_rule);
 
-  if (
-    !ref.hasFitted
-    && Number.isFinite(latMin)
-    && Number.isFinite(latMax)
-    && Number.isFinite(lonMin)
-    && Number.isFinite(lonMax)
-  ) {
-    ref.instance.fitBounds([[latMin, lonMin], [latMax, lonMax]], { padding: [0, 0], maxZoom: 9 });
+  if (!ref.hasFitted) {
+    const initialBounds = initialHazardMapBounds(meta, grid);
+    if (initialBounds) {
+      ref.instance.fitBounds(initialBounds, { padding: [12, 12], maxZoom: 10 });
+    }
     ref.hasFitted = true;
   }
 
@@ -3637,22 +3872,246 @@ function renderAdminVulnerabilityCurveSet(payload, options = {}) {
 }
 
 function renderAdminVulnerabilityCurves() {
-  renderAdminVulnerabilityCurveSet(state.adminVulnerabilityCurves, {
-    gridEl: els.adminVulnerabilityGrid,
-    captionEl: els.adminVulnerabilityCaption,
-    groupKey: 'wind',
-    loadingText: 'Chargement des courbes de vulnerabilite...'
-  });
+  renderAdminVulnerabilityOverviewCurves();
 }
 
 function renderAdminHydroVulnerabilityCurves() {
-  const component = normalizeHazardComponent(state.adminHydroHazardComponent);
-  renderAdminVulnerabilityCurveSet(state.adminHydroVulnerabilityCurves?.[component], {
-    gridEl: els.adminHydroVulnerabilityGrid,
-    captionEl: els.adminHydroVulnerabilityCaption,
-    groupKey: 'hydro',
-    loadingText: 'Chargement des courbes pluie/submersion...'
+  renderAdminVulnerabilityOverviewCurves();
+}
+
+const ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS = ['wind', 'surge', 'rain'];
+const ADMIN_VULNERABILITY_OVERVIEW_META = {
+  wind: { label: 'Vent', color: '#FFFFFF' },
+  surge: { label: 'Submersion côtière', color: '#003A76' },
+  rain: { label: 'Pluie', color: '#5BC5F2' }
+};
+
+function adminOverviewSlug(raw) {
+  return String(raw || 'infra')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'infra';
+}
+
+function adminOverviewRefKey(assetKey, component) {
+  return `admin_vulnerability_overview_${adminOverviewSlug(assetKey)}_${component}`;
+}
+
+function adminOverviewDomId(assetKey, component) {
+  return adminOverviewRefKey(assetKey, component).replace(/_/g, '-');
+}
+
+function disposeAdminVulnerabilityOverviewCharts() {
+  const prefix = 'admin_vulnerability_overview_';
+  Object.keys(chartRefs)
+    .filter((key) => key.startsWith(prefix))
+    .forEach((key) => {
+      try {
+        if (chartRefs[key] && typeof chartRefs[key].dispose === 'function') chartRefs[key].dispose();
+      } catch (err) {
+        console.warn('Unable to dispose vulnerability overview chart', key, err);
+      }
+      chartRefs[key] = null;
+    });
+}
+
+function collectAdminVulnerabilityOverviewCards() {
+  const byAsset = new Map();
+  const payloads = {
+    wind: state.adminVulnerabilityCurves,
+    surge: state.adminHydroVulnerabilityCurves?.surge,
+    rain: state.adminHydroVulnerabilityCurves?.rain
+  };
+
+  ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.forEach((component) => {
+    const payload = payloads[component];
+    if (!payload || !Array.isArray(payload.curves)) return;
+    payload.curves.forEach((curve, curveIdx) => {
+      const sourceAssets = Array.isArray(curve?.sibAssetTypes) && curve.sibAssetTypes.length
+        ? curve.sibAssetTypes
+        : [String(curve?.modeledInfrastructureType || `infra_${curveIdx}`)];
+      sourceAssets.forEach((assetTypeRaw, assetIdx) => {
+        const assetType = String(assetTypeRaw || '').trim();
+        const fallbackKey = `${component}_${curve.code || 'curve'}_${curveIdx}_${assetIdx}`;
+        const key = assetType || fallbackKey;
+        const mapKey = adminOverviewSlug(key);
+        if (!byAsset.has(mapKey)) {
+          byAsset.set(mapKey, {
+            key: mapKey,
+            label: ASSET_TYPE_ADMIN_LABEL[assetType] || assetType || String(curve?.modeledInfrastructureType || 'Infrastructure'),
+            modeledType: String(curve?.modeledInfrastructureType || 'N/A'),
+            modeledCharacteristics: String(curve?.modeledInfrastructureCharacteristics || 'N/A'),
+            source: String(curve?.source || 'source inconnue'),
+            geography: String(curve?.geography || 'geographie non renseignee'),
+            curves: {}
+          });
+        }
+        const entry = byAsset.get(mapKey);
+        if (!entry.curves[component]) {
+          entry.curves[component] = curve;
+        }
+      });
+    });
   });
+
+  return Array.from(byAsset.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'fr'));
+}
+
+function renderNoDataMiniChart(refKey, domId) {
+  const chart = ensureChart(refKey, domId);
+  if (!chart) return;
+  chart.setOption({
+    title: {
+      text: 'N/A',
+      left: 'center',
+      top: 'middle',
+      textStyle: { color: '#abc0ba', fontSize: 12, fontWeight: 500 }
+    },
+    xAxis: { show: false },
+    yAxis: { show: false },
+    series: []
+  }, true);
+}
+
+function renderAdminVulnerabilityOverviewMiniChart(assetKey, component, curve) {
+  const domId = adminOverviewDomId(assetKey, component);
+  const refKey = adminOverviewRefKey(assetKey, component);
+  const chart = ensureChart(refKey, domId);
+  if (!chart || !curve) {
+    renderNoDataMiniChart(refKey, domId);
+    return;
+  }
+
+  const intensity = Array.isArray(curve.intensity) ? curve.intensity : [];
+  const mdd = Array.isArray(curve.mdd) ? curve.mdd : [];
+  const len = Math.min(intensity.length, mdd.length);
+  if (len <= 1) {
+    renderNoDataMiniChart(refKey, domId);
+    return;
+  }
+
+  const points = intensity
+    .slice(0, len)
+    .map((value, idx) => [vulnerabilityIntensityToDisplayValue(value, curve.intensity_unit), clamp01(mdd[idx]) * 100])
+    .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  if (!points.length) {
+    renderNoDataMiniChart(refKey, domId);
+    return;
+  }
+
+  const maxX = points.reduce((acc, point) => Math.max(acc, Number(point?.[0] || 0)), 0);
+  const axisMax = maxX > 0 ? Math.ceil(maxX * 1.05) : 1;
+  const unitDisplay = vulnerabilityIntensityDisplayUnit(curve.intensity_unit);
+  const color = ADMIN_VULNERABILITY_OVERVIEW_META[component]?.color || '#F39655';
+
+  chart.setOption({
+    ...chartThemeCommon(),
+    grid: { left: 36, right: 8, top: 16, bottom: 30, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const row = Array.isArray(params) ? params[0] : params;
+        const xValue = Number(row?.value?.[0] ?? 0);
+        const yValue = Number(row?.value?.[1] ?? 0);
+        return `<strong>${escapeHtml(numberFmt.format(xValue))} ${escapeHtml(unitDisplay)}</strong><br/>Dommage: ${escapeHtml(numberFmt.format(yValue))}%`;
+      }
+    },
+    xAxis: {
+      ...chartThemeCommon().xAxis,
+      type: 'value',
+      min: 0,
+      max: axisMax,
+      axisLabel: {
+        color: '#abc0ba',
+        fontSize: 9,
+        formatter: (value) => numberFmt.format(Number(value) || 0)
+      }
+    },
+    yAxis: {
+      ...chartThemeCommon().yAxis,
+      type: 'value',
+      min: 0,
+      max: 100,
+      axisLabel: {
+        color: '#abc0ba',
+        fontSize: 9,
+        formatter: (value) => `${numberFmt.format(Number(value) || 0)}%`
+      }
+    },
+    series: [{
+      name: ADMIN_VULNERABILITY_OVERVIEW_META[component]?.label || component,
+      type: 'line',
+      data: points,
+      showSymbol: false,
+      symbol: 'none',
+      lineStyle: { width: 2, color },
+      areaStyle: { color: `${color}33` }
+    }]
+  }, true);
+}
+
+function renderAdminVulnerabilityOverviewCurves() {
+  if (!runtime.allowAdminVisu) return;
+  if (!els.adminVulnerabilityGrid) return;
+  const cards = collectAdminVulnerabilityOverviewCards();
+  if (!cards.length) {
+    if (els.adminVulnerabilityCaption) {
+      els.adminVulnerabilityCaption.textContent = 'Courbes de vulnerabilite indisponibles.';
+    }
+    els.adminVulnerabilityGrid.innerHTML = '<article class="admin-vulnerability-item"><div class="admin-vulnerability-item-title">Aucune courbe disponible</div></article>';
+    return;
+  }
+
+  const signature = cards.map((card) => `${card.key}:${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => card.curves?.[component]?.code || '-').join('/')}`).join('|');
+  if (els.adminVulnerabilityGrid.dataset.signature !== signature) {
+    disposeAdminVulnerabilityCharts();
+    disposeAdminVulnerabilityCharts('hydro');
+    disposeAdminVulnerabilityOverviewCharts();
+    els.adminVulnerabilityGrid.innerHTML = cards.map((card) => {
+      const codes = ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS
+        .map((component) => `${ADMIN_VULNERABILITY_OVERVIEW_META[component].label}: ${card.curves?.[component]?.code || 'n/a'}`)
+        .join(' · ');
+      return `
+        <article class="admin-vulnerability-item admin-vulnerability-item-overview">
+          <div class="admin-vulnerability-item-title">${escapeHtml(card.label)}</div>
+          <div class="admin-vulnerability-item-meta">${escapeHtml(card.source)} · ${escapeHtml(card.geography)}</div>
+          <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(card.modeledType)} (${escapeHtml(card.modeledCharacteristics)})</div>
+          <div class="admin-vulnerability-item-code"><strong>Codes courbes:</strong> ${escapeHtml(codes)}</div>
+          <div class="admin-vulnerability-mini-grid">
+            ${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => `
+              <div class="admin-vulnerability-mini-card">
+                <div class="admin-vulnerability-mini-title">${escapeHtml(ADMIN_VULNERABILITY_OVERVIEW_META[component].label)}</div>
+                <div id="${escapeHtml(adminOverviewDomId(card.key, component))}" class="admin-vulnerability-chart admin-vulnerability-chart-mini"></div>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+      `;
+    }).join('');
+    els.adminVulnerabilityGrid.dataset.signature = signature;
+  }
+
+  cards.forEach((card) => {
+    ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.forEach((component) => {
+      renderAdminVulnerabilityOverviewMiniChart(card.key, component, card.curves?.[component] || null);
+    });
+  });
+  if (els.adminVulnerabilityCaption) {
+    els.adminVulnerabilityCaption.textContent = `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`;
+  }
+  setTimeout(() => {
+    resizeAdminVulnerabilityOverviewCharts();
+  }, 0);
+}
+
+function resizeAdminVulnerabilityOverviewCharts() {
+  const prefix = 'admin_vulnerability_overview_';
+  Object.keys(chartRefs)
+    .filter((key) => key.startsWith(prefix))
+    .forEach((key) => {
+      if (chartRefs[key] && typeof chartRefs[key].resize === 'function') chartRefs[key].resize();
+    });
 }
 
 function waterInfraStyle(feature) {
@@ -4029,19 +4488,64 @@ function renderHistogramChart(refKey, domId, graph, color) {
   }, true);
 }
 
-function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, labelB, colorA, colorB) {
+function histogramPointsForComponent(graph, componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  const rawBins = Array.isArray(graph?.bins_mps)
+    ? graph.bins_mps
+    : (Array.isArray(graph?.bins) ? graph.bins : []);
+  const rawPct = Array.isArray(graph?.percent) ? graph.percent : [];
+  return rawBins
+    .map((x, idx) => {
+      const rawX = Number(x);
+      if (!Number.isFinite(rawX)) return null;
+      const xValue = component === 'wind' ? windMpsToKmh(rawX) : rawX;
+      if (!Number.isFinite(xValue)) return null;
+      return [xValue, Number(rawPct[idx] || 0)];
+    })
+    .filter(Boolean);
+}
+
+function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, labelB, colorA, colorB, options = {}) {
   const chart = ensureChart(refKey, domId);
-  if (!chart || !graphA || !graphB) return;
-  const rawBinsA = Array.isArray(graphA.bins_mps) ? graphA.bins_mps : [];
-  const rawBinsB = Array.isArray(graphB.bins_mps) ? graphB.bins_mps : [];
-  const rawPctA = Array.isArray(graphA.percent) ? graphA.percent : [];
-  const rawPctB = Array.isArray(graphB.percent) ? graphB.percent : [];
-  const seriesA = rawBinsA
-    .map((x, idx) => [windMpsToKmh(x), Number(rawPctA[idx] || 0)])
-    .filter(([x]) => Number.isFinite(x));
-  const seriesB = rawBinsB
-    .map((x, idx) => [windMpsToKmh(x), Number(rawPctB[idx] || 0)])
-    .filter(([x]) => Number.isFinite(x));
+  if (!chart) return;
+  const component = normalizeHazardComponent(options.component || 'wind');
+  const xAxisLabel = String(options.xAxisLabel || 'Vitesse maximale du vent');
+  const unitDisplay = String(options.unitDisplay || WIND_SPEED_UNIT_DISPLAY);
+  const yAxisName = String(options.yAxisName || 'Part des evenements (%)');
+  const seriesA = histogramPointsForComponent(graphA, component);
+  const seriesB = histogramPointsForComponent(graphB, component);
+  if (!seriesA.length || !seriesB.length) {
+    chart.setOption({
+      title: {
+        text: 'Aucune donnee',
+        left: 'center',
+        top: 'middle',
+        textStyle: { color: '#abc0ba', fontSize: 13, fontWeight: 500 }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    }, true);
+    return;
+  }
+
+  const xValues = [...seriesA, ...seriesB]
+    .map((point) => Number(point?.[0]))
+    .filter((value) => Number.isFinite(value));
+  let axisMinX = Math.min(...xValues);
+  let axisMaxX = Math.max(...xValues);
+  if (!Number.isFinite(axisMinX) || !Number.isFinite(axisMaxX)) {
+    axisMinX = 0;
+    axisMaxX = 1;
+  } else if (Math.abs(axisMaxX - axisMinX) < 1e-6) {
+    const spread = Math.max(1, Math.abs(axisMinX) * 0.05);
+    axisMinX = Math.max(0, axisMinX - spread);
+    axisMaxX += spread;
+  } else {
+    const spread = (axisMaxX - axisMinX) * 0.08;
+    axisMinX = Math.max(0, axisMinX - spread);
+    axisMaxX += spread;
+  }
 
   chart.setOption({
     ...chartThemeCommon(),
@@ -4056,7 +4560,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
         const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[1] || 0);
         const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[1] || 0);
         return [
-          `<strong>${escapeHtml(numberFmt.format(binValue))} ${WIND_SPEED_UNIT_DISPLAY}</strong>`,
+          `<strong>${escapeHtml(numberFmt.format(binValue))} ${escapeHtml(unitDisplay)}</strong>`,
           `${escapeHtml(labelA)}: ${escapeHtml(numberFmt.format(valA))}%`,
           `${escapeHtml(labelB)}: ${escapeHtml(numberFmt.format(valB))}%`
         ].join('<br/>');
@@ -4069,7 +4573,9 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     xAxis: {
       ...chartThemeCommon().xAxis,
       type: 'value',
-      name: `Vitesse maximale du vent (${WIND_SPEED_UNIT_DISPLAY})`,
+      min: axisMinX,
+      max: axisMaxX,
+      name: `${xAxisLabel} (${unitDisplay})`,
       nameLocation: 'middle',
       nameGap: 54,
       nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [10, 0, 0, 0] },
@@ -4079,7 +4585,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
     yAxis: {
       ...chartThemeCommon().yAxis,
       type: 'value',
-      name: "Part des evenements (%)",
+      name: yAxisName,
       nameLocation: 'middle',
       nameRotate: 90,
       nameGap: 72,
@@ -4317,76 +4823,40 @@ function renderImpactBreakdownCharts(impactPayload) {
     return [];
   };
 
-  const annualRows = rowsForScenario('annual');
-  const eventRows = rowsForScenario('event_max');
-  const rp50Rows = rowsForScenario('rp50');
-  const rp100Rows = rowsForScenario('rp100');
-
-  const waterRows = annualRows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRows = annualRows.filter((r) => String(r.key).startsWith('elec_'));
-  const waterRowsRp50 = rp50Rows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRowsRp50 = rp50Rows.filter((r) => String(r.key).startsWith('elec_'));
-  const waterRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRowsRp100 = rp100Rows.filter((r) => String(r.key).startsWith('elec_'));
-  const waterRowsEvt = eventRows.filter((r) => String(r.key).startsWith('eau_'));
-  const elecRowsEvt = eventRows.filter((r) => String(r.key).startsWith('elec_'));
-
-  const paletteWater = {
-    storm: { wind: '#0083CB', rain: '#5BC5F2', surge: '#A5E1F7' },
-    storm_cmcc: { wind: '#005A8F', rain: '#2F97C4', surge: '#66C5DF' }
-  };
-  const paletteElec = {
-    storm: { wind: '#6AB96F', rain: '#A4A64B', surge: '#FFD744' },
-    storm_cmcc: { wind: '#3F8753', rain: '#7C8234', surge: '#F39655' }
+  const scenarios = [
+    { key: 'annual', label: 'Annuel' },
+    { key: 'rp50', label: 'RP50' },
+    { key: 'rp100', label: 'RP100' },
+    { key: 'event_max', label: 'Evt max' }
+  ];
+  const totalByScenarioAndPrefix = (scenarioKey, prefix) => {
+    const rows = rowsForScenario(scenarioKey).filter((row) => String(row.key || '').startsWith(prefix));
+    return rows.reduce((acc, row) => {
+      acc.storm += Number(row?.storm || 0);
+      acc.cmcc += Number(row?.cmcc || 0);
+      return acc;
+    }, { storm: 0, cmcc: 0 });
   };
 
-  renderStackedImpactBarChart(
-    'impact_eai_water',
-    'impact-eai-water-chart',
-    waterRows,
-    paletteWater
+  const labels = scenarios.map((scenario) => scenario.label);
+  const waterTotals = scenarios.map((scenario) => totalByScenarioAndPrefix(scenario.key, 'eau_'));
+  const elecTotals = scenarios.map((scenario) => totalByScenarioAndPrefix(scenario.key, 'elec_'));
+
+  renderGroupedImpactBarChart(
+    'impact_overview_water',
+    'impact-overview-water-chart',
+    labels,
+    waterTotals.map((row) => row.storm),
+    waterTotals.map((row) => row.cmcc),
+    { storm: '#0083CB', cmcc: '#F39655' }
   );
-  renderStackedImpactBarChart(
-    'impact_eai_elec',
-    'impact-eai-elec-chart',
-    elecRows,
-    paletteElec
-  );
-  renderStackedImpactBarChart(
-    'impact_rp100_water',
-    'impact-rp100-water-chart',
-    waterRowsRp50,
-    paletteWater
-  );
-  renderStackedImpactBarChart(
-    'impact_rp100_elec',
-    'impact-rp100-elec-chart',
-    elecRowsRp50,
-    paletteElec
-  );
-  renderStackedImpactBarChart(
-    'impact_rp1000_water',
-    'impact-rp1000-water-chart',
-    waterRowsRp100,
-    paletteWater
-  );
-  renderStackedImpactBarChart(
-    'impact_rp1000_elec',
-    'impact-rp1000-elec-chart',
-    elecRowsRp100,
-    paletteElec
-  );
-  renderStackedImpactBarChart(
-    'impact_evt_water',
-    'impact-evt-water-chart',
-    waterRowsEvt,
-    paletteWater
-  );
-  renderStackedImpactBarChart(
-    'impact_evt_elec',
-    'impact-evt-elec-chart',
-    elecRowsEvt,
-    paletteElec
+  renderGroupedImpactBarChart(
+    'impact_overview_elec',
+    'impact-overview-elec-chart',
+    labels,
+    elecTotals.map((row) => row.storm),
+    elecTotals.map((row) => row.cmcc),
+    { storm: '#6AB96F', cmcc: '#A4A64B' }
   );
 }
 
@@ -4512,8 +4982,7 @@ function renderAll() {
   if (state.currentPage === 'page5') {
     renderAdminVisuPage();
     renderAdminPopulationMap();
-    renderAdminVulnerabilityCurves();
-    renderAdminHydroVulnerabilityCurves();
+    renderAdminVulnerabilityOverviewCurves();
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -5098,6 +5567,8 @@ async function switchCaseStudyPage(pageKey, territory, { updateHash = true } = {
   try {
     const payload = await ensureCaseStudyLoaded(territory);
     applyCaseStudyState(territory, payload);
+    setSelectedHazardComponent('wind');
+    resetHazardMapFitState();
     renderAll();
   } catch (err) {
     console.warn(`Case-study ${territory} could not be loaded`, err);
@@ -5193,20 +5664,29 @@ function bindEvents() {
   }
   if (els.hazardLayerWind) {
     els.hazardLayerWind.addEventListener('change', () => {
-      state.selectedHazardComponents.wind = Boolean(els.hazardLayerWind.checked);
+      if (!els.hazardLayerWind.checked) return;
+      setSelectedHazardComponent('wind');
+      resetHazardMapFitState();
       renderWindMaps();
+      renderPage1Hazard(state.page1Analysis || {});
     });
   }
   if (els.hazardLayerRain) {
     els.hazardLayerRain.addEventListener('change', () => {
-      state.selectedHazardComponents.rain = Boolean(els.hazardLayerRain.checked);
+      if (!els.hazardLayerRain.checked) return;
+      setSelectedHazardComponent('rain');
+      resetHazardMapFitState();
       renderWindMaps();
+      renderPage1Hazard(state.page1Analysis || {});
     });
   }
   if (els.hazardLayerSurge) {
     els.hazardLayerSurge.addEventListener('change', () => {
-      state.selectedHazardComponents.surge = Boolean(els.hazardLayerSurge.checked);
+      if (!els.hazardLayerSurge.checked) return;
+      setSelectedHazardComponent('surge');
+      resetHazardMapFitState();
       renderWindMaps();
+      renderPage1Hazard(state.page1Analysis || {});
     });
   }
   if (els.adminVisuOpacitySlider) {
@@ -5262,6 +5742,14 @@ function bindEvents() {
         .catch((err) => {
           setStatus(`Courbes pluie/submersion indisponibles: ${err.message}`, 'error');
         });
+    });
+  }
+
+  if (els.impactTableScenarioSelect) {
+    els.impactTableScenarioSelect.value = normalizeImpactTableScenario(state.impactTableScenario);
+    els.impactTableScenarioSelect.addEventListener('change', () => {
+      state.impactTableScenario = normalizeImpactTableScenario(els.impactTableScenarioSelect.value);
+      renderPage1Impact(state.page1Analysis || {});
     });
   }
 
@@ -5502,24 +5990,18 @@ async function bootstrap() {
             setStatus(`Population admin indisponible: ${err.message}`, 'error');
           }
         });
-      ensureAdminVulnerabilityCurvesLoaded()
+      Promise.all([
+        ensureAdminVulnerabilityCurvesLoaded(),
+        ensureAdminHydroVulnerabilityCurvesLoaded('rain'),
+        ensureAdminHydroVulnerabilityCurvesLoaded('surge')
+      ])
         .then(() => {
-          if (state.currentPage === 'page5') renderAdminVulnerabilityCurves();
+          if (state.currentPage === 'page5') renderAdminVulnerabilityOverviewCurves();
         })
         .catch((err) => {
           console.warn('Admin vulnerability curves preload failed', err);
           if (state.currentPage === 'page5') {
             setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
-          }
-        });
-      ensureAdminHydroVulnerabilityCurvesLoaded(state.adminHydroHazardComponent)
-        .then(() => {
-          if (state.currentPage === 'page5') renderAdminHydroVulnerabilityCurves();
-        })
-        .catch((err) => {
-          console.warn('Admin hydro vulnerability curves preload failed', err);
-          if (state.currentPage === 'page5') {
-            setStatus(`Courbes pluie/submersion indisponibles: ${err.message}`, 'error');
           }
         });
     }

@@ -119,7 +119,7 @@
           </div>
         </div>
         <article class="subpanel">
-          <h3 id="hazard-compare-title">Comparaison vitesses max - zone Guadeloupe</h3>
+          <h3 id="hazard-compare-title">Comparaison aléas - zone Guadeloupe</h3>
           <div class="table-wrap compact">
             <table>
               <thead>
@@ -145,7 +145,7 @@
           <div class="wind-mode-box">
             <label for="wind-map-mode">Type de carte des aléas</label>
             <select id="wind-map-mode">
-              <option value="mean">Vents moyens</option>
+              <option value="mean">Aléas moyen</option>
               <option value="rp50">Temps de retour 50 ans</option>
               <option value="rp100">Temps de retour 100 ans</option>
               <option value="event_max">Evenement le plus fort</option>
@@ -154,9 +154,9 @@
           <div class="wind-mode-box">
             <label>Cartes des aléas</label>
             <div id="hazard-layer-controls" class="layer-controls" aria-label="Hazard layer controls">
-              <label><input type="checkbox" id="hazard-layer-wind" checked /> Storm (vent)</label>
-              <label><input type="checkbox" id="hazard-layer-rain" checked /> Pluie</label>
-              <label><input type="checkbox" id="hazard-layer-surge" checked /> Inondations côtières</label>
+              <label><input type="radio" name="hazard-layer" id="hazard-layer-wind" checked /> Storm (vent)</label>
+              <label><input type="radio" name="hazard-layer" id="hazard-layer-rain" /> Pluie</label>
+              <label><input type="radio" name="hazard-layer" id="hazard-layer-surge" /> Inondations côtières</label>
             </div>
           </div>
         </div>
@@ -174,11 +174,11 @@
         </div>
         <div class="chart-grid hazard-compare-grid">
           <div class="chart-card">
-            <h3>Vitesse max du vent par annee (STORM vs STORM_CMCC)</h3>
+            <h3 id="hazard-chart-year-title">Vitesse max du vent par annee (STORM vs STORM_CMCC)</h3>
             <div id="page1-chart-year-compare" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Vitesse max du vent par evenement cyclonique (STORM vs STORM_CMCC)</h3>
+            <h3 id="hazard-chart-event-title">Vitesse max du vent par evenement cyclonique (STORM vs STORM_CMCC)</h3>
             <div id="page1-chart-track-compare" class="chart"></div>
           </div>
         </div>
@@ -201,95 +201,54 @@
         </div>
         <div class="impact-tables-grid">
           <article class="subpanel">
-            <h3>Tableau des impacts annuels (moyenne)</h3>
-            <div class="table-wrap compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Reseau</th>
-                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM Vent (€)</th>
-                    <th class="num">STORM Pluie (€)</th>
-                    <th class="num">STORM Inond. côtière (€)</th>
-                    <th class="num">STORM Total (€)</th>
-                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC Vent (€)</th>
-                    <th class="num">STORM_CMCC Pluie (€)</th>
-                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
-                    <th class="num">STORM_CMCC Total (€)</th>
-                  </tr>
-                </thead>
-                <tbody id="impact-table-annual-body"></tbody>
-              </table>
+            <div class="section-head">
+              <h3 id="impact-table-title">Tableau des impacts annuels (moyenne)</h3>
+              <div class="inline-row tight">
+                <select id="impact-table-scenario-select" aria-label="Scenario du tableau d impacts">
+                  <option value="annual">Moyenne annuelle</option>
+                  <option value="rp50">Temps de retour 50 ans</option>
+                  <option value="rp100">Temps de retour 100 ans</option>
+                  <option value="event_max">Evenement le plus fort</option>
+                </select>
+              </div>
             </div>
-          </article>
-          <article class="subpanel">
-            <h3>Tableau des impacts causes par les evenements a temps de retour 50 ans</h3>
-            <div class="table-wrap compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Reseau</th>
-                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM Vent (€)</th>
-                    <th class="num">STORM Pluie (€)</th>
-                    <th class="num">STORM Inond. côtière (€)</th>
-                    <th class="num">STORM Total (€)</th>
-                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC Vent (€)</th>
-                    <th class="num">STORM_CMCC Pluie (€)</th>
-                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
-                    <th class="num">STORM_CMCC Total (€)</th>
-                  </tr>
-                </thead>
-                <tbody id="impact-table-rp100-body"></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="subpanel">
-            <h3>Tableau des impacts causes par les evenements a temps de retour 100 ans</h3>
-            <div class="table-wrap compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Reseau</th>
-                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM Vent (€)</th>
-                    <th class="num">STORM Pluie (€)</th>
-                    <th class="num">STORM Inond. côtière (€)</th>
-                    <th class="num">STORM Total (€)</th>
-                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC Vent (€)</th>
-                    <th class="num">STORM_CMCC Pluie (€)</th>
-                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
-                    <th class="num">STORM_CMCC Total (€)</th>
-                  </tr>
-                </thead>
-                <tbody id="impact-table-rp1000-body"></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="subpanel">
-            <h3>Tableau des impacts causes par l'evenement le plus fort</h3>
-            <div class="table-wrap compact">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Reseau</th>
-                    <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM Vent (€)</th>
-                    <th class="num">STORM Pluie (€)</th>
-                    <th class="num">STORM Inond. côtière (€)</th>
-                    <th class="num">STORM Total (€)</th>
-                    <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC Vent (€)</th>
-                    <th class="num">STORM_CMCC Pluie (€)</th>
-                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
-                    <th class="num">STORM_CMCC Total (€)</th>
-                  </tr>
-                </thead>
-                <tbody id="impact-table-eventmax-body"></tbody>
-              </table>
+            <div class="impact-table-duo">
+              <article class="impact-table-card">
+                <h4>STORM</h4>
+                <div class="table-wrap compact impact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Reseau</th>
+                        <th class="num">S0/S1/S2/S3 (%)</th>
+                        <th class="num">Vent (€)</th>
+                        <th class="num">Pluie (€)</th>
+                        <th class="num">Inond. côtière (€)</th>
+                        <th class="num">Total (€)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="impact-table-storm-body"></tbody>
+                  </table>
+                </div>
+              </article>
+              <article class="impact-table-card">
+                <h4>STORM_CMCC</h4>
+                <div class="table-wrap compact impact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Reseau</th>
+                        <th class="num">S0/S1/S2/S3 (%)</th>
+                        <th class="num">Vent (€)</th>
+                        <th class="num">Pluie (€)</th>
+                        <th class="num">Inond. côtière (€)</th>
+                        <th class="num">Total (€)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="impact-table-cmcc-body"></tbody>
+                  </table>
+                </div>
+              </article>
             </div>
           </article>
         </div>
@@ -323,36 +282,12 @@
           <p class="muted small" id="network-state-caption">Chargement...</p>
           <div class="chart-grid impact-breakdown-grid">
             <div class="chart-card">
-              <h3>EAI eau (STORM vs STORM_CMCC)</h3>
-              <div id="impact-eai-water-chart" class="chart"></div>
+              <h3>Dégâts eau par scénario (STORM vs STORM_CMCC)</h3>
+              <div id="impact-overview-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>EAI electricite (STORM vs STORM_CMCC)</h3>
-              <div id="impact-eai-elec-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>RP50 eau (STORM vs STORM_CMCC)</h3>
-              <div id="impact-rp100-water-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>RP50 electricite (STORM vs STORM_CMCC)</h3>
-              <div id="impact-rp100-elec-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>RP100 eau (STORM vs STORM_CMCC)</h3>
-              <div id="impact-rp1000-water-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>RP100 electricite (STORM vs STORM_CMCC)</h3>
-              <div id="impact-rp1000-elec-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>EVT max eau (STORM vs STORM_CMCC)</h3>
-              <div id="impact-evt-water-chart" class="chart"></div>
-            </div>
-            <div class="chart-card">
-              <h3>EVT max electricite (STORM vs STORM_CMCC)</h3>
-              <div id="impact-evt-elec-chart" class="chart"></div>
+              <h3>Dégâts electricite par scénario (STORM vs STORM_CMCC)</h3>
+              <div id="impact-overview-elec-chart" class="chart"></div>
             </div>
           </div>
         </div>
@@ -867,25 +802,10 @@ scripts/build_guadeloupe_water_infra_map.py
 
         <article class="subpanel admin-vulnerability-card">
           <div class="admin-vulnerability-head">
-            <h3>Courbes de vulnérabilité vent (windstorm)</h3>
+            <h3>Courbes de vulnérabilité par infrastructure (vent / submersion / pluie)</h3>
             <p class="muted small" id="admin-vulnerability-caption">Chargement des courbes de vulnérabilité...</p>
           </div>
-          <div id="admin-vulnerability-grid" class="admin-vulnerability-grid"></div>
-        </article>
-
-        <article class="subpanel admin-vulnerability-card">
-          <div class="admin-vulnerability-head">
-            <h3>Courbes nouveaux aléas (pluie / submersion)</h3>
-            <div class="admin-population-controls">
-              <label for="admin-hydro-hazard-select">Aléa</label>
-              <select id="admin-hydro-hazard-select">
-                <option value="rain">Pluie</option>
-                <option value="surge">Submersion côtière</option>
-              </select>
-            </div>
-            <p class="muted small" id="admin-hydro-vulnerability-caption">Chargement des courbes pluie/submersion...</p>
-          </div>
-          <div id="admin-hydro-vulnerability-grid" class="admin-vulnerability-grid"></div>
+          <div id="admin-vulnerability-grid" class="admin-vulnerability-grid admin-vulnerability-grid-overview"></div>
         </article>
       </section>
 

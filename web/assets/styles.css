@@ -132,7 +132,7 @@ button, input, select {
   padding: 6px 10px;
   border-radius: 10px;
   border: 1px solid #99D7F7;
-  background: #5BC5F2;
+  background: #ffffff;
 }
 
 .top-menu-brand img {
@@ -606,8 +606,27 @@ button:disabled {
 
 .impact-tables-grid {
   display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.impact-table-duo {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.impact-table-card {
+  display: grid;
+  gap: 8px;
+}
+
+.impact-table-card h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .metric-list {
@@ -821,6 +840,10 @@ button:disabled {
   gap: 10px;
 }
 
+.admin-vulnerability-grid-overview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .admin-vulnerability-item {
   border: 1px solid rgba(153, 215, 247, 0.25);
   border-radius: 12px;
@@ -843,6 +866,42 @@ button:disabled {
 
 .admin-vulnerability-chart {
   height: 240px;
+}
+
+.admin-vulnerability-item-overview {
+  gap: 8px;
+}
+
+.admin-vulnerability-item-code {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.admin-vulnerability-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-vulnerability-mini-card {
+  border: 1px solid rgba(153, 215, 247, 0.22);
+  border-radius: 10px;
+  background: rgba(0, 58, 118, 0.26);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-vulnerability-mini-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #edf4f2;
+}
+
+.admin-vulnerability-chart-mini {
+  height: 150px;
 }
 
 .water-panel,
@@ -1105,6 +1164,17 @@ button:disabled {
   border-collapse: collapse;
 }
 
+.impact-table-wrap table {
+  table-layout: fixed;
+}
+
+.impact-table-wrap th,
+.impact-table-wrap td {
+  white-space: normal;
+  word-break: break-word;
+  font-size: 12px;
+}
+
 .table-wrap th, .table-wrap td {
   padding: 10px 9px;
   border-bottom: 1px solid rgba(153, 215, 247, 0.18);
@@ -1365,10 +1435,14 @@ button:disabled {
   .wind-grid,
   .admin-visu-grid,
   .admin-vulnerability-grid,
+  .impact-table-duo,
   .wind-controls-row,
   .expo-grid,
   .impact-tables-grid {
     grid-template-columns: 1fr;
+  }
+  .admin-vulnerability-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1390,7 +1464,9 @@ button:disabled {
   .wind-map { height: 340px; }
   .admin-visu-map { height: 340px; }
   .admin-population-map { height: 340px; }
-  .admin-vulnerability-chart { height: 260px; }
+  .admin-vulnerability-chart { height: 220px; }
+  .admin-vulnerability-chart-mini { height: 140px; }
+  .admin-vulnerability-mini-grid { grid-template-columns: 1fr; }
   .water-map { height: 340px; }
   .table-wrap th, .table-wrap td { font-size: 12px; padding: 8px; }
 }

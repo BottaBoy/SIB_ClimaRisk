@@ -47,7 +47,7 @@ flowchart TD
 
 ---
 
-## 3) Entrees et normalisation des expositions
+## 3) Exposition
 
 Le backend accepte:
 - `input_mode=file`: CSV, XLSX, GeoJSON, GPKG,
@@ -64,7 +64,7 @@ Aliases principaux:
 
 ---
 
-## 4) Conversion exposition -> CLIMADA
+### 3.1 Conversion exposition -> CLIMADA
 
 Fichier: `backend/app/risk_engine/exposure_to_climada.py`
 
@@ -87,11 +87,11 @@ Le mapping metier est conserve par point:
 
 ---
 
-## 5) Calcul d’impact direct CLIMADA
+## 4) Aléas
 
 Fichier: `backend/app/risk_engine/climada_engine.py`
 
-### Etapes
+### 4.1 Construction des aléas et calcul direct CLIMADA
 1. chargement des hazards via `hazard_loader.py`:
    - STORM: `tc_hazard_guadeloupe.h5`
    - STORM_CMCC: `tc_hazard_guadeloupe_CMCC.h5`
@@ -104,7 +104,7 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 4. calcul CLIMADA:
    - `ImpactCalc(exposures, impfset, hazard).impact(...)`
 
-### Sorties directes par alea
+### 4.2 Sorties directes par alea
 - `eai_direct_by_point` (EAI direct par point d’exposition),
 - `max_loss_by_point` (perte max evenementielle par point),
 - `at_event_loss` (perte portfolio par evenement),
@@ -114,34 +114,36 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 - `tvar_95_eur`,
 - `top_events` (top N, defaut 20).
 
-### 5.1 Tableau des courbes de vulnerabilite appliquees (windstorm, vulnerabilite uniquement)
+### 4.3 Tableau des courbes de vulnerabilite appliquees (vent + pluie/submersion)
 
-| Type d'infrastructure (asset_type) | Courbe de vulnerabilite retenue | Code courbe | Provenance geographique | Justification (resume) |
+| Type d'infrastructure (asset_type) | Courbe vent (windstorm) | Courbe pluie/submersion (depth) | Provenance geographique principale | Justification (resume) |
 |---|---|---|---|---|
-| `elec_bt_aerien` | D2_W3.10 | `W3.10` | Mexique | Courbe reseau electrique aerien (Reinoso et al., 2020) |
-| `elec_hta_aerien` | D2_W3.14 | `W3.14` | Mexique | Courbe reseau electrique aerien HTA (Reinoso et al., 2020) |
-| `elec_bt_souterrain` | D2_W16.1 | `W16.1` | Global | Option prudente non nulle pour reseau enterre (Miyamoto International, 2019) |
-| `elec_hta_souterrain` | D2_W16.1 | `W16.1` | Global | Option prudente non nulle pour reseau enterre (Miyamoto International, 2019) |
-| `eau_aep_cana` | D2_W16.1 | `W16.1` | Global | Reseau eau lineaire, dommage vent faible mais non nul |
-| `eau_eu_cana` | D2_W19.1 | `W19.1` | Global | Reseau EU lineaire, dommage vent faible mais non nul |
-| `eau_eu_pr` | Eberenz Caraibes | `EBERENZ_2021_TC` | Caraibes (generalise) | Choix utilisateur: conserver Eberenz pour PR |
-| `eau_eu_step` | D2_W21.2 | `W21.2` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_trait` | D2_W21.2 | `W21.2` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_stpmp` | D2_W21.4 | `W21.4` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_cap` | D2_W21.10 | `W21.10` | Philippines | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_cuv` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_ouveb` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Ouvrage eau exterieur sensible aux vents forts |
-| `eau_aep_ouvrage_na` | D2_W21.5 | `W21.5` | Southern Luzon (Philippines) | Valeur de repli ouvrage AEP |
+| `elec_bt_aerien` | `W3.10` | `F6.2` | Mexique + D2 inondation | Courbe reseau electrique aerien |
+| `elec_hta_aerien` | `W3.14` | `F6.2` | Mexique + D2 inondation | Courbe reseau electrique aerien HTA |
+| `elec_bt_souterrain` | `W16.1` | `F6.1` | Global + D2 inondation | Option prudente non nulle pour reseau enterre |
+| `elec_hta_souterrain` | `W16.1` | `F6.1` | Global + D2 inondation | Option prudente non nulle pour reseau enterre |
+| `eau_aep_cana` | `W16.1` | `F16.3` | Global + D2 inondation | Reseau eau lineaire |
+| `eau_eu_cana` | `W19.1` | `F19.3` | Global + D2 inondation | Reseau EU lineaire |
+| `eau_eu_pr` | `EBERENZ_2021_TC` | `F20.3` | Caraibes + D2 inondation | Choix utilisateur conserve pour PR |
+| `eau_eu_step` | `W21.2` | `F18.4` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_trait` | `W21.2` | `F14.4` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_stpmp` | `W21.4` | `F17.4` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_cap` | `W21.10` | `F15.1` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_cuv` | `W21.5` | `F13.1` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_ouveb` | `W21.5` | `F13.1` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
+| `eau_aep_ouvrage_na` | `W21.5` | `F14.4` | Philippines + D2 inondation | Valeur de repli ouvrage AEP |
 
 Notes:
-- seules des **courbes de vulnerabilite** sont utilisees (pas de courbes de fragilite),
+- courbe depth de repli globale: `F17.5`,
 - l'endpoint `GET /api/v1/vulnerability/curves` expose le profil actif pour audit/visualisation admin.
 
 ---
 
-## 6) Regles metier 4 etats + health
+## 5) Impacts
 
-### 6.1 Etats S0/S1/S2/S3
+### 5.1 Regles metier 4 etats + health
+
+### 5.1.1 Etats S0/S1/S2/S3
 S0 Opérationnel, S1 Dégradé, S2 Critique, S3 Hors service
 
 Le ratio de dommage direct est:
@@ -156,7 +158,7 @@ Classification:
 - `S2`: `0.15 <= DR_max < 0.35`
 - `S3`: `DR_max >= 0.35`
 
-### 6.2 Sante `health`
+### 5.1.2 Sante `health`
 
 ```text
 health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total
@@ -173,7 +175,7 @@ Important:
 La formule `health` est calculee pour tous les composants presents dans `component_health` (elec, eau, habitation, etc.).
 En revanche, la propagation de dependance utilise **uniquement** la sante electrique pour ajuster les actifs eau.
 
-### 6.3 Reponse directe: "comment est calculee la longueur dans chaque etat ?"
+### 5.1.3 Reponse directe: "comment est calculee la longueur dans chaque etat ?"
 
 Dans le backend API principal (`interdependency.py`), ce n'est pas une longueur physique mais un poids de valeur:
 
@@ -205,7 +207,7 @@ Note mode fallback (`impact_runner.py`):
 - elle n'est pas le chemin nominal de production;
 - dans ce mode, `_feature_weight` peut utiliser une longueur km pour les lignes, avec poids conventionnels `1` (points) et `3` (polygones).
 
-### 6.4 Annexe - longueur impactee apres desagregation (hors moteur API principal)
+### 5.1.4 Annexe - longueur impactee apres desagregation (hors moteur API principal)
 
 Cette methode n'est pas utilisee dans le backend API principal; c'est une methode annexe pour des tableaux cartes/scripts d'etude.
 
@@ -230,14 +232,14 @@ Cette conversion doit rester reservee aux classes lineaires, et exclure les ouvr
 
 ---
 
-## 7) Propagation elec -> eau (post-traitement prudent)
+### 5.2 Propagation elec -> eau (post-traitement prudent)
 
 Fichier: `backend/app/risk_engine/interdependency.py`
 
 Hypothese prudente:
 - **tous les actifs eau sont dependants de l’electricite**.
 
-### 7.1 Comment la "partie elec qui alimente la partie eau" est decidee actuellement
+#### 5.2.1 Comment la "partie elec qui alimente la partie eau" est decidee actuellement
 
 Le modele actuel n'utilise pas encore un graphe electrique explicite (poste source -> depart -> pompe/ouvrage eau).
 La dependance est donc calculee avec une regle spatiale robuste et traçable:
@@ -282,7 +284,7 @@ sinon:
 EAI_total(i,h) = min(exposure_eur(i), EAI_direct(i,h) + EAI_indirect(i,h))
 ```
 
-### 7.2 Pourquoi on peut observer des ratios d'etats tres proches (voire identiques) entre STORM et STORM_CMCC
+#### 5.2.2 Pourquoi on peut observer des ratios d'etats tres proches (voire identiques) entre STORM et STORM_CMCC
 
 Ce n'est pas forcement une erreur de calcul. Dans les sorties actuelles Guadeloupe/Martinique:
 
@@ -303,9 +305,9 @@ Point de verification:
 
 ---
 
-## 8) Aggregation territoriale et portfolio
+### 5.3 Aggregation territoriale et portfolio
 
-### 8.1 Territoires
+#### 5.3.1 Territoires
 Le backend agrège par maille territoriale (`territory_id`) et produit:
 - `eai_storm_direct_eur`, `eai_storm_indirect_eur`, `eai_storm_eur`
 - `eai_cmcc_direct_eur`, `eai_cmcc_indirect_eur`, `eai_cmcc_eur`
@@ -323,7 +325,7 @@ Interpretation:
 - le facteur `*1000` augmente la lisibilite numerique pour l'UI;
 - `clamp(0,100)` borne l'indice pour eviter des valeurs extrêmes en affichage.
 
-### 8.2 Portfolio
+#### 5.3.2 Portfolio
 Pour chaque alea:
 - `eai_eur`, `aai_agg_eur`, `max_event_loss_eur`
 - `eai_direct_eur`, `eai_indirect_eur`
@@ -351,7 +353,7 @@ Signification detaillee des variables portfolio:
 
 ---
 
-## 9) Contrat de sortie JSON (compatibilite + extensions)
+### 5.4 Contrat de sortie JSON (compatibilite + extensions)
 
 Le payload conserve la structure historique pour le front:
 - `meta`, `exposure_summary`, `territory_results`, `portfolio_results`, `graphs`, `notes`.
@@ -373,7 +375,7 @@ Artefacts telechargeables:
 
 ---
 
-## 10) Graphiques backend (`graphs`)
+### 5.5 Graphiques backend (`graphs`)
 
 Le backend conserve les memes cles pour le front:
 - `graphs.storm.wind_year_hist`
@@ -387,7 +389,7 @@ Les valeurs sont maintenant derivees des pertes CLIMADA (distribution evenementi
 
 ---
 
-## 11) Parametrage runtime important
+### 5.6 Parametrage runtime important
 
 Variables d’environnement:
 - `SIB_RISK_IMPACT_ENGINE_MODE`: `climada` (defaut) ou `fallback`
@@ -404,7 +406,9 @@ Endpoint sante:
 
 ---
 
-## 12) Valorisation monetaire prudente (OFB)
+## 6) Annexes et complements
+
+### 6.1 Valorisation monetaire prudente (OFB)
 
 La valeur des reseaux eau est basee sur la moyenne observee par territoire dans le comparateur de couts OFB.
 Pour les reseaux electriques, les quatre classes BT/HTA aerien/souterrain utilisent des valeurs D3 (`Table_D3_Costs_V1.1.0`, ICF 2002).
@@ -432,7 +436,7 @@ Details techniques:
 
 ---
 
-## 13) Scripts de preparation des donnees Guadeloupe
+### 6.2 Scripts de preparation des donnees Guadeloupe
 
 - `scripts/build_guadeloupe_complete_analysis.py`
   - construit la reference complete eau+electricite et lance le backend de calcul.
@@ -449,7 +453,7 @@ Details techniques:
 
 ---
 
-## 14) Note de mise a jour visuelle cartes NA (2026-03-11)
+### 6.3 Note de mise a jour visuelle cartes NA (2026-03-11)
 
 Une mise a jour a ete appliquee sur le rendu des cartes d'alea NA pour supprimer les bandes visuelles (lignes blanches / mailles minimales apparentes) dans les exports cartographiques et overlays web.
 
@@ -464,7 +468,7 @@ Important:
 
 ---
 
-## 15) Limites connues
+### 6.4 Limites connues
 
 - La propagation elec->eau est prudente et non basee sur un graphe electrique explicite poste-source -> equipement.
 - Le couplage indirect est applique en multiplicateur d’EAI direct (pas encore simulation dynamique multi-etapes par evenement).
@@ -472,7 +476,7 @@ Important:
 
 ---
 
-## 16) Sources STORM completes
+### 6.5 Sources STORM completes
 
 - STORM present climate (all basins):  
   https://data.4tu.nl/articles/dataset/STORM_IBTrACS_present_climate_synthetic_tropical_cyclone_tracks/12706085
@@ -481,7 +485,7 @@ Important:
 
 ---
 
-## 17) Comparatif runs de reference (mise a jour du 18 mars 2026)
+### 6.6 Comparatif runs de reference (mise a jour du 18 mars 2026)
 
 Runs relances:
 - `guadeloupe-complete-analysis.json` (avant: 6 mars 2026, apres: 19 mars 2026),
@@ -516,9 +520,9 @@ Verification page Donnee utilisateur (`/api/v1/runs`):
 
 ---
 
-## 18) Extension multi-aleas cycloniques (mise a jour du 20 mars 2026)
+### 6.7 Extension multi-aleas cycloniques (mise a jour du 20 mars 2026)
 
-### 18.1 Perimetre V1 implemente
+#### 6.7.1 Perimetre V1 implemente
 Le moteur CLIMADA backend conserve les deux scenarios historiques:
 - `storm`
 - `storm_cmcc`
@@ -530,7 +534,7 @@ Chaque scenario peut maintenant agreger jusqu'a trois composantes d'alea direct:
 
 Le contrat top-level reste compatible (`storm` / `storm_cmcc` inchanges) et des champs additifs ont ete ajoutes pour la decomposition des composantes.
 
-### 18.2 Source de donnees TC et generation des composantes
+#### 6.7.2 Source de donnees TC et generation des composantes
 Objectif retenu: generer pluie et submersion a partir des memes donnees cycloniques que le vent (STORM/STORM_CMCC).
 
 Implementation:
@@ -578,7 +582,7 @@ return TropCyclone.from_tracks(
 Implementation de reference:
 - `backend/app/risk_engine/hazard_loader.py`
 
-#### 18.2.1 Comment la pluie est calculee
+##### 6.7.2.1 Comment la pluie est calculee
 La pluie n'est pas une simple recoloration de la carte de vent. Dans le backend, elle est derivee des tracks tropicaux eux-memes via `TCRain.from_tracks(...)`.
 
 Extrait:
@@ -605,7 +609,7 @@ Important pour l'interpretation:
 - les degats pluie dependent ensuite de la conversion `pluie -> hauteur proxy`, puis de la courbe profondeur-dommage de l'actif;
 - avec des coefficients de ruissellement modestes, la composante pluie peut rester visible en aléa mais faible en dommage.
 
-#### 18.2.2 Comment la submersion cotiere est calculee
+##### 6.7.2.2 Comment la submersion cotiere est calculee
 La submersion cotiere n'est pas construite directement depuis les tracks. Elle est derivee du hazard vent deja calcule:
 
 ```python
@@ -630,7 +634,7 @@ if prepared_topo != Path(surge_topo_path):
 
 Cela garantit que `TCSurgeBathtub` travaille sur une topographie georeferencee coherentement.
 
-#### 18.2.3 Difference entre couches cartographiques et calcul des dommages
+##### 6.7.2.3 Difference entre couches cartographiques et calcul des dommages
 Pour Guadeloupe/Martinique, les cartes page 1 / page 2 restent des couches de visualisation agregees sur une grille web, mais les trois composantes `wind / rain / surge` sont maintenant calculees sur la meme chaine native CLIMADA.
 
 Le script dedie `scripts/build_guadeloupe_wind_maps.py` applique des choix distincts selon la composante:
@@ -709,7 +713,7 @@ Depuis la correction du 24 mars 2026, la carte de submersion des cas d'etude:
 - s'appuie sur `TCSurgeBathtub` de bout en bout,
 - n'affiche que les cellules qui intersectent effectivement le territoire cible.
 
-### 18.3 Choix Bathtub vs GeoClaw
+#### 6.7.3 Choix Bathtub vs GeoClaw
 Choix acté pour V1 production:
 - **Bathtub (TCSurgeBathtub)**
 
@@ -720,7 +724,7 @@ Raison:
 
 GeoClaw est garde pour un futur benchmark localise (zones cotières critiques), mais non active en V1 API.
 
-### 18.4 DEM et donnees topo/bathymetrie
+#### 6.7.4 DEM et donnees topo/bathymetrie
 DEM V1 configure:
 - `/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc`
 
@@ -728,27 +732,12 @@ Ce DEM est suffisant pour la V1 Guadeloupe/Martinique.
 Si le raster source ne contient pas de CRS (cas possible des `.asc`), le backend convertit automatiquement vers un GeoTIFF temporaire EPSG:4326 avant calcul bathtub.
 Le fichier Guyane volumineux (>4GB) n'est pas requis pour ce perimetre V1.
 
-### 18.5 Courbes inondation/proxy pluie
-Les courbes profondeur-dommage utilisees pour pluie/submersion sont lues depuis:
-- `/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx`
-- feuille `F_Vuln_Depth`
+#### 6.7.5 Courbes inondation/proxy pluie
+Le tableau de reference consolide des courbes de vulnerabilite (vent + pluie/submersion) est maintenant centralise en **section 4.3**.
 
-Mapping `asset_type -> courbe depth` retenu en V1:
-- `elec_bt_aerien`, `elec_hta_aerien` -> `F6.2`
-- `elec_bt_souterrain`, `elec_hta_souterrain` -> `F6.1`
-- `eau_aep_cana` -> `F16.3`
-- `eau_eu_cana` -> `F19.3`
-- `eau_eu_pr` -> `F20.3`
-- `eau_eu_step` -> `F18.4`
-- `eau_aep_ouvrage_trait` -> `F14.4`
-- `eau_aep_ouvrage_stpmp` -> `F17.4`
-- `eau_aep_ouvrage_cap` -> `F15.1`
-- `eau_aep_ouvrage_cuv`, `eau_aep_ouvrage_ouveb` -> `F13.1`
-- `eau_aep_ouvrage_na` -> `F14.4`
-- defaut global -> `F17.5`
-
-Le mapping source de reference est implemente dans:
-- `backend/app/risk_engine/impact_functions_multi_hazard.py`
+Source depth:
+- `/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx` (feuille `F_Vuln_Depth`)
+- implementation: `backend/app/risk_engine/impact_functions_multi_hazard.py`
 
 Pour la pluie, la V1 repose sur une conversion pluie -> hauteur proxy via coefficients de ruissellement par classe d'infrastructure:
 - `elec_aerien = 0.10`
@@ -761,7 +750,7 @@ Cette conversion permet d'utiliser le meme socle `F_Vuln_Depth` pour:
 - la submersion cotiere (`m`),
 - la pluie proxy (`mm_proxy`).
 
-### 18.6 Regle d'agregation multi-aleas directe
+#### 6.7.6 Regle d'agregation multi-aleas directe
 La combinaison directe appliquee est additive avec plafond par point:
 
 ```text
@@ -774,7 +763,7 @@ MaxLoss_total(point) = min(value_point,
 
 Puis la propagation elec -> eau (indirect) s'applique sur ce direct total, sans rupture de schema des sorties historiques.
 
-### 18.7 Sorties JSON ajoutees (additives)
+#### 6.7.7 Sorties JSON ajoutees (additives)
 Dans `portfolio_results.storm` et `portfolio_results.storm_cmcc`:
 - `components_direct_eai_eur`
 - `components_direct_max_event_loss_eur`
@@ -797,33 +786,34 @@ Dans les JSON page 1 / page 2 (`web/data/*-page*-analysis.json`):
 - `impact.damage_breakdown_by_scenario[*].storm[*].damage_components_eur`
 - `impact.damage_breakdown_by_scenario[*].storm_cmcc[*].damage_components_eur`
 
-### 18.8 Choix UI actes
+#### 6.7.8 Choix UI actes
 Pour la page Guadeloupe/Martinique:
 - les cartes sont renommees `Cartes des aleas`
 - les deux cartes `STORM` / `STORM_CMCC` sont conservees
-- des cases a cocher permettent d'afficher `Storm (vent)`, `Pluie`, `Inondations cotieres`
-- les tableaux d'impact separent `Vent`, `Pluie`, `Inond. cotiere` et `Total`
-- les graphes d'impact passent en barres empilees par composante avec deux piles: `STORM` et `STORM_CMCC`
+- un seul aléa est selectionnable a la fois (`Storm (vent)`, `Pluie`, `Inondations cotieres`)
+- les deux graphes de comparaison sous la carte sont dynamiques selon l'aléa selectionne (titres + axes + unites)
+- le bloc impact utilise un seul tableau pilote par menu deroulant (`annual`, `rp50`, `rp100`, `event_max`)
+- les graphes de degats sont regroupes en vues generales eau/electricite par scenario
 
 Pour la page 5:
-- le bloc historique des courbes vent est conserve
-- un second bloc `courbes nouveaux aleas` ajoute un selecteur `Pluie` / `Submersion`
+- les cartes de courbes sont organisees par infrastructure
+- chaque infrastructure affiche 3 mini-graphes (`vent`, `submersion cotiere`, `pluie`)
 - l'endpoint backend supporte `GET /api/v1/vulnerability/curves?hazard_component=wind|rain|surge`
 
-### 18.9 Variables runtime ajoutees
+#### 6.7.9 Variables runtime ajoutees
 - `SIB_RISK_MULTI_HAZARD_ENABLED`
 - `SIB_RISK_HAZARD_RAIN_MODEL`
 - `SIB_RISK_HAZARD_SURGE_TOPO_PATH`
 - `SIB_RISK_D2_FLOOD_CURVE_FILE`
 
-### 18.10 Lien avec evolutions futures (glissements / inondations pluviales)
+#### 6.7.10 Lien avec evolutions futures (glissements / inondations pluviales)
 Le modele pluie (`TCRain`) est conserve comme socle commun pour:
 - futurs modeles de mouvements de terrain,
 - futurs modeles d'inondation pluviale plus physiques.
 
 La V1 actuelle fournit donc une base operationnelle multi-aleas tout en preservant la compatibilite des sorties API existantes.
 
-### 18.11 Strategie de rerun legere pour Guadeloupe / Martinique
+#### 6.7.11 Strategie de rerun legere pour Guadeloupe / Martinique
 Pour finaliser les cas d'etude sans relancer un pipeline multi-aleas complet trop couteux sur toutes les geometries, la strategie retenue est la suivante:
 - generation des cartes d'aleas (`wind`, `rain`, `surge`) par script dedie,
 - generation d'un proxy multi-aleas echantillonne par territoire (`web/data/*-multi-hazard-proxy.json`),
