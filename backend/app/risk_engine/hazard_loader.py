@@ -42,6 +42,9 @@ class HazardBundle:
     source: str = "precomputed_hdf5"
     basin_ids: tuple[int, ...] = ()
     point_count: int = 0
+    tracks_storm: Any | None = None
+    tracks_storm_cmcc: Any | None = None
+    centroids: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,8 @@ _TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float, tuple[float
 
 DEFAULT_SPATIAL_PADDING_DEG = 4.0
 DEFAULT_MAX_TRACKS = 4000
+DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
+DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
 
 
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
@@ -505,6 +510,19 @@ def _build_centroids_from_points(point_coords: Iterable[tuple[float, float]]) ->
 
     if not lat_vals:
         raise ValueError("No valid coordinates available to build dynamic hazard centroids")
+
+    if len(seen) <= DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD:
+        augmented = set(seen)
+        step = float(DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG)
+        for latf, lonf in list(seen):
+            for dlat in (-step, 0.0, step):
+                for dlon in (-step, 0.0, step):
+                    new_lat = max(-90.0, min(90.0, latf + dlat))
+                    new_lon = _normalize_lon(lonf + dlon)
+                    augmented.add((round(new_lat, 5), round(new_lon, 5)))
+        seen = augmented
+        lat_vals = [item[0] for item in sorted(seen)]
+        lon_vals = [item[1] for item in sorted(seen)]
     return Centroids.from_lat_lon(lat=lat_vals, lon=lon_vals, crs="EPSG:4326")
 
 
@@ -571,6 +589,9 @@ def load_storm_hazards_from_parquet_for_points(
         source="dynamic_parquet",
         basin_ids=tuple(sorted(int(v) for v in basin_ids)),
         point_count=int(len(coords)),
+        tracks_storm=tracks_storm,
+        tracks_storm_cmcc=tracks_cmcc,
+        centroids=centroids,
     )
 
 

@@ -16,6 +16,7 @@ from .job_store import JobStore
 from .models import HealthResponse, JobStatus, RunInputMode
 from .risk_engine.hazard_loader import list_default_basin_coverages
 from .risk_engine.impact_functions import get_tc_vulnerability_payload
+from .risk_engine.impact_functions_multi_hazard import get_multi_hazard_vulnerability_payload
 
 
 UTC = timezone.utc
@@ -70,13 +71,26 @@ def health() -> HealthResponse:
 def hazard_coverage():
     return {
         "hazards": ["storm", "storm_cmcc"],
+        "hazard_components": ["wind", "rain", "surge"],
         "coverages": list_default_basin_coverages(),
     }
 
 
 @app.get("/api/v1/vulnerability/curves")
-def vulnerability_curves():
-    return get_tc_vulnerability_payload()
+def vulnerability_curves(hazard_component: str = Query("wind")):
+    component = str(hazard_component or "wind").strip().lower()
+    if component in {"wind", "storm", "tc"}:
+        return get_tc_vulnerability_payload()
+    if component in {"rain", "surge"}:
+        settings = get_settings()
+        return get_multi_hazard_vulnerability_payload(
+            hazard_component=component,
+            flood_curve_file=settings.d2_flood_curve_file,
+        )
+    raise HTTPException(
+        status_code=400,
+        detail="hazard_component must be one of: wind, rain, surge",
+    )
 
 
 @app.post("/api/v1/runs")

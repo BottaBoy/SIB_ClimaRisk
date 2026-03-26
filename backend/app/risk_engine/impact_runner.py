@@ -440,6 +440,11 @@ def _compute_impacts_climada(
         wind_unit_in=settings.storm_wind_unit_in,
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
+        dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
+        multi_hazard_enabled=bool(settings.multi_hazard_enabled),
+        rain_model=settings.hazard_rain_model,
+        surge_topo_path=settings.hazard_surge_topo_path,
+        flood_curve_file=settings.d2_flood_curve_file,
     )
 
     point_count = len(bundle.point_records)
@@ -471,6 +476,29 @@ def _compute_impacts_climada(
     storm_direct_metrics = climada.hazards["storm"]
     cmcc_direct_metrics = climada.hazards["storm_cmcc"]
 
+    storm_components_raw = (climada.component_hazards or {}).get("storm", {})
+    cmcc_components_raw = (climada.component_hazards or {}).get("storm_cmcc", {})
+
+    def _component_direct_eai_map(component_map: dict[str, Any], combined_direct: float) -> dict[str, float]:
+        ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
+        ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
+        out = {name: round(max(0.0, float(getattr(component_map[name], "aai_agg_eur", 0.0))), 2) for name in ordered_names}
+        out["combined_capped"] = round(max(0.0, float(combined_direct)), 2)
+        return out
+
+    def _component_direct_max_event_map(component_map: dict[str, Any]) -> dict[str, float]:
+        ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
+        ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
+        return {
+            name: round(max(0.0, float(getattr(component_map[name], "max_event_loss_eur", 0.0))), 2)
+            for name in ordered_names
+        }
+
+    storm_components_direct = _component_direct_eai_map(storm_components_raw, storm_direct)
+    cmcc_components_direct = _component_direct_eai_map(cmcc_components_raw, cmcc_direct)
+    storm_components_max = _component_direct_max_event_map(storm_components_raw)
+    cmcc_components_max = _component_direct_max_event_map(cmcc_components_raw)
+
     portfolio_results = {
         "storm": {
             "eai_eur": round(storm_total, 2),
@@ -496,6 +524,8 @@ def _compute_impacts_climada(
                 2,
             ),
             "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
+            "components_direct_eai_eur": storm_components_direct,
+            "components_direct_max_event_loss_eur": storm_components_max,
         },
         "storm_cmcc": {
             "eai_eur": round(cmcc_total, 2),
@@ -521,6 +551,8 @@ def _compute_impacts_climada(
                 2,
             ),
             "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
+            "components_direct_eai_eur": cmcc_components_direct,
+            "components_direct_max_event_loss_eur": cmcc_components_max,
         },
         "delta": {
             "eai_eur": round(cmcc_total - storm_total, 2),
@@ -541,6 +573,7 @@ def _compute_impacts_climada(
         "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
         "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
         "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
+        "When enabled, direct multi-hazard uses additive wind+rain+surge losses with per-point capping before interdependency uplift.",
         *climada.notes,
         *bundle.warnings,
     ]

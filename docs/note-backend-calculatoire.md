@@ -437,7 +437,11 @@ Details techniques:
 - `scripts/build_guadeloupe_complete_analysis.py`
   - construit la reference complete eau+electricite et lance le backend de calcul.
 - `scripts/build_guadeloupe_wind_maps.py`
-  - calcule les cartes vent moyen STORM/STORM_CMCC sur 10 000 ans.
+  - calcule les cartes d'aleas web Guadeloupe/Martinique:
+    - vent natif CLIMADA via `TropCyclone.from_tracks(...)`,
+    - pluie native CLIMADA via `TCRain.from_tracks(...)`,
+    - submersion cotiere native CLIMADA via `TCSurgeBathtub.from_tc_winds(...)`,
+    - clipping final par masque administratif ADM0.
 - `scripts/build_guadeloupe_water_infra_map.py`
   - construit la couche web de toutes les infrastructures d’eau.
 - `scripts/rebuild_tc_hazard_na.py`
@@ -509,3 +513,356 @@ Verification page Donnee utilisateur (`/api/v1/runs`):
 - `meta.engine = climada_with_interdependency_v1`,
 - `meta.impact_function = sib_tc_multicurve_v1`,
 - `meta.modeling.impact_function_profile = sib_tc_multicurve_v1`.
+
+---
+
+## 18) Extension multi-aleas cycloniques (mise a jour du 20 mars 2026)
+
+### 18.1 Perimetre V1 implemente
+Le moteur CLIMADA backend conserve les deux scenarios historiques:
+- `storm`
+- `storm_cmcc`
+
+Chaque scenario peut maintenant agreger jusqu'a trois composantes d'alea direct:
+- `wind` (TropCyclone, existant)
+- `rain` (TCRain, modele `R-CLIPER`)
+- `surge` (TCSurgeBathtub)
+
+Le contrat top-level reste compatible (`storm` / `storm_cmcc` inchanges) et des champs additifs ont ete ajoutes pour la decomposition des composantes.
+
+### 18.2 Source de donnees TC et generation des composantes
+Objectif retenu: generer pluie et submersion a partir des memes donnees cycloniques que le vent (STORM/STORM_CMCC).
+
+Implementation:
+1. si possible, construction dynamique des hazards a partir des datasets parquet STORM/STORM_CMCC,
+2. generation du vent par `TropCyclone.from_tracks(...)`,
+3. generation de la pluie par `TCRain.from_tracks(..., model="R-CLIPER")`,
+4. generation de la submersion par `TCSurgeBathtub.from_tc_winds(wind_hazard, topo_path)`.
+
+Important:
+- la composante pluie necessite les tracks dynamiques;
+- en fallback HDF5 pre-calcule, le backend conserve le calcul vent et peut ignorer la pluie si les tracks ne sont pas disponibles;
+- la submersion bathtub peut rester calculable via l'aléa vent + DEM.
+
+En langage naturel, la chaine backend est la suivante:
+- on part des points d'exposition effectivement echantillonnes par CLIMADA;
+- on recupere uniquement les tracks STORM/STORM_CMCC utiles autour de ces points;
+- ces tracks servent d'abord a produire un aléa vent `TropCyclone`;
+- a partir de ce meme socle, on derive:
+  - un champ de pluie `TCRain`,
+  - une submersion cotiere `TCSurgeBathtub`.
+
+Autrement dit, pluie et submersion ne sont pas lues depuis une source exogene independante: elles sont calculees a partir des memes cyclones synthetiques STORM que le vent.
+
+Extrait du chargement dynamique STORM -> tracks -> vent:
+
+```python
+centroids = _build_centroids_from_points(coords)
+tracks_storm = _get_or_build_tracks(...)
+tracks_cmcc = _get_or_build_tracks(...)
+
+storm = _build_hazard_from_tracks(tracks_storm, centroids)
+storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids)
+```
+
+Puis:
+
+```python
+return TropCyclone.from_tracks(
+    tracks,
+    centroids=centroids,
+    ignore_distance_to_coast=True,
+)
+```
+
+Implementation de reference:
+- `backend/app/risk_engine/hazard_loader.py`
+
+#### 18.2.1 Comment la pluie est calculee
+La pluie n'est pas une simple recoloration de la carte de vent. Dans le backend, elle est derivee des tracks tropicaux eux-memes via `TCRain.from_tracks(...)`.
+
+Extrait:
+
+```python
+rain_hazard = TCRain.from_tracks(
+    tracks,
+    centroids=wind_hazard.centroids,
+    model=requested_rain_model,
+    ignore_distance_to_coast=True,
+    max_dist_inland_km=2000,
+)
+```
+
+Interpretation:
+- `tracks`: trajectoires STORM/STORM_CMCC deja filtrees sur la zone utile;
+- `centroids=wind_hazard.centroids`: la pluie est calculee sur la meme maille spatiale que le vent;
+- `model="R-CLIPER"`: on utilise le modele pluie retenu en V1;
+- `ignore_distance_to_coast=True`: on ne coupe pas artificiellement la pluie au trait de cote;
+- `max_dist_inland_km=2000`: on autorise une propagation inland suffisamment large pour les petites iles.
+
+Important pour l'interpretation:
+- voir de la pluie sur la carte ne signifie pas automatiquement qu'il y aura des degats importants;
+- les degats pluie dependent ensuite de la conversion `pluie -> hauteur proxy`, puis de la courbe profondeur-dommage de l'actif;
+- avec des coefficients de ruissellement modestes, la composante pluie peut rester visible en aléa mais faible en dommage.
+
+#### 18.2.2 Comment la submersion cotiere est calculee
+La submersion cotiere n'est pas construite directement depuis les tracks. Elle est derivee du hazard vent deja calcule:
+
+```python
+surge_hazard = TCSurgeBathtub.from_tc_winds(wind_hazard, str(prepared_topo))
+surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+```
+
+Interpretation:
+- `wind_hazard`: champ de vent cyclonique calcule a partir des tracks STORM;
+- `prepared_topo`: DEM/bathymetrie local(e), converti(e) au besoin en GeoTIFF temporaire EPSG:4326;
+- `TCSurgeBathtub` superpose une elevation d'eau simplifiee sur la topographie locale.
+
+Avant cela, le backend securise le DEM:
+
+```python
+prepared_topo = _prepare_topo_raster_with_crs(Path(surge_topo_path))
+if prepared_topo != Path(surge_topo_path):
+    notes.append(
+        f"{hazard_key}: DEM had no CRS; converted to temporary EPSG:4326 GeoTIFF ({prepared_topo})."
+    )
+```
+
+Cela garantit que `TCSurgeBathtub` travaille sur une topographie georeferencee coherentement.
+
+#### 18.2.3 Difference entre couches cartographiques et calcul des dommages
+Pour Guadeloupe/Martinique, les cartes page 1 / page 2 restent des couches de visualisation agregees sur une grille web, mais les trois composantes `wind / rain / surge` sont maintenant calculees sur la meme chaine native CLIMADA.
+
+Le script dedie `scripts/build_guadeloupe_wind_maps.py` applique des choix distincts selon la composante:
+- **vent**: generation native CLIMADA `tracks -> TropCyclone.from_tracks(...)` sur la grille reguliere de la bbox du territoire;
+- **pluie**: generation native CLIMADA `tracks -> TCRain.from_tracks(...)` sur la meme grille reguliere;
+- **submersion**: generation native CLIMADA `tracks -> TropCyclone -> TCSurgeBathtub` sur une **sous-grille reguliere plus fine** (`0.01°` en V1 finale), puis reaggregation vers la grille cartographique `0.02°`.
+
+Extrait du script cartographique:
+
+```python
+full_grid_cells, target_cells = _build_grid_cells(
+    territory_geom=territory_geom,
+    lat_min=lat_min,
+    lat_max=lat_max,
+    lon_min=lon_min,
+    lon_max=lon_max,
+    cell_deg=args.cell_deg,
+)
+ordered_point_coords = [
+    (float(cell_info["grid_lat"]), float(cell_info["grid_lon"]))
+    for _, cell_info in sorted(full_grid_cells.items())
+]
+native_rain_components, native_rain_meta = _build_native_rain_maps(
+    point_coords=ordered_point_coords,
+    dynamic_max_tracks=dynamic_max_tracks,
+)
+native_surge_components, native_surge_meta = _build_native_surge_maps(
+    lat_min=lat_min,
+    lat_max=lat_max,
+    lon_min=lon_min,
+    lon_max=lon_max,
+    output_cell_deg=args.cell_deg,
+    surge_native_cell_deg=float(args.surge_native_cell_deg),
+    target_cells=target_cells,
+    topo_path=topo_path,
+    dynamic_max_tracks=dynamic_max_tracks,
+)
+```
+
+La sous-grille fine de submersion sert a capturer les franges littorales basses que des centres de mailles `0.05°` rataient souvent. Dans la fonction de submersion:
+
+```python
+surge_hazard = TCSurgeBathtub.from_tc_winds(wind_hazard, str(prepared_topo))
+surge_stats = _summarize_hazard_by_coord(surge_hazard)
+out[hazard_key] = _aggregate_subgrid_stats_to_target_cells(
+    subgrid_stats=surge_stats,
+    target_cells=target_cells,
+    lat_min=lat_min,
+    lon_min=lon_min,
+    output_cell_deg=output_cell_deg,
+)
+```
+
+Le choix de l'aggregation par `max` sur les sous-mailles n'est **pas** une deviation du calcul CLIMADA de la submersion elle-meme:
+- la hauteur d'eau est bien calculee par `TCSurgeBathtub` sur chaque sous-maille;
+- seul le passage de la sous-grille fine vers la maille d'affichage web `0.05°` fait une reduction cartographique.
+
+Le clipping territorial ne repose plus sur le bord de la bbox ni uniquement sur le DEM. La carte utilise en priorite le masque administratif fourni dans:
+- `/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson`
+
+Le script y selectionne la geometrie `shapeGroup = FRA` qui intersecte la bbox du territoire, puis conserve uniquement les cellules de carte qui intersectent cette emprise. Pour l'affichage, chaque cellule est ancree sur le `representative_point()` de sa partie terrestre, ce qui evite de placer les marqueurs de submersion au large alors que la cellule est bien cotiere.
+
+Le dommage est calcule dans le backend avec la chaine complete:
+
+```text
+tracks STORM -> TropCyclone / TCRain / TCSurgeBathtub
+             -> intensite par centroides CLIMADA
+             -> courbes de vulnerabilite
+             -> dommage direct
+             -> propagation indirecte elec -> eau
+```
+
+Depuis la correction du 24 mars 2026, la carte de submersion des cas d'etude:
+- n'utilise plus la distance au bord de la bbox,
+- n'utilise plus le proxy de distance-cote maison,
+- s'appuie sur `TCSurgeBathtub` de bout en bout,
+- n'affiche que les cellules qui intersectent effectivement le territoire cible.
+
+### 18.3 Choix Bathtub vs GeoClaw
+Choix acté pour V1 production:
+- **Bathtub (TCSurgeBathtub)**
+
+Raison:
+- cout de calcul nettement plus faible,
+- deploiement plus simple dans le backend existant,
+- compatible avec un usage "screening" Guadeloupe/Martinique.
+
+GeoClaw est garde pour un futur benchmark localise (zones cotières critiques), mais non active en V1 API.
+
+### 18.4 DEM et donnees topo/bathymetrie
+DEM V1 configure:
+- `/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc`
+
+Ce DEM est suffisant pour la V1 Guadeloupe/Martinique.
+Si le raster source ne contient pas de CRS (cas possible des `.asc`), le backend convertit automatiquement vers un GeoTIFF temporaire EPSG:4326 avant calcul bathtub.
+Le fichier Guyane volumineux (>4GB) n'est pas requis pour ce perimetre V1.
+
+### 18.5 Courbes inondation/proxy pluie
+Les courbes profondeur-dommage utilisees pour pluie/submersion sont lues depuis:
+- `/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx`
+- feuille `F_Vuln_Depth`
+
+Mapping `asset_type -> courbe depth` retenu en V1:
+- `elec_bt_aerien`, `elec_hta_aerien` -> `F6.2`
+- `elec_bt_souterrain`, `elec_hta_souterrain` -> `F6.1`
+- `eau_aep_cana` -> `F16.3`
+- `eau_eu_cana` -> `F19.3`
+- `eau_eu_pr` -> `F20.3`
+- `eau_eu_step` -> `F18.4`
+- `eau_aep_ouvrage_trait` -> `F14.4`
+- `eau_aep_ouvrage_stpmp` -> `F17.4`
+- `eau_aep_ouvrage_cap` -> `F15.1`
+- `eau_aep_ouvrage_cuv`, `eau_aep_ouvrage_ouveb` -> `F13.1`
+- `eau_aep_ouvrage_na` -> `F14.4`
+- defaut global -> `F17.5`
+
+Le mapping source de reference est implemente dans:
+- `backend/app/risk_engine/impact_functions_multi_hazard.py`
+
+Pour la pluie, la V1 repose sur une conversion pluie -> hauteur proxy via coefficients de ruissellement par classe d'infrastructure:
+- `elec_aerien = 0.10`
+- `elec_souterrain = 0.30`
+- `eau_reseau = 0.25`
+- `eau_ouvrage = 0.35`
+- `habitation = 0.20`
+
+Cette conversion permet d'utiliser le meme socle `F_Vuln_Depth` pour:
+- la submersion cotiere (`m`),
+- la pluie proxy (`mm_proxy`).
+
+### 18.6 Regle d'agregation multi-aleas directe
+La combinaison directe appliquee est additive avec plafond par point:
+
+```text
+EAI_direct_total(point) = min(value_point,
+                              EAI_wind(point) + EAI_rain(point) + EAI_surge(point))
+
+MaxLoss_total(point) = min(value_point,
+                           MaxLoss_wind(point) + MaxLoss_rain(point) + MaxLoss_surge(point))
+```
+
+Puis la propagation elec -> eau (indirect) s'applique sur ce direct total, sans rupture de schema des sorties historiques.
+
+### 18.7 Sorties JSON ajoutees (additives)
+Dans `portfolio_results.storm` et `portfolio_results.storm_cmcc`:
+- `components_direct_eai_eur`
+- `components_direct_max_event_loss_eur`
+
+Dans `meta`:
+- `hazard_components` (liste des composantes actives)
+
+Dans `meta.modeling`:
+- `multi_hazard_enabled_requested`
+- `multi_hazard_enabled_effective`
+- `multi_hazard_components_by_hazard`
+- `multi_hazard_rain_model`
+- `multi_hazard_surge_topo_path`
+- `multi_hazard_flood_curve_file`
+
+Dans les JSON page 1 / page 2 (`web/data/*-page*-analysis.json`):
+- `impact.component_order = ["wind", "rain", "surge"]`
+- `impact.state_damage_tables[*].storm.damage_components_eur`
+- `impact.state_damage_tables[*].storm_cmcc.damage_components_eur`
+- `impact.damage_breakdown_by_scenario[*].storm[*].damage_components_eur`
+- `impact.damage_breakdown_by_scenario[*].storm_cmcc[*].damage_components_eur`
+
+### 18.8 Choix UI actes
+Pour la page Guadeloupe/Martinique:
+- les cartes sont renommees `Cartes des aleas`
+- les deux cartes `STORM` / `STORM_CMCC` sont conservees
+- des cases a cocher permettent d'afficher `Storm (vent)`, `Pluie`, `Inondations cotieres`
+- les tableaux d'impact separent `Vent`, `Pluie`, `Inond. cotiere` et `Total`
+- les graphes d'impact passent en barres empilees par composante avec deux piles: `STORM` et `STORM_CMCC`
+
+Pour la page 5:
+- le bloc historique des courbes vent est conserve
+- un second bloc `courbes nouveaux aleas` ajoute un selecteur `Pluie` / `Submersion`
+- l'endpoint backend supporte `GET /api/v1/vulnerability/curves?hazard_component=wind|rain|surge`
+
+### 18.9 Variables runtime ajoutees
+- `SIB_RISK_MULTI_HAZARD_ENABLED`
+- `SIB_RISK_HAZARD_RAIN_MODEL`
+- `SIB_RISK_HAZARD_SURGE_TOPO_PATH`
+- `SIB_RISK_D2_FLOOD_CURVE_FILE`
+
+### 18.10 Lien avec evolutions futures (glissements / inondations pluviales)
+Le modele pluie (`TCRain`) est conserve comme socle commun pour:
+- futurs modeles de mouvements de terrain,
+- futurs modeles d'inondation pluviale plus physiques.
+
+La V1 actuelle fournit donc une base operationnelle multi-aleas tout en preservant la compatibilite des sorties API existantes.
+
+### 18.11 Strategie de rerun legere pour Guadeloupe / Martinique
+Pour finaliser les cas d'etude sans relancer un pipeline multi-aleas complet trop couteux sur toutes les geometries, la strategie retenue est la suivante:
+- generation des cartes d'aleas (`wind`, `rain`, `surge`) par script dedie,
+- generation d'un proxy multi-aleas echantillonne par territoire (`web/data/*-multi-hazard-proxy.json`),
+- regeneration des JSON page 1 / page 2 a partir:
+  - du calcul vent complet,
+  - d'un multiplicateur global multi-aleas par scenario,
+  - d'une decomposition par composante (`wind` / `rain` / `surge`) issue du proxy,
+  - d'un reequilibrage des classes de dommages qui preserve la structure vent du scenario courant et y injecte la part non-vent du proxy.
+
+Cette strategie est implementee dans:
+- `scripts/build_case_study_multi_hazard_proxy.py`
+- `scripts/rerun_case_studies_light.py`
+
+Pour la partie cartes d'aleas, le rerun leger fixe explicitement:
+- `--map-dynamic-max-tracks 300`
+- `--map-cell-deg 0.02`
+- `--map-surge-native-cell-deg 0.01`
+
+Pour la partie proxy multi-aleas, la V1 finale retient:
+- `--proxy-dynamic-max-tracks 300`
+
+Ce reglage est plus stable que `200` tracks pour les scenarios `rp50`:
+- avec `200` tracks, la decomposition des dommages pouvait degenerer vers une part `surge=1.0` sur certains territoires;
+- avec `300` tracks, la decomposition `wind / rain / surge` redevient numeriquement exploitable tout en restant dans un rerun leger.
+
+Les sorties visibles page 1 / page 2 et page 3 sont volontairement limitees a:
+- `annual`
+- `rp50`
+- `rp100`
+- `event_max`
+
+Le scenario `rp1000` n'est plus expose dans les cartes et tableaux du front.
+
+Objectif:
+- garder une chaine native CLIMADA pour `TropCyclone`, `TCRain` et `TCSurgeBathtub`,
+- conserver un cout calculatoire raisonnable pour Guadeloupe/Martinique,
+- capter les cellules littorales basses dans la carte de submersion sans basculer vers un modele externe.
+
+Objectif:
+- obtenir des reruns Guadeloupe / Martinique robustes et repetables,
+- conserver des sorties front coherentes (cartes, tableaux, barres empilees, etats reseaux),
+- reserver le calcul multi-aleas complet a l'API backend page 3 pour les donnees utilisateur.

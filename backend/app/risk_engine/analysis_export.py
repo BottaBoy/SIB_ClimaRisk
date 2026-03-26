@@ -30,8 +30,21 @@ def build_result_payload(
         notes.append("Input geometry preview was truncated to 5000 features for map rendering.")
     clean_run_label = str(run_label or "").strip()
     impact_function_label = "Eberenz_2021_TC"
+    hazard_components = ["wind"]
     if isinstance(comp.modeling, dict):
         impact_function_label = str(comp.modeling.get("impact_function_profile") or impact_function_label)
+        comp_by_hazard = comp.modeling.get("multi_hazard_components_by_hazard")
+        if isinstance(comp_by_hazard, dict):
+            seen_components = []
+            for names in comp_by_hazard.values():
+                if not isinstance(names, list):
+                    continue
+                for name in names:
+                    name_txt = str(name or "").strip().lower()
+                    if name_txt and name_txt not in seen_components:
+                        seen_components.append(name_txt)
+            if seen_components:
+                hazard_components = seen_components
 
     payload: dict[str, Any] = {
         "meta": {
@@ -45,6 +58,7 @@ def build_result_payload(
             "sampling_spacing_m": float(disagg.spacing_m),
             "impact_function": impact_function_label,
             "hazards": ["STORM", "STORM_CMCC"],
+            "hazard_components": hazard_components,
             "engine": comp.engine,
         },
         "exposure_summary": {

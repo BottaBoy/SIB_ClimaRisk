@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.risk_engine.analysis_export import build_result_payload  # noqa: E402
+from app.config import load_settings  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.impact_runner import compute_impacts  # noqa: E402
 from app.risk_engine.types import NormalizedExposure, NormalizedFeature  # noqa: E402
@@ -48,6 +49,33 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
 }
+
+
+def _prefer_case_study_hdf5_path(configured_path: Path, case_default_path: Path) -> Path:
+    builtin_case_paths = {path for pair in CASE_HAZARD_PATHS.values() for path in pair}
+    if configured_path.exists():
+        if configured_path == case_default_path:
+            return configured_path
+        if configured_path in builtin_case_paths and case_default_path.exists():
+            return case_default_path
+        return configured_path
+    return case_default_path if case_default_path.exists() else configured_path
+
+
+def _resolve_hazard_paths_for_case_study(territory_key: str) -> tuple[Path, Path]:
+    settings = load_settings()
+    default_storm_path, default_cmcc_path = CASE_HAZARD_PATHS[territory_key]
+    settings_storm_path = Path(settings.hazard_storm_path)
+    settings_cmcc_path = Path(settings.hazard_storm_cmcc_path)
+
+    if settings.multi_hazard_enabled:
+        hazard_storm_path = _prefer_case_study_hdf5_path(settings_storm_path, default_storm_path)
+        hazard_cmcc_path = _prefer_case_study_hdf5_path(settings_cmcc_path, default_cmcc_path)
+    else:
+        hazard_storm_path = default_storm_path if default_storm_path.exists() else settings_storm_path
+        hazard_cmcc_path = default_cmcc_path if default_cmcc_path.exists() else settings_cmcc_path
+
+    return hazard_storm_path, hazard_cmcc_path
 
 
 def _ensure_crs(gdf: gpd.GeoDataFrame, fallback: str = WGS84) -> gpd.GeoDataFrame:
@@ -339,7 +367,7 @@ def main() -> None:
         territory=territory_key,
     )
     disagg = summarize_disaggregation(exposure, spacing_m=float(args.sampling_spacing_m))
-    hazard_storm_path, hazard_cmcc_path = CASE_HAZARD_PATHS[territory_key]
+    hazard_storm_path, hazard_cmcc_path = _resolve_hazard_paths_for_case_study(territory_key)
     prev_storm = os.environ.get("SIB_RISK_HAZARD_STORM_PATH")
     prev_cmcc = os.environ.get("SIB_RISK_HAZARD_STORM_CMCC_PATH")
     if hazard_storm_path.exists():

@@ -19,3 +19,5 @@ Si la tache modifie le site (fichiers sous `web/`):
 - Ne jamais faire de commit/push sans demande explicite utilisateur.
 - Ne jamais deployer sans validation explicite utilisateur.
 - Si l'utilisateur demande un deploiement direct, le faire sans reposer la question.
+- Utiliser toujours par defaut les methodes natives CLIMADA.
+- Lors de la realisation d'un plan, prevenir explicitement lorsqu'une deviation des processus CLIMADA est envisagee.

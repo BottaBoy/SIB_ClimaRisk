@@ -27,12 +27,26 @@ const state = {
   windMaps: null,
   windLayerOpacity: 0.82,
   windMapMode: 'mean',
+  selectedHazardComponents: {
+    wind: true,
+    rain: true,
+    surge: true
+  },
   adminVisuMaps: null,
   adminVisuMapsPromise: null,
   adminPopulationMaps: null,
   adminPopulationMapsPromise: null,
   adminVulnerabilityCurves: null,
   adminVulnerabilityCurvesPromise: null,
+  adminHydroVulnerabilityCurves: {
+    rain: null,
+    surge: null
+  },
+  adminHydroVulnerabilityPromises: {
+    rain: null,
+    surge: null
+  },
+  adminHydroHazardComponent: 'rain',
   adminPopulationTerritory: 'glp',
   adminVisuOpacity: 0.5,
   adminVisuCards: [
@@ -71,8 +85,36 @@ const mapRef = {
 };
 
 const windMapRef = {
-  storm: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-storm' },
-  storm_cmcc: { instance: null, cellsLayer: null, hasFitted: false, legendControl: null, cellsPaneName: 'wind-cells-cmcc' }
+  storm: {
+    instance: null,
+    hasFitted: false,
+    legendControl: null,
+    layersByComponent: {
+      wind: null,
+      rain: null,
+      surge: null
+    },
+    paneNamesByComponent: {
+      wind: 'hazard-cells-storm-wind',
+      rain: 'hazard-cells-storm-rain',
+      surge: 'hazard-cells-storm-surge'
+    }
+  },
+  storm_cmcc: {
+    instance: null,
+    hasFitted: false,
+    legendControl: null,
+    layersByComponent: {
+      wind: null,
+      rain: null,
+      surge: null
+    },
+    paneNamesByComponent: {
+      wind: 'hazard-cells-cmcc-wind',
+      rain: 'hazard-cells-cmcc-rain',
+      surge: 'hazard-cells-cmcc-surge'
+    }
+  }
 };
 
 const adminVisuMapRef = {
@@ -174,6 +216,24 @@ const STATE_COLORS = {
 
 const WIND_PADDING_CELLS = 6;
 const WIND_SCALE_STEP_MPS = 5;
+const RAIN_SCALE_STEP_MMPH = 25;
+const SURGE_SCALE_STEP_M = 0.25;
+const HAZARD_COMPONENT_ORDER = ['wind', 'rain', 'surge'];
+const HAZARD_COMPONENT_LABEL = {
+  wind: 'Vent',
+  rain: 'Pluie',
+  surge: 'Inond. cotiere'
+};
+const HAZARD_COMPONENT_LONG_LABEL = {
+  wind: 'Storm (vent)',
+  rain: 'Pluie',
+  surge: 'Inondations cotieres'
+};
+const HAZARD_COMPONENT_PALETTES = {
+  wind: ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'],
+  rain: ['#edf8fb', '#ccece6', '#99d8c9', '#66c2a4', '#41ae76', '#238b45', '#006d2c', '#005824'],
+  surge: ['#f7fcfd', '#d0eff2', '#a6dbe4', '#72c5d6', '#3eaac4', '#167f96', '#0a596e', '#04384a']
+};
 const WIND_PALETTE = ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'];
 const ADMIN_VISU_LEGEND_COLORS = ['#30123b', '#4145ab', '#4685f9', '#39b6f7', '#1bd0d5', '#4be28a', '#a4ef63', '#f1e54e', '#f9b737', '#ed6925', '#c32503'];
 const ADMIN_POP_DEFAULT_LEGEND_COLORS = ['#f2f2f2', '#d9d9d9', '#bdbdbd', '#969696', '#737373', '#525252', '#3a3a3a', '#1f1f1f', '#000000'];
@@ -259,6 +319,10 @@ const els = {
   windOpacitySlider: document.getElementById('wind-opacity-slider'),
   windOpacityValue: document.getElementById('wind-opacity-value'),
   windMapMode: document.getElementById('wind-map-mode'),
+  hazardLayerControls: document.getElementById('hazard-layer-controls'),
+  hazardLayerWind: document.getElementById('hazard-layer-wind'),
+  hazardLayerRain: document.getElementById('hazard-layer-rain'),
+  hazardLayerSurge: document.getElementById('hazard-layer-surge'),
   windMapTitleStorm: document.getElementById('wind-map-title-storm'),
   windMapTitleCmcc: document.getElementById('wind-map-title-cmcc'),
   adminVisuOpacitySlider: document.getElementById('admin-visu-opacity-slider'),
@@ -292,6 +356,9 @@ const els = {
   adminPopulationCaption: document.getElementById('admin-population-caption'),
   adminVulnerabilityGrid: document.getElementById('admin-vulnerability-grid'),
   adminVulnerabilityCaption: document.getElementById('admin-vulnerability-caption'),
+  adminHydroHazardSelect: document.getElementById('admin-hydro-hazard-select'),
+  adminHydroVulnerabilityGrid: document.getElementById('admin-hydro-vulnerability-grid'),
+  adminHydroVulnerabilityCaption: document.getElementById('admin-hydro-vulnerability-caption'),
   hazardSummaryText: document.getElementById('hazard-summary-text'),
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
@@ -434,6 +501,47 @@ function pageFromHash() {
   return 'page1';
 }
 
+function loadAdminPage5Panels() {
+  ensureAdminVisuMapsLoaded()
+    .then(() => {
+      renderAdminVisuPage();
+    })
+    .catch((err) => {
+      console.warn('Admin visu maps could not be loaded', err);
+      (els.adminVisuCaptions || []).forEach((caption) => {
+        if (!caption) return;
+        caption.textContent = `Donnees admin indisponibles: ${err.message}`;
+      });
+    });
+  ensureAdminPopulationMapsLoaded()
+    .then(() => {
+      renderAdminPopulationMap();
+    })
+    .catch((err) => {
+      if (els.adminPopulationCaption) {
+        els.adminPopulationCaption.textContent = `Donnees population indisponibles: ${err.message}`;
+      }
+    });
+  ensureAdminVulnerabilityCurvesLoaded()
+    .then(() => {
+      renderAdminVulnerabilityCurves();
+    })
+    .catch((err) => {
+      if (els.adminVulnerabilityCaption) {
+        els.adminVulnerabilityCaption.textContent = `Courbes de vulnerabilite indisponibles: ${err.message}`;
+      }
+    });
+  ensureAdminHydroVulnerabilityCurvesLoaded(state.adminHydroHazardComponent)
+    .then(() => {
+      renderAdminHydroVulnerabilityCurves();
+    })
+    .catch((err) => {
+      if (els.adminHydroVulnerabilityCaption) {
+        els.adminHydroVulnerabilityCaption.textContent = `Courbes pluie/submersion indisponibles: ${err.message}`;
+      }
+    });
+}
+
 function setActivePage(pageKey, { updateHash = true } = {}) {
   if (runtime.isPublicShowcase && pageKey === 'page3') {
     pageKey = 'page1';
@@ -495,41 +603,14 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     }, 80);
   }
   if (pageKey === 'page5') {
-    ensureAdminVisuMapsLoaded()
-      .then(() => {
-        renderAdminVisuPage();
-      })
-      .catch((err) => {
-        console.warn('Admin visu maps could not be loaded', err);
-        (els.adminVisuCaptions || []).forEach((caption) => {
-          if (!caption) return;
-          caption.textContent = `Donnees admin indisponibles: ${err.message}`;
-        });
-      });
-    ensureAdminPopulationMapsLoaded()
-      .then(() => {
-        renderAdminPopulationMap();
-      })
-      .catch((err) => {
-        if (els.adminPopulationCaption) {
-          els.adminPopulationCaption.textContent = `Donnees population indisponibles: ${err.message}`;
-        }
-      });
-    ensureAdminVulnerabilityCurvesLoaded()
-      .then(() => {
-        renderAdminVulnerabilityCurves();
-      })
-      .catch((err) => {
-        if (els.adminVulnerabilityCaption) {
-          els.adminVulnerabilityCaption.textContent = `Courbes de vulnerabilite indisponibles: ${err.message}`;
-        }
-      });
+    loadAdminPage5Panels();
     setTimeout(() => {
       adminVisuMapRef.cards.forEach((card) => {
         if (card?.instance) card.instance.invalidateSize();
       });
       if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
       resizeAdminVulnerabilityCharts();
+      resizeAdminVulnerabilityCharts('hydro');
     }, 80);
   }
 }
@@ -697,6 +778,24 @@ function formatWindBinLabel(valueRaw) {
   return numberFmt.format(kmh);
 }
 
+function normalizeHazardComponent(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (value.includes('surge')) return 'surge';
+  if (value === 'tr' || value.includes('rain')) return 'rain';
+  if (value === 'rain') return 'rain';
+  if (value === 'surge') return 'surge';
+  return 'wind';
+}
+
+function isHazardComponentVisible(component) {
+  const key = normalizeHazardComponent(component);
+  return Boolean(state.selectedHazardComponents?.[key]);
+}
+
+function currentVisibleHazardComponents() {
+  return HAZARD_COMPONENT_ORDER.filter((component) => isHazardComponentVisible(component));
+}
+
 function toFiniteNumberArray(values) {
   if (!Array.isArray(values)) return [];
   return values
@@ -704,12 +803,21 @@ function toFiniteNumberArray(values) {
     .filter((v) => Number.isFinite(v));
 }
 
-function vulnerabilityIntensityToKmh(valueRaw, unitRaw) {
+function vulnerabilityIntensityToDisplayValue(valueRaw, unitRaw) {
   const value = Number(valueRaw);
   if (!Number.isFinite(value)) return Number.NaN;
   const unit = String(unitRaw || '').trim().toLowerCase();
   if (unit.includes('km/h') || unit.includes('kmh')) return value;
-  return windMpsToKmh(value);
+  if (unit.includes('m/s')) return windMpsToKmh(value);
+  return value;
+}
+
+function vulnerabilityIntensityDisplayUnit(unitRaw) {
+  const unit = String(unitRaw || '').trim().toLowerCase();
+  if (unit.includes('km/h') || unit.includes('kmh') || unit.includes('m/s')) return WIND_SPEED_UNIT_DISPLAY;
+  if (unit.includes('mm')) return 'mm proxy';
+  if (unit === 'm') return 'm';
+  return String(unitRaw || '').trim() || 'unite';
 }
 
 function normalizeAdminVulnerabilityPayload(payload) {
@@ -757,6 +865,11 @@ function normalizeAdminVulnerabilityPayload(payload) {
 
   return {
     profile: String(payload.profile || 'unknown'),
+    haz_type: String(payload.haz_type || ''),
+    hazard_component: normalizeHazardComponent(payload.hazard_component || payload.haz_type),
+    intensity_unit: String(payload.intensity_unit || curves[0]?.intensity_unit || ''),
+    explicitAssetTypeMapping: payload?.explicit_asset_type_mapping || {},
+    defaultCurve: payload?.default_curve || null,
     curves
   };
 }
@@ -1392,6 +1505,46 @@ function renderPage1Hazard(analysis) {
   );
 }
 
+function impactComponentOrder(impactPayload) {
+  const raw = Array.isArray(impactPayload?.component_order) ? impactPayload.component_order : HAZARD_COMPONENT_ORDER;
+  const normalized = raw.map((component) => normalizeHazardComponent(component));
+  const ordered = HAZARD_COMPONENT_ORDER.filter((component) => normalized.includes(component));
+  return ordered.length ? ordered : [...HAZARD_COMPONENT_ORDER];
+}
+
+function normalizeDamageComponentMap(mapRaw, totalFallback = 0) {
+  const out = {
+    wind: 0,
+    rain: 0,
+    surge: 0
+  };
+  let hasExplicitValue = false;
+  if (mapRaw && typeof mapRaw === 'object') {
+    HAZARD_COMPONENT_ORDER.forEach((component) => {
+      const value = Number(mapRaw?.[component]);
+      if (Number.isFinite(value)) {
+        out[component] = value;
+        hasExplicitValue = true;
+      }
+    });
+  }
+  if (!hasExplicitValue) {
+    const total = Number(totalFallback || 0);
+    out.wind = Number.isFinite(total) ? total : 0;
+  }
+  return out;
+}
+
+function scaleDamageComponentMap(mapRaw, factorRaw, totalFallback = 0) {
+  const factor = Number.isFinite(Number(factorRaw)) ? Number(factorRaw) : 1;
+  const base = normalizeDamageComponentMap(mapRaw, totalFallback);
+  const scaled = {};
+  HAZARD_COMPONENT_ORDER.forEach((component) => {
+    scaled[component] = Number(base[component] || 0) * factor;
+  });
+  return scaled;
+}
+
 function withRp50ImpactScenario(impactPayload) {
   const impact = impactPayload || {};
   const tables = impact?.state_damage_tables || {};
@@ -1419,8 +1572,16 @@ function withRp50ImpactScenario(impactPayload) {
       const cmcc = row?.storm_cmcc || {};
       return {
         ...row,
-        storm: { ...storm, damage_eur: Number(storm.damage_eur || 0) * stormFactor },
-        storm_cmcc: { ...cmcc, damage_eur: Number(cmcc.damage_eur || 0) * cmccFactor },
+        storm: {
+          ...storm,
+          damage_eur: Number(storm.damage_eur || 0) * stormFactor,
+          damage_components_eur: scaleDamageComponentMap(storm.damage_components_eur, stormFactor, storm.damage_eur)
+        },
+        storm_cmcc: {
+          ...cmcc,
+          damage_eur: Number(cmcc.damage_eur || 0) * cmccFactor,
+          damage_components_eur: scaleDamageComponentMap(cmcc.damage_components_eur, cmccFactor, cmcc.damage_eur)
+        },
       };
     });
 
@@ -1431,8 +1592,16 @@ function withRp50ImpactScenario(impactPayload) {
     const stormRows = Array.isArray(rp100Breakdown.storm) ? rp100Breakdown.storm : [];
     const cmccRows = Array.isArray(rp100Breakdown.storm_cmcc) ? rp100Breakdown.storm_cmcc : [];
     rp50Breakdown = {
-      storm: stormRows.map((row) => ({ ...row, damage_eur: Number(row?.damage_eur || 0) * stormFactor })),
-      storm_cmcc: cmccRows.map((row) => ({ ...row, damage_eur: Number(row?.damage_eur || 0) * cmccFactor })),
+      storm: stormRows.map((row) => ({
+        ...row,
+        damage_eur: Number(row?.damage_eur || 0) * stormFactor,
+        damage_components_eur: scaleDamageComponentMap(row?.damage_components_eur, stormFactor, row?.damage_eur)
+      })),
+      storm_cmcc: cmccRows.map((row) => ({
+        ...row,
+        damage_eur: Number(row?.damage_eur || 0) * cmccFactor,
+        damage_components_eur: scaleDamageComponentMap(row?.damage_components_eur, cmccFactor, row?.damage_eur)
+      })),
     };
   }
 
@@ -1468,19 +1637,27 @@ function renderPage1Impact(analysis) {
 function renderImpactScenarioTable(targetBody, rows, damageLabel) {
   if (!targetBody) return;
   if (!rows.length) {
-    targetBody.innerHTML = '<tr><td colspan="5">Aucune donnee d\'impact disponible.</td></tr>';
+    targetBody.innerHTML = '<tr><td colspan="11">Aucune donnee d\'impact disponible.</td></tr>';
     return;
   }
   targetBody.innerHTML = rows.map((row) => {
     const storm = row.storm || {};
     const cmcc = row.storm_cmcc || {};
+    const stormComponents = normalizeDamageComponentMap(storm.damage_components_eur, storm.damage_eur);
+    const cmccComponents = normalizeDamageComponentMap(cmcc.damage_components_eur, cmcc.damage_eur);
     const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
     return `
       <tr>
         <td>${escapeHtml(String(rowLabel))}</td>
         <td class="num">${escapeHtml(formatStateTuple(storm.state_pct))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.wind || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.rain || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(stormComponents.surge || 0))}</td>
         <td class="num">${escapeHtml(formatTableMoneyEUR(storm.damage_eur || 0))}</td>
         <td class="num">${escapeHtml(formatStateTuple(cmcc.state_pct))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.wind || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.rain || 0))}</td>
+        <td class="num">${escapeHtml(formatTableMoneyEUR(cmccComponents.surge || 0))}</td>
         <td class="num">${escapeHtml(formatTableMoneyEUR(cmcc.damage_eur || 0))}</td>
       </tr>
     `;
@@ -2011,7 +2188,7 @@ function normalizeWindMapMode(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (value === 'rp50') return 'rp50';
   if (value === 'rp100') return 'rp100';
-  if (value === 'rp1000') return 'rp50';
+  if (value === 'event_max') return 'event_max';
   return 'mean';
 }
 
@@ -2024,33 +2201,155 @@ function updateWindModeUi() {
   els.windMapMode.value = currentWindMapMode();
 }
 
-function windMetricConfig(modeRaw) {
+function hazardScenarioLabel(modeRaw) {
   const mode = normalizeWindMapMode(modeRaw);
   if (mode === 'rp50') {
-    return {
-      mode,
-      valueKey: 'rp50_wind_mps',
-      minKey: 'rp50_wind_min_mps',
-      maxKey: 'rp50_wind_max_mps',
-      legendTitle: 'Vents (retour 50 ans)',
-      captionLabel: 'vitesse du vent (temps de retour 50 ans)',
-      mapLabel: 'temps de retour 50 ans',
-      tooltipLabel: 'Vents (retour 50 ans)'
-    };
+    return 'temps de retour 50 ans';
   }
   if (mode === 'rp100') {
+    return 'temps de retour 100 ans';
+  }
+  if (mode === 'event_max') {
+    return 'evenement le plus fort';
+  }
+  return 'moyenne annuelle';
+}
+
+function hazardMetricConfig(componentRaw, modeRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  const mode = normalizeWindMapMode(modeRaw);
+
+  if (component === 'rain') {
+    if (mode === 'rp50') {
+      return {
+        component,
+        mode,
+        valueKey: 'rp50_rain_mmph',
+        minKey: 'rp50_rain_min_mmph',
+        maxKey: 'rp50_rain_max_mmph',
+        legendTitle: 'Pluie proxy (retour 50 ans)',
+        captionLabel: 'pluie proxy (temps de retour 50 ans)',
+        mapLabel: 'temps de retour 50 ans',
+        tooltipLabel: 'Pluie proxy (retour 50 ans)',
+        unitDisplay: 'mm/h proxy',
+        scaleStep: RAIN_SCALE_STEP_MMPH,
+        estimateFrom: null
+      };
+    }
+    if (mode === 'rp100') {
+      return {
+        component,
+        mode,
+        valueKey: 'rp100_rain_mmph',
+        minKey: 'rp100_rain_min_mmph',
+        maxKey: 'rp100_rain_max_mmph',
+        legendTitle: 'Pluie proxy (retour 100 ans)',
+        captionLabel: 'pluie proxy (temps de retour 100 ans)',
+        mapLabel: 'temps de retour 100 ans',
+        tooltipLabel: 'Pluie proxy (retour 100 ans)',
+        unitDisplay: 'mm/h proxy',
+        scaleStep: RAIN_SCALE_STEP_MMPH,
+        estimateFrom: null
+      };
+    }
+    if (mode === 'event_max') {
+      return {
+        component,
+        mode,
+        valueKey: 'event_max_rain_mmph',
+        minKey: 'event_max_rain_min_mmph',
+        maxKey: 'event_max_rain_max_mmph',
+        legendTitle: 'Pluie proxy (evenement le plus fort)',
+        captionLabel: 'pluie proxy (evenement le plus fort)',
+        mapLabel: 'evenement le plus fort',
+        tooltipLabel: 'Pluie proxy (evenement le plus fort)',
+        unitDisplay: 'mm/h proxy',
+        scaleStep: RAIN_SCALE_STEP_MMPH,
+        estimateFrom: null
+      };
+    }
     return {
-      mode,
-      valueKey: 'rp100_wind_mps',
-      minKey: 'rp100_wind_min_mps',
-      maxKey: 'rp100_wind_max_mps',
-      legendTitle: 'Vents (retour 100 ans)',
-      captionLabel: 'vitesse du vent (temps de retour 100 ans)',
-      mapLabel: 'temps de retour 100 ans',
-      tooltipLabel: 'Vents (retour 100 ans)'
+      component,
+      mode: 'mean',
+      valueKey: 'mean_rain_mmph',
+      minKey: 'mean_rain_min_mmph',
+      maxKey: 'mean_rain_max_mmph',
+      legendTitle: 'Pluie proxy moyenne',
+      captionLabel: 'pluie proxy moyenne',
+      mapLabel: 'moyenne annuelle',
+      tooltipLabel: 'Pluie proxy moyenne',
+      unitDisplay: 'mm/h proxy',
+      scaleStep: RAIN_SCALE_STEP_MMPH,
+      estimateFrom: null
+    };
+  }
+
+  if (component === 'surge') {
+    if (mode === 'rp50') {
+      return {
+        component,
+        mode,
+        valueKey: 'rp50_surge_m',
+        minKey: 'rp50_surge_min_m',
+        maxKey: 'rp50_surge_max_m',
+        legendTitle: 'Inondation cotiere (retour 50 ans)',
+        captionLabel: 'inondation cotiere (temps de retour 50 ans)',
+        mapLabel: 'temps de retour 50 ans',
+        tooltipLabel: 'Inondation cotiere (retour 50 ans)',
+        unitDisplay: 'm',
+        scaleStep: SURGE_SCALE_STEP_M,
+        estimateFrom: null
+      };
+    }
+    if (mode === 'rp100') {
+      return {
+        component,
+        mode,
+        valueKey: 'rp100_surge_m',
+        minKey: 'rp100_surge_min_m',
+        maxKey: 'rp100_surge_max_m',
+        legendTitle: 'Inondation cotiere (retour 100 ans)',
+        captionLabel: 'inondation cotiere (temps de retour 100 ans)',
+        mapLabel: 'temps de retour 100 ans',
+        tooltipLabel: 'Inondation cotiere (retour 100 ans)',
+        unitDisplay: 'm',
+        scaleStep: SURGE_SCALE_STEP_M,
+        estimateFrom: null
+      };
+    }
+    if (mode === 'event_max') {
+      return {
+        component,
+        mode,
+        valueKey: 'event_max_surge_m',
+        minKey: 'event_max_surge_min_m',
+        maxKey: 'event_max_surge_max_m',
+        legendTitle: 'Inondation cotiere (evenement le plus fort)',
+        captionLabel: 'inondation cotiere (evenement le plus fort)',
+        mapLabel: 'evenement le plus fort',
+        tooltipLabel: 'Inondation cotiere (evenement le plus fort)',
+        unitDisplay: 'm',
+        scaleStep: SURGE_SCALE_STEP_M,
+        estimateFrom: null
+      };
+    }
+    return {
+      component,
+      mode: 'mean',
+      valueKey: 'mean_surge_m',
+      minKey: 'mean_surge_min_m',
+      maxKey: 'mean_surge_max_m',
+      legendTitle: 'Inondation cotiere moyenne',
+      captionLabel: 'inondation cotiere moyenne',
+      mapLabel: 'moyenne annuelle',
+      tooltipLabel: 'Inondation cotiere moyenne',
+      unitDisplay: 'm',
+      scaleStep: SURGE_SCALE_STEP_M,
+      estimateFrom: null
     };
   }
   return {
+    component: 'wind',
     mode: 'mean',
     valueKey: 'mean_wind_mps',
     minKey: 'mean_wind_min_mps',
@@ -2058,29 +2357,77 @@ function windMetricConfig(modeRaw) {
     legendTitle: 'Vents moyens',
     captionLabel: 'vitesse moyenne du vent',
     mapLabel: 'vents moyens',
-    tooltipLabel: 'Vents moyens'
+    tooltipLabel: 'Vents moyens',
+    unitDisplay: WIND_SPEED_UNIT_DISPLAY,
+    scaleStep: WIND_SCALE_STEP_MPS,
+    estimateFrom: null
   };
 }
 
-function estimateRp50FromRp100AndRp1000(rp100Raw, rp1000Raw) {
-  const rp100 = Number(rp100Raw);
-  const rp1000 = Number(rp1000Raw);
-  if (Number.isFinite(rp100) && rp100 > 0 && Number.isFinite(rp1000) && rp1000 > 0) {
-    const ln50 = Math.log(50.0);
-    const ln100 = Math.log(100.0);
-    const ln1000 = Math.log(1000.0);
-    const slope = (rp1000 - rp100) / (ln1000 - ln100);
-    const est = rp100 + (slope * (ln50 - ln100));
-    return Math.max(0, Math.min(rp100, est));
+function windMetricConfig(modeRaw) {
+  const mode = normalizeWindMapMode(modeRaw);
+  if (mode === 'rp50') {
+    return {
+      component: 'wind',
+      mode,
+      valueKey: 'rp50_wind_mps',
+      minKey: 'rp50_wind_min_mps',
+      maxKey: 'rp50_wind_max_mps',
+      legendTitle: 'Vents (retour 50 ans)',
+      captionLabel: 'vitesse du vent (temps de retour 50 ans)',
+      mapLabel: 'temps de retour 50 ans',
+      tooltipLabel: 'Vents (retour 50 ans)',
+      unitDisplay: WIND_SPEED_UNIT_DISPLAY,
+      scaleStep: WIND_SCALE_STEP_MPS,
+      estimateFrom: null
+    };
   }
+  if (mode === 'rp100') {
+    return {
+      component: 'wind',
+      mode,
+      valueKey: 'rp100_wind_mps',
+      minKey: 'rp100_wind_min_mps',
+      maxKey: 'rp100_wind_max_mps',
+      legendTitle: 'Vents (retour 100 ans)',
+      captionLabel: 'vitesse du vent (temps de retour 100 ans)',
+      mapLabel: 'temps de retour 100 ans',
+      tooltipLabel: 'Vents (retour 100 ans)',
+      unitDisplay: WIND_SPEED_UNIT_DISPLAY,
+      scaleStep: WIND_SCALE_STEP_MPS,
+      estimateFrom: null
+    };
+  }
+  if (mode === 'event_max') {
+    return {
+      component: 'wind',
+      mode,
+      valueKey: 'event_max_wind_mps',
+      minKey: 'event_max_wind_min_mps',
+      maxKey: 'event_max_wind_max_mps',
+      legendTitle: 'Vents (evenement le plus fort)',
+      captionLabel: 'vitesse du vent (evenement le plus fort)',
+      mapLabel: 'evenement le plus fort',
+      tooltipLabel: 'Vents (evenement le plus fort)',
+      unitDisplay: WIND_SPEED_UNIT_DISPLAY,
+      scaleStep: WIND_SCALE_STEP_MPS,
+      estimateFrom: null
+    };
+  }
+  return hazardMetricConfig('wind', 'mean');
+}
+
+function estimateRp50FromRp100AndRp1000(rp100Raw, rp1000Raw) {
+  void rp1000Raw;
+  const rp100 = Number(rp100Raw);
   if (Number.isFinite(rp100) && rp100 > 0) {
     return rp100 * 0.86;
   }
   return 0;
 }
 
-function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
-  const step = Number(stepMps);
+function buildContinuousScale(minRaw, maxRaw, stepRaw) {
+  const step = Math.max(1e-6, Number(stepRaw) || 1);
   const rawMin = Number(minRaw);
   const rawMax = Number(maxRaw);
   let minEdge = Number.isFinite(rawMin) ? Math.floor(rawMin / step) * step : 0;
@@ -2102,36 +2449,76 @@ function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
   };
 }
 
-function windColorFromScale(valueRaw, scale) {
+function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
+  return buildContinuousScale(minRaw, maxRaw, stepMps);
+}
+
+function hazardColorFromScale(componentRaw, valueRaw, scale) {
+  const component = normalizeHazardComponent(componentRaw);
+  const palette = HAZARD_COMPONENT_PALETTES[component] || WIND_PALETTE;
   const value = Number(valueRaw);
-  const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 5];
+  const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 1];
   const minEdge = Number(edges[0] || 0);
-  const maxEdge = Number(edges[edges.length - 1] || (minEdge + 5));
+  const maxEdge = Number(edges[edges.length - 1] || (minEdge + 1));
   const span = Math.max(1e-9, maxEdge - minEdge);
   const normalized = Number.isFinite(value) ? (value - minEdge) / span : 0;
   const clamped = Math.max(0, Math.min(1, normalized));
-  const paletteIdx = Math.round(clamped * (WIND_PALETTE.length - 1));
-  return WIND_PALETTE[Math.max(0, Math.min(WIND_PALETTE.length - 1, paletteIdx))];
+  const paletteIdx = Math.round(clamped * (palette.length - 1));
+  return palette[Math.max(0, Math.min(palette.length - 1, paletteIdx))];
+}
+
+function windColorFromScale(valueRaw, scale) {
+  return hazardColorFromScale('wind', valueRaw, scale);
+}
+
+function formatHazardMetricValue(componentRaw, valueRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  if (component === 'wind') return formatWindSpeed(valueRaw);
+  const value = Number(valueRaw);
+  return Number.isFinite(value) ? numberFmt.format(value) : 'n/a';
+}
+
+function buildHazardLegendHtml(activeComponents, scalesByComponent, metricsByComponent) {
+  const visibleComponents = Array.isArray(activeComponents) ? activeComponents.map((component) => normalizeHazardComponent(component)) : [];
+  if (!visibleComponents.length) {
+    return [
+      '<div class="wind-legend">',
+      '<div class="wind-legend-title">Aucune couche active</div>',
+      '</div>'
+    ].join('');
+  }
+  const sections = [];
+  visibleComponents.forEach((component) => {
+    const scale = scalesByComponent?.[component];
+    const metric = metricsByComponent?.[component];
+    const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 1];
+    sections.push(`<div class="wind-legend-title">${escapeHtml(metric?.legendTitle || HAZARD_COMPONENT_LONG_LABEL[component] || component)}</div>`);
+    for (let idx = 0; idx < edges.length - 1; idx += 1) {
+      const lo = Number(edges[idx]);
+      const hi = Number(edges[idx + 1]);
+      const mid = (lo + hi) / 2;
+      const color = hazardColorFromScale(component, mid, scale);
+      sections.push(
+        `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(formatHazardMetricValue(component, lo))} - ${escapeHtml(formatHazardMetricValue(component, hi))} ${escapeHtml(metric?.unitDisplay || '')}</span></div>`
+      );
+    }
+  });
+  return ['<div class="wind-legend">', ...sections, '</div>'].join('');
 }
 
 function buildWindLegendHtml(scale, metric) {
-  const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 5];
-  const rows = [];
-  for (let idx = 0; idx < edges.length - 1; idx += 1) {
-    const lo = Number(edges[idx]);
-    const hi = Number(edges[idx + 1]);
-    const mid = (lo + hi) / 2;
-    const color = windColorFromScale(mid, scale);
-    rows.push(
-      `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(formatWindSpeed(lo))} - ${escapeHtml(formatWindSpeed(hi))} ${WIND_SPEED_UNIT_DISPLAY}</span></div>`
-    );
-  }
-  return [
-    '<div class="wind-legend">',
-    `<div class="wind-legend-title">${escapeHtml(metric?.legendTitle || 'Vents')}</div>`,
-    ...rows,
-    '</div>'
-  ].join('');
+  return buildHazardLegendHtml(['wind'], { wind: scale }, { wind: metric });
+}
+
+function updateHazardLayerUi() {
+  if (els.hazardLayerWind) els.hazardLayerWind.checked = isHazardComponentVisible('wind');
+  if (els.hazardLayerRain) els.hazardLayerRain.checked = isHazardComponentVisible('rain');
+  if (els.hazardLayerSurge) els.hazardLayerSurge.checked = isHazardComponentVisible('surge');
+}
+
+function currentHazardLayerPaneOpacity() {
+  const visibleCount = Math.max(1, currentVisibleHazardComponents().length);
+  return clamp01(currentWindOpacityFactor() / Math.sqrt(visibleCount));
 }
 
 function syncWindOpacityFromSlider({ forceApply = false } = {}) {
@@ -2149,10 +2536,16 @@ function syncWindOpacityFromSlider({ forceApply = false } = {}) {
 function applyWindOpacityToMap(hazardKey) {
   const ref = windMapRef[hazardKey];
   if (!ref || !ref.instance) return;
-  const factor = currentWindOpacityFactor();
-  const pane = ref.instance.getPane(ref.cellsPaneName);
-  if (!pane) return;
-  pane.style.opacity = String(clamp01(factor));
+  const factor = currentHazardLayerPaneOpacity();
+  HAZARD_COMPONENT_ORDER.forEach((component) => {
+    const paneName = ref.paneNamesByComponent?.[component];
+    if (!paneName) return;
+    const pane = ref.instance.getPane(paneName);
+    if (!pane) return;
+    const visible = isHazardComponentVisible(component);
+    pane.style.opacity = visible ? String(clamp01(factor)) : '0';
+    pane.style.display = visible ? 'block' : 'none';
+  });
 }
 
 function applyWindLayerOpacity() {
@@ -2160,7 +2553,7 @@ function applyWindLayerOpacity() {
   applyWindOpacityToMap('storm_cmcc');
 }
 
-function ensureWindLegend(hazardKey, scale, metric) {
+function ensureWindLegend(hazardKey, activeComponents, scalesByComponent, metricsByComponent) {
   const ref = windMapRef[hazardKey];
   if (!ref || !ref.instance || !window.L) return;
 
@@ -2175,7 +2568,7 @@ function ensureWindLegend(hazardKey, scale, metric) {
   }
 
   const legendEl = ref.legendControl.getContainer();
-  if (legendEl) legendEl.innerHTML = buildWindLegendHtml(scale, metric);
+  if (legendEl) legendEl.innerHTML = buildHazardLegendHtml(activeComponents, scalesByComponent, metricsByComponent);
 }
 
 function ensureWindMap(hazardKey) {
@@ -2193,16 +2586,21 @@ function ensureWindMap(hazardKey) {
     minZoom: 4,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(ref.instance);
-  if (!ref.instance.getPane(ref.cellsPaneName)) {
-    const pane = ref.instance.createPane(ref.cellsPaneName);
-    pane.style.zIndex = '430';
-    pane.style.pointerEvents = 'auto';
-  }
-  ref.cellsLayer = L.layerGroup().addTo(ref.instance);
+  HAZARD_COMPONENT_ORDER.forEach((component, idx) => {
+    const paneName = ref.paneNamesByComponent?.[component];
+    if (!paneName) return;
+    if (!ref.instance.getPane(paneName)) {
+      const pane = ref.instance.createPane(paneName);
+      pane.style.zIndex = String(430 + idx);
+      pane.style.pointerEvents = 'auto';
+      pane.style.mixBlendMode = 'multiply';
+    }
+    ref.layersByComponent[component] = L.layerGroup().addTo(ref.instance);
+  });
   return ref;
 }
 
-function nearestWindCellValue(i, j, knownCells, fallbackValue, metricKey) {
+function nearestHazardCellValue(i, j, knownCells, fallbackValue, metricKey) {
   if (!knownCells.length) return { metric_value: fallbackValue, sample_count: 0, extrapolated: true };
   let best = null;
   let bestDist = Number.POSITIVE_INFINITY;
@@ -2226,13 +2624,68 @@ function buildSharedWindGridSpec(payload, meta) {
   const cells = Array.isArray(payload?.cells) ? payload.cells : [];
   if (!cells.length || !Number.isFinite(cellDeg) || cellDeg <= 0) return null;
 
+  const bbox = meta?.bbox || {};
+  const bboxSouth = Number(bbox.lat_min);
+  const bboxNorth = Number(bbox.lat_max);
+  const bboxWest = Number(bbox.lon_min);
+  const bboxEast = Number(bbox.lon_max);
+  if (
+    Number.isFinite(bboxSouth)
+    && Number.isFinite(bboxNorth)
+    && Number.isFinite(bboxWest)
+    && Number.isFinite(bboxEast)
+    && bboxNorth > bboxSouth
+    && bboxEast > bboxWest
+  ) {
+    const nLat = Math.max(1, Math.ceil((bboxNorth - bboxSouth) / cellDeg));
+    const nLon = Math.max(1, Math.ceil((bboxEast - bboxWest) / cellDeg));
+    return {
+      cellDeg,
+      south: bboxSouth,
+      north: bboxSouth + (nLat * cellDeg),
+      west: bboxWest,
+      east: bboxWest + (nLon * cellDeg),
+      nLat,
+      nLon
+    };
+  }
+
+  let minI = Number.POSITIVE_INFINITY;
+  let maxI = Number.NEGATIVE_INFINITY;
+  let minJ = Number.POSITIVE_INFINITY;
+  let maxJ = Number.NEGATIVE_INFINITY;
+  cells.forEach((cell) => {
+    const i = Number(cell.i);
+    const j = Number(cell.j);
+    if (!Number.isFinite(i) || !Number.isFinite(j)) return;
+    minI = Math.min(minI, i);
+    maxI = Math.max(maxI, i);
+    minJ = Math.min(minJ, j);
+    maxJ = Math.max(maxJ, j);
+  });
+  if (Number.isFinite(minI) && Number.isFinite(maxI) && Number.isFinite(minJ) && Number.isFinite(maxJ)) {
+    const south = minI * cellDeg;
+    const west = minJ * cellDeg;
+    const nLat = Math.max(1, (maxI - minI) + 1);
+    const nLon = Math.max(1, (maxJ - minJ) + 1);
+    return {
+      cellDeg,
+      south,
+      north: south + (nLat * cellDeg),
+      west,
+      east: west + (nLon * cellDeg),
+      nLat,
+      nLon
+    };
+  }
+
   let minLat = Number.POSITIVE_INFINITY;
   let maxLat = Number.NEGATIVE_INFINITY;
   let minLon = Number.POSITIVE_INFINITY;
   let maxLon = Number.NEGATIVE_INFINITY;
   cells.forEach((cell) => {
-    const lat = Number(cell.lat);
-    const lon = Number(cell.lon);
+    const lat = Number(cell.grid_lat ?? cell.lat);
+    const lon = Number(cell.grid_lon ?? cell.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     minLat = Math.min(minLat, lat);
     maxLat = Math.max(maxLat, lat);
@@ -2244,33 +2697,33 @@ function buildSharedWindGridSpec(payload, meta) {
   }
 
   const half = cellDeg / 2.0;
-  const south = minLat - half - (WIND_PADDING_CELLS * cellDeg);
-  const north = maxLat + half + (WIND_PADDING_CELLS * cellDeg);
-  const west = minLon - half - (WIND_PADDING_CELLS * cellDeg);
-  const east = maxLon + half + (WIND_PADDING_CELLS * cellDeg);
+  const south = minLat - half;
+  const north = maxLat + half;
+  const west = minLon - half;
+  const east = maxLon + half;
   const nLat = Math.max(1, Math.round((north - south) / cellDeg));
   const nLon = Math.max(1, Math.round((east - west) / cellDeg));
   return { cellDeg, south, north, west, east, nLat, nLon };
 }
 
-function resolveWindMetricValue(cell, metricValueKey, fallbackValue) {
-  const direct = Number(cell?.[metricValueKey]);
+function resolveHazardMetricValue(cell, metric, fallbackValue) {
+  const direct = Number(cell?.[metric?.valueKey]);
   if (Number.isFinite(direct)) return direct;
-  if (metricValueKey === 'rp50_wind_mps') {
-    return estimateRp50FromRp100AndRp1000(cell?.rp100_wind_mps, cell?.rp1000_wind_mps);
+  if (metric?.estimateFrom) {
+    return estimateRp50FromRp100AndRp1000(cell?.[metric.estimateFrom.valueAKey], cell?.[metric.estimateFrom.valueBKey]);
   }
   return fallbackValue;
 }
 
-function resolveWindMetricRange(payload, metric) {
+function resolveHazardMetricRange(payload, metric) {
   const directMin = Number(payload?.[metric?.minKey]);
   const directMax = Number(payload?.[metric?.maxKey]);
   if (Number.isFinite(directMin) && Number.isFinite(directMax)) {
     return { min: directMin, max: directMax };
   }
-  if (metric?.mode === 'rp50') {
-    const minEst = estimateRp50FromRp100AndRp1000(payload?.rp100_wind_min_mps, payload?.rp1000_wind_min_mps);
-    const maxEst = estimateRp50FromRp100AndRp1000(payload?.rp100_wind_max_mps, payload?.rp1000_wind_max_mps);
+  if (metric?.estimateFrom) {
+    const minEst = estimateRp50FromRp100AndRp1000(payload?.[metric.estimateFrom.minAKey], payload?.[metric.estimateFrom.minBKey]);
+    const maxEst = estimateRp50FromRp100AndRp1000(payload?.[metric.estimateFrom.maxAKey], payload?.[metric.estimateFrom.maxBKey]);
     return { min: minEst, max: maxEst };
   }
   return { min: 0, max: 0 };
@@ -2278,6 +2731,7 @@ function resolveWindMetricRange(payload, metric) {
 
 function isCaseStudyCmccMeanVisualSmoothingEnabled(hazardKey, metric, meta) {
   if (hazardKey !== 'storm_cmcc') return false;
+  if (normalizeHazardComponent(metric?.component) !== 'wind') return false;
   if (String(metric?.mode || '').toLowerCase() !== 'mean') return false;
   const territory = String(meta?.territory || '').trim().toLowerCase();
   return territory === 'guadeloupe' || territory === 'martinique';
@@ -2333,24 +2787,34 @@ function applyCaseStudyCmccMinBandVisualSmoothing(knownCells, knownByIndex, payl
   });
 }
 
-function renderWindMap(hazardKey, payload, meta, options = {}) {
-  if (!payload || !Array.isArray(payload.cells)) return;
-  const ref = ensureWindMap(hazardKey);
-  if (!ref || !ref.cellsLayer) return;
+function clearHazardMapLayers(hazardKey) {
+  const ref = windMapRef[hazardKey];
+  if (!ref) return;
+  HAZARD_COMPONENT_ORDER.forEach((component) => {
+    if (ref.layersByComponent?.[component]) ref.layersByComponent[component].clearLayers();
+  });
+}
 
-  ref.cellsLayer.clearLayers();
+function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, options = {}) {
+  if (!payload || !Array.isArray(payload.cells)) return;
+  const component = normalizeHazardComponent(componentRaw);
+  const ref = ensureWindMap(hazardKey);
+  const layer = ref?.layersByComponent?.[component];
+  if (!ref || !layer) return;
+
+  layer.clearLayers();
   const cells = payload.cells || [];
   if (!cells.length) return;
 
-  const metric = options.metric || windMetricConfig('mean');
-  const metricValueKey = String(metric.valueKey || 'mean_wind_mps');
+  const metric = options.metric || hazardMetricConfig(component, 'mean');
+  const metricValueKey = String(metric.valueKey || '');
   const grid = options.gridSpec || buildSharedWindGridSpec(payload, meta);
   if (!grid) return;
 
-  const range = resolveWindMetricRange(payload, metric);
+  const range = resolveHazardMetricRange(payload, metric);
   const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(range.min || 0);
   const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(range.max || 0);
-  const scale = options.colorScale || buildWindScale(min, max, WIND_SCALE_STEP_MPS);
+  const scale = options.colorScale || buildContinuousScale(min, max, metric.scaleStep);
   const fallbackValue = Number(scale.minEdge || min || 0);
   const knownCells = [];
   const knownByIndex = new Map();
@@ -2363,6 +2827,7 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
   const nLon = grid.nLon;
   const centerLat0 = latMin + (cellDeg / 2.0);
   const centerLon0 = lonMin + (cellDeg / 2.0);
+  const allowExtrapolation = !Boolean(meta?.territory_mask_path || meta?.cell_clip_rule);
 
   if (
     !ref.hasFitted
@@ -2376,14 +2841,18 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
   }
 
   cells.forEach((cell) => {
-    const lat = Number(cell.lat);
-    const lon = Number(cell.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    if (!Number.isFinite(centerLat0) || !Number.isFinite(centerLon0) || !Number.isFinite(cellDeg)) return;
-    const i = Math.round((lat - centerLat0) / cellDeg);
-    const j = Math.round((lon - centerLon0) / cellDeg);
+    let i = Number(cell.i);
+    let j = Number(cell.j);
+    if (!Number.isFinite(i) || !Number.isFinite(j)) {
+      const lat = Number(cell.grid_lat ?? cell.lat);
+      const lon = Number(cell.grid_lon ?? cell.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      if (!Number.isFinite(centerLat0) || !Number.isFinite(centerLon0) || !Number.isFinite(cellDeg)) return;
+      i = Math.round((lat - centerLat0) / cellDeg);
+      j = Math.round((lon - centerLon0) / cellDeg);
+    }
     const key = `${i}|${j}`;
-    const observedMetric = resolveWindMetricValue(cell, metricValueKey, fallbackValue);
+    const observedMetric = resolveHazardMetricValue(cell, metric, fallbackValue);
     const observed = {
       i,
       j,
@@ -2410,22 +2879,24 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
         const east = west + cellDeg;
         const key = `${i}|${j}`;
         const observed = knownByIndex.get(key);
-        const data = observed || nearestWindCellValue(i, j, knownCells, fallbackValue, metricValueKey);
+        if (!observed && !allowExtrapolation) continue;
+        const data = observed || nearestHazardCellValue(i, j, knownCells, fallbackValue, metricValueKey);
         const metricValue = Number(data.metric_value ?? fallbackValue);
         const sampleCount = Number(data.sample_count ?? 0);
         const extrapolated = !observed;
         const visualAdjusted = Boolean(data.visual_adjusted);
-        const color = windColorFromScale(metricValue, scale);
+        const color = hazardColorFromScale(component, metricValue, scale);
         const rect = L.rectangle([[south, west], [north, east]], {
-          pane: ref.cellsPaneName,
+          pane: ref.paneNamesByComponent?.[component],
           stroke: false,
           fillColor: color,
           fillOpacity: 1
         });
+        const unitText = String(metric.unitDisplay || '').trim();
         rect.bindTooltip(
           [
-            `<strong>${escapeHtml(getHazardLabel(hazardKey))}</strong>`,
-            `${escapeHtml(metric.tooltipLabel)}: ${escapeHtml(formatWindSpeed(metricValue))} ${WIND_SPEED_UNIT_DISPLAY}`,
+            `<strong>${escapeHtml(getHazardLabel(hazardKey))} · ${escapeHtml(HAZARD_COMPONENT_LABEL[component] || component)}</strong>`,
+            `${escapeHtml(metric.tooltipLabel)}: ${escapeHtml(formatHazardMetricValue(component, metricValue))}${unitText ? ` ${escapeHtml(unitText)}` : ''}`,
             `Echantillons: ${escapeHtml(numberFmt.format(sampleCount))}`,
             extrapolated
               ? 'Valeur: extrapolee (plus proche maille observee)'
@@ -2433,12 +2904,10 @@ function renderWindMap(hazardKey, payload, meta, options = {}) {
           ].join('<br/>'),
           { sticky: true }
         );
-        rect.addTo(ref.cellsLayer);
+        rect.addTo(layer);
       }
     }
   }
-
-  ensureWindLegend(hazardKey, scale, metric);
 
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -2449,43 +2918,86 @@ function renderWindMaps() {
   const meta = payload.meta || {};
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
-  const metric = windMetricConfig(currentWindMapMode());
-
+  const activeComponents = currentVisibleHazardComponents();
+  const mode = currentWindMapMode();
   const sharedCells = [
     ...((storm && Array.isArray(storm.cells)) ? storm.cells : []),
     ...((cmcc && Array.isArray(cmcc.cells)) ? cmcc.cells : [])
   ];
   const sharedGrid = buildSharedWindGridSpec({ cells: sharedCells }, meta);
-  const stormRange = resolveWindMetricRange(storm, metric);
-  const cmccRange = resolveWindMetricRange(cmcc, metric);
-  const sharedMin = Math.min(
-    Number(stormRange.min ?? Number.POSITIVE_INFINITY),
-    Number(cmccRange.min ?? Number.POSITIVE_INFINITY)
-  );
-  const sharedMax = Math.max(
-    Number(stormRange.max ?? Number.NEGATIVE_INFINITY),
-    Number(cmccRange.max ?? Number.NEGATIVE_INFINITY)
-  );
-  const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
-  const colorMax = Number.isFinite(sharedMax) ? sharedMax : 1;
-  const colorScale = buildWindScale(colorMin, colorMax, WIND_SCALE_STEP_MPS);
+  const metricsByComponent = {};
+  const scalesByComponent = {};
+
+  activeComponents.forEach((component) => {
+    const metric = component === 'wind' ? windMetricConfig(mode) : hazardMetricConfig(component, mode);
+    const stormRange = resolveHazardMetricRange(storm, metric);
+    const cmccRange = resolveHazardMetricRange(cmcc, metric);
+    const sharedMin = Math.min(
+      Number(stormRange.min ?? Number.POSITIVE_INFINITY),
+      Number(cmccRange.min ?? Number.POSITIVE_INFINITY)
+    );
+    const sharedMax = Math.max(
+      Number(stormRange.max ?? Number.NEGATIVE_INFINITY),
+      Number(cmccRange.max ?? Number.NEGATIVE_INFINITY)
+    );
+    const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
+    const colorMax = Number.isFinite(sharedMax) ? sharedMax : Math.max(colorMin + metric.scaleStep, 1);
+    metricsByComponent[component] = metric;
+    scalesByComponent[component] = buildContinuousScale(colorMin, colorMax, metric.scaleStep);
+  });
+
+  updateHazardLayerUi();
+  clearHazardMapLayers('storm');
+  clearHazardMapLayers('storm_cmcc');
 
   if (els.windMapTitleStorm) {
-    els.windMapTitleStorm.textContent = `Carte des aleas vent/tempete ${metric.mapLabel} (STORM)`;
+    els.windMapTitleStorm.textContent = 'Cartes des aleas (STORM)';
   }
   if (els.windMapTitleCmcc) {
-    els.windMapTitleCmcc.textContent = `Carte des aleas vent/tempete ${metric.mapLabel} (STORM_CMCC)`;
+    els.windMapTitleCmcc.textContent = 'Cartes des aleas (STORM_CMCC)';
   }
 
+  if (!activeComponents.length) {
+    if (els.windStormCaption) {
+      els.windStormCaption.textContent = 'Aucune couche d alea selectionnee.';
+    }
+    if (els.windCmccCaption) {
+      els.windCmccCaption.textContent = 'Aucune couche d alea selectionnee.';
+    }
+    ensureWindLegend('storm', [], {}, {});
+    ensureWindLegend('storm_cmcc', [], {}, {});
+    applyWindLayerOpacity();
+    return;
+  }
+
+  const componentText = activeComponents.map((component) => HAZARD_COMPONENT_LONG_LABEL[component] || component).join(', ');
+  const scenarioText = hazardScenarioLabel(mode);
+  const allowExtrapolation = !Boolean(meta?.territory_mask_path || meta?.cell_clip_rule);
+  const coverageText = allowExtrapolation
+    ? 'extrapolation spatiale active autour de la zone etudiee'
+    : 'clipping territorial natif (mailles hors territoire masquees)';
+
   if (storm && els.windStormCaption) {
-    const stepKmh = WIND_SCALE_STEP_MPS * WIND_SPEED_MPS_TO_KMH;
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(storm.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(stepKmh)} ${WIND_SPEED_UNIT_DISPLAY})`;
-    renderWindMap('storm', storm, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
+    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(storm.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    activeComponents.forEach((component) => {
+      renderHazardComponentMapLayer('storm', component, storm, meta, {
+        gridSpec: sharedGrid,
+        colorScale: scalesByComponent[component],
+        metric: metricsByComponent[component]
+      });
+    });
+    ensureWindLegend('storm', activeComponents, scalesByComponent, metricsByComponent);
   }
   if (cmcc && els.windCmccCaption) {
-    const stepKmh = WIND_SCALE_STEP_MPS * WIND_SPEED_MPS_TO_KMH;
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · extrapolation spatiale active autour de la zone etudiee · ${numberFmt.format(cmcc.years_covered || 0)} ans · ${metric.captionLabel} · echelle de classes reguliere (${numberFmt.format(stepKmh)} ${WIND_SPEED_UNIT_DISPLAY})`;
-    renderWindMap('storm_cmcc', cmcc, meta, { gridSpec: sharedGrid, colorMin, colorMax, colorScale, metric });
+    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(cmcc.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    activeComponents.forEach((component) => {
+      renderHazardComponentMapLayer('storm_cmcc', component, cmcc, meta, {
+        gridSpec: sharedGrid,
+        colorScale: scalesByComponent[component],
+        metric: metricsByComponent[component]
+      });
+    });
+    ensureWindLegend('storm_cmcc', activeComponents, scalesByComponent, metricsByComponent);
   }
   applyWindLayerOpacity();
 }
@@ -2906,20 +3418,21 @@ function renderAdminPopulationMap() {
   }, 0);
 }
 
-function adminVulnerabilityRefKey(curve) {
+function adminVulnerabilityRefKey(curve, groupKey = 'wind') {
   const code = String(curve?.code || 'curve').replace(/[^a-zA-Z0-9_-]+/g, '_');
   const impfId = Number(curve?.impf_id);
   const id = Number.isFinite(impfId) ? String(Math.trunc(impfId)) : 'na';
-  return `admin_vulnerability_${id}_${code}`;
+  return `admin_vulnerability_${groupKey}_${id}_${code}`;
 }
 
-function adminVulnerabilityDomId(curve) {
-  return adminVulnerabilityRefKey(curve).replace(/_/g, '-');
+function adminVulnerabilityDomId(curve, groupKey = 'wind') {
+  return adminVulnerabilityRefKey(curve, groupKey).replace(/_/g, '-');
 }
 
-function disposeAdminVulnerabilityCharts() {
+function disposeAdminVulnerabilityCharts(groupKey = null) {
+  const prefix = groupKey ? `admin_vulnerability_${groupKey}_` : 'admin_vulnerability_';
   Object.keys(chartRefs)
-    .filter((key) => key.startsWith('admin_vulnerability_'))
+    .filter((key) => key.startsWith(prefix))
     .forEach((key) => {
       try {
         if (chartRefs[key] && typeof chartRefs[key].dispose === 'function') chartRefs[key].dispose();
@@ -2930,18 +3443,19 @@ function disposeAdminVulnerabilityCharts() {
     });
 }
 
-function ensureAdminVulnerabilityCurveCards(payload) {
-  const grid = els.adminVulnerabilityGrid;
+function ensureAdminVulnerabilityCurveCards(payload, options = {}) {
+  const grid = options.gridEl || els.adminVulnerabilityGrid;
+  const groupKey = String(options.groupKey || 'wind');
   if (!grid || !payload || !Array.isArray(payload.curves)) return;
   const signature = payload.curves
     .map((curve) => `${curve.impf_id}:${curve.code}:${curve.name}`)
     .join('|');
   if (grid.dataset.signature === signature) return;
 
-  disposeAdminVulnerabilityCharts();
+  disposeAdminVulnerabilityCharts(groupKey);
 
   grid.innerHTML = payload.curves.map((curve) => {
-    const domId = adminVulnerabilityDomId(curve);
+    const domId = adminVulnerabilityDomId(curve, groupKey);
     const code = String(curve.code || 'n/a');
     const title = String(curve.name || code);
     const source = String(curve.source || 'source inconnue');
@@ -2964,9 +3478,25 @@ function ensureAdminVulnerabilityCurveCards(payload) {
   grid.dataset.signature = signature;
 }
 
-function renderAdminVulnerabilityCurveChart(curve) {
-  const domId = adminVulnerabilityDomId(curve);
-  const refKey = adminVulnerabilityRefKey(curve);
+function adminVulnerabilityXAxisLabel(payload) {
+  const component = normalizeHazardComponent(payload?.hazard_component || payload?.haz_type);
+  const unitDisplay = vulnerabilityIntensityDisplayUnit(payload?.intensity_unit);
+  if (component === 'rain') return `Pluie proxy (${unitDisplay})`;
+  if (component === 'surge') return `Submersion cotiere (${unitDisplay})`;
+  return `Vitesse vent (${unitDisplay})`;
+}
+
+function adminVulnerabilityHazardLabel(payload) {
+  const component = normalizeHazardComponent(payload?.hazard_component || payload?.haz_type);
+  if (component === 'rain') return 'pluie';
+  if (component === 'surge') return 'submersion cotiere';
+  return 'vent';
+}
+
+function renderAdminVulnerabilityCurveChart(curve, payload, options = {}) {
+  const groupKey = String(options.groupKey || 'wind');
+  const domId = adminVulnerabilityDomId(curve, groupKey);
+  const refKey = adminVulnerabilityRefKey(curve, groupKey);
   const chart = ensureChart(refKey, domId);
   if (!chart) return;
 
@@ -2975,8 +3505,11 @@ function renderAdminVulnerabilityCurveChart(curve) {
   const len = Math.min(intensity.length, mdd.length);
   if (len <= 1) return;
 
-  const xValues = intensity.slice(0, len).map((v) => vulnerabilityIntensityToKmh(v, curve.intensity_unit));
+  const xValues = intensity.slice(0, len).map((v) => vulnerabilityIntensityToDisplayValue(v, curve.intensity_unit));
   const mainPoints = xValues.map((x, idx) => [x, clamp01(mdd[idx]) * 100]).filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  const maxX = mainPoints.reduce((acc, point) => Math.max(acc, Number(point?.[0] || 0)), 0);
+  const axisMax = maxX > 0 ? Math.ceil(maxX * 1.05) : 1;
+  const unitDisplay = vulnerabilityIntensityDisplayUnit(curve.intensity_unit || payload?.intensity_unit);
 
   const lowerArr = Array.isArray(curve.uncertaintyLower) ? curve.uncertaintyLower : [];
   const upperArr = Array.isArray(curve.uncertaintyUpper) ? curve.uncertaintyUpper : [];
@@ -3027,21 +3560,21 @@ function renderAdminVulnerabilityCurveChart(curve) {
       formatter: (params) => {
         const rows = Array.isArray(params) ? params : [params];
         if (!rows.length) return '';
-        const speed = Number(rows[0]?.value?.[0] ?? 0);
+        const xValue = Number(rows[0]?.value?.[0] ?? 0);
         const body = rows.map((row) => {
           const label = String(row?.seriesName || '');
           const val = Number(row?.value?.[1] ?? row?.data?.[1] ?? 0);
           return `${escapeHtml(label)}: ${escapeHtml(numberFmt.format(val))}%`;
         });
-        return [`<strong>${escapeHtml(numberFmt.format(speed))} ${WIND_SPEED_UNIT_DISPLAY}</strong>`, ...body].join('<br/>');
+        return [`<strong>${escapeHtml(numberFmt.format(xValue))} ${escapeHtml(unitDisplay)}</strong>`, ...body].join('<br/>');
       }
     },
     xAxis: {
       ...chartThemeCommon().xAxis,
       type: 'value',
       min: 0,
-      max: 500,
-      name: `Vitesse vent (${WIND_SPEED_UNIT_DISPLAY})`,
+      max: axisMax,
+      name: adminVulnerabilityXAxisLabel(payload),
       nameLocation: 'middle',
       nameGap: 30,
       axisLabel: {
@@ -3064,39 +3597,62 @@ function renderAdminVulnerabilityCurveChart(curve) {
   }, true);
 }
 
-function resizeAdminVulnerabilityCharts() {
+function resizeAdminVulnerabilityCharts(groupKey = null) {
+  const prefix = groupKey ? `admin_vulnerability_${groupKey}_` : 'admin_vulnerability_';
   Object.keys(chartRefs)
-    .filter((key) => key.startsWith('admin_vulnerability_'))
+    .filter((key) => key.startsWith(prefix))
     .forEach((key) => {
       if (chartRefs[key] && typeof chartRefs[key].resize === 'function') chartRefs[key].resize();
     });
 }
 
-function renderAdminVulnerabilityCurves() {
+function renderAdminVulnerabilityCurveSet(payload, options = {}) {
   if (!runtime.allowAdminVisu) return;
-  const payload = state.adminVulnerabilityCurves;
+  const gridEl = options.gridEl || els.adminVulnerabilityGrid;
+  const captionEl = options.captionEl || els.adminVulnerabilityCaption;
+  const groupKey = String(options.groupKey || 'wind');
+  const loadingText = String(options.loadingText || 'Chargement des courbes de vulnerabilite...');
   if (!payload || !Array.isArray(payload.curves)) {
-    if (els.adminVulnerabilityCaption) {
-      els.adminVulnerabilityCaption.textContent = 'Chargement des courbes de vulnerabilite...';
+    if (captionEl) {
+      captionEl.textContent = loadingText;
     }
     return;
   }
 
-  ensureAdminVulnerabilityCurveCards(payload);
+  ensureAdminVulnerabilityCurveCards(payload, { gridEl, groupKey });
   payload.curves.forEach((curve) => {
-    renderAdminVulnerabilityCurveChart(curve);
+    renderAdminVulnerabilityCurveChart(curve, payload, { groupKey });
   });
 
-  if (els.adminVulnerabilityCaption) {
+  if (captionEl) {
     const curveCount = payload.curves.length;
     const hasUncertainty = payload.curves.some((curve) => Array.isArray(curve.uncertaintyLower) && Array.isArray(curve.uncertaintyUpper));
     const uncertaintyText = hasUncertainty ? 'incertitude visible (bornes basse/haute)' : 'incertitude non disponible dans la source';
-    els.adminVulnerabilityCaption.textContent = `${curveCount} courbes (${payload.profile}) · axe X en ${WIND_SPEED_UNIT_DISPLAY} · ${uncertaintyText}.`;
+    captionEl.textContent = `${curveCount} courbes (${payload.profile}) · alea ${adminVulnerabilityHazardLabel(payload)} · axe X en ${vulnerabilityIntensityDisplayUnit(payload.intensity_unit)} · ${uncertaintyText}.`;
   }
 
   setTimeout(() => {
-    resizeAdminVulnerabilityCharts();
+    resizeAdminVulnerabilityCharts(groupKey);
   }, 0);
+}
+
+function renderAdminVulnerabilityCurves() {
+  renderAdminVulnerabilityCurveSet(state.adminVulnerabilityCurves, {
+    gridEl: els.adminVulnerabilityGrid,
+    captionEl: els.adminVulnerabilityCaption,
+    groupKey: 'wind',
+    loadingText: 'Chargement des courbes de vulnerabilite...'
+  });
+}
+
+function renderAdminHydroVulnerabilityCurves() {
+  const component = normalizeHazardComponent(state.adminHydroHazardComponent);
+  renderAdminVulnerabilityCurveSet(state.adminHydroVulnerabilityCurves?.[component], {
+    gridEl: els.adminHydroVulnerabilityGrid,
+    captionEl: els.adminHydroVulnerabilityCaption,
+    groupKey: 'hydro',
+    loadingText: 'Chargement des courbes pluie/submersion...'
+  });
 }
 
 function waterInfraStyle(feature) {
@@ -3641,6 +4197,63 @@ function renderGroupedImpactBarChart(refKey, domId, labels, stormValues, cmccVal
   }, true);
 }
 
+function renderStackedImpactBarChart(refKey, domId, rows, paletteByComponent) {
+  const chart = ensureChart(refKey, domId);
+  if (!chart) return;
+  const safeRows = Array.isArray(rows) ? rows : [];
+  if (!safeRows.length) {
+    chart.setOption({
+      title: {
+        text: 'Aucune donnee',
+        left: 'center',
+        top: 'middle',
+        textStyle: { color: '#abc0ba', fontSize: 13, fontWeight: 500 }
+      },
+      xAxis: { show: false },
+      yAxis: { show: false },
+      series: []
+    }, true);
+    return;
+  }
+
+  const labels = safeRows.map((row) => row.label);
+  const series = [];
+  const components = [...HAZARD_COMPONENT_ORDER];
+  components.forEach((component) => {
+    series.push({
+      name: `STORM ${HAZARD_COMPONENT_LABEL[component] || component}`,
+      type: 'bar',
+      stack: 'storm',
+      data: safeRows.map((row) => Number(row?.stormComponents?.[component] || 0)),
+      itemStyle: { color: paletteByComponent?.storm?.[component] || '#0083CB' },
+      barMaxWidth: 24
+    });
+  });
+  components.forEach((component) => {
+    series.push({
+      name: `STORM_CMCC ${HAZARD_COMPONENT_LABEL[component] || component}`,
+      type: 'bar',
+      stack: 'storm_cmcc',
+      data: safeRows.map((row) => Number(row?.cmccComponents?.[component] || 0)),
+      itemStyle: { color: paletteByComponent?.storm_cmcc?.[component] || '#5BC5F2' },
+      barMaxWidth: 24
+    });
+  });
+
+  chart.setOption({
+    ...chartThemeCommon(),
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (value) => formatMoneyEUR(value)
+    },
+    legend: { top: 2, textStyle: { color: '#abc0ba', fontSize: 10 } },
+    xAxis: { ...chartThemeCommon().xAxis, type: 'category', data: labels, axisLabel: { color: '#abc0ba', rotate: 20 } },
+    yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: '€' },
+    series
+  }, true);
+}
+
 function renderImpactBreakdownCharts(impactPayload) {
   const scenarioRows = impactPayload?.damage_breakdown_by_scenario || {};
   const fallbackBreakdown = impactPayload?.damage_breakdown || {};
@@ -3658,7 +4271,9 @@ function renderImpactBreakdownCharts(impactPayload) {
           key,
           label: String(s.class_label || c.class_label || key),
           storm: Number(s.damage_eur || 0),
-          cmcc: Number(c.damage_eur || 0)
+          cmcc: Number(c.damage_eur || 0),
+          stormComponents: normalizeDamageComponentMap(s.damage_components_eur, s.damage_eur),
+          cmccComponents: normalizeDamageComponentMap(c.damage_components_eur, c.damage_eur)
         };
       });
     }
@@ -3674,7 +4289,9 @@ function renderImpactBreakdownCharts(impactPayload) {
           key,
           label: String(s.class_label || c.class_label || key),
           storm: Number(s.eai_eur || 0),
-          cmcc: Number(c.eai_eur || 0)
+          cmcc: Number(c.eai_eur || 0),
+          stormComponents: normalizeDamageComponentMap(s.damage_components_eur, s.eai_eur),
+          cmccComponents: normalizeDamageComponentMap(c.damage_components_eur, c.eai_eur)
         };
       });
     }
@@ -3690,7 +4307,9 @@ function renderImpactBreakdownCharts(impactPayload) {
           key,
           label: String(s.class_label || c.class_label || key),
           storm: Number(s.event_max_loss_eur || 0),
-          cmcc: Number(c.event_max_loss_eur || 0)
+          cmcc: Number(c.event_max_loss_eur || 0),
+          stormComponents: normalizeDamageComponentMap(s.damage_components_eur, s.event_max_loss_eur),
+          cmccComponents: normalizeDamageComponentMap(c.damage_components_eur, c.event_max_loss_eur)
         };
       });
     }
@@ -3712,69 +4331,62 @@ function renderImpactBreakdownCharts(impactPayload) {
   const waterRowsEvt = eventRows.filter((r) => String(r.key).startsWith('eau_'));
   const elecRowsEvt = eventRows.filter((r) => String(r.key).startsWith('elec_'));
 
-  renderGroupedImpactBarChart(
+  const paletteWater = {
+    storm: { wind: '#0083CB', rain: '#5BC5F2', surge: '#A5E1F7' },
+    storm_cmcc: { wind: '#005A8F', rain: '#2F97C4', surge: '#66C5DF' }
+  };
+  const paletteElec = {
+    storm: { wind: '#6AB96F', rain: '#A4A64B', surge: '#FFD744' },
+    storm_cmcc: { wind: '#3F8753', rain: '#7C8234', surge: '#F39655' }
+  };
+
+  renderStackedImpactBarChart(
     'impact_eai_water',
     'impact-eai-water-chart',
-    waterRows.map((r) => r.label),
-    waterRows.map((r) => r.storm),
-    waterRows.map((r) => r.cmcc),
-    { storm: '#0083CB', cmcc: '#5BC5F2' }
+    waterRows,
+    paletteWater
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_eai_elec',
     'impact-eai-elec-chart',
-    elecRows.map((r) => r.label),
-    elecRows.map((r) => r.storm),
-    elecRows.map((r) => r.cmcc),
-    { storm: '#6AB96F', cmcc: '#A4A64B' }
+    elecRows,
+    paletteElec
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_rp100_water',
     'impact-rp100-water-chart',
-    waterRowsRp50.map((r) => r.label),
-    waterRowsRp50.map((r) => r.storm),
-    waterRowsRp50.map((r) => r.cmcc),
-    { storm: '#00A6E2', cmcc: '#99D7F7' }
+    waterRowsRp50,
+    paletteWater
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_rp100_elec',
     'impact-rp100-elec-chart',
-    elecRowsRp50.map((r) => r.label),
-    elecRowsRp50.map((r) => r.storm),
-    elecRowsRp50.map((r) => r.cmcc),
-    { storm: '#F39655', cmcc: '#FFD744' }
+    elecRowsRp50,
+    paletteElec
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_rp1000_water',
     'impact-rp1000-water-chart',
-    waterRowsRp100.map((r) => r.label),
-    waterRowsRp100.map((r) => r.storm),
-    waterRowsRp100.map((r) => r.cmcc),
-    { storm: '#0083CB', cmcc: '#5BC5F2' }
+    waterRowsRp100,
+    paletteWater
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_rp1000_elec',
     'impact-rp1000-elec-chart',
-    elecRowsRp100.map((r) => r.label),
-    elecRowsRp100.map((r) => r.storm),
-    elecRowsRp100.map((r) => r.cmcc),
-    { storm: '#A4A64B', cmcc: '#FFD744' }
+    elecRowsRp100,
+    paletteElec
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_evt_water',
     'impact-evt-water-chart',
-    waterRowsEvt.map((r) => r.label),
-    waterRowsEvt.map((r) => r.storm),
-    waterRowsEvt.map((r) => r.cmcc),
-    { storm: '#00A6E2', cmcc: '#99D7F7' }
+    waterRowsEvt,
+    paletteWater
   );
-  renderGroupedImpactBarChart(
+  renderStackedImpactBarChart(
     'impact_evt_elec',
     'impact-evt-elec-chart',
-    elecRowsEvt.map((r) => r.label),
-    elecRowsEvt.map((r) => r.storm),
-    elecRowsEvt.map((r) => r.cmcc),
-    { storm: '#F39655', cmcc: '#FFD744' }
+    elecRowsEvt,
+    paletteElec
   );
 }
 
@@ -3786,10 +4398,6 @@ function scenarioLossFromPortfolio(hazardData, scenario) {
     return estimateRp50FromRp100AndRp1000(h.pml_100_eur, h.pml_1000_eur);
   }
   if (scenario === 'rp100') return Number(h.pml_100_eur || 0);
-  if (scenario === 'rp1000') {
-    if (Number.isFinite(Number(h.pml_1000_eur))) return Number(h.pml_1000_eur || 0);
-    return Number(h.max_event_loss_eur || 0);
-  }
   return Number(h.max_event_loss_eur || 0);
 }
 
@@ -3905,6 +4513,7 @@ function renderAll() {
     renderAdminVisuPage();
     renderAdminPopulationMap();
     renderAdminVulnerabilityCurves();
+    renderAdminHydroVulnerabilityCurves();
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -4044,9 +4653,12 @@ function ensureAdminPopulationMapsLoaded() {
   return state.adminPopulationMapsPromise;
 }
 
-async function fetchAdminVulnerabilityCurves() {
-  const url = new URL('/api/v1/vulnerability/curves', window.location.origin).toString();
-  const res = await fetch(url, { cache: 'no-store' });
+async function fetchAdminVulnerabilityCurves(hazardComponent = 'wind') {
+  const component = normalizeHazardComponent(hazardComponent);
+  const url = new URL('/api/v1/vulnerability/curves', window.location.origin);
+  url.searchParams.set('hazard_component', component);
+  const targetUrl = url.toString();
+  const res = await fetch(targetUrl, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const payload = await res.json();
   return normalizeAdminVulnerabilityPayload(payload);
@@ -4064,6 +4676,26 @@ function ensureAdminVulnerabilityCurvesLoaded() {
       state.adminVulnerabilityCurvesPromise = null;
     });
   return state.adminVulnerabilityCurvesPromise;
+}
+
+function ensureAdminHydroVulnerabilityCurvesLoaded(hazardComponent = state.adminHydroHazardComponent) {
+  const component = normalizeHazardComponent(hazardComponent);
+  if (component === 'wind') return ensureAdminVulnerabilityCurvesLoaded();
+  if (state.adminHydroVulnerabilityCurves?.[component]) {
+    return Promise.resolve(state.adminHydroVulnerabilityCurves[component]);
+  }
+  if (state.adminHydroVulnerabilityPromises?.[component]) {
+    return state.adminHydroVulnerabilityPromises[component];
+  }
+  state.adminHydroVulnerabilityPromises[component] = fetchAdminVulnerabilityCurves(component)
+    .then((payload) => {
+      state.adminHydroVulnerabilityCurves[component] = payload;
+      return payload;
+    })
+    .finally(() => {
+      state.adminHydroVulnerabilityPromises[component] = null;
+    });
+  return state.adminHydroVulnerabilityPromises[component];
 }
 
 async function fetchWaterInfra(territory = 'guadeloupe') {
@@ -4132,8 +4764,8 @@ function ensureNetworkStatesLoaded() {
 function resetCaseStudyMapLayers() {
   windMapRef.storm.hasFitted = false;
   windMapRef.storm_cmcc.hasFitted = false;
-  if (windMapRef.storm.cellsLayer) windMapRef.storm.cellsLayer.clearLayers();
-  if (windMapRef.storm_cmcc.cellsLayer) windMapRef.storm_cmcc.cellsLayer.clearLayers();
+  clearHazardMapLayers('storm');
+  clearHazardMapLayers('storm_cmcc');
   if (waterMapRef.instance) {
     waterMapRef.layersByType.forEach((entry) => {
       if (entry?.layer && waterMapRef.instance.hasLayer(entry.layer)) waterMapRef.instance.removeLayer(entry.layer);
@@ -4514,27 +5146,6 @@ function bindEvents() {
         return;
       }
       setActivePage('page5');
-      ensureAdminVisuMapsLoaded()
-        .then(() => {
-          renderAdminVisuPage();
-        })
-        .catch((err) => {
-          setStatus(`Admin visu indisponible: ${err.message}`, 'error');
-        });
-      ensureAdminPopulationMapsLoaded()
-        .then(() => {
-          renderAdminPopulationMap();
-        })
-        .catch((err) => {
-          setStatus(`Population admin indisponible: ${err.message}`, 'error');
-        });
-      ensureAdminVulnerabilityCurvesLoaded()
-        .then(() => {
-          renderAdminVulnerabilityCurves();
-        })
-        .catch((err) => {
-          setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
-        });
     });
   }
   window.addEventListener('hashchange', () => {
@@ -4549,27 +5160,6 @@ function bindEvents() {
     }
     if (page === 'page5') {
       setActivePage('page5', { updateHash: false });
-      ensureAdminVisuMapsLoaded()
-        .then(() => {
-          renderAdminVisuPage();
-        })
-        .catch((err) => {
-          setStatus(`Admin visu indisponible: ${err.message}`, 'error');
-        });
-      ensureAdminPopulationMapsLoaded()
-        .then(() => {
-          renderAdminPopulationMap();
-        })
-        .catch((err) => {
-          setStatus(`Population admin indisponible: ${err.message}`, 'error');
-        });
-      ensureAdminVulnerabilityCurvesLoaded()
-        .then(() => {
-          renderAdminVulnerabilityCurves();
-        })
-        .catch((err) => {
-          setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
-        });
       return;
     }
     setActivePage(page, { updateHash: false });
@@ -4598,6 +5188,24 @@ function bindEvents() {
     els.windMapMode.addEventListener('change', () => {
       state.windMapMode = normalizeWindMapMode(els.windMapMode.value);
       updateWindModeUi();
+      renderWindMaps();
+    });
+  }
+  if (els.hazardLayerWind) {
+    els.hazardLayerWind.addEventListener('change', () => {
+      state.selectedHazardComponents.wind = Boolean(els.hazardLayerWind.checked);
+      renderWindMaps();
+    });
+  }
+  if (els.hazardLayerRain) {
+    els.hazardLayerRain.addEventListener('change', () => {
+      state.selectedHazardComponents.rain = Boolean(els.hazardLayerRain.checked);
+      renderWindMaps();
+    });
+  }
+  if (els.hazardLayerSurge) {
+    els.hazardLayerSurge.addEventListener('change', () => {
+      state.selectedHazardComponents.surge = Boolean(els.hazardLayerSurge.checked);
       renderWindMaps();
     });
   }
@@ -4641,6 +5249,19 @@ function bindEvents() {
         state.adminPopulationMaps
       );
       renderAdminPopulationMap();
+    });
+  }
+  if (els.adminHydroHazardSelect) {
+    els.adminHydroHazardSelect.value = normalizeHazardComponent(state.adminHydroHazardComponent);
+    els.adminHydroHazardSelect.addEventListener('change', () => {
+      state.adminHydroHazardComponent = normalizeHazardComponent(els.adminHydroHazardSelect.value);
+      ensureAdminHydroVulnerabilityCurvesLoaded(state.adminHydroHazardComponent)
+        .then(() => {
+          renderAdminHydroVulnerabilityCurves();
+        })
+        .catch((err) => {
+          setStatus(`Courbes pluie/submersion indisponibles: ${err.message}`, 'error');
+        });
     });
   }
 
@@ -4889,6 +5510,16 @@ async function bootstrap() {
           console.warn('Admin vulnerability curves preload failed', err);
           if (state.currentPage === 'page5') {
             setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
+          }
+        });
+      ensureAdminHydroVulnerabilityCurvesLoaded(state.adminHydroHazardComponent)
+        .then(() => {
+          if (state.currentPage === 'page5') renderAdminHydroVulnerabilityCurves();
+        })
+        .catch((err) => {
+          console.warn('Admin hydro vulnerability curves preload failed', err);
+          if (state.currentPage === 'page5') {
+            setStatus(`Courbes pluie/submersion indisponibles: ${err.message}`, 'error');
           }
         });
     }

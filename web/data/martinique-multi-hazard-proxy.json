@@ -1,0 +1,400 @@
+{
+  "meta": {
+    "generated_at": "2026-03-24T16:26:09+00:00",
+    "territory": "martinique",
+    "territory_label": "Martinique",
+    "sample_point_count": 1000,
+    "sampling_spacing_m": 800.0,
+    "max_points_total": 1000,
+    "max_points_per_feature": 10,
+    "dynamic_max_tracks": 300,
+    "hazard_map_json": "/home/ubuntu/sib-work/web/data/martinique-wind-maps.json",
+    "surge_priority_point_count": 4300,
+    "surge_priority_source": "hazard_map_cells",
+    "storm_years": 10000,
+    "hazard_storm_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique.h5",
+    "hazard_storm_cmcc_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique_CMCC.h5",
+    "notes": [
+      "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
+      "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+      "Impact functions: profile=sib_tc_multicurve_v1 with 9 TC curves.",
+      "Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id=[1], points=1000).",
+      "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub).",
+      "storm: DEM had no CRS; converted to temporary EPSG:4326 GeoTIFF (/tmp/sib-risk-topo-cache/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG_05a58a4d426b62a0_epsg4326.tif).",
+      "storm: surge component failed (MemoryError): Unable to allocate 14.1 GiB for an array with shape (47678, 39704) and data type float64",
+      "storm_cmcc: DEM had no CRS; converted to temporary EPSG:4326 GeoTIFF (/tmp/sib-risk-topo-cache/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG_05a58a4d426b62a0_epsg4326.tif).",
+      "storm_cmcc: surge component failed (MemoryError): Unable to allocate 14.1 GiB for an array with shape (47678, 39704) and data type float64",
+      "Case-study surge ratio fallback applied: native TCSurgeBathtub map intensities were combined with the CLIMADA multi-hazard surge vulnerability curves on sampled assets because direct point-based surge impacts were null or failed on the lightweight rerun."
+    ],
+    "modeling": {
+      "storm_years": 10000,
+      "frequency_normalized": true,
+      "top_events_count": 20,
+      "hazard_zero_intensity": {
+        "storm": false,
+        "storm_cmcc": false
+      },
+      "hazard_source": "dynamic_parquet",
+      "hazard_basin_ids": [
+        1
+      ],
+      "hazard_point_count": 1000,
+      "impact_function_profile": "sib_tc_multicurve_v1",
+      "impact_function_default_curve": {
+        "code": "EBERENZ_2021_TC",
+        "impf_id": 2
+      },
+      "impact_function_mapping": {
+        "elec_bt_aerien": {
+          "code": "W3.10",
+          "impf_id": 310
+        },
+        "elec_hta_aerien": {
+          "code": "W3.14",
+          "impf_id": 314
+        },
+        "elec_bt_souterrain": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "elec_hta_souterrain": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "eau_aep_cana": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "eau_eu_cana": {
+          "code": "W19.1",
+          "impf_id": 319
+        },
+        "eau_eu_pr": {
+          "code": "EBERENZ_2021_TC",
+          "impf_id": 2
+        },
+        "eau_eu_step": {
+          "code": "W21.2",
+          "impf_id": 212
+        },
+        "eau_aep_ouvrage_trait": {
+          "code": "W21.2",
+          "impf_id": 212
+        },
+        "eau_aep_ouvrage_stpmp": {
+          "code": "W21.4",
+          "impf_id": 214
+        },
+        "eau_aep_ouvrage_cap": {
+          "code": "W21.10",
+          "impf_id": 2110
+        },
+        "eau_aep_ouvrage_cuv": {
+          "code": "W21.5",
+          "impf_id": 215
+        },
+        "eau_aep_ouvrage_ouveb": {
+          "code": "W21.5",
+          "impf_id": 215
+        },
+        "eau_aep_ouvrage_na": {
+          "code": "W21.5",
+          "impf_id": 215
+        }
+      },
+      "multi_hazard_enabled_requested": true,
+      "multi_hazard_enabled_effective": true,
+      "multi_hazard_components_by_hazard": {
+        "storm": [
+          "wind",
+          "rain"
+        ],
+        "storm_cmcc": [
+          "wind",
+          "rain"
+        ]
+      },
+      "multi_hazard_rain_model": "R-CLIPER",
+      "multi_hazard_surge_topo_path": "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+      "multi_hazard_flood_curve_file": "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx",
+      "multi_hazard_impact_mapping": {
+        "default_curve_code": "F17.5",
+        "curve_codes_used": [
+          "F13.1",
+          "F14.4",
+          "F15.1",
+          "F16.3",
+          "F17.4",
+          "F17.5",
+          "F18.4",
+          "F19.3",
+          "F20.3",
+          "F6.1",
+          "F6.2"
+        ],
+        "asset_type_to_curve_code": {
+          "elec_bt_aerien": "F6.2",
+          "elec_hta_aerien": "F6.2",
+          "elec_bt_souterrain": "F6.1",
+          "elec_hta_souterrain": "F6.1",
+          "eau_aep_cana": "F16.3",
+          "eau_eu_cana": "F19.3",
+          "eau_eu_pr": "F20.3",
+          "eau_eu_step": "F18.4",
+          "eau_aep_ouvrage_trait": "F14.4",
+          "eau_aep_ouvrage_stpmp": "F17.4",
+          "eau_aep_ouvrage_cap": "F15.1",
+          "eau_aep_ouvrage_cuv": "F13.1",
+          "eau_aep_ouvrage_ouveb": "F13.1",
+          "eau_aep_ouvrage_na": "F14.4"
+        },
+        "runoff_coeff_by_infra_class": {
+          "elec_aerien": 0.1,
+          "elec_souterrain": 0.3,
+          "eau_reseau": 0.25,
+          "eau_ouvrage": 0.35,
+          "habitation": 0.2
+        },
+        "base_rain_coeff_for_curve_construction": 0.25
+      }
+    }
+  },
+  "hazards": {
+    "storm": {
+      "scenarios": {
+        "annual": {
+          "global_multiplier": 1.044729,
+          "component_ratios": {
+            "wind": 0.957186117048366,
+            "rain": 0.04281388295163403,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        },
+        "rp50": {
+          "global_multiplier": 1.598325,
+          "component_ratios": {
+            "wind": 0.2646493011234546,
+            "rain": 0.11416714408937764,
+            "surge": 0.6211835547871678
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        },
+        "rp100": {
+          "global_multiplier": 1.027634,
+          "component_ratios": {
+            "wind": 0.6782742825870545,
+            "rain": 0.02568555618535456,
+            "surge": 0.296040161227591
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        },
+        "event_max": {
+          "global_multiplier": 1.036315,
+          "component_ratios": {
+            "wind": 0.7953491618041302,
+            "rain": 0.040422076742258964,
+            "surge": 0.16422876145361082
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        },
+        "top10": {
+          "global_multiplier": 1.044729,
+          "component_ratios": {
+            "wind": 0.957186117048366,
+            "rain": 0.04281388295163403,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        },
+        "top5": {
+          "global_multiplier": 1.044729,
+          "component_ratios": {
+            "wind": 0.957186117048366,
+            "rain": 0.04281388295163403,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.005269260440628464,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.02533905907114033,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0021044427950693365,
+            "eau_aep_ouvrages": 0.19274312601308785,
+            "eau_eu_pr": 0.004175751930070528,
+            "eau_eu_step": 0.7703683597500035
+          }
+        }
+      }
+    },
+    "storm_cmcc": {
+      "scenarios": {
+        "annual": {
+          "global_multiplier": 1.042241,
+          "component_ratios": {
+            "wind": 0.9594708946149546,
+            "rain": 0.04052910538504545,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        },
+        "rp50": {
+          "global_multiplier": 1.347242,
+          "component_ratios": {
+            "wind": 0.4281317769479638,
+            "rain": 0.08544633931084289,
+            "surge": 0.4864218837411933
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        },
+        "rp100": {
+          "global_multiplier": 1.035522,
+          "component_ratios": {
+            "wind": 0.6826793717051032,
+            "rain": 0.027889233327567407,
+            "surge": 0.28943139496732945
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        },
+        "event_max": {
+          "global_multiplier": 1.017892,
+          "component_ratios": {
+            "wind": 0.7948393171640427,
+            "rain": 0.03742758388944633,
+            "surge": 0.16773309894651106
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        },
+        "top10": {
+          "global_multiplier": 1.042241,
+          "component_ratios": {
+            "wind": 0.9594708946149546,
+            "rain": 0.04052910538504545,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        },
+        "top5": {
+          "global_multiplier": 1.042241,
+          "component_ratios": {
+            "wind": 0.9594708946149546,
+            "rain": 0.04052910538504545,
+            "surge": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0,
+            "eau_eu": 0.004988262595949404,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.025248669920305118,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0018264167303948852,
+            "eau_aep_ouvrages": 0.19143138648000516,
+            "eau_eu_pr": 0.004171768217903816,
+            "eau_eu_step": 0.7723334960554415
+          }
+        }
+      }
+    }
+  }
+}

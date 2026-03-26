@@ -52,6 +52,15 @@ class Settings:
     storm_wind_unit_in: str = "m/s"
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
+    hazard_dynamic_max_tracks: int = 1200
+    multi_hazard_enabled: bool = True
+    hazard_rain_model: str = "R-CLIPER"
+    hazard_surge_topo_path: Path = Path(
+        "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    )
+    d2_flood_curve_file: Path = Path(
+        "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    )
     example_qgis_points_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"
     example_qgis_lines_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"
     example_qgis_polygons_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"
@@ -79,12 +88,29 @@ def load_settings() -> Settings:
 
     default_storm_parquet = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     default_storm_cmcc_parquet = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
-    alt_storm_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds")
-    alt_storm_cmcc_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds_CMCC")
+    # Preferred order for dynamic STORM sources:
+    # 1) explicit env override
+    # 2) local repo default
+    # 3) single-file parquet snapshots (legacy but valid)
+    # 4) extracted dataset directories (txt/parquet datasets)
+    alt_storm_parquet_file = Path("/home/ubuntu/uploads/STORM/storm_ds")
+    alt_storm_cmcc_parquet_file = Path("/home/ubuntu/uploads/STORM/storm_ds_CMCC")
+    alt_storm_parquet_dir = Path("/home/ubuntu/uploads/STORM/STORM_ds")
+    alt_storm_cmcc_parquet_dir = Path("/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
     configured_storm_parquet = Path(env.get("SIB_RISK_STORM_PARQUET_PATH", str(default_storm_parquet)))
     configured_storm_cmcc_parquet = Path(env.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(default_storm_cmcc_parquet)))
-    storm_parquet_path = _prefer_existing_path(configured_storm_parquet, default_storm_parquet, alt_storm_parquet)
-    storm_cmcc_parquet_path = _prefer_existing_path(configured_storm_cmcc_parquet, default_storm_cmcc_parquet, alt_storm_cmcc_parquet)
+    storm_parquet_path = _prefer_existing_path(
+        configured_storm_parquet,
+        default_storm_parquet,
+        alt_storm_parquet_file,
+        alt_storm_parquet_dir,
+    )
+    storm_cmcc_parquet_path = _prefer_existing_path(
+        configured_storm_cmcc_parquet,
+        default_storm_cmcc_parquet,
+        alt_storm_cmcc_parquet_file,
+        alt_storm_cmcc_parquet_dir,
+    )
 
     return Settings(
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
@@ -107,6 +133,21 @@ def load_settings() -> Settings:
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
+        hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),
+        multi_hazard_enabled=_env_bool(env, "SIB_RISK_MULTI_HAZARD_ENABLED", True),
+        hazard_rain_model=str(env.get("SIB_RISK_HAZARD_RAIN_MODEL", "R-CLIPER")).strip(),
+        hazard_surge_topo_path=Path(
+            env.get(
+                "SIB_RISK_HAZARD_SURGE_TOPO_PATH",
+                "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+            )
+        ),
+        d2_flood_curve_file=Path(
+            env.get(
+                "SIB_RISK_D2_FLOOD_CURVE_FILE",
+                "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx",
+            )
+        ),
         example_qgis_points_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POINTS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"))),
         example_qgis_lines_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_LINES_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"))),
         example_qgis_polygons_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POLYGONS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"))),

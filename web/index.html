@@ -143,22 +143,31 @@
             </div>
           </div>
           <div class="wind-mode-box">
-            <label for="wind-map-mode">Type de carte vent/tempête</label>
+            <label for="wind-map-mode">Type de carte des aléas</label>
             <select id="wind-map-mode">
               <option value="mean">Vents moyens</option>
               <option value="rp50">Temps de retour 50 ans</option>
               <option value="rp100">Temps de retour 100 ans</option>
+              <option value="event_max">Evenement le plus fort</option>
             </select>
+          </div>
+          <div class="wind-mode-box">
+            <label>Cartes des aléas</label>
+            <div id="hazard-layer-controls" class="layer-controls" aria-label="Hazard layer controls">
+              <label><input type="checkbox" id="hazard-layer-wind" checked /> Storm (vent)</label>
+              <label><input type="checkbox" id="hazard-layer-rain" checked /> Pluie</label>
+              <label><input type="checkbox" id="hazard-layer-surge" checked /> Inondations côtières</label>
+            </div>
           </div>
         </div>
         <div class="wind-grid">
           <article class="subpanel wind-map-card">
-            <h3 id="wind-map-title-storm">Carte des aleas vent/tempete (STORM)</h3>
+            <h3 id="wind-map-title-storm">Cartes des aléas (STORM)</h3>
             <p class="muted small" id="wind-storm-caption">Chargement…</p>
             <div id="wind-map-storm" class="map wind-map"></div>
           </article>
           <article class="subpanel wind-map-card">
-            <h3 id="wind-map-title-cmcc">Carte des aleas vent/tempete (STORM_CMCC)</h3>
+            <h3 id="wind-map-title-cmcc">Cartes des aléas (STORM_CMCC)</h3>
             <p class="muted small" id="wind-cmcc-caption">Chargement…</p>
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>
@@ -199,9 +208,15 @@
                   <tr>
                     <th>Reseau</th>
                     <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM EAI (€)</th>
+                    <th class="num">STORM Vent (€)</th>
+                    <th class="num">STORM Pluie (€)</th>
+                    <th class="num">STORM Inond. côtière (€)</th>
+                    <th class="num">STORM Total (€)</th>
                     <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC EAI (€)</th>
+                    <th class="num">STORM_CMCC Vent (€)</th>
+                    <th class="num">STORM_CMCC Pluie (€)</th>
+                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
+                    <th class="num">STORM_CMCC Total (€)</th>
                   </tr>
                 </thead>
                 <tbody id="impact-table-annual-body"></tbody>
@@ -216,9 +231,15 @@
                   <tr>
                     <th>Reseau</th>
                     <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM RP50 (€)</th>
+                    <th class="num">STORM Vent (€)</th>
+                    <th class="num">STORM Pluie (€)</th>
+                    <th class="num">STORM Inond. côtière (€)</th>
+                    <th class="num">STORM Total (€)</th>
                     <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC RP50 (€)</th>
+                    <th class="num">STORM_CMCC Vent (€)</th>
+                    <th class="num">STORM_CMCC Pluie (€)</th>
+                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
+                    <th class="num">STORM_CMCC Total (€)</th>
                   </tr>
                 </thead>
                 <tbody id="impact-table-rp100-body"></tbody>
@@ -233,9 +254,15 @@
                   <tr>
                     <th>Reseau</th>
                     <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM RP100 (€)</th>
+                    <th class="num">STORM Vent (€)</th>
+                    <th class="num">STORM Pluie (€)</th>
+                    <th class="num">STORM Inond. côtière (€)</th>
+                    <th class="num">STORM Total (€)</th>
                     <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC RP100 (€)</th>
+                    <th class="num">STORM_CMCC Vent (€)</th>
+                    <th class="num">STORM_CMCC Pluie (€)</th>
+                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
+                    <th class="num">STORM_CMCC Total (€)</th>
                   </tr>
                 </thead>
                 <tbody id="impact-table-rp1000-body"></tbody>
@@ -250,9 +277,15 @@
                   <tr>
                     <th>Reseau</th>
                     <th class="num">STORM S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM evt max (€)</th>
+                    <th class="num">STORM Vent (€)</th>
+                    <th class="num">STORM Pluie (€)</th>
+                    <th class="num">STORM Inond. côtière (€)</th>
+                    <th class="num">STORM Total (€)</th>
                     <th class="num">STORM_CMCC S0/S1/S2/S3 (%)</th>
-                    <th class="num">STORM_CMCC evt max (€)</th>
+                    <th class="num">STORM_CMCC Vent (€)</th>
+                    <th class="num">STORM_CMCC Pluie (€)</th>
+                    <th class="num">STORM_CMCC Inond. côtière (€)</th>
+                    <th class="num">STORM_CMCC Total (€)</th>
                   </tr>
                 </thead>
                 <tbody id="impact-table-eventmax-body"></tbody>
@@ -838,6 +871,21 @@ scripts/build_guadeloupe_water_infra_map.py
             <p class="muted small" id="admin-vulnerability-caption">Chargement des courbes de vulnérabilité...</p>
           </div>
           <div id="admin-vulnerability-grid" class="admin-vulnerability-grid"></div>
+        </article>
+
+        <article class="subpanel admin-vulnerability-card">
+          <div class="admin-vulnerability-head">
+            <h3>Courbes nouveaux aléas (pluie / submersion)</h3>
+            <div class="admin-population-controls">
+              <label for="admin-hydro-hazard-select">Aléa</label>
+              <select id="admin-hydro-hazard-select">
+                <option value="rain">Pluie</option>
+                <option value="surge">Submersion côtière</option>
+              </select>
+            </div>
+            <p class="muted small" id="admin-hydro-vulnerability-caption">Chargement des courbes pluie/submersion...</p>
+          </div>
+          <div id="admin-hydro-vulnerability-grid" class="admin-vulnerability-grid"></div>
         </article>
       </section>
 
