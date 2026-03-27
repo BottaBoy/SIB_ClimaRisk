@@ -788,12 +788,27 @@ button:disabled {
 
 .admin-visu-selects {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .admin-visu-map {
   height: 420px;
+}
+
+.admin-visu-compare-card {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-visu-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-visu-compare-grid h4 {
+  margin-bottom: 8px;
 }
 
 .admin-population-card {
@@ -1434,6 +1449,7 @@ button:disabled {
   .run-lab-grid,
   .wind-grid,
   .admin-visu-grid,
+  .admin-visu-compare-grid,
   .admin-vulnerability-grid,
   .impact-table-duo,
   .wind-controls-row,
@@ -1457,6 +1473,7 @@ button:disabled {
   .controls-grid { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: 1fr; }
   .chart-grid { grid-template-columns: 1fr; }
+  .admin-visu-selects { grid-template-columns: 1fr; }
   .field-row { grid-template-columns: 1fr; }
   .inline-row { flex-direction: column; align-items: stretch; }
   .inline-row.tight input { min-width: 0; }

@@ -50,10 +50,10 @@ const state = {
   adminPopulationTerritory: 'glp',
   adminVisuOpacity: 0.5,
   adminVisuCards: [
-    { hazard: 'storm', scenario: 'mean' },
-    { hazard: 'storm_cmcc', scenario: 'mean' },
-    { hazard: 'storm', scenario: 'rp50' },
-    { hazard: 'storm_cmcc', scenario: 'rp100' }
+    { basin: 'na', hazard: 'storm', scenario: 'mean' },
+    { basin: 'na', hazard: 'storm_cmcc', scenario: 'mean' },
+    { basin: 'na', hazard: 'storm', scenario: 'rp50' },
+    { basin: 'na', hazard: 'storm_cmcc', scenario: 'rp100' }
   ],
   waterInfra: null,
   waterLayerVisibility: {},
@@ -240,6 +240,12 @@ const ADMIN_VISU_LEGEND_COLORS = ['#30123b', '#4145ab', '#4685f9', '#39b6f7', '#
 const ADMIN_POP_DEFAULT_LEGEND_COLORS = ['#f2f2f2', '#d9d9d9', '#bdbdbd', '#969696', '#737373', '#525252', '#3a3a3a', '#1f1f1f', '#000000'];
 const WIND_SPEED_MPS_TO_KMH = 3.6;
 const WIND_SPEED_UNIT_DISPLAY = 'km/h';
+const ADMIN_VISU_SCENARIO_LABEL = {
+  mean: 'Moyenne annuelle',
+  rp50: 'Temps de retour 50 ans',
+  rp100: 'Temps de retour 100 ans',
+  event_max: 'Evenement le plus fort',
+};
 const CMCC_VISUAL_MIN_BAND_SAMPLE_MAX = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_RADIUS = 5;
 const CMCC_VISUAL_MIN_BAND_NEIGHBOR_MIN = 3;
@@ -322,6 +328,12 @@ const els = {
   windMapTitleCmcc: document.getElementById('wind-map-title-cmcc'),
   adminVisuOpacitySlider: document.getElementById('admin-visu-opacity-slider'),
   adminVisuOpacityValue: document.getElementById('admin-visu-opacity-value'),
+  adminVisuBasinSelects: [
+    document.getElementById('admin-visu-basin-1'),
+    document.getElementById('admin-visu-basin-2'),
+    document.getElementById('admin-visu-basin-3'),
+    document.getElementById('admin-visu-basin-4')
+  ],
   adminVisuHazardSelects: [
     document.getElementById('admin-visu-hazard-1'),
     document.getElementById('admin-visu-hazard-2'),
@@ -346,6 +358,8 @@ const els = {
     document.getElementById('admin-visu-caption-3'),
     document.getElementById('admin-visu-caption-4')
   ],
+  adminVisuCompareNaBody: document.getElementById('admin-visu-compare-na-body'),
+  adminVisuCompareSiBody: document.getElementById('admin-visu-compare-si-body'),
   adminPopulationTerritorySelect: document.getElementById('admin-population-territory-select'),
   adminPopulationMap: document.getElementById('admin-population-map'),
   adminPopulationCaption: document.getElementById('admin-population-caption'),
@@ -1572,6 +1586,26 @@ function buildAdditionalHazardComparisonRows(componentRaw) {
       delta: cmccAvg - stormAvg
     });
   });
+
+  // Clarify that "evenement le plus fort" row is an average over cells.
+  // Add explicit absolute max over cells for wind tables.
+  if (component === 'wind') {
+    const eventMetric = windMetricConfig('event_max');
+    const stormEventValues = finiteMetricValuesFromCells(storm.cells, eventMetric.valueKey);
+    const cmccEventValues = finiteMetricValuesFromCells(cmcc.cells, eventMetric.valueKey);
+    if (stormEventValues.length && cmccEventValues.length) {
+      const stormAbsMax = Math.max(...stormEventValues);
+      const cmccAbsMax = Math.max(...cmccEventValues);
+      if (Number.isFinite(stormAbsMax) && Number.isFinite(cmccAbsMax)) {
+        rows.push({
+          indicator: 'Vent - Maximum absolu (m/s)',
+          storm: stormAbsMax,
+          storm_cmcc: cmccAbsMax,
+          delta: cmccAbsMax - stormAbsMax
+        });
+      }
+    }
+  }
 
   return rows;
 }
@@ -3218,10 +3252,27 @@ function normalizeAdminVisuHazard(raw) {
   return String(raw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
 }
 
+function normalizeAdminVisuBasin(raw, payload = null) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (payload && payload.basins && typeof payload.basins === 'object') {
+    const keys = Object.keys(payload.basins)
+      .map((k) => String(k || '').trim().toLowerCase())
+      .filter(Boolean);
+    if (keys.length) {
+      if (keys.includes(value)) return value;
+      if (keys.includes('na')) return 'na';
+      return keys[0];
+    }
+  }
+  if (value === 'si') return 'si';
+  return 'na';
+}
+
 function normalizeAdminVisuScenario(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (value === 'rp50') return 'rp50';
   if (value === 'rp100') return 'rp100';
+  if (value === 'event_max') return 'event_max';
   return 'mean';
 }
 
@@ -3229,6 +3280,7 @@ function adminVisuScenarioConfig(raw) {
   const scenario = normalizeAdminVisuScenario(raw);
   if (scenario === 'rp50') return { key: 'rp50', label: 'temps de retour 50 ans', legendTitle: 'Vents (retour 50 ans)' };
   if (scenario === 'rp100') return { key: 'rp100', label: 'temps de retour 100 ans', legendTitle: 'Vents (retour 100 ans)' };
+  if (scenario === 'event_max') return { key: 'event_max', label: 'evenement le plus fort', legendTitle: 'Vents (evenement max)' };
   return { key: 'mean', label: 'vents moyens', legendTitle: 'Vents moyens' };
 }
 
@@ -3346,17 +3398,29 @@ function renderAdminVisuCard(cardIdx) {
   const ref = ensureAdminVisuMap(cardIdx);
   if (!ref || !ref.instance) return;
 
-  const cardState = state.adminVisuCards[cardIdx] || { hazard: 'storm', scenario: 'mean' };
+  const cardState = state.adminVisuCards[cardIdx] || { basin: 'na', hazard: 'storm', scenario: 'mean' };
+  const basin = normalizeAdminVisuBasin(cardState.basin, payload);
   const hazard = normalizeAdminVisuHazard(cardState.hazard);
   const scenarioCfg = adminVisuScenarioConfig(cardState.scenario);
   const scenario = scenarioCfg.key;
+  const basinPayload = payload?.basins?.[basin] || null;
+  if (!basinPayload) return;
 
+  const basinSelect = Array.isArray(els.adminVisuBasinSelects) ? els.adminVisuBasinSelects[cardIdx] : null;
   const hazardSelect = Array.isArray(els.adminVisuHazardSelects) ? els.adminVisuHazardSelects[cardIdx] : null;
   const scenarioSelect = Array.isArray(els.adminVisuScenarioSelects) ? els.adminVisuScenarioSelects[cardIdx] : null;
+  if (basinSelect) basinSelect.value = basin;
   if (hazardSelect) hazardSelect.value = hazard;
   if (scenarioSelect) scenarioSelect.value = scenario;
 
-  const bounds = payload?.meta?.bounds || {};
+  state.adminVisuCards[cardIdx] = {
+    ...(state.adminVisuCards[cardIdx] || {}),
+    basin,
+    hazard,
+    scenario,
+  };
+
+  const bounds = basinPayload?.bounds || {};
   const south = Number(bounds.south);
   const north = Number(bounds.north);
   const west = Number(bounds.west);
@@ -3365,13 +3429,14 @@ function renderAdminVisuCard(cardIdx) {
     return;
   }
 
-  const overlayPath = payload?.overlays?.[hazard]?.[scenario];
+  const overlayPath = basinPayload?.overlays?.[hazard]?.[scenario];
   const overlayUrl = adminVisuOverlayUrl(overlayPath);
   const caption = Array.isArray(els.adminVisuCaptions) ? els.adminVisuCaptions[cardIdx] : null;
-  const metricMeta = payload?.metrics?.[scenario] || {};
+  const metricMeta = basinPayload?.metrics?.[scenario] || {};
   const metricMin = Number(metricMeta.min_mps);
   const metricMax = Number(metricMeta.max_mps);
   const hazardLabel = hazard === 'storm_cmcc' ? 'STORM_CMCC' : 'STORM';
+  const basinLabel = adminVisuBasinLabel(basin, payload);
   const boundsLeaflet = [[south, west], [north, east]];
 
   if (!overlayUrl) {
@@ -3404,7 +3469,7 @@ function renderAdminVisuCard(cardIdx) {
   if (caption) {
     const minTxt = Number.isFinite(metricMin) ? formatWindSpeed(metricMin) : 'n/a';
     const maxTxt = Number.isFinite(metricMax) ? formatWindSpeed(metricMax) : 'n/a';
-    caption.textContent = `${hazardLabel} · ${scenarioCfg.label} · echelle ${minTxt} a ${maxTxt} ${WIND_SPEED_UNIT_DISPLAY}`;
+    caption.textContent = `${basinLabel} · ${hazardLabel} · ${scenarioCfg.label} · echelle ${minTxt} a ${maxTxt} ${WIND_SPEED_UNIT_DISPLAY}`;
   }
 
   ensureAdminVisuLegend(cardIdx, metricMin, metricMax, scenarioCfg.legendTitle);
@@ -3421,11 +3486,14 @@ function renderAdminVisuPage() {
       if (!caption) return;
       caption.textContent = 'Chargement des couches admin...';
     });
+    if (els.adminVisuCompareNaBody) els.adminVisuCompareNaBody.innerHTML = '<tr><td colspan="4">Chargement...</td></tr>';
+    if (els.adminVisuCompareSiBody) els.adminVisuCompareSiBody.innerHTML = '<tr><td colspan="4">Chargement...</td></tr>';
     return;
   }
   for (let idx = 0; idx < adminVisuMapRef.cards.length; idx += 1) {
     renderAdminVisuCard(idx);
   }
+  renderAdminVisuComparisonTables();
   applyAdminVisuOpacity();
 }
 
@@ -5049,6 +5117,14 @@ function parseIsoTimestampSafe(raw) {
   return Number.isFinite(ts) ? ts : Number.NaN;
 }
 
+function adminVisuBasinLabel(basinRaw, payload = null) {
+  const basin = normalizeAdminVisuBasin(basinRaw, payload);
+  const fromPayload = payload?.basins?.[basin]?.label;
+  if (fromPayload) return String(fromPayload);
+  if (basin === 'si') return 'Sud Indien (SI)';
+  return 'Nord Atlantique (NA)';
+}
+
 function caseStudyRunId(payload) {
   return String(payload?.meta?.case_study_run_id || '').trim();
 }
@@ -5088,8 +5164,88 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, analysis, mult
   }
 }
 
+function normalizeAdminVisuPayload(payloadRaw) {
+  const payload = payloadRaw && typeof payloadRaw === 'object' ? payloadRaw : {};
+  if (payload.basins && typeof payload.basins === 'object') {
+    const basins = {};
+    Object.entries(payload.basins).forEach(([rawKey, basinValue]) => {
+      const key = normalizeAdminVisuBasin(rawKey);
+      if (!basinValue || typeof basinValue !== 'object') return;
+      const bounds = basinValue.bounds || {};
+      if (!Number.isFinite(Number(bounds.south)) || !Number.isFinite(Number(bounds.north))
+        || !Number.isFinite(Number(bounds.west)) || !Number.isFinite(Number(bounds.east))) {
+        return;
+      }
+      const overlays = basinValue.overlays || {};
+      if (!overlays?.storm || !overlays?.storm_cmcc) return;
+      basins[key] = {
+        ...basinValue,
+        label: String(basinValue.label || adminVisuBasinLabel(key)),
+      };
+    });
+    if (Object.keys(basins).length) {
+      return {
+        meta: payload.meta || {},
+        basins,
+      };
+    }
+  }
+
+  if (payload?.meta?.bounds && payload?.overlays?.storm && payload?.overlays?.storm_cmcc) {
+    return {
+      meta: payload.meta || {},
+      basins: {
+        na: {
+          label: 'Nord Atlantique (NA)',
+          bounds: payload.meta.bounds,
+          grid: payload.meta.grid || {},
+          metrics: payload.metrics || {},
+          overlays: payload.overlays || {},
+          comparison_rows: [],
+        },
+      },
+    };
+  }
+
+  throw new Error('Payload admin visu invalide');
+}
+
+function renderAdminVisuComparisonTables() {
+  const payload = state.adminVisuMaps;
+  const tableByBasin = {
+    na: els.adminVisuCompareNaBody,
+    si: els.adminVisuCompareSiBody,
+  };
+  Object.entries(tableByBasin).forEach(([basin, body]) => {
+    if (!body) return;
+    const rows = Array.isArray(payload?.basins?.[basin]?.comparison_rows) ? payload.basins[basin].comparison_rows : [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="4">Tableau indisponible.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row) => {
+      const indicator = String(
+        row?.indicator
+        || `Vent - ${ADMIN_VISU_SCENARIO_LABEL[String(row?.scenario || 'mean')] || ADMIN_VISU_SCENARIO_LABEL.mean} (m/s)`
+      );
+      const storm = Number(row?.storm_mps);
+      const cmcc = Number(row?.storm_cmcc_mps);
+      const delta = Number(row?.delta_mps);
+      return `
+        <tr>
+          <td>${escapeHtml(indicatorDisplayUnit(indicator))}</td>
+          <td class="num">${escapeHtml(formatWindTableValueFromMps(storm))}</td>
+          <td class="num">${escapeHtml(formatWindTableValueFromMps(cmcc))}</td>
+          <td class="num">${escapeHtml(formatWindTableValueFromMps(delta))}</td>
+        </tr>
+      `;
+    }).join('');
+  });
+}
+
 async function fetchAdminVisuMaps() {
   const urls = [
+    new URL('/hazard-maps/basin-leaflet-overlays.json', window.location.origin).toString(),
     new URL('/hazard-maps/na-leaflet-overlays.json', window.location.origin).toString(),
     new URL('/hazard-maps/na_wind_leaflet_overlays.json', window.location.origin).toString()
   ];
@@ -5099,10 +5255,9 @@ async function fetchAdminVisuMaps() {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const payload = await res.json();
-      if (!payload?.meta?.bounds || !payload?.overlays?.storm || !payload?.overlays?.storm_cmcc) {
-        throw new Error('Payload admin visu invalide');
-      }
-      return payload;
+      const normalized = normalizeAdminVisuPayload(payload);
+      if (!normalized?.basins || !Object.keys(normalized.basins).length) throw new Error('Payload admin visu invalide');
+      return normalized;
     } catch (err) {
       lastErr = err;
     }
@@ -5736,12 +5891,26 @@ function bindEvents() {
     updateAdminVisuOpacityUi();
     syncAdminVisuOpacityFromSlider({ forceApply: true });
   }
+  (els.adminVisuBasinSelects || []).forEach((select, idx) => {
+    if (!select) return;
+    select.value = normalizeAdminVisuBasin(state.adminVisuCards[idx]?.basin, state.adminVisuMaps);
+    select.addEventListener('change', () => {
+      state.adminVisuCards[idx] = {
+        ...(state.adminVisuCards[idx] || {}),
+        basin: normalizeAdminVisuBasin(select.value, state.adminVisuMaps),
+        hazard: normalizeAdminVisuHazard(state.adminVisuCards[idx]?.hazard),
+        scenario: normalizeAdminVisuScenario(state.adminVisuCards[idx]?.scenario)
+      };
+      renderAdminVisuCard(idx);
+    });
+  });
   (els.adminVisuHazardSelects || []).forEach((select, idx) => {
     if (!select) return;
     select.value = normalizeAdminVisuHazard(state.adminVisuCards[idx]?.hazard);
     select.addEventListener('change', () => {
       state.adminVisuCards[idx] = {
         ...(state.adminVisuCards[idx] || {}),
+        basin: normalizeAdminVisuBasin(state.adminVisuCards[idx]?.basin, state.adminVisuMaps),
         hazard: normalizeAdminVisuHazard(select.value),
         scenario: normalizeAdminVisuScenario(state.adminVisuCards[idx]?.scenario)
       };
@@ -5754,6 +5923,7 @@ function bindEvents() {
     select.addEventListener('change', () => {
       state.adminVisuCards[idx] = {
         ...(state.adminVisuCards[idx] || {}),
+        basin: normalizeAdminVisuBasin(state.adminVisuCards[idx]?.basin, state.adminVisuMaps),
         hazard: normalizeAdminVisuHazard(state.adminVisuCards[idx]?.hazard),
         scenario: normalizeAdminVisuScenario(select.value)
       };

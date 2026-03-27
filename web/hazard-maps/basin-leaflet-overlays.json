@@ -1,0 +1,189 @@
+{
+  "meta": {
+    "generated_at": "2026-03-27T12:41:39Z",
+    "version": 1,
+    "updated_basins": [
+      "na",
+      "si"
+    ],
+    "default_basin": "na",
+    "colormap": "turbo",
+    "fill_mode": "nearest",
+    "fill_max_distance_cells": 1.5,
+    "cmcc_rp_low_band_hidden_mps_lte": 18.0
+  },
+  "basins": {
+    "na": {
+      "label": "Nord Atlantique",
+      "source_json": "outputs/na_wind_maps_20260327/Hazard_maps/na-wind-maps-mean-rp50-rp100-eventmax.json",
+      "bounds": {
+        "south": 5.05,
+        "north": 59.949999999999996,
+        "west": -104.9,
+        "east": -1.1
+      },
+      "grid": {
+        "cell_deg": 0.05,
+        "n_lat": 1098,
+        "n_lon": 2076
+      },
+      "metrics": {
+        "mean": {
+          "min_mps": 6.8506,
+          "max_mps": 76.5804
+        },
+        "rp50": {
+          "min_mps": 6.8506,
+          "max_mps": 80.8683
+        },
+        "rp100": {
+          "min_mps": 6.8506,
+          "max_mps": 81.808
+        },
+        "event_max": {
+          "min_mps": 6.8506,
+          "max_mps": 84.8
+        }
+      },
+      "overlays": {
+        "storm": {
+          "mean": "leaflet_overlays/na_storm_mean_overlay.png",
+          "rp50": "leaflet_overlays/na_storm_rp50_overlay.png",
+          "rp100": "leaflet_overlays/na_storm_rp100_overlay.png",
+          "event_max": "leaflet_overlays/na_storm_event_max_overlay.png"
+        },
+        "storm_cmcc": {
+          "mean": "leaflet_overlays/na_storm_cmcc_mean_overlay.png",
+          "rp50": "leaflet_overlays/na_storm_cmcc_rp50_overlay.png",
+          "rp100": "leaflet_overlays/na_storm_cmcc_rp100_overlay.png",
+          "event_max": "leaflet_overlays/na_storm_cmcc_event_max_overlay.png"
+        }
+      },
+      "comparison_rows": [
+        {
+          "scenario": "mean",
+          "indicator": "Vent - Moyenne annuelle (m/s)",
+          "storm_mps": 30.1451,
+          "storm_cmcc_mps": 31.0791,
+          "delta_mps": 0.934
+        },
+        {
+          "scenario": "rp50",
+          "indicator": "Vent - Temps de retour 50 ans (m/s)",
+          "storm_mps": 41.6989,
+          "storm_cmcc_mps": 43.2092,
+          "delta_mps": 1.5103
+        },
+        {
+          "scenario": "rp100",
+          "indicator": "Vent - Temps de retour 100 ans (m/s)",
+          "storm_mps": 42.1439,
+          "storm_cmcc_mps": 43.71,
+          "delta_mps": 1.5661
+        },
+        {
+          "scenario": "event_max",
+          "indicator": "Vent - Evenement le plus fort (m/s)",
+          "storm_mps": 42.5889,
+          "storm_cmcc_mps": 44.2108,
+          "delta_mps": 1.6219
+        },
+        {
+          "scenario": "absolute_max",
+          "indicator": "Vent - Maximum absolu (m/s)",
+          "storm_mps": 83.5029,
+          "storm_cmcc_mps": 84.8,
+          "delta_mps": 1.2971
+        }
+      ],
+      "storm_years_covered": 10000,
+      "storm_cmcc_years_covered": 10000
+    },
+    "si": {
+      "label": "Sud Indien",
+      "source_json": "outputs/si_wind_maps_20260327/Hazard_maps/si-wind-maps-mean-rp50-rp100-eventmax.json",
+      "bounds": {
+        "south": -59.9,
+        "north": -5.05,
+        "west": 10.0,
+        "east": 134.95000000000002
+      },
+      "grid": {
+        "cell_deg": 0.05,
+        "n_lat": 1097,
+        "n_lon": 2499
+      },
+      "metrics": {
+        "mean": {
+          "min_mps": 6.3921,
+          "max_mps": 72.6
+        },
+        "rp50": {
+          "min_mps": 6.3921,
+          "max_mps": 80.88
+        },
+        "rp100": {
+          "min_mps": 6.3921,
+          "max_mps": 83.04
+        },
+        "event_max": {
+          "min_mps": 6.3921,
+          "max_mps": 85.2
+        }
+      },
+      "overlays": {
+        "storm": {
+          "mean": "leaflet_overlays/si_storm_mean_overlay.png",
+          "rp50": "leaflet_overlays/si_storm_rp50_overlay.png",
+          "rp100": "leaflet_overlays/si_storm_rp100_overlay.png",
+          "event_max": "leaflet_overlays/si_storm_event_max_overlay.png"
+        },
+        "storm_cmcc": {
+          "mean": "leaflet_overlays/si_storm_cmcc_mean_overlay.png",
+          "rp50": "leaflet_overlays/si_storm_cmcc_rp50_overlay.png",
+          "rp100": "leaflet_overlays/si_storm_cmcc_rp100_overlay.png",
+          "event_max": "leaflet_overlays/si_storm_cmcc_event_max_overlay.png"
+        }
+      },
+      "comparison_rows": [
+        {
+          "scenario": "mean",
+          "indicator": "Vent - Moyenne annuelle (m/s)",
+          "storm_mps": 27.5922,
+          "storm_cmcc_mps": 28.9683,
+          "delta_mps": 1.3761
+        },
+        {
+          "scenario": "rp50",
+          "indicator": "Vent - Temps de retour 50 ans (m/s)",
+          "storm_mps": 36.6252,
+          "storm_cmcc_mps": 38.4723,
+          "delta_mps": 1.847
+        },
+        {
+          "scenario": "rp100",
+          "indicator": "Vent - Temps de retour 100 ans (m/s)",
+          "storm_mps": 37.075,
+          "storm_cmcc_mps": 38.9424,
+          "delta_mps": 1.8674
+        },
+        {
+          "scenario": "event_max",
+          "indicator": "Vent - Evenement le plus fort (m/s)",
+          "storm_mps": 37.5248,
+          "storm_cmcc_mps": 39.4135,
+          "delta_mps": 1.8887
+        },
+        {
+          "scenario": "absolute_max",
+          "indicator": "Vent - Maximum absolu (m/s)",
+          "storm_mps": 76.6,
+          "storm_cmcc_mps": 85.2,
+          "delta_mps": 8.6
+        }
+      ],
+      "storm_years_covered": 9000,
+      "storm_cmcc_years_covered": 9000
+    }
+  }
+}

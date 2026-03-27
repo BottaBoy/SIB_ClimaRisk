@@ -713,6 +713,21 @@ Depuis la correction du 24 mars 2026, la carte de submersion des cas d'etude:
 - s'appuie sur `TCSurgeBathtub` de bout en bout,
 - n'affiche que les cellules qui intersectent effectivement le territoire cible.
 
+##### 6.7.2.4 Comment "evenement le plus fort" est calcule pour le vent (par maille)
+La logique "event_max" vent est calculee **par maille**.
+
+Pour une maille `i`:
+- on prend la serie des maxima annuels de vent pour cette maille (issue des tracks STORM/STORM_CMCC),
+- puis `event_max_wind_mps(i) = max(serie_annuelle_i)`.
+
+Ensuite, les tableaux front peuvent afficher deux indicateurs differents:
+- `Vent - Evenement le plus fort`: **moyenne spatiale** des `event_max_wind_mps(i)` sur toutes les mailles de la zone/bassin;
+- `Vent - Maximum absolu`: **maximum spatial** des `event_max_wind_mps(i)` sur la zone/bassin.
+
+Consequences d'interpretation:
+- il est possible que la moyenne "evenement le plus fort" d'une petite zone (ex. Guadeloupe) soit superieure a la moyenne d'un grand bassin (NA), car la moyenne du grand bassin inclut beaucoup de mailles faiblement exposees;
+- en revanche, le "maximum absolu" du bassin complet reste generalement plus eleve que celui d'une sous-zone locale.
+
 #### 6.7.3 Choix Bathtub vs GeoClaw
 Choix acté pour V1 production:
 - **Bathtub (TCSurgeBathtub)**

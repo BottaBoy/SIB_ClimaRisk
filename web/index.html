@@ -696,8 +696,8 @@ scripts/build_guadeloupe_water_infra_map.py
           <div>
             <h2 id="admin-visu-title">Admin visu</h2>
             <p class="muted">
-              Comparateur de 4 cartes d'alea NA (STORM et STORM_CMCC).
-              Selectionnez l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans) pour chaque bloc.
+              Comparateur de 4 cartes d'alea cyclonique vent (STORM et STORM_CMCC) sur les bassins NA et SI.
+              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, evenement le plus fort) pour chaque bloc.
             </p>
           </div>
         </div>
@@ -715,6 +715,10 @@ scripts/build_guadeloupe_water_infra_map.py
             <div class="admin-visu-card-head">
               <h3>Visualisation aléa 1</h3>
               <div class="admin-visu-selects">
+                <select id="admin-visu-basin-1">
+                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
+                  <option value="si">Bassin Sud Indien (SI)</option>
+                </select>
                 <select id="admin-visu-hazard-1">
                   <option value="storm">STORM</option>
                   <option value="storm_cmcc">STORM_CMCC</option>
@@ -723,6 +727,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
+                  <option value="event_max">Evenement le plus fort</option>
                 </select>
               </div>
             </div>
@@ -734,6 +739,10 @@ scripts/build_guadeloupe_water_infra_map.py
             <div class="admin-visu-card-head">
               <h3>Visualisation aléa 2</h3>
               <div class="admin-visu-selects">
+                <select id="admin-visu-basin-2">
+                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
+                  <option value="si">Bassin Sud Indien (SI)</option>
+                </select>
                 <select id="admin-visu-hazard-2">
                   <option value="storm">STORM</option>
                   <option value="storm_cmcc" selected>STORM_CMCC</option>
@@ -742,6 +751,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean" selected>Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
+                  <option value="event_max">Evenement le plus fort</option>
                 </select>
               </div>
             </div>
@@ -753,6 +763,10 @@ scripts/build_guadeloupe_water_infra_map.py
             <div class="admin-visu-card-head">
               <h3>Visualisation aléa 3</h3>
               <div class="admin-visu-selects">
+                <select id="admin-visu-basin-3">
+                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
+                  <option value="si">Bassin Sud Indien (SI)</option>
+                </select>
                 <select id="admin-visu-hazard-3">
                   <option value="storm" selected>STORM</option>
                   <option value="storm_cmcc">STORM_CMCC</option>
@@ -761,6 +775,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50" selected>Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
+                  <option value="event_max">Evenement le plus fort</option>
                 </select>
               </div>
             </div>
@@ -772,6 +787,10 @@ scripts/build_guadeloupe_water_infra_map.py
             <div class="admin-visu-card-head">
               <h3>Visualisation aléa 4</h3>
               <div class="admin-visu-selects">
+                <select id="admin-visu-basin-4">
+                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
+                  <option value="si">Bassin Sud Indien (SI)</option>
+                </select>
                 <select id="admin-visu-hazard-4">
                   <option value="storm">STORM</option>
                   <option value="storm_cmcc" selected>STORM_CMCC</option>
@@ -780,6 +799,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100" selected>Temps de retour 100 ans</option>
+                  <option value="event_max">Evenement le plus fort</option>
                 </select>
               </div>
             </div>
@@ -787,6 +807,44 @@ scripts/build_guadeloupe_water_infra_map.py
             <p class="muted small" id="admin-visu-caption-4">Chargement...</p>
           </article>
         </div>
+
+        <article class="subpanel admin-visu-compare-card">
+          <h3>Comparaison aléas vent par bassin</h3>
+          <div class="admin-visu-compare-grid">
+            <div>
+              <h4 id="admin-visu-compare-na-title">Comparaison aléas - bassin Nord Atlantique (NA)</h4>
+              <div class="table-wrap compact">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Indicateur</th>
+                      <th class="num">STORM</th>
+                      <th class="num">STORM_CMCC</th>
+                      <th class="num">Delta (CMCC-STORM)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-visu-compare-na-body"></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h4 id="admin-visu-compare-si-title">Comparaison aléas - bassin Sud Indien (SI)</h4>
+              <div class="table-wrap compact">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Indicateur</th>
+                      <th class="num">STORM</th>
+                      <th class="num">STORM_CMCC</th>
+                      <th class="num">Delta (CMCC-STORM)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-visu-compare-si-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </article>
 
         <article class="subpanel admin-population-card">
           <div class="admin-population-head">
