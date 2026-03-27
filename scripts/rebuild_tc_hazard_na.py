@@ -2,13 +2,53 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import warnings
 
-import numpy as np
-import pandas as pd
-import xarray as xr
-from climada.hazard import Hazard, TCTracks, TropCyclone, Centroids
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    pd = None  # type: ignore[assignment]
+
+try:
+    import xarray as xr
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    xr = None  # type: ignore[assignment]
+
+try:
+    from climada.hazard import Hazard, TCTracks, TropCyclone, Centroids
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    Hazard = None  # type: ignore[assignment]
+    TCTracks = None  # type: ignore[assignment]
+    TropCyclone = None  # type: ignore[assignment]
+    Centroids = None  # type: ignore[assignment]
+
+
+def _require_runtime_deps() -> None:
+    missing: list[str] = []
+    if np is None:
+        missing.append("numpy")
+    if pd is None:
+        missing.append("pandas")
+    if xr is None:
+        missing.append("xarray")
+    if Hazard is None or TCTracks is None or TropCyclone is None or Centroids is None:
+        missing.append("climada")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for rebuild_tc_hazard_na.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install backend requirements and retry."
+        )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -244,13 +284,26 @@ def _write_hazard(hazard: TropCyclone, out_path: Path, label: str) -> None:
 
 
 def main() -> None:
+    default_storm_parquet = Path(os.environ.get("SIB_RISK_STORM_PARQUET_PATH", str(REPO_ROOT / "data" / "hazards" / "storm_ds")))
+    default_cmcc_parquet = Path(
+        os.environ.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(REPO_ROOT / "data" / "hazards" / "storm_ds_CMCC"))
+    )
+    default_centroids = Path(
+        os.environ.get(
+            "SIB_RISK_HAZARD_STORM_PATH",
+            str(REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5"),
+        )
+    )
+    default_out_storm = REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
+    default_out_cmcc = REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
+
     parser = argparse.ArgumentParser(description="Rebuild STORM/STORM_CMCC NA tropical cyclone hazards for Guadeloupe centroids.")
     parser.add_argument("--build", choices=["storm", "cmcc", "both"], default="cmcc")
-    parser.add_argument("--storm-parquet", default="/home/ubuntu/uploads/STORM/storm_ds")
-    parser.add_argument("--cmcc-parquet", default="/home/ubuntu/uploads/STORM/storm_ds_CMCC")
-    parser.add_argument("--centroids-from-hazard", default="/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe.h5")
-    parser.add_argument("--out-storm", default="/home/ubuntu/uploads/sib_demo-main/scripts/tc_hazard_guadeloupe.h5")
-    parser.add_argument("--out-cmcc", default="/home/ubuntu/uploads/sib_demo-main/scripts/tc_hazard_guadeloupe_CMCC.h5")
+    parser.add_argument("--storm-parquet", default=str(default_storm_parquet))
+    parser.add_argument("--cmcc-parquet", default=str(default_cmcc_parquet))
+    parser.add_argument("--centroids-from-hazard", default=str(default_centroids))
+    parser.add_argument("--out-storm", default=str(default_out_storm))
+    parser.add_argument("--out-cmcc", default=str(default_out_cmcc))
     parser.add_argument("--basin-id", type=int, default=1)
     parser.add_argument("--timestep-hours", type=int, default=3)
     parser.add_argument(
@@ -286,6 +339,7 @@ def main() -> None:
         help="Environmental pressure assumption (hPa) when source data has no explicit p_env column.",
     )
     args = parser.parse_args()
+    _require_runtime_deps()
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
     normalized_radius_unit = _normalize_distance_unit(args.radius_unit_in)
     print(f"Wind unit convention: input={normalized_wind_unit}, output=m/s")

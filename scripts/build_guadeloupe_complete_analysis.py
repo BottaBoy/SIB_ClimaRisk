@@ -8,8 +8,15 @@ import os
 from pathlib import Path
 import sys
 
-import geopandas as gpd
-from shapely.geometry import box
+try:
+    import geopandas as gpd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    gpd = None  # type: ignore[assignment]
+
+try:
+    from shapely.geometry import box
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    box = None  # type: ignore[assignment]
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +56,14 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
 }
+
+
+def _require_geo_deps() -> None:
+    if gpd is None or box is None:
+        raise RuntimeError(
+            "Missing geospatial dependencies for this script. Install backend requirements "
+            "(including geopandas/shapely) and retry."
+        )
 
 
 def _prefer_case_study_hdf5_path(configured_path: Path, case_default_path: Path) -> Path:
@@ -92,8 +107,9 @@ def _as_wgs84_and_metric(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, gpd.G
 
 
 def _bbox_polygon_from_cfg(cfg: dict[str, object]):
+    _require_geo_deps()
     bbox = dict(cfg.get("wind_bbox") or {})
-    return box(
+    return box(  # type: ignore[operator]
         float(bbox["lon_min"]),
         float(bbox["lat_min"]),
         float(bbox["lon_max"]),
@@ -243,6 +259,7 @@ def build_complete_exposure(
     infra_eau_dir: Path | None = None,
     territory: str = "guadeloupe",
 ) -> NormalizedExposure:
+    _require_geo_deps()
     territory_key = normalize_territory(territory)
     cfg = get_case_study(
         territory_key,

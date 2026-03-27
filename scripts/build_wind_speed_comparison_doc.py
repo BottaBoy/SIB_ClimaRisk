@@ -6,13 +6,25 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
 import re
 import sys
 from typing import Any
 
-import numpy as np
-import pandas as pd
-from climada.hazard import Hazard
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    pd = None  # type: ignore[assignment]
+
+try:
+    from climada.hazard import Hazard
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    Hazard = None  # type: ignore[assignment]
 
 
 UTC = timezone.utc
@@ -40,6 +52,22 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 from app.config import load_settings  # noqa: E402
+
+
+def _require_runtime_deps() -> None:
+    missing: list[str] = []
+    if np is None:
+        missing.append("numpy")
+    if pd is None:
+        missing.append("pandas")
+    if Hazard is None:
+        missing.append("climada")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_wind_speed_comparison_doc.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install backend requirements and retry."
+        )
 
 
 @dataclass(frozen=True)
@@ -335,8 +363,14 @@ def _table_impact_by_scenario(impact: dict[str, Any], scenario: str, damage_labe
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build markdown note comparing STORM and STORM_CMCC wind-speed maxima.")
-    parser.add_argument("--storm-dir", default="/home/ubuntu/uploads/STORM/STORM_ds")
-    parser.add_argument("--cmcc-dir", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
+    parser.add_argument(
+        "--storm-dir",
+        default=os.environ.get("SIB_RISK_STORM_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_ds")),
+    )
+    parser.add_argument(
+        "--cmcc-dir",
+        default=os.environ.get("SIB_RISK_STORM_CMCC_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_CMCC_ds")),
+    )
     parser.add_argument("--storm-pattern", default="STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt")
     parser.add_argument("--cmcc-pattern", default="STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt")
     parser.add_argument("--wind-unit-in", default="m/s")
@@ -348,6 +382,7 @@ def main() -> None:
     )
     parser.add_argument("--out-md", default=str(REPO_ROOT / "docs" / "diagnostic-vents-et-mailles.md"))
     args = parser.parse_args()
+    _require_runtime_deps()
 
     storm_files = _iter_files(Path(args.storm_dir), args.storm_pattern)
     cmcc_files = _iter_files(Path(args.cmcc_dir), args.cmcc_pattern)

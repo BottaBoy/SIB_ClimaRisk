@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from queue import Empty, Queue
 from threading import Event, Thread
-from typing import Any
 
 from .config import Settings
 from .job_store import JobStore

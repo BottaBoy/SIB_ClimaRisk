@@ -6,13 +6,13 @@ This guide helps an external expert review:
 - computational methodology consistency,
 - traceability from methodology claims to executable code.
 
-Scope intentionally covers:
+Scope for this audit campaign covers:
 - `backend/app`
 - `backend/scripts`
+- root-level `scripts/` that generate or refresh case-study artifacts consumed by the web app.
 
 Out of scope:
-- root-level analysis scripts under `scripts/` (unless requested separately),
-- frontend implementation details.
+- frontend visual implementation details (except backend/script data contract compatibility checks).
 
 ---
 
@@ -26,6 +26,7 @@ This review kit provides:
 Important:
 - Original files remain the source of truth.
 - The stitched file is for linear audit readability and provenance only.
+- For this campaign, stitched regeneration is on-demand (not required after every implementation lot).
 
 ---
 
@@ -39,7 +40,8 @@ Important:
    - hazard loading and frequency normalization,
    - electricity->water dependency aggregation,
    - payload/export compatibility.
-5. Optionally run a local smoke scenario via `backend/scripts/run_backoffice_sample.py`.
+5. Run quick static/script smoke checks (`scripts/audit_quick_checks.sh`).
+6. Optionally run a local pipeline smoke scenario via `backend/scripts/run_backoffice_sample.py`.
 
 ---
 
@@ -60,9 +62,15 @@ Optional sample run (separate shell):
 cd /home/ubuntu/sib-work/backend
 . .venv/bin/activate
 python scripts/run_backoffice_sample.py \
-  --file ../data/examples/QGIS_Points_04_08_25.csv \
-  --value-field value_eur \
+  --file scripts/samples/backoffice_sample_assets.csv \
   --output /tmp/sib_sample_result.json
+```
+
+Optional quick audit checks (root scope: scripts + backend):
+
+```bash
+cd /home/ubuntu/sib-work
+bash scripts/audit_quick_checks.sh
 ```
 
 Optional cleanup utility:
@@ -88,6 +96,7 @@ Main environment toggles to inspect during review:
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`
 - hazard source controls (`SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET`, `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED`)
+- dynamic track cache bound (`SIB_RISK_TRACK_CACHE_MAX_ENTRIES`, default `8`; set `0` to disable cache)
 
 ---
 

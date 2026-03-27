@@ -833,11 +833,12 @@ Pour la partie cartes d'aleas, le rerun leger fixe explicitement:
 - `--map-surge-native-cell-deg 0.01`
 
 Pour la partie proxy multi-aleas, la V1 finale retient:
-- `--proxy-dynamic-max-tracks 300`
+- `--proxy-dynamic-max-tracks 100` (valeur par defaut de `scripts/rerun_case_studies_light.py` au 26 mars 2026)
 
-Ce reglage est plus stable que `200` tracks pour les scenarios `rp50`:
-- avec `200` tracks, la decomposition des dommages pouvait degenerer vers une part `surge=1.0` sur certains territoires;
-- avec `300` tracks, la decomposition `wind / rain / surge` redevient numeriquement exploitable tout en restant dans un rerun leger.
+Interpretation pratique:
+- le bloc cartes est plus exigeant spatialement et conserve `300` tracks pour stabiliser les champs cartographiques (`wind/rain/surge`);
+- le bloc proxy est echantillonne sur un sous-ensemble de points d'exposition et utilise `100` tracks par defaut pour garder un rerun leger robuste en cout CPU/RAM.
+- un override manuel reste possible (`--proxy-dynamic-max-tracks N`) pour une campagne plus lourde.
 
 Les sorties visibles page 1 / page 2 et page 3 sont volontairement limitees a:
 - `annual`
@@ -856,3 +857,37 @@ Objectif:
 - obtenir des reruns Guadeloupe / Martinique robustes et repetables,
 - conserver des sorties front coherentes (cartes, tableaux, barres empilees, etats reseaux),
 - reserver le calcul multi-aleas complet a l'API backend page 3 pour les donnees utilisateur.
+
+#### 6.7.12 Mecanisme de coherence inter-artefacts (`case_study_run_id`)
+Le rerun leger impose une coherence stricte entre:
+- `web/data/{territory}-wind-maps.json`
+- `web/data/{territory}-multi-hazard-proxy.json`
+- `web/data/{territory}-page1-analysis.json` (ou `page2` pour Martinique)
+
+Principe:
+1. `scripts/rerun_case_studies_light.py` genere un `run_id` unique (`{territory}_case_YYYYMMDDTHHMMSSZ`).
+2. Le meme `run_id` est passe a chaque script via `--case-study-run-id`.
+3. Chaque artefact ecrit `meta.case_study_run_id`.
+4. Le rerun verifie ensuite l'alignement des trois artefacts (`_assert_case_study_coherence`) et echoue si mismatch.
+
+Effet:
+- les tableaux/cartes/graphs affiches proviennent obligatoirement du meme lot de calcul.
+- on evite les incoherences de type \"cartes d'un run + tableaux d'un run precedent\".
+
+#### 6.7.13 Contraintes operationnelles memoire/ressources et recommandations
+Constats operationnels (runs Guadeloupe/Martinique):
+- la generation native dynamique (`storm_ds`/`storm_ds_CMCC` -> tracks -> hazards) est le poste dominant en RAM/CPU.
+- le cout augmente surtout avec:
+  - `dynamic_max_tracks`,
+  - densite spatiale (nombre de points / maille),
+  - multi-aleas actifs (`wind + rain + surge`).
+
+Garde-fous techniques actuels:
+- cap tracks dynamique (`dynamic_max_tracks`) par etape.
+- cache tracks backend borne via `SIB_RISK_TRACK_CACHE_MAX_ENTRIES` (defaut `8`, `0` pour desactiver le cache).
+- caps de sampling exposition (`SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`, options proxy `max-points-*`).
+
+Recommandations d'execution:
+- pour operation courante front: conserver les defauts du rerun leger (`map=300`, `proxy=100`).
+- pour debug memoire: diminuer temporairement `dynamic_max_tracks` ou fixer `SIB_RISK_TRACK_CACHE_MAX_ENTRIES=0`.
+- pour campagnes de recalcul lourdes: executer territoire par territoire et verifier l'alignement `case_study_run_id` apres chaque lot.

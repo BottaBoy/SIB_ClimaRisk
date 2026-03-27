@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
+import logging
+import os
 from pathlib import Path
 from typing import Any, Iterable
 import copy
@@ -58,13 +61,43 @@ class SpatialWindow:
 
 
 _TRACK_CACHE_LOCK = threading.Lock()
-_TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int], Any] = {}
+_TRACK_CACHE: OrderedDict[
+    tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int],
+    Any,
+] = OrderedDict()
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_SPATIAL_PADDING_DEG = 4.0
 DEFAULT_MAX_TRACKS = 4000
+DEFAULT_TRACK_CACHE_MAX_ENTRIES = 8
 DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
 DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
+
+
+def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
+    if track_cache_max_entries is not None:
+        try:
+            return int(track_cache_max_entries)
+        except Exception:
+            logger.warning(
+                "Invalid explicit track cache size (%r); using default=%d",
+                track_cache_max_entries,
+                DEFAULT_TRACK_CACHE_MAX_ENTRIES,
+            )
+            return DEFAULT_TRACK_CACHE_MAX_ENTRIES
+    raw = os.environ.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES")
+    if raw is None:
+        return DEFAULT_TRACK_CACHE_MAX_ENTRIES
+    try:
+        return int(raw)
+    except Exception:
+        logger.warning(
+            "Invalid SIB_RISK_TRACK_CACHE_MAX_ENTRIES=%r; using default=%d",
+            raw,
+            DEFAULT_TRACK_CACHE_MAX_ENTRIES,
+        )
+        return DEFAULT_TRACK_CACHE_MAX_ENTRIES
 
 
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
@@ -80,9 +113,12 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
     try:
         hazard_copy.frequency = freq / float(storm_years)
         setattr(hazard_copy, "_sib_frequency_normalized", True)
-    except Exception:
-        # Leave hazard unchanged if structure is not compatible.
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Failed to normalize hazard frequency on copy (%s): %s",
+            type(exc).__name__,
+            exc,
+        )
     return hazard_copy
 
 
@@ -318,7 +354,14 @@ def _build_tracks_from_parquet(
         read_kwargs["filters"] = [("Basin ID", "in", [int(b) for b in basin_ids])]
     try:
         df = pd.read_parquet(parquet_path, **read_kwargs)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Parquet predicate read failed for %s (filters=%s, %s: %s); retrying full read",
+            parquet_path,
+            read_kwargs.get("filters"),
+            type(exc).__name__,
+            exc,
+        )
         df = pd.read_parquet(parquet_path)
     df = _normalize_columns(df)
 
@@ -351,7 +394,14 @@ def _build_tracks_from_parquet(
 
     try:
         max_tracks_int = int(max_tracks)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Invalid max_tracks=%r (%s: %s); using default=%d",
+            max_tracks,
+            type(exc).__name__,
+            exc,
+            DEFAULT_MAX_TRACKS,
+        )
         max_tracks_int = DEFAULT_MAX_TRACKS
     if max_tracks_int > 0:
         track_count = int(df["track_id"].nunique(dropna=True))
@@ -445,6 +495,7 @@ def _get_or_build_tracks(
     wind_unit_in: str,
     radius_unit_in: str,
     env_pressure_hpa: float,
+    track_cache_max_entries: int | None = None,
 ) -> Any:
     window_key = None
     if spatial_window is not None:
@@ -464,10 +515,13 @@ def _get_or_build_tracks(
         window_key,
         int(max_tracks),
     )
-    with _TRACK_CACHE_LOCK:
-        cached = _TRACK_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+    cache_limit = _resolve_track_cache_limit(track_cache_max_entries)
+    if cache_limit != 0:
+        with _TRACK_CACHE_LOCK:
+            cached = _TRACK_CACHE.get(cache_key)
+            if cached is not None:
+                _TRACK_CACHE.move_to_end(cache_key)
+                return cached
 
     tracks = _build_tracks_from_parquet(
         parquet_path,
@@ -479,8 +533,15 @@ def _get_or_build_tracks(
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
+    if cache_limit == 0:
+        return tracks
     with _TRACK_CACHE_LOCK:
         _TRACK_CACHE[cache_key] = tracks
+        _TRACK_CACHE.move_to_end(cache_key)
+        if cache_limit > 0:
+            while len(_TRACK_CACHE) > cache_limit:
+                evicted_key, _ = _TRACK_CACHE.popitem(last=False)
+                logger.debug("Evicted dynamic track cache entry: %s", evicted_key)
     return tracks
 
 
@@ -547,6 +608,7 @@ def load_storm_hazards_from_parquet_for_points(
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     spatial_padding_deg: float = DEFAULT_SPATIAL_PADDING_DEG,
     max_tracks: int = DEFAULT_MAX_TRACKS,
+    track_cache_max_entries: int | None = None,
     wind_unit_in: str = "m/s",
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
@@ -564,6 +626,7 @@ def load_storm_hazards_from_parquet_for_points(
         basin_ids=basin_ids,
         spatial_window=spatial_window,
         max_tracks=max_tracks,
+        track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
@@ -574,6 +637,7 @@ def load_storm_hazards_from_parquet_for_points(
         basin_ids=basin_ids,
         spatial_window=spatial_window,
         max_tracks=max_tracks,
+        track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,

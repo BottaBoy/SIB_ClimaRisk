@@ -5,15 +5,43 @@ import argparse
 from collections import defaultdict
 from pathlib import Path
 
-import geopandas as gpd
-import pandas as pd
-from shapely.geometry import box
+try:
+    import geopandas as gpd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    gpd = None  # type: ignore[assignment]
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    pd = None  # type: ignore[assignment]
+
+try:
+    from shapely.geometry import box
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    box = None  # type: ignore[assignment]
 
 from case_study_sources import get_case_study, normalize_territory
 
 
 WGS84 = "EPSG:4326"
 METRIC_CRS = "EPSG:5490"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _require_geo_deps() -> None:
+    missing: list[str] = []
+    if gpd is None:
+        missing.append("geopandas")
+    if pd is None:
+        missing.append("pandas")
+    if box is None:
+        missing.append("shapely")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_guadeloupe_water_infra_map.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install backend requirements and retry."
+        )
 
 
 def _ensure_crs(gdf: gpd.GeoDataFrame, fallback: str = METRIC_CRS) -> gpd.GeoDataFrame:
@@ -23,8 +51,9 @@ def _ensure_crs(gdf: gpd.GeoDataFrame, fallback: str = METRIC_CRS) -> gpd.GeoDat
 
 
 def _case_bbox_polygon(case_cfg: dict[str, object]):
+    _require_geo_deps()
     bbox = dict(case_cfg.get("wind_bbox") or {})
-    return box(
+    return box(  # type: ignore[operator]
         float(bbox["lon_min"]),
         float(bbox["lat_min"]),
         float(bbox["lon_max"]),
@@ -73,6 +102,7 @@ def main() -> None:
     parser.add_argument("--out", default=None)
     parser.add_argument("--simplify-tolerance-m", type=float, default=3.0)
     args = parser.parse_args()
+    _require_geo_deps()
 
     territory = normalize_territory(args.territory)
     cfg = get_case_study(
@@ -80,7 +110,7 @@ def main() -> None:
         infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
         infra_eau_dir=Path(args.infra_eau_dir) if args.infra_eau_dir else None,
     )
-    out = Path(args.out) if args.out else (Path("/home/ubuntu/sib-work/web/data") / f"{territory}-water-infra.geojson")
+    out = Path(args.out) if args.out else (REPO_ROOT / "web" / "data" / f"{territory}-water-infra.geojson")
 
     gdfs: list[gpd.GeoDataFrame] = []
     for layer in cfg["water_map_layers"]:

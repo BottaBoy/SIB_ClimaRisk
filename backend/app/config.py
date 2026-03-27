@@ -53,14 +53,11 @@ class Settings:
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
     hazard_dynamic_max_tracks: int = 1200
+    hazard_track_cache_max_entries: int = 8
     multi_hazard_enabled: bool = True
     hazard_rain_model: str = "R-CLIPER"
-    hazard_surge_topo_path: Path = Path(
-        "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
-    )
-    d2_flood_curve_file: Path = Path(
-        "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
-    )
+    hazard_surge_topo_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    d2_flood_curve_file: Path = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
     example_qgis_points_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"
     example_qgis_lines_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"
     example_qgis_polygons_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"
@@ -112,6 +109,26 @@ def load_settings() -> Settings:
         alt_storm_cmcc_parquet_dir,
     )
 
+    default_hazard_topo = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    alt_hazard_topo = Path(
+        "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    )
+    configured_hazard_topo = Path(env.get("SIB_RISK_HAZARD_SURGE_TOPO_PATH", str(default_hazard_topo)))
+    hazard_surge_topo_path = _prefer_existing_path(
+        configured_hazard_topo,
+        default_hazard_topo,
+        alt_hazard_topo,
+    )
+
+    default_d2_curve = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    alt_d2_curve = Path("/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx")
+    configured_d2_curve = Path(env.get("SIB_RISK_D2_FLOOD_CURVE_FILE", str(default_d2_curve)))
+    d2_flood_curve_file = _prefer_existing_path(
+        configured_d2_curve,
+        default_d2_curve,
+        alt_d2_curve,
+    )
+
     return Settings(
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
         api_prefix=env.get("SIB_RISK_API_PREFIX", "/api/v1"),
@@ -134,20 +151,11 @@ def load_settings() -> Settings:
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
         hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),
+        hazard_track_cache_max_entries=int(env.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES", "8")),
         multi_hazard_enabled=_env_bool(env, "SIB_RISK_MULTI_HAZARD_ENABLED", True),
         hazard_rain_model=str(env.get("SIB_RISK_HAZARD_RAIN_MODEL", "R-CLIPER")).strip(),
-        hazard_surge_topo_path=Path(
-            env.get(
-                "SIB_RISK_HAZARD_SURGE_TOPO_PATH",
-                "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
-            )
-        ),
-        d2_flood_curve_file=Path(
-            env.get(
-                "SIB_RISK_D2_FLOOD_CURVE_FILE",
-                "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx",
-            )
-        ),
+        hazard_surge_topo_path=hazard_surge_topo_path,
+        d2_flood_curve_file=d2_flood_curve_file,
         example_qgis_points_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POINTS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"))),
         example_qgis_lines_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_LINES_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"))),
         example_qgis_polygons_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POLYGONS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"))),

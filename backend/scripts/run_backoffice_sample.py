@@ -14,14 +14,19 @@ from app.risk_engine.pipeline import run_job_pipeline
 
 
 def main() -> int:
+    default_sample = Path(__file__).resolve().parent / "samples" / "backoffice_sample_assets.csv"
     parser = argparse.ArgumentParser(description='Run a local backoffice sample using the risk-engine pipeline (fallback if CLIMADA stack absent).')
-    parser.add_argument('--file', required=True, help='Path to exposure file (csv/xlsx/geojson/gpkg)')
+    parser.add_argument(
+        '--file',
+        default=str(default_sample),
+        help='Path to exposure file (csv/xlsx/geojson/gpkg). Defaults to the canonical sample dataset.',
+    )
     parser.add_argument('--value-field', default=None, help='Value field (required for most formats)')
     parser.add_argument('--id-field', default=None)
     parser.add_argument('--asset-type-field', default=None)
     parser.add_argument('--crs', default=None)
     parser.add_argument('--spacing-m', type=float, default=100.0)
-    parser.add_argument('--output', default='sample_run_result.json')
+    parser.add_argument('--output', default='/tmp/sib_backoffice_sample_result.json')
     args = parser.parse_args()
 
     settings = load_settings()
@@ -49,6 +54,7 @@ def main() -> int:
     store.save_result(job.job_id, result)
     Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Job: {job.job_id}')
+    print(f'Input file: {src}')
     print(f'Result written to: {args.output}')
     return 0
 

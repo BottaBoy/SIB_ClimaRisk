@@ -10,15 +10,39 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-import fiona
-import numpy as np
-import pandas as pd
-import rasterio
-from rasterio.features import shapes
-from rasterio.windows import from_bounds
-from shapely.geometry import box, shape
-from shapely.ops import unary_union
+try:
+    import fiona
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    fiona = None  # type: ignore[assignment]
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    pd = None  # type: ignore[assignment]
+
+try:
+    import rasterio
+    from rasterio.features import shapes
+    from rasterio.windows import from_bounds
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    rasterio = None  # type: ignore[assignment]
+    shapes = None  # type: ignore[assignment]
+    from_bounds = None  # type: ignore[assignment]
+
+try:
+    from shapely.geometry import box, shape
+    from shapely.ops import unary_union
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    box = None  # type: ignore[assignment]
+    shape = None  # type: ignore[assignment]
+    unary_union = None  # type: ignore[assignment]
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -29,12 +53,6 @@ from app.config import load_settings  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs  # noqa: E402
 from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
 from case_study_sources import CASE_STUDY_BBOX, normalize_territory  # noqa: E402
-
-try:
-    from climada_petals.hazard.tc_rainfield import TCRain  # type: ignore
-    from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub  # type: ignore
-except Exception as exc:  # pragma: no cover - surfaced at runtime by the script
-    raise RuntimeError("climada_petals is required to build native rain/surge hazard maps") from exc
 
 COLUMNS = [
     "Year",
@@ -57,13 +75,13 @@ COMPONENT_ORDER = ("wind", "rain", "surge")
 DEFAULT_ADMIN_BOUNDARIES_PATH = Path(
     os.environ.get(
         "SIB_RISK_ADMIN_BOUNDARIES_PATH",
-        "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        str(REPO_ROOT / "data" / "boundaries" / "geoBoundariesCGAZ_ADM0.geojson"),
     )
 )
 DEFAULT_ANTILLES_TOPO_PATH = Path(
     os.environ.get(
         "SIB_RISK_HAZARD_SURGE_TOPO_PATH",
-        "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+        str(REPO_ROOT / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"),
     )
 )
 TERRITORY_ADMIN_GROUP = {
@@ -72,8 +90,40 @@ TERRITORY_ADMIN_GROUP = {
 }
 
 
+def _require_map_deps() -> None:
+    missing: list[str] = []
+    if fiona is None:
+        missing.append("fiona")
+    if np is None:
+        missing.append("numpy")
+    if pd is None:
+        missing.append("pandas")
+    if rasterio is None or shapes is None or from_bounds is None:
+        missing.append("rasterio")
+    if box is None or shape is None or unary_union is None:
+        missing.append("shapely")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_guadeloupe_wind_maps.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install backend requirements and retry."
+        )
+
+
 def _progress(message: str) -> None:
     print(message, flush=True)
+
+
+def _require_climada_petals() -> tuple[Any, Any]:
+    try:
+        from climada_petals.hazard.tc_rainfield import TCRain  # type: ignore
+        from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub  # type: ignore
+    except Exception as exc:  # pragma: no cover - runtime dependency
+        raise RuntimeError(
+            "climada_petals is required to build native rain/surge hazard maps. "
+            "Install backend dependencies and retry."
+        ) from exc
+    return TCRain, TCSurgeBathtub
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -557,6 +607,9 @@ def _build_native_wind_and_rain_maps(
     *,
     point_coords: list[tuple[float, float]],
     dynamic_max_tracks: int,
+    settings: Any,
+    storm_parquet_path: Path,
+    storm_cmcc_parquet_path: Path,
 ) -> tuple[
     dict[str, dict[tuple[float, float], dict[str, float]]],
     dict[str, dict[tuple[float, float], dict[str, float]]],
@@ -572,20 +625,21 @@ def _build_native_wind_and_rain_maps(
             "storm_years": 0,
         }
 
-    settings = load_settings()
+    TCRain, _ = _require_climada_petals()
     _progress(
         "Building native CLIMADA wind/rain hazards "
         f"(points={len(point_coords)}, max_tracks={int(dynamic_max_tracks)})"
     )
     bundle = load_storm_hazards_from_parquet_for_points(
-        storm_parquet_path=Path(settings.storm_parquet_path),
-        cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
+        storm_parquet_path=Path(storm_parquet_path),
+        cmcc_parquet_path=Path(storm_cmcc_parquet_path),
         point_coords=point_coords,
         storm_years=int(settings.storm_years),
         wind_unit_in=str(settings.storm_wind_unit_in),
         radius_unit_in=str(settings.storm_radius_unit_in),
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         max_tracks=int(dynamic_max_tracks),
+        track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
     )
 
     rain_model = str(settings.hazard_rain_model or "R-CLIPER")
@@ -641,8 +695,8 @@ def _build_native_wind_and_rain_maps(
         "rain_model": rain_model,
         "dynamic_max_tracks": int(dynamic_max_tracks),
         "storm_years": int(settings.storm_years),
-        "storm_parquet_path": str(settings.storm_parquet_path),
-        "storm_cmcc_parquet_path": str(settings.storm_cmcc_parquet_path),
+        "storm_parquet_path": str(storm_parquet_path),
+        "storm_cmcc_parquet_path": str(storm_cmcc_parquet_path),
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
     }
@@ -653,6 +707,9 @@ def _build_native_rain_maps(
     *,
     point_coords: list[tuple[float, float]],
     dynamic_max_tracks: int,
+    settings: Any,
+    storm_parquet_path: Path,
+    storm_cmcc_parquet_path: Path,
 ) -> tuple[dict[str, dict[tuple[float, float], dict[str, float]]], dict[str, object]]:
     if not point_coords:
         return {"storm": {}, "storm_cmcc": {}}, {
@@ -662,20 +719,21 @@ def _build_native_rain_maps(
             "dynamic_max_tracks": int(dynamic_max_tracks),
         }
 
-    settings = load_settings()
+    TCRain, _ = _require_climada_petals()
     _progress(
         "Building native CLIMADA hazards "
         f"(points={len(point_coords)}, max_tracks={int(dynamic_max_tracks)})"
     )
     bundle = load_storm_hazards_from_parquet_for_points(
-        storm_parquet_path=Path(settings.storm_parquet_path),
-        cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
+        storm_parquet_path=Path(storm_parquet_path),
+        cmcc_parquet_path=Path(storm_cmcc_parquet_path),
         point_coords=point_coords,
         storm_years=int(settings.storm_years),
         wind_unit_in=str(settings.storm_wind_unit_in),
         radius_unit_in=str(settings.storm_radius_unit_in),
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         max_tracks=int(dynamic_max_tracks),
+        track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
     )
 
     rain_model = str(settings.hazard_rain_model or "R-CLIPER")
@@ -716,8 +774,8 @@ def _build_native_rain_maps(
         "storm_cmcc_tracks": int(len(getattr(bundle.tracks_storm_cmcc, "data", []) or [])),
         "rain_model": rain_model,
         "dynamic_max_tracks": int(dynamic_max_tracks),
-        "storm_parquet_path": str(settings.storm_parquet_path),
-        "storm_cmcc_parquet_path": str(settings.storm_cmcc_parquet_path),
+        "storm_parquet_path": str(storm_parquet_path),
+        "storm_cmcc_parquet_path": str(storm_cmcc_parquet_path),
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
     }
@@ -770,6 +828,9 @@ def _build_native_surge_maps(
     target_cells: dict[tuple[int, int], dict[str, float | int]],
     topo_path: Path,
     dynamic_max_tracks: int,
+    settings: Any,
+    storm_parquet_path: Path,
+    storm_cmcc_parquet_path: Path,
 ) -> tuple[dict[str, dict[tuple[float, float], dict[str, float]]], dict[str, object]]:
     fine_grid_cells = _build_regular_grid_cells(
         lat_min=lat_min,
@@ -782,21 +843,22 @@ def _build_native_surge_maps(
         (float(cell_info["grid_lat"]), float(cell_info["grid_lon"]))
         for _, cell_info in sorted(fine_grid_cells.items())
     ]
-    settings = load_settings()
+    _, TCSurgeBathtub = _require_climada_petals()
     _progress(
         "Building native CLIMADA surge hazards "
         f"(points={len(point_coords)}, max_tracks={int(dynamic_max_tracks)}, "
         f"native_cell_deg={surge_native_cell_deg})"
     )
     bundle = load_storm_hazards_from_parquet_for_points(
-        storm_parquet_path=Path(settings.storm_parquet_path),
-        cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
+        storm_parquet_path=Path(storm_parquet_path),
+        cmcc_parquet_path=Path(storm_cmcc_parquet_path),
         point_coords=point_coords,
         storm_years=int(settings.storm_years),
         wind_unit_in=str(settings.storm_wind_unit_in),
         radius_unit_in=str(settings.storm_radius_unit_in),
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         max_tracks=int(dynamic_max_tracks),
+        track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
     )
     prepared_topo = _prepare_topo_raster_with_crs(Path(topo_path))
     _progress(
@@ -829,8 +891,8 @@ def _build_native_surge_maps(
         "topo_path_prepared": str(prepared_topo),
         "dynamic_max_tracks": int(dynamic_max_tracks),
         "native_cell_deg": float(surge_native_cell_deg),
-        "storm_parquet_path": str(settings.storm_parquet_path),
-        "storm_cmcc_parquet_path": str(settings.storm_cmcc_parquet_path),
+        "storm_parquet_path": str(storm_parquet_path),
+        "storm_cmcc_parquet_path": str(storm_cmcc_parquet_path),
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
     }
@@ -913,8 +975,16 @@ def _merge_component_metrics(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build territory hazard map layers from STORM using native CLIMADA rain/surge generation.")
     parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
-    parser.add_argument("--storm-dir", default="/home/ubuntu/uploads/STORM/STORM_ds", help="Directory containing STORM present-climate txt files")
-    parser.add_argument("--cmcc-dir", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds", help="Directory containing STORM CMCC txt files")
+    parser.add_argument(
+        "--storm-dir",
+        default=None,
+        help="Path to STORM dynamic source directory/file (defaults to backend settings).",
+    )
+    parser.add_argument(
+        "--cmcc-dir",
+        default=None,
+        help="Path to STORM_CMCC dynamic source directory/file (defaults to backend settings).",
+    )
     parser.add_argument("--out", default=None, help="Output JSON path")
     parser.add_argument("--cell-deg", type=float, default=0.02, help="Grid cell size in degrees")
     parser.add_argument("--lat-min", type=float, default=None)
@@ -949,10 +1019,19 @@ def main() -> None:
         default="m/s",
         help="Input wind unit in STORM txt files. Supported: m/s, kn, km/h. Output is always m/s.",
     )
+    parser.add_argument(
+        "--case-study-run-id",
+        default=None,
+        help="Optional coherence token propagated across case-study artefacts (maps/proxy/page analysis).",
+    )
     args = parser.parse_args()
+    _require_map_deps()
 
     settings = load_settings()
     territory = normalize_territory(args.territory)
+    case_study_run_id = str(args.case_study_run_id or "").strip()
+    if not case_study_run_id:
+        case_study_run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
     default_bbox = CASE_STUDY_BBOX[territory]
     lat_min = float(args.lat_min if args.lat_min is not None else default_bbox["lat_min"])
     lat_max = float(args.lat_max if args.lat_max is not None else default_bbox["lat_max"])
@@ -961,11 +1040,11 @@ def main() -> None:
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
     dynamic_max_tracks = int(args.dynamic_max_tracks if args.dynamic_max_tracks is not None else 300)
 
-    storm_dir = Path(args.storm_dir)
-    cmcc_dir = Path(args.cmcc_dir)
+    storm_parquet_path = Path(args.storm_dir) if args.storm_dir else Path(settings.storm_parquet_path)
+    cmcc_parquet_path = Path(args.cmcc_dir) if args.cmcc_dir else Path(settings.storm_cmcc_parquet_path)
     topo_path = Path(args.topo_path)
     admin_path = Path(args.admin_boundaries_path)
-    out = Path(args.out) if args.out else Path(f"/home/ubuntu/sib-work/web/data/{territory}-wind-maps.json")
+    out = Path(args.out) if args.out else (REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json")
 
     territory_geom = _load_territory_geometry_from_admin(
         territory,
@@ -1006,6 +1085,9 @@ def main() -> None:
     native_wind_components, native_rain_components, native_hazard_meta = _build_native_wind_and_rain_maps(
         point_coords=ordered_point_coords,
         dynamic_max_tracks=dynamic_max_tracks,
+        settings=settings,
+        storm_parquet_path=storm_parquet_path,
+        storm_cmcc_parquet_path=cmcc_parquet_path,
     )
     storm_wind_cells, storm_wind_ranges = _build_native_wind_cells(
         target_cells=target_cells,
@@ -1025,6 +1107,9 @@ def main() -> None:
         target_cells=target_cells,
         topo_path=topo_path,
         dynamic_max_tracks=dynamic_max_tracks,
+        settings=settings,
+        storm_parquet_path=storm_parquet_path,
+        storm_cmcc_parquet_path=cmcc_parquet_path,
     )
 
     storm_cells, storm_component_ranges = _merge_component_metrics(
@@ -1041,6 +1126,7 @@ def main() -> None:
     payload = {
         "meta": {
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "case_study_run_id": case_study_run_id,
             "bbox": {
                 "lat_min": lat_min,
                 "lat_max": lat_max,

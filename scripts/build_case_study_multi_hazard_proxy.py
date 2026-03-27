@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -13,6 +14,7 @@ import numpy as np
 
 
 UTC = timezone.utc
+logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
@@ -24,26 +26,55 @@ from app.risk_engine.exposure_to_climada import build_climada_exposure  # noqa: 
 from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
 from app.risk_engine.impact_functions import resolve_tc_impact_func_id  # noqa: E402
 from app.risk_engine.impact_functions_multi_hazard import get_multi_hazard_vulnerability_payload  # noqa: E402
-from build_guadeloupe_complete_analysis import build_complete_exposure  # noqa: E402
-from build_guadeloupe_page1_data import (  # noqa: E402
-    COMPONENT_ORDER,
-    DAMAGE_BREAKDOWN_LABELS,
-    MAP_SCENARIOS,
-    _breakdown_class_from_point,
-    _component_ratios_from_climada_run,
-    _default_component_ratios,
-    _default_multi_hazard_proxy,
-    _normalize_breakdown_share_map,
-    _normalize_component_ratio_map,
-    _resolve_hazard_paths_for_case_study,
-    _subset_bundle_for_component_ratios,
-)
 from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
 
 try:
     from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub  # type: ignore
 except Exception:  # pragma: no cover - surfaced through empty fallback at runtime
     TCSurgeBathtub = None
+
+
+DAMAGE_BREAKDOWN_LABELS: dict[str, str] = {}
+MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
+_HELPERS_LOADED = False
+
+
+def _load_case_study_helpers() -> None:
+    global DAMAGE_BREAKDOWN_LABELS, MAP_SCENARIOS, _HELPERS_LOADED
+    global build_complete_exposure
+    global _breakdown_class_from_point
+    global _component_ratios_from_climada_run
+    global _default_multi_hazard_proxy
+    global _normalize_breakdown_share_map
+    global _normalize_component_ratio_map
+    global _resolve_hazard_paths_for_case_study
+    global _subset_bundle_for_component_ratios
+    if _HELPERS_LOADED:
+        return
+    from build_guadeloupe_complete_analysis import build_complete_exposure as _build_complete_exposure
+    from case_study_proxy_utils import (
+        DAMAGE_BREAKDOWN_LABELS as _DAMAGE_BREAKDOWN_LABELS,
+        MAP_SCENARIOS as _MAP_SCENARIOS,
+        _breakdown_class_from_point as _breakdown_class_from_point_impl,
+        _component_ratios_from_climada_run as _component_ratios_from_climada_run_impl,
+        _default_multi_hazard_proxy as _default_multi_hazard_proxy_impl,
+        _normalize_breakdown_share_map as _normalize_breakdown_share_map_impl,
+        _normalize_component_ratio_map as _normalize_component_ratio_map_impl,
+        _resolve_hazard_paths_for_case_study as _resolve_hazard_paths_for_case_study_impl,
+        _subset_bundle_for_component_ratios as _subset_bundle_for_component_ratios_impl,
+    )
+
+    build_complete_exposure = _build_complete_exposure
+    DAMAGE_BREAKDOWN_LABELS = _DAMAGE_BREAKDOWN_LABELS
+    MAP_SCENARIOS = _MAP_SCENARIOS
+    _breakdown_class_from_point = _breakdown_class_from_point_impl
+    _component_ratios_from_climada_run = _component_ratios_from_climada_run_impl
+    _default_multi_hazard_proxy = _default_multi_hazard_proxy_impl
+    _normalize_breakdown_share_map = _normalize_breakdown_share_map_impl
+    _normalize_component_ratio_map = _normalize_component_ratio_map_impl
+    _resolve_hazard_paths_for_case_study = _resolve_hazard_paths_for_case_study_impl
+    _subset_bundle_for_component_ratios = _subset_bundle_for_component_ratios_impl
+    _HELPERS_LOADED = True
 
 
 def _load_surge_priority_scores_from_map(
@@ -55,7 +86,12 @@ def _load_surge_priority_scores_from_map(
 
     try:
         payload = json.loads(hazard_map_json.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Unable to parse hazard map JSON for surge priority (%s): %s",
+            hazard_map_json,
+            exc,
+        )
         return {}
 
     meta = payload.get("meta") if isinstance(payload, dict) else None
@@ -69,7 +105,12 @@ def _load_surge_priority_scores_from_map(
         lat_min = float(bbox.get("lat_min"))
         lon_min = float(bbox.get("lon_min"))
         cell_deg = float(meta.get("grid_cell_deg") or 0.0)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Invalid bbox/grid metadata in hazard map JSON for surge priority (%s): %s",
+            hazard_map_json,
+            exc,
+        )
         return {}
     if not np.isfinite(lat_min) or not np.isfinite(lon_min) or not np.isfinite(cell_deg) or cell_deg <= 0.0:
         return {}
@@ -153,16 +194,27 @@ def _load_surge_priority_scores_from_native_chain(
             radius_unit_in=str(settings.storm_radius_unit_in),
             env_pressure_hpa=float(settings.storm_env_pressure_hpa),
             max_tracks=int(dynamic_max_tracks),
+            track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
         )
         prepared_topo = _prepare_topo_raster_with_crs(Path(settings.hazard_surge_topo_path))
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Native surge priority scoring failed (%s: %s); continuing without native priority scores",
+            type(exc).__name__,
+            exc,
+        )
         return {}
 
     score_by_idx: dict[int, float] = {}
     for wind_hazard in (bundle.storm, bundle.storm_cmcc):
         try:
             surge_hazard = TCSurgeBathtub.from_tc_winds(wind_hazard, str(prepared_topo))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "TCSurgeBathtub.from_tc_winds failed during surge priority scoring (%s: %s)",
+                type(exc).__name__,
+                exc,
+            )
             continue
         max_raw = surge_hazard.intensity.max(axis=0)
         if hasattr(max_raw, "toarray"):
@@ -198,7 +250,8 @@ def _load_hazard_map_payload(path: Path | None) -> dict[str, Any]:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to parse hazard map payload from %s: %s", path, exc)
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -244,7 +297,12 @@ def _build_surge_proxy_losses_from_hazard_map(
             hazard_component="surge",
             flood_curve_file=Path(flood_curve_file),
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Unable to load multi-hazard surge vulnerability payload (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
         return {}
 
     curves = vulnerability.get("curves")
@@ -404,6 +462,7 @@ def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, terri
     return {
         "meta": {
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "case_study_run_id": str(getattr(args, "case_study_run_id", "") or ""),
             "territory": territory,
             "territory_label": territory_label(territory),
             "sample_point_count": int(sample_point_count),
@@ -435,7 +494,13 @@ def main() -> None:
     parser.add_argument("--dynamic-max-tracks", type=int, default=100)
     parser.add_argument("--hazard-map-json", default=None)
     parser.add_argument("--out-json", default=None)
+    parser.add_argument(
+        "--case-study-run-id",
+        default=None,
+        help="Optional coherence token propagated across case-study artefacts (maps/proxy/page analysis).",
+    )
     args = parser.parse_args()
+    _load_case_study_helpers()
 
     territory = normalize_territory(args.territory)
     case_cfg = get_case_study(
@@ -457,6 +522,26 @@ def main() -> None:
         Path(args.hazard_map_json)
         if args.hazard_map_json
         else (REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json")
+    )
+    hazard_map_payload = _load_hazard_map_payload(Path(args.hazard_map_json))
+    hazard_map_meta = hazard_map_payload.get("meta") if isinstance(hazard_map_payload, dict) else None
+    hazard_map_run_id = (
+        str(hazard_map_meta.get("case_study_run_id") or "").strip()
+        if isinstance(hazard_map_meta, dict)
+        else ""
+    )
+    provided_run_id = str(args.case_study_run_id or "").strip()
+    if provided_run_id and not hazard_map_run_id:
+        raise ValueError(
+            f"case-study run id provided ({provided_run_id}) but wind map has no case_study_run_id: {args.hazard_map_json}"
+        )
+    if provided_run_id and hazard_map_run_id and provided_run_id != hazard_map_run_id:
+        raise ValueError(
+            f"case-study run id mismatch: provided={provided_run_id} "
+            f"but wind map meta has {hazard_map_run_id}"
+        )
+    args.case_study_run_id = provided_run_id or hazard_map_run_id or datetime.now(UTC).strftime(
+        f"{territory}_case_%Y%m%dT%H%M%SZ"
     )
 
     exposure = build_complete_exposure(
@@ -505,6 +590,7 @@ def main() -> None:
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         dynamic_max_tracks=int(args.dynamic_max_tracks),
+        track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
         multi_hazard_enabled=bool(settings.multi_hazard_enabled),
         rain_model=settings.hazard_rain_model,
         surge_topo_path=Path(settings.hazard_surge_topo_path),

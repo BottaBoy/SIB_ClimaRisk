@@ -1,0 +1,5 @@
+asset_id,label,asset_type,exposure_category,value_eur,lat,lon
+sample-1,BT Aerien Segment,elec_bt_aerien,ouvrage_electrique,120000,16.2400,-61.5500
+sample-2,AEP Canalisation,eau_aep_cana,ouvrage_eau,95000,16.2150,-61.5100
+sample-3,PR Station,eau_eu_pr,ouvrage_eau,450000,16.2650,-61.6000
+sample-4,Habitation Test,habitation,habitation,180000,16.2500,-61.5300

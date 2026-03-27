@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -9,11 +11,50 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
+UTC = timezone.utc
 
 
 def _run(cmd: list[str]) -> None:
     print("+", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
+
+
+def _read_meta(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    return meta if isinstance(meta, dict) else {}
+
+
+def _assert_case_study_coherence(territory: str, run_id: str) -> None:
+    wind_map_path = REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"
+    proxy_path = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
+    page_suffix = "page2" if territory == "martinique" else "page1"
+    page_path = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
+
+    wind_meta = _read_meta(wind_map_path)
+    proxy_meta = _read_meta(proxy_path)
+    page_meta = _read_meta(page_path)
+
+    observed = {
+        "wind-maps": str(wind_meta.get("case_study_run_id") or ""),
+        "multi-hazard-proxy": str(proxy_meta.get("case_study_run_id") or ""),
+        "page-analysis": str(page_meta.get("case_study_run_id") or ""),
+    }
+    mismatches = [name for name, value in observed.items() if value != run_id]
+    if mismatches:
+        raise RuntimeError(
+            f"[{territory}] incoherent case-study artefacts: expected run_id={run_id}, "
+            f"got {observed}"
+        )
+
+    print(
+        f"[{territory}] coherence OK run_id={run_id} "
+        f"(wind={wind_meta.get('generated_at')}, proxy={proxy_meta.get('generated_at')}, page={page_meta.get('generated_at')})",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -33,6 +74,7 @@ def main() -> None:
         raise FileNotFoundError(f"Python backend venv not found: {PYTHON}")
 
     for territory in args.territories:
+        run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
         proxy_json = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
 
         _run(
@@ -47,6 +89,8 @@ def main() -> None:
                 str(args.map_dynamic_max_tracks),
                 "--surge-native-cell-deg",
                 str(args.map_surge_native_cell_deg),
+                "--case-study-run-id",
+                run_id,
             ]
         )
         _run(
@@ -67,6 +111,8 @@ def main() -> None:
                 str(REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"),
                 "--out-json",
                 str(proxy_json),
+                "--case-study-run-id",
+                run_id,
             ]
         )
         _run(
@@ -77,10 +123,15 @@ def main() -> None:
                 territory,
                 "--spacing-m",
                 str(args.page_spacing_m),
+                "--wind-map-json",
+                str(REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"),
                 "--multi-hazard-proxy-json",
                 str(proxy_json),
+                "--case-study-run-id",
+                run_id,
             ]
         )
+        _assert_case_study_coherence(territory, run_id)
 
 
 if __name__ == "__main__":

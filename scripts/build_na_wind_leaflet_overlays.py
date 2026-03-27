@@ -5,14 +5,50 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-from matplotlib import colormaps
-import numpy as np
-from PIL import Image
-from scipy import ndimage
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib import colormaps
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    matplotlib = None  # type: ignore[assignment]
+    colormaps = None  # type: ignore[assignment]
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    Image = None  # type: ignore[assignment]
+
+try:
+    from scipy import ndimage
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    ndimage = None  # type: ignore[assignment]
 
 CMCC_RP_LOW_BAND_HIDE_MAX_MPS = 18.0
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _require_render_deps() -> None:
+    missing: list[str] = []
+    if matplotlib is None or colormaps is None:
+        missing.append("matplotlib")
+    if np is None:
+        missing.append("numpy")
+    if Image is None:
+        missing.append("pillow")
+    if ndimage is None:
+        missing.append("scipy")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_na_wind_leaflet_overlays.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install required packages and retry."
+        )
 
 
 def _norm_hazard(raw: str) -> str:
@@ -146,15 +182,17 @@ def _mask_cmcc_low_rp_band(grid_render: np.ndarray, hazard: str, metric: str) ->
 
 
 def main() -> None:
+    default_in = REPO_ROOT / "outputs" / "na_wind_maps_20260310" / "Hazard_maps" / "na-wind-maps-rp50-rp100.json"
+    default_out = REPO_ROOT / "outputs" / "na_wind_maps_20260310" / "Hazard_maps"
     parser = argparse.ArgumentParser(description="Build transparent NA wind overlays for Leaflet from NA hazard JSON")
     parser.add_argument(
         "--input-json",
-        default="/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/Hazard_maps/na-wind-maps-rp50-rp100.json",
+        default=str(default_in),
         help="Path to NA wind JSON (storm + storm_cmcc with mean/rp50/rp100)",
     )
     parser.add_argument(
         "--out-dir",
-        default="/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/Hazard_maps",
+        default=str(default_out),
         help="Output directory for overlays and metadata",
     )
     parser.add_argument("--cmap", default="turbo", help="Matplotlib colormap")
@@ -171,6 +209,7 @@ def main() -> None:
         help="Max nearest-fill distance (in grid cells) for transparent overlays",
     )
     args = parser.parse_args()
+    _require_render_deps()
 
     input_json = Path(args.input_json)
     out_dir = Path(args.out_dir)

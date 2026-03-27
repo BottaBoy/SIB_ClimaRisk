@@ -3,18 +3,32 @@ from __future__ import annotations
 
 import argparse
 import gc
+import os
 from pathlib import Path
 from typing import Iterable
 
-from climada.hazard import Hazard
+try:
+    from climada.hazard import Hazard
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    Hazard = None  # type: ignore[assignment]
 
 from rebuild_tc_hazard_na import (
     _build_centroids,
     _build_hazard,
     _build_tracks_from_parquet,
     _normalize_distance_unit,
+    _require_runtime_deps as _require_base_runtime_deps,
     _normalize_wind_unit,
 )
+
+
+def _require_runtime_deps() -> None:
+    _require_base_runtime_deps()
+    if Hazard is None:
+        raise RuntimeError(
+            "Missing dependencies for rebuild_tc_hazard_na_blocked.py: climada. "
+            "Install backend requirements and retry."
+        )
 
 
 def _parse_dataset_ids(raw: str) -> list[int]:
@@ -97,14 +111,28 @@ def _merge_blocks(block_paths: Iterable[Path], out_path: Path, label: str) -> No
 
 
 def main() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    default_storm_parquet = Path(os.environ.get("SIB_RISK_STORM_PARQUET_PATH", str(repo_root / "data" / "hazards" / "storm_ds")))
+    default_cmcc_parquet = Path(
+        os.environ.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(repo_root / "data" / "hazards" / "storm_ds_CMCC"))
+    )
+    default_centroids = Path(
+        os.environ.get(
+            "SIB_RISK_HAZARD_STORM_PATH",
+            str(repo_root / "data" / "hazards" / "tc_hazard_guadeloupe.h5"),
+        )
+    )
+    default_out_storm = repo_root / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
+    default_out_cmcc = repo_root / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
+
     parser = argparse.ArgumentParser(
         description="Rebuild STORM/STORM_CMCC NA hazards in memory-safe blocks (dataset_id 0..9) then merge."
     )
     parser.add_argument("--build", choices=["storm", "cmcc", "both"], default="both")
-    parser.add_argument("--storm-parquet", default="/home/ubuntu/uploads/STORM/storm_ds")
-    parser.add_argument("--cmcc-parquet", default="/home/ubuntu/uploads/STORM/storm_ds_CMCC")
-    parser.add_argument("--out-storm", default="/home/ubuntu/uploads/sib_demo-main/scripts/tc_hazard_guadeloupe.h5")
-    parser.add_argument("--out-cmcc", default="/home/ubuntu/uploads/sib_demo-main/scripts/tc_hazard_guadeloupe_CMCC.h5")
+    parser.add_argument("--storm-parquet", default=str(default_storm_parquet))
+    parser.add_argument("--cmcc-parquet", default=str(default_cmcc_parquet))
+    parser.add_argument("--out-storm", default=str(default_out_storm))
+    parser.add_argument("--out-cmcc", default=str(default_out_cmcc))
     parser.add_argument("--tmp-dir", default="/tmp")
     parser.add_argument("--dataset-ids", default="0,1,2,3,4,5,6,7,8,9")
     parser.add_argument("--basin-id", type=int, default=1)
@@ -113,7 +141,7 @@ def main() -> None:
     parser.add_argument("--radius-unit-in", default="km")
     parser.add_argument("--env-pressure-hpa", type=float, default=1010.0)
     parser.add_argument("--centroids-mode", choices=["grid", "from_hazard"], default="grid")
-    parser.add_argument("--centroids-from-hazard", default="/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe.h5")
+    parser.add_argument("--centroids-from-hazard", default=str(default_centroids))
     parser.add_argument("--grid-lat-min", type=float, default=15.5)
     parser.add_argument("--grid-lat-max", type=float, default=16.96)
     parser.add_argument("--grid-lon-min", type=float, default=-62.48)
@@ -121,6 +149,7 @@ def main() -> None:
     parser.add_argument("--grid-step-deg", type=float, default=0.02)
     parser.add_argument("--reuse-blocks", action="store_true", help="Skip rebuilding a block if its HDF5 file already exists.")
     args = parser.parse_args()
+    _require_runtime_deps()
 
     wind_unit = _normalize_wind_unit(args.wind_unit_in)
     radius_unit = _normalize_distance_unit(args.radius_unit_in)
@@ -191,4 +220,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -5,17 +5,38 @@ import argparse
 from collections import defaultdict
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sys
 from typing import Any
 
-import geopandas as gpd
-import numpy as np
-import pandas as pd
-from climada.engine import ImpactCalc
-from climada.entity.impact_funcs import ImpactFuncSet
-from shapely.geometry import box
+try:
+    import geopandas as gpd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    gpd = None  # type: ignore[assignment]
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    pd = None  # type: ignore[assignment]
+
+try:
+    from climada.engine import ImpactCalc
+    from climada.entity.impact_funcs import ImpactFuncSet
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    ImpactCalc = None  # type: ignore[assignment]
+    ImpactFuncSet = None  # type: ignore[assignment]
+
+try:
+    from shapely.geometry import box
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    box = None  # type: ignore[assignment]
 
 
 UTC = timezone.utc
@@ -28,7 +49,6 @@ from app.config import load_settings  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.exposure_to_climada import ClimadaExposureBundle, build_climada_exposure  # noqa: E402
 from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
-from app.risk_engine.climada_engine import run_climada_direct_impacts  # noqa: E402
 from app.risk_engine.impact_functions import (  # noqa: E402
     resolve_tc_impact_func_id,
     try_build_climada_impact_funcs,
@@ -110,6 +130,26 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
 }
+
+
+def _require_runtime_deps() -> None:
+    missing: list[str] = []
+    if gpd is None:
+        missing.append("geopandas")
+    if np is None:
+        missing.append("numpy")
+    if pd is None:
+        missing.append("pandas")
+    if ImpactCalc is None or ImpactFuncSet is None:
+        missing.append("climada")
+    if box is None:
+        missing.append("shapely")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_guadeloupe_page1_data.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install backend requirements and retry."
+        )
 
 
 def _prefer_case_study_hdf5_path(configured_path: Path, case_default_path: Path) -> Path:
@@ -483,6 +523,98 @@ def _build_wind_histograms(
     return {"storm": storm_out, "storm_cmcc": cmcc_out}
 
 
+def _load_json_payload(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _finite_series_from_cells(cells: list[dict[str, Any]], value_key: str) -> pd.Series:
+    values: list[float] = []
+    for cell in cells:
+        if not isinstance(cell, dict):
+            continue
+        try:
+            value = float(cell.get(value_key))
+        except Exception:
+            continue
+        if np.isfinite(value):
+            values.append(float(value))
+    return pd.Series(values, dtype=float)
+
+
+def _build_wind_histograms_from_wind_map_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    storm_cells = payload.get("storm", {}).get("cells") if isinstance(payload.get("storm"), dict) else None
+    cmcc_cells = payload.get("storm_cmcc", {}).get("cells") if isinstance(payload.get("storm_cmcc"), dict) else None
+    if not isinstance(storm_cells, list) or not isinstance(cmcc_cells, list):
+        raise ValueError("Invalid wind map payload: missing storm/storm_cmcc cells")
+
+    storm_track_series = _finite_series_from_cells(storm_cells, "event_max_wind_mps")
+    cmcc_track_series = _finite_series_from_cells(cmcc_cells, "event_max_wind_mps")
+    storm_year_series = _finite_series_from_cells(storm_cells, "mean_wind_mps")
+    cmcc_year_series = _finite_series_from_cells(cmcc_cells, "mean_wind_mps")
+
+    year_edges = _build_common_wind_edges(storm_year_series, cmcc_year_series, step_mps=WIND_BIN_STEP_MPS)
+    track_edges = _build_common_wind_edges(storm_track_series, cmcc_track_series, step_mps=WIND_BIN_STEP_MPS)
+
+    return {
+        "storm": {
+            "track_max_hist": _histogram_percent(storm_track_series, bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "year_max_hist": _histogram_percent(storm_year_series, bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "track_count": int(len(storm_track_series)),
+            "year_count": int(len(storm_year_series)),
+        },
+        "storm_cmcc": {
+            "track_max_hist": _histogram_percent(cmcc_track_series, bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "year_max_hist": _histogram_percent(cmcc_year_series, bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "track_count": int(len(cmcc_track_series)),
+            "year_count": int(len(cmcc_year_series)),
+        },
+    }
+
+
+def _mean_metric_from_cells(cells: list[dict[str, Any]], value_key: str) -> float:
+    series = _finite_series_from_cells(cells, value_key)
+    if series.empty:
+        return float("nan")
+    return float(series.mean())
+
+
+def _build_zone_wind_comparison_table_from_wind_map_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    storm_payload = payload.get("storm") if isinstance(payload, dict) else None
+    cmcc_payload = payload.get("storm_cmcc") if isinstance(payload, dict) else None
+    storm_cells = storm_payload.get("cells") if isinstance(storm_payload, dict) else None
+    cmcc_cells = cmcc_payload.get("cells") if isinstance(cmcc_payload, dict) else None
+    if not isinstance(storm_cells, list) or not isinstance(cmcc_cells, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    scenarios = [
+        ("mean_wind_mps", "Moyenne annuelle (m/s)"),
+        ("rp50_wind_mps", "Temps de retour 50 ans (m/s)"),
+        ("rp100_wind_mps", "Temps de retour 100 ans (m/s)"),
+        ("event_max_wind_mps", "Evenement le plus fort (m/s)"),
+    ]
+    for metric_key, label in scenarios:
+        storm_value = _mean_metric_from_cells(storm_cells, metric_key)
+        cmcc_value = _mean_metric_from_cells(cmcc_cells, metric_key)
+        if not np.isfinite(storm_value) or not np.isfinite(cmcc_value):
+            continue
+        rows.append(
+            {
+                "indicator": f"Vents - {label}",
+                "storm": round(float(storm_value), 4),
+                "storm_cmcc": round(float(cmcc_value), 4),
+                "delta": round(float(cmcc_value - storm_value), 4),
+            }
+        )
+    return rows
+
+
 def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
     _, gdf_metric = _as_wgs84_and_metric(gdf)
     total_m = float(gdf_metric.geometry.length.fillna(0.0).sum())
@@ -797,7 +929,6 @@ def _load_multi_hazard_proxy(
 
 def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, dict[str, float]]]:
     out = _default_component_ratios()
-    hazards = getattr(climada_run, "hazards", {}) or {}
     component_hazards = getattr(climada_run, "component_hazards", {}) or {}
 
     for hazard in ("storm", "storm_cmcc"):
@@ -1633,8 +1764,11 @@ def main() -> None:
     parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
     parser.add_argument("--infra-elec-dir", default=None)
     parser.add_argument("--infra-eau-dir", default=None)
-    parser.add_argument("--storm-source", default="/home/ubuntu/uploads/STORM/STORM_ds")
-    parser.add_argument("--cmcc-source", default="/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
+    parser.add_argument("--storm-source", default=os.environ.get("SIB_RISK_STORM_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_ds")))
+    parser.add_argument(
+        "--cmcc-source",
+        default=os.environ.get("SIB_RISK_STORM_CMCC_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_CMCC_ds")),
+    )
     parser.add_argument(
         "--wind-unit-in",
         default="m/s",
@@ -1650,7 +1784,18 @@ def main() -> None:
     parser.add_argument("--diagnostic-md", default=str(REPO_ROOT / "docs" / "diagnostic-vents-et-mailles.md"))
     parser.add_argument("--complete-analysis-json", default=None)
     parser.add_argument("--multi-hazard-proxy-json", default=None)
+    parser.add_argument(
+        "--wind-map-json",
+        default=None,
+        help="Case-study wind map JSON used as the single source for hazard tables/graphs coherence.",
+    )
+    parser.add_argument(
+        "--case-study-run-id",
+        default=None,
+        help="Optional coherence token propagated across case-study artefacts (maps/proxy/page analysis).",
+    )
     args = parser.parse_args()
+    _require_runtime_deps()
 
     territory = normalize_territory(args.territory)
     case_cfg = get_case_study(
@@ -1668,8 +1813,6 @@ def main() -> None:
         if args.out_state_geojson
         else (REPO_ROOT / "web" / "data" / f"{territory}-network-states.geojson")
     )
-    diagnostic_md = Path(args.diagnostic_md)
-
     settings = load_settings()
     normalized_wind_unit = _normalize_wind_unit(args.wind_unit_in)
     valuation_metadata = build_valuation_metadata(territory)
@@ -1683,17 +1826,78 @@ def main() -> None:
         if args.multi_hazard_proxy_json
         else default_multi_hazard_proxy_json
     )
+    proxy_payload = _load_json_payload(multi_hazard_proxy_json)
+    proxy_meta = proxy_payload.get("meta") if isinstance(proxy_payload, dict) else None
+    proxy_run_id = (
+        str(proxy_meta.get("case_study_run_id") or "").strip()
+        if isinstance(proxy_meta, dict)
+        else ""
+    )
     multi_hazard_proxy = _load_multi_hazard_proxy(
         multi_hazard_proxy_json,
         component_ratios_by_hazard=component_ratios_by_hazard,
     )
 
-    exposure_metrics = _build_exposure_metrics(case_cfg, territory)
-    hazard_hist = _build_wind_histograms(
-        Path(args.storm_source),
-        Path(args.cmcc_source),
-        wind_unit_in=normalized_wind_unit,
+    default_wind_map_json = REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"
+    wind_map_json = Path(args.wind_map_json) if args.wind_map_json else default_wind_map_json
+    wind_map_payload = _load_json_payload(wind_map_json)
+    if not wind_map_payload:
+        raise FileNotFoundError(
+            f"Missing or invalid wind map payload for case-study coherence: {wind_map_json}"
+        )
+    wind_map_meta = wind_map_payload.get("meta") if isinstance(wind_map_payload, dict) else None
+    wind_map_territory = (
+        str(wind_map_meta.get("territory") or "").strip().lower()
+        if isinstance(wind_map_meta, dict)
+        else ""
     )
+    if wind_map_territory and wind_map_territory != territory:
+        raise ValueError(
+            f"Wind map territory mismatch: expected {territory}, got {wind_map_territory} in {wind_map_json}"
+        )
+    wind_map_run_id = (
+        str(wind_map_meta.get("case_study_run_id") or "").strip()
+        if isinstance(wind_map_meta, dict)
+        else ""
+    )
+    provided_run_id = str(args.case_study_run_id or "").strip()
+    if provided_run_id and not wind_map_run_id:
+        raise ValueError(
+            f"case-study run id provided ({provided_run_id}) but wind map has no case_study_run_id: {wind_map_json}"
+        )
+    if provided_run_id and not proxy_run_id and multi_hazard_proxy_json.exists():
+        raise ValueError(
+            f"case-study run id provided ({provided_run_id}) but proxy has no case_study_run_id: {multi_hazard_proxy_json}"
+        )
+    if wind_map_run_id and not proxy_run_id and multi_hazard_proxy_json.exists():
+        raise ValueError(
+            f"case-study run id mismatch: wind map has {wind_map_run_id} but proxy has no case_study_run_id"
+        )
+    if proxy_run_id and not wind_map_run_id:
+        raise ValueError(
+            f"case-study run id mismatch: proxy has {proxy_run_id} but wind map has no case_study_run_id"
+        )
+    if provided_run_id and wind_map_run_id and provided_run_id != wind_map_run_id:
+        raise ValueError(
+            f"case-study run id mismatch: provided={provided_run_id}, wind_map={wind_map_run_id}"
+        )
+    if provided_run_id and proxy_run_id and provided_run_id != proxy_run_id:
+        raise ValueError(
+            f"case-study run id mismatch: provided={provided_run_id}, multi_hazard_proxy={proxy_run_id}"
+        )
+    if wind_map_run_id and proxy_run_id and wind_map_run_id != proxy_run_id:
+        raise ValueError(
+            f"case-study run id mismatch between wind_map={wind_map_run_id} and multi_hazard_proxy={proxy_run_id}"
+        )
+    case_study_run_id = (
+        provided_run_id
+        or wind_map_run_id
+        or proxy_run_id
+        or datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
+    )
+
+    exposure_metrics = _build_exposure_metrics(case_cfg, territory)
+    hazard_hist = _build_wind_histograms_from_wind_map_payload(wind_map_payload)
     exposure: NormalizedExposure = build_complete_exposure(
         infra_elec_dir=case_cfg["infra_elec_dir"],
         infra_eau_dir=case_cfg["infra_eau_dir"],
@@ -1718,10 +1922,11 @@ def main() -> None:
         ),
     )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
-    zone_wind_compare_rows = _load_zone_wind_comparison_table(
-        diagnostic_md,
-        str(case_cfg["wind_comparison_heading"]),
-    )
+    zone_wind_compare_rows = _build_zone_wind_comparison_table_from_wind_map_payload(wind_map_payload)
+    if not zone_wind_compare_rows:
+        raise ValueError(
+            f"Unable to build wind comparison table from wind map payload: {wind_map_json}"
+        )
 
     geometry_features = _build_network_geometry_features(case_cfg)
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
@@ -1729,6 +1934,7 @@ def main() -> None:
     payload = {
         "meta": {
             "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "case_study_run_id": case_study_run_id,
             "source": f"{territory}_case_study_computed",
             "case_study_territory": territory,
             "case_study_label": territory_label(territory),
@@ -1747,6 +1953,10 @@ def main() -> None:
                 ),
             },
             "multi_hazard_proxy_json": str(multi_hazard_proxy_json) if multi_hazard_proxy_json.exists() else None,
+            "multi_hazard_proxy_run_id": proxy_run_id or None,
+            "wind_map_json": str(wind_map_json),
+            "wind_map_generated_at": wind_map_meta.get("generated_at") if isinstance(wind_map_meta, dict) else None,
+            "wind_map_run_id": wind_map_run_id or None,
             "valuation_source": SOURCE_LABEL,
             "valuation_territory": str(valuation_metadata["territory_effective"]),
             "valuation_version": str(valuation_metadata["valuation_version"]),

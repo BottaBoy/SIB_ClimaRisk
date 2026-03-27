@@ -441,6 +441,7 @@ def _compute_impacts_climada(
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
+        track_cache_max_entries=int(settings.hazard_track_cache_max_entries),
         multi_hazard_enabled=bool(settings.multi_hazard_enabled),
         rain_model=settings.hazard_rain_model,
         surge_topo_path=settings.hazard_surge_topo_path,

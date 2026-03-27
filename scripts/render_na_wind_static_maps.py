@@ -5,12 +5,26 @@ import argparse
 import json
 from pathlib import Path
 
-import cartopy.crs as ccrs
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-import numpy as np
+try:
+    import cartopy.crs as ccrs
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    ccrs = None  # type: ignore[assignment]
+
+try:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    matplotlib = None  # type: ignore[assignment]
+    plt = None  # type: ignore[assignment]
+    PdfPages = None  # type: ignore[assignment]
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    np = None  # type: ignore[assignment]
 
 from build_na_wind_leaflet_overlays import (
     _build_value_grid,
@@ -31,6 +45,24 @@ METRICS: tuple[tuple[str, str], ...] = (
     ("rp50", "Temps de retour 50 ans"),
     ("rp100", "Temps de retour 100 ans"),
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _require_render_deps() -> None:
+    missing: list[str] = []
+    if ccrs is None:
+        missing.append("cartopy")
+    if matplotlib is None or plt is None or PdfPages is None:
+        missing.append("matplotlib")
+    if np is None:
+        missing.append("numpy")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for render_na_wind_static_maps.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install required packages and retry."
+        )
 
 
 def _metric_ranges(payload: dict, hazards: tuple[str, ...]) -> dict[str, dict[str, float]]:
@@ -125,20 +157,23 @@ def _render_basemap_figure(
 
 
 def main() -> None:
+    default_in = REPO_ROOT / "outputs" / "na_wind_maps_20260310" / "Hazard_maps" / "na-wind-maps-rp50-rp100.json"
+    default_out = REPO_ROOT / "outputs" / "na_wind_maps_20260310" / "Hazard_maps"
+    default_basemap_out = REPO_ROOT / "outputs" / "na_wind_maps_20260310" / "basemap_alpha50"
     parser = argparse.ArgumentParser(description="Render static NA wind maps from NA hazard JSON")
     parser.add_argument(
         "--input-json",
-        default="/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/Hazard_maps/na-wind-maps-rp50-rp100.json",
+        default=str(default_in),
         help="Path to NA wind JSON (storm + storm_cmcc with mean/rp50/rp100)",
     )
     parser.add_argument(
         "--out-dir",
-        default="/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/Hazard_maps",
+        default=str(default_out),
         help="Output directory for plain (no basemap) maps",
     )
     parser.add_argument(
         "--basemap-out-dir",
-        default="/home/ubuntu/sib-work/outputs/na_wind_maps_20260310/basemap_alpha50",
+        default=str(default_basemap_out),
         help="Output directory for basemap maps",
     )
     parser.add_argument("--cmap", default="turbo", help="Matplotlib colormap")
@@ -157,6 +192,7 @@ def main() -> None:
     parser.add_argument("--basemap-alpha", type=float, default=0.5, help="Opacity of hazard layer on basemap")
     parser.add_argument("--dpi", type=int, default=200, help="PNG/PDF render DPI")
     args = parser.parse_args()
+    _require_render_deps()
 
     input_json = Path(args.input_json)
     out_dir = Path(args.out_dir)

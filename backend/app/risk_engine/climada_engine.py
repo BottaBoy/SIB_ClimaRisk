@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 from typing import Any
 import copy
@@ -24,6 +25,7 @@ from .impact_functions_multi_hazard import (
 
 RETURN_PERIODS = (10, 20, 50, 100, 200)
 _TOPO_RASTER_CACHE: dict[str, Path] = {}
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -362,6 +364,7 @@ def run_climada_direct_impacts(
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     dynamic_max_tracks: int = 1200,
+    track_cache_max_entries: int | None = None,
     multi_hazard_enabled: bool = True,
     rain_model: str = "R-CLIPER",
     surge_topo_path: Path | None = None,
@@ -407,6 +410,7 @@ def run_climada_direct_impacts(
                     radius_unit_in=radius_unit_in,
                     env_pressure_hpa=env_pressure_hpa,
                     max_tracks=max(100, int(dynamic_max_tracks)),
+                    track_cache_max_entries=track_cache_max_entries,
                 )
                 notes.append(
                     f"Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count})."
@@ -414,6 +418,11 @@ def run_climada_direct_impacts(
             except Exception as exc:
                 if not fallback_to_precomputed_hazards:
                     raise
+                logger.warning(
+                    "Dynamic hazard build failed; falling back to precomputed HDF5 (%s: %s)",
+                    type(exc).__name__,
+                    exc,
+                )
                 notes.append(
                     f"Dynamic hazard build failed ({type(exc).__name__}): {exc}. Falling back to precomputed HDF5 hazards."
                 )
@@ -459,6 +468,11 @@ def run_climada_direct_impacts(
                     "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub)."
                 )
             except Exception as exc:
+                logger.warning(
+                    "Multi-hazard setup failed; running wind-only mode (%s: %s)",
+                    type(exc).__name__,
+                    exc,
+                )
                 notes.append(f"Multi-hazard setup failed ({type(exc).__name__}): {exc}. Using wind-only impacts.")
 
     out: dict[str, HazardImpactResult] = {}
@@ -511,6 +525,12 @@ def run_climada_direct_impacts(
                         top_n_events=top_n_events,
                     )
                 except Exception as exc:
+                    logger.warning(
+                        "%s surge component failed (%s: %s)",
+                        hazard_key,
+                        type(exc).__name__,
+                        exc,
+                    )
                     notes.append(f"{hazard_key}: surge component failed ({type(exc).__name__}): {exc}")
 
         if multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None:
@@ -547,6 +567,12 @@ def run_climada_direct_impacts(
                         top_n_events=top_n_events,
                     )
                 except Exception as exc:
+                    logger.warning(
+                        "%s rain component failed (%s: %s)",
+                        hazard_key,
+                        type(exc).__name__,
+                        exc,
+                    )
                     notes.append(f"{hazard_key}: rain component failed ({type(exc).__name__}): {exc}")
 
         component_list = [components[name] for name in ("wind", "rain", "surge") if name in components]

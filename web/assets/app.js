@@ -1537,7 +1537,6 @@ function selectedHazardChartConfig(componentRaw) {
 
 function buildAdditionalHazardComparisonRows(componentRaw) {
   const component = normalizeHazardComponent(componentRaw);
-  if (component === 'wind') return [];
   const storm = state.windMaps?.storm;
   const cmcc = state.windMaps?.storm_cmcc;
   if (!storm || !cmcc) return [];
@@ -1548,12 +1547,18 @@ function buildAdditionalHazardComparisonRows(componentRaw) {
     { key: 'rp100', label: 'Temps de retour 100 ans' },
     { key: 'event_max', label: 'Evenement le plus fort' }
   ];
-  const componentLabel = component === 'rain' ? 'Pluie proxy' : 'Inondation côtière';
-  const unit = component === 'rain' ? 'mm/h' : 'm';
+  const componentLabel = component === 'wind'
+    ? 'Vent'
+    : (component === 'rain' ? 'Pluie proxy' : 'Inondation côtière');
+  const unit = component === 'wind'
+    ? 'm/s'
+    : (component === 'rain' ? 'mm/h' : 'm');
   const rows = [];
 
   scenarios.forEach((scenario) => {
-    const metric = hazardMetricConfig(component, scenario.key);
+    const metric = component === 'wind'
+      ? windMetricConfig(scenario.key)
+      : hazardMetricConfig(component, scenario.key);
     const stormValues = finiteMetricValuesFromCells(storm.cells, metric.valueKey);
     const cmccValues = finiteMetricValuesFromCells(cmcc.cells, metric.valueKey);
     if (!stormValues.length || !cmccValues.length) return;
@@ -1572,37 +1577,11 @@ function buildAdditionalHazardComparisonRows(componentRaw) {
 }
 
 function renderSelectedHazardComparisonCharts(analysis, componentRaw) {
+  void analysis;
   const component = normalizeHazardComponent(componentRaw);
   const cfg = selectedHazardChartConfig(component);
   if (els.hazardChartYearTitle) els.hazardChartYearTitle.textContent = cfg.yearTitle;
   if (els.hazardChartEventTitle) els.hazardChartEventTitle.textContent = cfg.eventTitle;
-
-  if (component === 'wind') {
-    const hist = analysis?.hazard?.wind_histograms || {};
-    renderHistogramComparisonChart(
-      'page1_year_compare',
-      'page1-chart-year-compare',
-      hist?.storm?.year_max_hist,
-      hist?.storm_cmcc?.year_max_hist,
-      'STORM',
-      'STORM_CMCC',
-      '#0083CB',
-      '#F39655',
-      cfg
-    );
-    renderHistogramComparisonChart(
-      'page1_track_compare',
-      'page1-chart-track-compare',
-      hist?.storm?.track_max_hist,
-      hist?.storm_cmcc?.track_max_hist,
-      'STORM',
-      'STORM_CMCC',
-      '#00A6E2',
-      '#A4A64B',
-      cfg
-    );
-    return;
-  }
 
   const storm = state.windMaps?.storm;
   const cmcc = state.windMaps?.storm_cmcc;
@@ -1612,8 +1591,8 @@ function renderSelectedHazardComparisonCharts(analysis, componentRaw) {
     return;
   }
 
-  const metricYear = hazardMetricConfig(component, 'mean');
-  const metricEvent = hazardMetricConfig(component, 'event_max');
+  const metricYear = component === 'wind' ? windMetricConfig('mean') : hazardMetricConfig(component, 'mean');
+  const metricEvent = component === 'wind' ? windMetricConfig('event_max') : hazardMetricConfig(component, 'event_max');
   const yearHist = buildSharedHistogramPair(
     finiteMetricValuesFromCells(storm.cells, metricYear.valueKey),
     finiteMetricValuesFromCells(cmcc.cells, metricYear.valueKey),
@@ -1656,9 +1635,7 @@ function renderPage1Hazard(analysis) {
   }
 
   if (els.hazardGuadeloupeCompareBody) {
-    const windRows = Array.isArray(hazard.zone_wind_comparison_table)
-      ? hazard.zone_wind_comparison_table
-      : (Array.isArray(hazard.guadeloupe_wind_comparison_table) ? hazard.guadeloupe_wind_comparison_table : []);
+    const windRows = buildAdditionalHazardComparisonRows('wind');
     const rainRows = buildAdditionalHazardComparisonRows('rain');
     const surgeRows = buildAdditionalHazardComparisonRows('surge');
     const rows = [...windRows, ...rainRows, ...surgeRows];
@@ -5053,6 +5030,64 @@ async function fetchWindMaps(territory = 'guadeloupe') {
   throw lastErr || new Error('Impossible de charger les cartes des vents');
 }
 
+async function fetchCaseStudyMultiHazardProxy(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-multi-hazard-proxy.json`, window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload || !payload.meta || !payload.hazards) {
+    throw new Error('Payload proxy multi-aleas invalide');
+  }
+  return payload;
+}
+
+function parseIsoTimestampSafe(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return Number.NaN;
+  const ts = Number(new Date(text).getTime());
+  return Number.isFinite(ts) ? ts : Number.NaN;
+}
+
+function caseStudyRunId(payload) {
+  return String(payload?.meta?.case_study_run_id || '').trim();
+}
+
+function validateCaseStudyArtifactsCoherence(territory, windMaps, analysis, multiHazardProxy) {
+  const key = normalizeCaseStudyTerritory(territory);
+  const windRunId = caseStudyRunId(windMaps);
+  const analysisRunId = caseStudyRunId(analysis);
+  const proxyRunId = caseStudyRunId(multiHazardProxy);
+  const runIds = [windRunId, analysisRunId, proxyRunId];
+  const withRunIdCount = runIds.filter((value) => Boolean(value)).length;
+  if (withRunIdCount > 0 && withRunIdCount < runIds.length) {
+    throw new Error(`Artefacts incoherents pour ${key}: run_id partiellement present (wind/proxy/analysis).`);
+  }
+
+  const referenceRunId = windRunId || analysisRunId || proxyRunId || '';
+  if (referenceRunId) {
+    const mismatch = [];
+    if (windRunId && windRunId !== referenceRunId) mismatch.push(`wind=${windRunId}`);
+    if (analysisRunId && analysisRunId !== referenceRunId) mismatch.push(`analysis=${analysisRunId}`);
+    if (proxyRunId && proxyRunId !== referenceRunId) mismatch.push(`proxy=${proxyRunId}`);
+    if (mismatch.length) {
+      throw new Error(
+        `Artefacts incoherents pour ${key}: run_id attendu ${referenceRunId}, recu ${mismatch.join(', ')}`
+      );
+    }
+  }
+
+  const windAt = parseIsoTimestampSafe(windMaps?.meta?.generated_at);
+  const proxyAt = parseIsoTimestampSafe(multiHazardProxy?.meta?.generated_at);
+  const analysisAt = parseIsoTimestampSafe(analysis?.meta?.generated_at);
+  if (Number.isFinite(windAt) && Number.isFinite(proxyAt) && proxyAt < windAt) {
+    throw new Error(`Artefacts incoherents pour ${key}: proxy plus ancien que wind-maps.`);
+  }
+  if (Number.isFinite(proxyAt) && Number.isFinite(analysisAt) && analysisAt < proxyAt) {
+    throw new Error(`Artefacts incoherents pour ${key}: page-analysis plus ancien que proxy.`);
+  }
+}
+
 async function fetchAdminVisuMaps() {
   const urls = [
     new URL('/hazard-maps/na-leaflet-overlays.json', window.location.origin).toString(),
@@ -5263,12 +5298,15 @@ async function ensureCaseStudyLoaded(territory) {
     fetchWindMaps(key),
     fetchWaterInfra(key),
     fetchPage1Analysis(key),
-    fetchNetworkStates(key)
-  ]).then(([windMaps, waterInfra, analysis, networkStates]) => {
+    fetchNetworkStates(key),
+    fetchCaseStudyMultiHazardProxy(key)
+  ]).then(([windMaps, waterInfra, analysis, networkStates, multiHazardProxy]) => {
+    validateCaseStudyArtifactsCoherence(key, windMaps, analysis, multiHazardProxy);
     cache.windMaps = windMaps;
     cache.waterInfra = waterInfra;
     cache.analysis = analysis;
     cache.networkStates = networkStates;
+    cache.multiHazardProxy = multiHazardProxy;
     cache.ready = true;
     return cache;
   }).finally(() => {
