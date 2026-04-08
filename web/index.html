@@ -56,6 +56,8 @@
               Dans ce cas d’étude sur la Guadeloupe, ont été pris en compte les réseaux d’eau potable (AEP),
               d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain,
               haute tension aerien, haute tension souterrain).
+              <br /><br />
+              Les valeurs des actifs correspond au coûts des matériaux et à la pose des réseaux. Les valeurs proviennent de Nirandjan et al., 2024, des données EDF ainsi que des données internes à la solidarité interbassin.
             </p>
           </div>
         </div>
@@ -102,6 +104,18 @@
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
+        <article class="subpanel case-study-vulnerability-card">
+          <div class="section-head">
+            <div>
+              <h3>Exemple de courbes de vulnérabilité</h3>
+              <p class="muted" id="case-study-vulnerability-intro">
+                La vulnérabilité de l’exposition (c'est-à-dire les infrastructures qui peuvent être impactées par les aléas) est représentée par des courbes de vulnérabilité, qui associent un pourcentage de dommages à une intensité d’aléa donnée. Ci-dessous sont présentées en exemple les courbes de vulnérabilité des postes de refoulement (PR) ainsi que celles du réseau électrique basse tension aérien. Les courbes de vulnérabilité sont issues de Nirandjan et al., 2024. Elles associent des vitesses de vent en kilomètres par heure (km/h) et des profondeurs d’inondations en mètres (m) à un pourcentage de dommages sur l'infrastructure.
+              </p>
+            </div>
+          </div>
+          <p class="muted small" id="case-study-vulnerability-caption">Chargement des courbes de vulnérabilité...</p>
+          <div id="case-study-vulnerability-grid" class="admin-vulnerability-grid admin-vulnerability-grid-overview"></div>
+        </article>
       </section>
 
       <section class="panel wind-panel page-block page1 page2" aria-labelledby="wind-panel-title">
@@ -182,6 +196,23 @@
             <div id="page1-chart-track-compare" class="chart"></div>
           </div>
         </div>
+        <article class="subpanel admin-visu-card case-study-hazard-preview-card">
+          <div class="admin-visu-card-head">
+            <h3>Visualisation aléa - bassin NA</h3>
+            <div class="admin-visu-selects">
+              <select id="case-study-visu-hazard-select" aria-label="Hazard de la carte d'aléas">
+                <option value="storm">STORM</option>
+                <option value="storm_cmcc">STORM_CMCC</option>
+              </select>
+              <select id="case-study-visu-scenario-select" aria-label="Scenario de la carte d'aléas">
+                <option value="mean">Aléas moyen</option>
+                <option value="rp100">Temps de retour 100 ans</option>
+              </select>
+            </div>
+          </div>
+          <div id="case-study-visu-map" class="map admin-visu-map"></div>
+          <p class="muted small" id="case-study-visu-caption">Chargement...</p>
+        </article>
       </section>
 
       <section class="panel impact-panel page-block page1 page2" aria-labelledby="impact-title">
@@ -310,6 +341,15 @@
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
           Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
           L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
+      </section>
+
+      <section class="panel disclaimer page-block page1 page2 references-block" aria-label="Références">
+        <p>
+          <strong>Références</strong><br /><br />
+          Bloemendaal, N., Haigh, I. D., de Moel, H., Muis, S., Haarsma, R. J., &amp; Aerts, J. C. (2020). Generation of a global synthetic tropical cyclone hazard dataset using STORM. Scientific Data, 7(1), 40.<br /><br />
+          Bloemendaal, N., de Moel, H., Martinez, A. B., Muis, S., Haigh, I. D., van der Wiel, K., ... &amp; Aerts, J. C. (2022). A globally consistent local-scale assessment of future tropical cyclone risk. Science Advances, 8(17), eabm8438.<br /><br />
+          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.
         </p>
       </section>
 
@@ -688,6 +728,15 @@ scripts/build_guadeloupe_water_infra_map.py
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
           Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
           L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
+      </section>
+
+      <section class="panel disclaimer page-block page4 references-block" aria-label="Références">
+        <p>
+          <strong>Références</strong><br /><br />
+          Bloemendaal, N., Haigh, I. D., de Moel, H., Muis, S., Haarsma, R. J., &amp; Aerts, J. C. (2020). Generation of a global synthetic tropical cyclone hazard dataset using STORM. Scientific Data, 7(1), 40.<br /><br />
+          Bloemendaal, N., de Moel, H., Martinez, A. B., Muis, S., Haigh, I. D., van der Wiel, K., ... &amp; Aerts, J. C. (2022). A globally consistent local-scale assessment of future tropical cyclone risk. Science Advances, 8(17), eabm8438.<br /><br />
+          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.
         </p>
       </section>
 

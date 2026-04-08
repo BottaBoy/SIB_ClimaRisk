@@ -49,6 +49,10 @@ const state = {
   adminHydroHazardComponent: 'rain',
   adminPopulationTerritory: 'glp',
   adminVisuOpacity: 0.5,
+  caseStudyVisuHazard: 'storm',
+  caseStudyVisuScenario: 'mean',
+  caseStudyVisuPromise: null,
+  caseStudyVulnerabilityExamplesPromise: null,
   adminVisuCards: [
     { basin: 'na', hazard: 'storm', scenario: 'mean' },
     { basin: 'na', hazard: 'storm_cmcc', scenario: 'mean' },
@@ -125,6 +129,15 @@ const adminVisuMapRef = {
     { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-3', legendControl: null },
     { instance: null, overlayLayer: null, overlayUrl: '', hasFitted: false, overlayPaneName: 'admin-visu-overlay-4', legendControl: null }
   ]
+};
+
+const caseStudyVisuMapRef = {
+  instance: null,
+  overlayLayer: null,
+  overlayUrl: '',
+  hasFitted: false,
+  overlayPaneName: 'case-study-visu-overlay',
+  legendControl: null
 };
 
 const adminPopulationMapRef = {
@@ -358,6 +371,12 @@ const els = {
     document.getElementById('admin-visu-caption-3'),
     document.getElementById('admin-visu-caption-4')
   ],
+  caseStudyVulnerabilityGrid: document.getElementById('case-study-vulnerability-grid'),
+  caseStudyVulnerabilityCaption: document.getElementById('case-study-vulnerability-caption'),
+  caseStudyVisuMap: document.getElementById('case-study-visu-map'),
+  caseStudyVisuHazardSelect: document.getElementById('case-study-visu-hazard-select'),
+  caseStudyVisuScenarioSelect: document.getElementById('case-study-visu-scenario-select'),
+  caseStudyVisuCaption: document.getElementById('case-study-visu-caption'),
   adminVisuCompareNaBody: document.getElementById('admin-visu-compare-na-body'),
   adminVisuCompareSiBody: document.getElementById('admin-visu-compare-si-body'),
   adminPopulationTerritorySelect: document.getElementById('admin-population-territory-select'),
@@ -590,10 +609,12 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
       if (waterMapRef.instance) waterMapRef.instance.invalidateSize();
       if (networkMapRef.instance) networkMapRef.instance.invalidateSize();
+      if (caseStudyVisuMapRef.instance) caseStudyVisuMapRef.instance.invalidateSize();
       if (chartRefs.page1_year_compare) chartRefs.page1_year_compare.resize();
       if (chartRefs.page1_track_compare) chartRefs.page1_track_compare.resize();
       if (chartRefs.impact_overview_water) chartRefs.impact_overview_water.resize();
       if (chartRefs.impact_overview_elec) chartRefs.impact_overview_elec.resize();
+      resizeAdminVulnerabilityOverviewCharts('page1_examples');
     }, 80);
   }
   if (pageKey === 'page5') {
@@ -1339,6 +1360,8 @@ function renderInfraSummary() {
   renderPage1Hazard(analysis);
   renderPage1Impact(analysis);
   renderPage1Conclusion(analysis);
+  loadCaseStudyVulnerabilityExamples();
+  loadCaseStudyVisuCard();
 }
 
 function renderMethodologyValuation(analysis) {
@@ -3916,8 +3939,131 @@ function renderAdminVulnerabilityCurveSet(payload, options = {}) {
   }, 0);
 }
 
-function renderAdminVulnerabilityCurves() {
-  renderAdminVulnerabilityOverviewCurves();
+function renderVulnerabilityOverviewCards(cards, options = {}) {
+  const gridEl = options.gridEl || els.adminVulnerabilityGrid;
+  const captionEl = options.captionEl || els.adminVulnerabilityCaption;
+  const scope = String(options.scope || '').trim();
+  if (!gridEl) return;
+
+  if (!cards.length) {
+    if (captionEl) captionEl.textContent = String(options.emptyCaptionText || 'Courbes de vulnerabilite indisponibles.');
+    gridEl.innerHTML = `<article class="admin-vulnerability-item"><div class="admin-vulnerability-item-title">${escapeHtml(String(options.emptyTitle || 'Aucune courbe disponible'))}</div></article>`;
+    return;
+  }
+
+  const signature = cards
+    .map((card) => `${card.key}:${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => card.curves?.[component]?.code || '-').join('/')}`)
+    .join('|');
+
+  if (gridEl.dataset.signature !== signature) {
+    disposeAdminVulnerabilityOverviewCharts(scope);
+    gridEl.innerHTML = cards.map((card) => {
+      const codes = ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS
+        .map((component) => `${ADMIN_VULNERABILITY_OVERVIEW_META[component].label}: ${card.curves?.[component]?.code || 'n/a'}`)
+        .join(' · ');
+      return `
+        <article class="admin-vulnerability-item admin-vulnerability-item-overview">
+          <div class="admin-vulnerability-item-title">${escapeHtml(card.label)}</div>
+          <div class="admin-vulnerability-item-meta">${escapeHtml(card.source)} · ${escapeHtml(card.geography)}</div>
+          <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(card.modeledType)} (${escapeHtml(card.modeledCharacteristics)})</div>
+          <div class="admin-vulnerability-item-code"><strong>Codes courbes:</strong> ${escapeHtml(codes)}</div>
+          <div class="admin-vulnerability-mini-grid">
+            ${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => `
+              <div class="admin-vulnerability-mini-card">
+                <div class="admin-vulnerability-mini-title">${escapeHtml(ADMIN_VULNERABILITY_OVERVIEW_META[component].label)}</div>
+                <div id="${escapeHtml(adminOverviewDomId(card.key, component, scope))}" class="admin-vulnerability-chart admin-vulnerability-chart-mini"></div>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+      `;
+    }).join('');
+    gridEl.dataset.signature = signature;
+  }
+
+  cards.forEach((card) => {
+    ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.forEach((component) => {
+      renderAdminVulnerabilityOverviewMiniChart(card.key, component, card.curves?.[component] || null, scope);
+    });
+  });
+
+  if (captionEl) {
+    captionEl.textContent = String(
+      options.captionText || `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`
+    );
+  }
+
+  setTimeout(() => {
+    resizeAdminVulnerabilityOverviewCharts(scope);
+  }, 0);
+}
+
+function collectCaseStudyVulnerabilityExampleCards() {
+  const wantedKeys = ['eau_eu_pr', 'elec_bt_aerien'];
+  const cards = collectAdminVulnerabilityOverviewCards();
+  const byKey = new Map(cards.map((card) => [String(card.key), card]));
+  return wantedKeys
+    .map((key) => byKey.get(key))
+    .filter(Boolean)
+    .sort((a, b) => wantedKeys.indexOf(String(a.key)) - wantedKeys.indexOf(String(b.key)));
+}
+
+function renderAdminVulnerabilityOverviewCurves() {
+  if (!runtime.allowAdminVisu) return;
+  if (!els.adminVulnerabilityGrid) return;
+  const cards = collectAdminVulnerabilityOverviewCards();
+  renderVulnerabilityOverviewCards(cards, {
+    gridEl: els.adminVulnerabilityGrid,
+    captionEl: els.adminVulnerabilityCaption,
+    scope: '',
+    emptyCaptionText: 'Courbes de vulnerabilite indisponibles.',
+    emptyTitle: 'Aucune courbe disponible',
+    captionText: `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`
+  });
+}
+
+function renderCaseStudyVulnerabilityExamples() {
+  const gridEl = els.caseStudyVulnerabilityGrid;
+  if (!gridEl) return;
+  const cards = collectCaseStudyVulnerabilityExampleCards();
+  renderVulnerabilityOverviewCards(cards, {
+    gridEl,
+    captionEl: els.caseStudyVulnerabilityCaption,
+    scope: 'page1_examples',
+    emptyCaptionText: 'Courbes de vulnérabilité indisponibles.',
+    emptyTitle: 'Aucune courbe disponible',
+    captionText: `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`
+  });
+}
+
+function loadCaseStudyVulnerabilityExamples() {
+  if (state.caseStudyVulnerabilityExamplesPromise) return state.caseStudyVulnerabilityExamplesPromise;
+  state.caseStudyVulnerabilityExamplesPromise = Promise.all([
+    ensureAdminVulnerabilityCurvesLoaded(),
+    ensureAdminHydroVulnerabilityCurvesLoaded('rain'),
+    ensureAdminHydroVulnerabilityCurvesLoaded('surge')
+  ])
+    .then(() => {
+      renderCaseStudyVulnerabilityExamples();
+    })
+    .catch((err) => {
+      if (els.caseStudyVulnerabilityCaption) {
+        els.caseStudyVulnerabilityCaption.textContent = `Courbes de vulnérabilité indisponibles: ${err.message}`;
+      }
+    })
+    .finally(() => {
+      state.caseStudyVulnerabilityExamplesPromise = null;
+    });
+  return state.caseStudyVulnerabilityExamplesPromise;
+}
+
+function resizeAdminVulnerabilityOverviewCharts(scope = '') {
+  const prefix = scope ? `admin_vulnerability_overview_${scope}_` : 'admin_vulnerability_overview_';
+  Object.keys(chartRefs)
+    .filter((key) => key.startsWith(prefix))
+    .forEach((key) => {
+      if (chartRefs[key] && typeof chartRefs[key].resize === 'function') chartRefs[key].resize();
+    });
 }
 
 function renderAdminHydroVulnerabilityCurves() {
@@ -3938,16 +4084,19 @@ function adminOverviewSlug(raw) {
     .replace(/^_+|_+$/g, '') || 'infra';
 }
 
-function adminOverviewRefKey(assetKey, component) {
-  return `admin_vulnerability_overview_${adminOverviewSlug(assetKey)}_${component}`;
+function adminOverviewRefKey(assetKey, component, scope = '') {
+  const scopeSlug = String(scope || '').trim();
+  const prefix = scopeSlug ? `admin_vulnerability_overview_${scopeSlug}_` : 'admin_vulnerability_overview_';
+  return `${prefix}${adminOverviewSlug(assetKey)}_${component}`;
 }
 
-function adminOverviewDomId(assetKey, component) {
-  return adminOverviewRefKey(assetKey, component).replace(/_/g, '-');
+function adminOverviewDomId(assetKey, component, scope = '') {
+  return adminOverviewRefKey(assetKey, component, scope).replace(/_/g, '-');
 }
 
-function disposeAdminVulnerabilityOverviewCharts() {
-  const prefix = 'admin_vulnerability_overview_';
+function disposeAdminVulnerabilityOverviewCharts(scope = '') {
+  const scopeSlug = String(scope || '').trim();
+  const prefix = scopeSlug ? `admin_vulnerability_overview_${scopeSlug}_` : 'admin_vulnerability_overview_';
   Object.keys(chartRefs)
     .filter((key) => key.startsWith(prefix))
     .forEach((key) => {
@@ -4018,9 +4167,9 @@ function renderNoDataMiniChart(refKey, domId) {
   }, true);
 }
 
-function renderAdminVulnerabilityOverviewMiniChart(assetKey, component, curve) {
-  const domId = adminOverviewDomId(assetKey, component);
-  const refKey = adminOverviewRefKey(assetKey, component);
+function renderAdminVulnerabilityOverviewMiniChart(assetKey, component, curve, scope = '') {
+  const domId = adminOverviewDomId(assetKey, component, scope);
+  const refKey = adminOverviewRefKey(assetKey, component, scope);
   const chart = ensureChart(refKey, domId);
   if (!chart || !curve) {
     renderNoDataMiniChart(refKey, domId);
@@ -4094,69 +4243,6 @@ function renderAdminVulnerabilityOverviewMiniChart(assetKey, component, curve) {
       areaStyle: { color: `${color}33` }
     }]
   }, true);
-}
-
-function renderAdminVulnerabilityOverviewCurves() {
-  if (!runtime.allowAdminVisu) return;
-  if (!els.adminVulnerabilityGrid) return;
-  const cards = collectAdminVulnerabilityOverviewCards();
-  if (!cards.length) {
-    if (els.adminVulnerabilityCaption) {
-      els.adminVulnerabilityCaption.textContent = 'Courbes de vulnerabilite indisponibles.';
-    }
-    els.adminVulnerabilityGrid.innerHTML = '<article class="admin-vulnerability-item"><div class="admin-vulnerability-item-title">Aucune courbe disponible</div></article>';
-    return;
-  }
-
-  const signature = cards.map((card) => `${card.key}:${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => card.curves?.[component]?.code || '-').join('/')}`).join('|');
-  if (els.adminVulnerabilityGrid.dataset.signature !== signature) {
-    disposeAdminVulnerabilityCharts();
-    disposeAdminVulnerabilityCharts('hydro');
-    disposeAdminVulnerabilityOverviewCharts();
-    els.adminVulnerabilityGrid.innerHTML = cards.map((card) => {
-      const codes = ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS
-        .map((component) => `${ADMIN_VULNERABILITY_OVERVIEW_META[component].label}: ${card.curves?.[component]?.code || 'n/a'}`)
-        .join(' · ');
-      return `
-        <article class="admin-vulnerability-item admin-vulnerability-item-overview">
-          <div class="admin-vulnerability-item-title">${escapeHtml(card.label)}</div>
-          <div class="admin-vulnerability-item-meta">${escapeHtml(card.source)} · ${escapeHtml(card.geography)}</div>
-          <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(card.modeledType)} (${escapeHtml(card.modeledCharacteristics)})</div>
-          <div class="admin-vulnerability-item-code"><strong>Codes courbes:</strong> ${escapeHtml(codes)}</div>
-          <div class="admin-vulnerability-mini-grid">
-            ${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => `
-              <div class="admin-vulnerability-mini-card">
-                <div class="admin-vulnerability-mini-title">${escapeHtml(ADMIN_VULNERABILITY_OVERVIEW_META[component].label)}</div>
-                <div id="${escapeHtml(adminOverviewDomId(card.key, component))}" class="admin-vulnerability-chart admin-vulnerability-chart-mini"></div>
-              </div>
-            `).join('')}
-          </div>
-        </article>
-      `;
-    }).join('');
-    els.adminVulnerabilityGrid.dataset.signature = signature;
-  }
-
-  cards.forEach((card) => {
-    ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.forEach((component) => {
-      renderAdminVulnerabilityOverviewMiniChart(card.key, component, card.curves?.[component] || null);
-    });
-  });
-  if (els.adminVulnerabilityCaption) {
-    els.adminVulnerabilityCaption.textContent = `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`;
-  }
-  setTimeout(() => {
-    resizeAdminVulnerabilityOverviewCharts();
-  }, 0);
-}
-
-function resizeAdminVulnerabilityOverviewCharts() {
-  const prefix = 'admin_vulnerability_overview_';
-  Object.keys(chartRefs)
-    .filter((key) => key.startsWith(prefix))
-    .forEach((key) => {
-      if (chartRefs[key] && typeof chartRefs[key].resize === 'function') chartRefs[key].resize();
-    });
 }
 
 function waterInfraStyle(feature) {
@@ -4625,7 +4711,11 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       nameGap: 54,
       nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [10, 0, 0, 0] },
       axisLine: { show: true, lineStyle: { color: 'rgba(177,208,203,0.45)' } },
-      axisLabel: { color: '#abc0ba', margin: 10 }
+      axisLabel: {
+        color: '#abc0ba',
+        margin: 10,
+        formatter: (value) => peopleFmtInt.format(Math.round(Number(value) || 0))
+      }
     },
     yAxis: {
       ...chartThemeCommon().yAxis,
@@ -5279,6 +5369,148 @@ function ensureAdminVisuMapsLoaded() {
   return state.adminVisuMapsPromise;
 }
 
+function normalizeCaseStudyVisuScenario(raw) {
+  return String(raw || '').trim().toLowerCase() === 'rp100' ? 'rp100' : 'mean';
+}
+
+function ensureCaseStudyVisuMap() {
+  if (!window.L || !els.caseStudyVisuMap) return null;
+  if (caseStudyVisuMapRef.instance) return caseStudyVisuMapRef;
+
+  caseStudyVisuMapRef.instance = L.map(els.caseStudyVisuMap, {
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true
+  }).setView([24.0, -58.0], 4);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 8,
+    minZoom: 2,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(caseStudyVisuMapRef.instance);
+
+  if (!caseStudyVisuMapRef.instance.getPane(caseStudyVisuMapRef.overlayPaneName)) {
+    const pane = caseStudyVisuMapRef.instance.createPane(caseStudyVisuMapRef.overlayPaneName);
+    pane.style.zIndex = '430';
+    pane.style.pointerEvents = 'none';
+  }
+
+  return caseStudyVisuMapRef;
+}
+
+function ensureCaseStudyVisuLegend(metricMin, metricMax, legendTitle) {
+  if (!window.L) return;
+  if (!caseStudyVisuMapRef.instance) return;
+
+  if (!caseStudyVisuMapRef.legendControl) {
+    caseStudyVisuMapRef.legendControl = L.control({ position: 'bottomright' });
+    caseStudyVisuMapRef.legendControl.onAdd = () => {
+      const div = L.DomUtil.create('div');
+      div.className = 'leaflet-control wind-legend-control admin-wind-legend-control';
+      return div;
+    };
+    caseStudyVisuMapRef.legendControl.addTo(caseStudyVisuMapRef.instance);
+  }
+
+  const legendEl = caseStudyVisuMapRef.legendControl.getContainer();
+  if (legendEl) legendEl.innerHTML = buildAdminVisuLegendHtml(metricMin, metricMax, legendTitle);
+}
+
+function renderCaseStudyVisuCard() {
+  const payload = state.adminVisuMaps;
+  if (!els.caseStudyVisuMap || !els.caseStudyVisuCaption) return;
+  if (!payload || !payload.basins) {
+    els.caseStudyVisuCaption.textContent = 'Chargement des couches aléa...';
+    return;
+  }
+
+  const ref = ensureCaseStudyVisuMap();
+  if (!ref || !ref.instance) return;
+
+  const basin = 'na';
+  const hazard = normalizeAdminVisuHazard(state.caseStudyVisuHazard);
+  const scenario = normalizeCaseStudyVisuScenario(state.caseStudyVisuScenario);
+  state.caseStudyVisuHazard = hazard;
+  state.caseStudyVisuScenario = scenario;
+
+  if (els.caseStudyVisuHazardSelect) els.caseStudyVisuHazardSelect.value = hazard;
+  if (els.caseStudyVisuScenarioSelect) els.caseStudyVisuScenarioSelect.value = scenario;
+
+  const basinPayload = payload.basins?.[basin] || null;
+  const bounds = basinPayload?.bounds || {};
+  const south = Number(bounds.south);
+  const north = Number(bounds.north);
+  const west = Number(bounds.west);
+  const east = Number(bounds.east);
+  const boundsLeaflet = [[south, west], [north, east]];
+  if (!Number.isFinite(south) || !Number.isFinite(north) || !Number.isFinite(west) || !Number.isFinite(east)) {
+    els.caseStudyVisuCaption.textContent = 'Emprise géographique indisponible pour le bassin NA.';
+    return;
+  }
+
+  const overlayPath = basinPayload?.overlays?.[hazard]?.[scenario];
+  const overlayUrl = adminVisuOverlayUrl(overlayPath);
+  const metricMeta = basinPayload?.metrics?.[scenario] || {};
+  const metricMin = Number(metricMeta.min_mps);
+  const metricMax = Number(metricMeta.max_mps);
+  const hazardLabel = hazard === 'storm_cmcc' ? 'STORM_CMCC' : 'STORM';
+  const scenarioCfg = adminVisuScenarioConfig(scenario);
+
+  if (!overlayUrl) {
+    els.caseStudyVisuCaption.textContent = 'Couche indisponible pour cette combinaison.';
+    if (caseStudyVisuMapRef.overlayLayer) {
+      caseStudyVisuMapRef.instance.removeLayer(caseStudyVisuMapRef.overlayLayer);
+      caseStudyVisuMapRef.overlayLayer = null;
+      caseStudyVisuMapRef.overlayUrl = '';
+    }
+    return;
+  }
+
+  if (!caseStudyVisuMapRef.overlayLayer || caseStudyVisuMapRef.overlayUrl !== overlayUrl) {
+    if (caseStudyVisuMapRef.overlayLayer) caseStudyVisuMapRef.instance.removeLayer(caseStudyVisuMapRef.overlayLayer);
+    caseStudyVisuMapRef.overlayLayer = L.imageOverlay(overlayUrl, boundsLeaflet, {
+      pane: caseStudyVisuMapRef.overlayPaneName,
+      opacity: 0.95,
+      interactive: false,
+      crossOrigin: true
+    }).addTo(caseStudyVisuMapRef.instance);
+    caseStudyVisuMapRef.overlayUrl = overlayUrl;
+    caseStudyVisuMapRef.hasFitted = false;
+  }
+
+  if (!caseStudyVisuMapRef.hasFitted) {
+    caseStudyVisuMapRef.instance.fitBounds(boundsLeaflet, { padding: [8, 8], maxZoom: 6 });
+    caseStudyVisuMapRef.hasFitted = true;
+  }
+
+  const basinLabel = adminVisuBasinLabel(basin, payload);
+  const minTxt = Number.isFinite(metricMin) ? formatWindSpeed(metricMin) : 'n/a';
+  const maxTxt = Number.isFinite(metricMax) ? formatWindSpeed(metricMax) : 'n/a';
+  els.caseStudyVisuCaption.textContent = `${basinLabel} · ${hazardLabel} · ${scenarioCfg.label} · échelle ${minTxt} à ${maxTxt} ${WIND_SPEED_UNIT_DISPLAY}`;
+  ensureCaseStudyVisuLegend(metricMin, metricMax, scenarioCfg.legendTitle);
+
+  setTimeout(() => {
+    if (caseStudyVisuMapRef.instance) caseStudyVisuMapRef.instance.invalidateSize();
+  }, 0);
+}
+
+function loadCaseStudyVisuCard() {
+  if (state.caseStudyVisuPromise) return state.caseStudyVisuPromise;
+  state.caseStudyVisuPromise = ensureAdminVisuMapsLoaded()
+    .then(() => {
+      renderCaseStudyVisuCard();
+    })
+    .catch((err) => {
+      if (els.caseStudyVisuCaption) {
+        els.caseStudyVisuCaption.textContent = `Couche aléa indisponible: ${err.message}`;
+      }
+    })
+    .finally(() => {
+      state.caseStudyVisuPromise = null;
+    });
+  return state.caseStudyVisuPromise;
+}
+
 async function fetchAdminPopulationMaps() {
   const urls = [new URL('/hazard-maps/population-overlays.json', window.location.origin).toString()];
   let lastErr = null;
@@ -5880,6 +6112,20 @@ function bindEvents() {
       resetHazardMapFitState();
       renderWindMaps();
       renderPage1Hazard(state.page1Analysis || {});
+    });
+  }
+  if (els.caseStudyVisuHazardSelect) {
+    els.caseStudyVisuHazardSelect.value = normalizeAdminVisuHazard(state.caseStudyVisuHazard);
+    els.caseStudyVisuHazardSelect.addEventListener('change', () => {
+      state.caseStudyVisuHazard = normalizeAdminVisuHazard(els.caseStudyVisuHazardSelect.value);
+      renderCaseStudyVisuCard();
+    });
+  }
+  if (els.caseStudyVisuScenarioSelect) {
+    els.caseStudyVisuScenarioSelect.value = normalizeCaseStudyVisuScenario(state.caseStudyVisuScenario);
+    els.caseStudyVisuScenarioSelect.addEventListener('change', () => {
+      state.caseStudyVisuScenario = normalizeCaseStudyVisuScenario(els.caseStudyVisuScenarioSelect.value);
+      renderCaseStudyVisuCard();
     });
   }
   if (els.adminVisuOpacitySlider) {
