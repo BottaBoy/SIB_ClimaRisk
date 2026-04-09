@@ -46,4 +46,11 @@ if bad:
 print("[audit] script --help smoke: OK")
 PY
 
+if command -v node >/dev/null 2>&1 && (command -v google-chrome >/dev/null 2>&1 || command -v google-chrome-stable >/dev/null 2>&1); then
+  echo "[audit] impact table layout smoke"
+  node scripts/check_impact_table_layout.mjs
+else
+  echo "[audit] impact table layout smoke skipped (node or chrome unavailable)"
+fi
+
 echo "[audit] quick checks completed"

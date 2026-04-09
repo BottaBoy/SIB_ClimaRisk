@@ -96,6 +96,12 @@ python scripts/cleanup_expired_jobs.py
 python scripts/run_backoffice_sample.py --file /path/to/exposure.csv --value-field value_eur
 ```
 
+## VS Code remote / Copilot entreprise
+
+- Workspace recommendations for `VS Code`: `.vscode/extensions.json`
+- Setup note for `Remote - SSH`, `Microsoft 365 Copilot`, and enterprise network constraints: `docs/note-vscode-remote-copilot.md`
+- Remote host prerequisite check: `bash scripts/check_vscode_remote_prereqs.sh --check-network`
+
 ## Nginx / systemd artifacts (templates)
 
 - Nginx public showcase vhost (no API): `config/nginx/sib.elio.dev`

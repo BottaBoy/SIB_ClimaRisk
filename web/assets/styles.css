@@ -529,13 +529,15 @@ button:disabled {
   gap: 10px;
 }
 
-.draw-mode-buttons {
+.draw-mode-buttons,
+.impact-table-mode-buttons {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.draw-mode-buttons button.active {
+.draw-mode-buttons button.active,
+.impact-table-mode-buttons button.active {
   border-color: rgba(153, 215, 247, 0.85);
   background: rgba(0, 166, 226, 0.35);
   color: #ffffff;
@@ -1183,11 +1185,37 @@ button:disabled {
   table-layout: fixed;
 }
 
+.impact-table-wrap col.impact-col-name { width: 34%; }
+.impact-table-wrap col.impact-col-state { width: 15%; }
+.impact-table-wrap col.impact-col-metric { width: 8.25%; }
+.impact-table-wrap col.impact-col-surge { width: 8.5%; }
+.impact-table-wrap col.impact-col-total { width: 9.5%; }
+
 .impact-table-wrap th,
 .impact-table-wrap td {
   white-space: normal;
   word-break: break-word;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
+  padding: 8px 6px;
+}
+
+.impact-table-wrap th:first-child,
+.impact-table-wrap td:first-child {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.impact-table-wrap th:nth-child(2),
+.impact-table-wrap td:nth-child(2) {
+  padding-left: 3px;
+  padding-right: 3px;
+}
+
+.impact-table-wrap th:nth-child(n+3),
+.impact-table-wrap td:nth-child(n+3) {
+  padding-left: 3px;
+  padding-right: 3px;
 }
 
 .table-wrap th, .table-wrap td {
@@ -1477,6 +1505,7 @@ button:disabled {
   .field-row { grid-template-columns: 1fr; }
   .inline-row { flex-direction: column; align-items: stretch; }
   .inline-row.tight input { min-width: 0; }
+  .impact-table-mode-buttons { width: 100%; grid-template-columns: 1fr; }
   .map { height: 360px; }
   .wind-map { height: 340px; }
   .admin-visu-map { height: 340px; }

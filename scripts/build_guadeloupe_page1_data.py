@@ -1236,6 +1236,7 @@ def _compute_impact_metrics(
     spacing_m: float,
     settings: Any,
     network_value_per_km: dict[str, float],
+    exposure_value_by_class: dict[str, float],
     hazard_storm_path: Path,
     hazard_storm_cmcc_path: Path,
     component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
@@ -1426,6 +1427,7 @@ def _compute_impact_metrics(
             for network_class_key, label in NETWORK_CLASS_LABELS.items():
                 mask = np.array([ck == network_class_key for ck in class_keys], dtype=bool)
                 total_w = float(weights_km[mask].sum())
+                class_exposure = round(float(exposure_value_by_class.get(network_class_key, 0.0)), 2)
                 if total_w <= 0.0:
                     state_pct = {s: 0.0 for s in ("S0", "S1", "S2", "S3")}
                     damage_val = 0.0
@@ -1440,6 +1442,8 @@ def _compute_impact_metrics(
                         for s in ("S0", "S1", "S2", "S3")
                     }
                     damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
                 )
@@ -1448,8 +1452,11 @@ def _compute_impact_metrics(
                     {
                         "class_key": network_class_key,
                         "class_label": label,
+                        "exposure_eur": class_exposure,
                         "state_pct": state_pct,
                         "damage_eur": damage_val,
+                        "direct_damage_eur": direct_val,
+                        "indirect_damage_eur": indirect_val,
                         "damage_components_eur": damage_components,
                     }
                 )
@@ -1461,6 +1468,8 @@ def _compute_impact_metrics(
             for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
                 mask = np.array([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
                 damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
                 )
@@ -1468,7 +1477,10 @@ def _compute_impact_metrics(
                     {
                         "class_key": breakdown_class_key,
                         "class_label": label,
+                        "exposure_eur": round(float(exposure_value_by_class.get(breakdown_class_key, 0.0)), 2),
                         "damage_eur": damage_val,
+                        "direct_damage_eur": direct_val,
+                        "indirect_damage_eur": indirect_val,
                         "damage_components_eur": _allocate_damage_components(damage_val, component_ratios),
                     }
                 )
@@ -1521,14 +1533,24 @@ def _compute_impact_metrics(
                 "storm": {
                     "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
                     "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "exposure_eur": float(row_storm_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
                     "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                    "direct_eai_eur": float(row_storm_annual.get("direct_damage_eur", 0.0)),
+                    "indirect_eai_eur": float(row_storm_annual.get("indirect_damage_eur", 0.0)),
+                    "direct_event_max_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
+                    "indirect_event_max_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
                 },
                 "storm_cmcc": {
                     "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
                     "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "exposure_eur": float(row_cmcc_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
                     "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                    "direct_eai_eur": float(row_cmcc_annual.get("direct_damage_eur", 0.0)),
+                    "indirect_eai_eur": float(row_cmcc_annual.get("indirect_damage_eur", 0.0)),
+                    "direct_event_max_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
+                    "indirect_event_max_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
                 },
             }
         )
@@ -1603,7 +1625,10 @@ def _row_for_class(
         "class_key": class_key,
         "class_label": NETWORK_CLASS_LABELS.get(class_key, class_key),
         "state_pct": {s: 0.0 for s in ("S0", "S1", "S2", "S3")},
+        "exposure_eur": 0.0,
         "damage_eur": 0.0,
+        "direct_damage_eur": 0.0,
+        "indirect_damage_eur": 0.0,
         "damage_components_eur": {comp: 0.0 for comp in COMPONENT_ORDER},
     }
 
@@ -1621,7 +1646,10 @@ def _merge_rows_by_scenario(hazard_outputs: dict[str, Any]) -> dict[str, list[di
                     "class_label": NETWORK_CLASS_LABELS[class_key],
                     "storm": {
                         "state_pct": dict(storm_row.get("state_pct", {})),
+                        "exposure_eur": float(storm_row.get("exposure_eur", 0.0)),
                         "damage_eur": float(storm_row.get("damage_eur", 0.0)),
+                        "direct_damage_eur": float(storm_row.get("direct_damage_eur", 0.0)),
+                        "indirect_damage_eur": float(storm_row.get("indirect_damage_eur", 0.0)),
                         "damage_components_eur": {
                             comp: float((storm_row.get("damage_components_eur") or {}).get(comp, 0.0))
                             for comp in COMPONENT_ORDER
@@ -1629,7 +1657,10 @@ def _merge_rows_by_scenario(hazard_outputs: dict[str, Any]) -> dict[str, list[di
                     },
                     "storm_cmcc": {
                         "state_pct": dict(cmcc_row.get("state_pct", {})),
+                        "exposure_eur": float(cmcc_row.get("exposure_eur", 0.0)),
                         "damage_eur": float(cmcc_row.get("damage_eur", 0.0)),
+                        "direct_damage_eur": float(cmcc_row.get("direct_damage_eur", 0.0)),
+                        "indirect_damage_eur": float(cmcc_row.get("indirect_damage_eur", 0.0)),
                         "damage_components_eur": {
                             comp: float((cmcc_row.get("damage_components_eur") or {}).get(comp, 0.0))
                             for comp in COMPONENT_ORDER
@@ -1652,6 +1683,10 @@ def _legacy_breakdown_rows(hazard_outputs: dict[str, Any], hazard_key: str) -> l
                 "class_label": label,
                 "eai_eur": round(float(annual.get(class_key, {}).get("damage_eur", 0.0)), 2),
                 "event_max_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
+                "direct_eai_eur": round(float(annual.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
+                "indirect_eai_eur": round(float(annual.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
+                "direct_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
+                "indirect_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
             }
         )
     return rows
@@ -1908,6 +1943,7 @@ def main() -> None:
         spacing_m=float(args.spacing_m),
         settings=settings,
         network_value_per_km=exposure_metrics["value_per_km_eur"],
+        exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
         hazard_storm_path=hazard_storm_path,
         hazard_storm_cmcc_path=hazard_storm_cmcc_path,
         component_ratios_by_hazard=component_ratios_by_hazard,

@@ -74,7 +74,8 @@ const state = {
   },
   impactMapHazard: 'storm',
   impactMapScenario: 'event_max',
-  impactTableScenario: 'annual'
+  impactTableScenario: 'annual',
+  impactTableDisplayMode: 'money'
 };
 
 const mapRef = {
@@ -406,6 +407,7 @@ const els = {
   page1ChartYearCompare: document.getElementById('page1-chart-year-compare'),
   page1ChartTrackCompare: document.getElementById('page1-chart-track-compare'),
   impactSummaryText: document.getElementById('impact-summary-text'),
+  impactTableModeButtons: document.getElementById('impact-table-mode-buttons'),
   impactTableStormBody: document.getElementById('impact-table-storm-body'),
   impactTableCmccBody: document.getElementById('impact-table-cmcc-body'),
   impactTableScenarioSelect: document.getElementById('impact-table-scenario-select'),
@@ -432,6 +434,7 @@ const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const tableNumberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const tablePercentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const tablePercentDetailFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 });
 const tableMoneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const peopleFmtInt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const peopleFmtOne = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
@@ -1226,6 +1229,55 @@ function formatStateTuple(statePct) {
   return `S0 ${tablePercentFmt.format(Number(p.S0 || 0))} · S1 ${tablePercentFmt.format(Number(p.S1 || 0))} · S2 ${tablePercentFmt.format(Number(p.S2 || 0))} · S3 ${tablePercentFmt.format(Number(p.S3 || 0))}`;
 }
 
+function normalizeImpactTableDisplayMode(raw) {
+  return String(raw || '').trim().toLowerCase() === 'percent' ? 'percent' : 'money';
+}
+
+function impactTableDisplayModeLabel(modeRaw) {
+  const mode = normalizeImpactTableDisplayMode(modeRaw);
+  return mode === 'percent' ? '% d\'infrastructure affectée' : 'Montant monétaire';
+}
+
+function updateImpactTableModeUi() {
+  if (!els.impactTableModeButtons) return;
+  const buttons = els.impactTableModeButtons.querySelectorAll('button[data-impact-table-mode]');
+  buttons.forEach((button) => {
+    const mode = normalizeImpactTableDisplayMode(button.getAttribute('data-impact-table-mode'));
+    const active = mode === normalizeImpactTableDisplayMode(state.impactTableDisplayMode);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function roundToNearestHalf(valueRaw) {
+  const value = Number(valueRaw);
+  if (!Number.isFinite(value)) return Number.NaN;
+  return Math.round(value * 2) / 2;
+}
+
+function formatLegendBoundaryValue(valueRaw, componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  const value = component === 'wind' ? windMpsToKmh(valueRaw) : Number(valueRaw);
+  if (!Number.isFinite(value)) return 'n/a';
+  const rounded = roundToNearestHalf(value);
+  if (!Number.isFinite(rounded)) return 'n/a';
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
+    return numberFmt.format(Math.round(rounded));
+  }
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(rounded);
+}
+
+function formatDamageDisplayValue(valueEur, exposureEur, modeRaw) {
+  const mode = normalizeImpactTableDisplayMode(modeRaw);
+  const value = Number(valueEur || 0);
+  if (mode === 'percent') {
+    const exposure = Number(exposureEur || 0);
+    if (!(exposure > 0)) return 'n/a';
+    return `${tablePercentDetailFmt.format((value / exposure) * 100.0)} %`;
+  }
+  return formatTableMoneyEUR(value);
+}
+
 function ensureResultShape(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Payload résultat invalide');
   if (!raw.meta || !raw.exposure_summary || !Array.isArray(raw.territory_results) || !raw.portfolio_results || !raw.graphs) {
@@ -1782,12 +1834,18 @@ function withRp50ImpactScenario(impactPayload) {
         ...row,
         storm: {
           ...storm,
+          exposure_eur: Number(storm.exposure_eur || 0),
           damage_eur: Number(storm.damage_eur || 0) * stormFactor,
+          direct_damage_eur: Number(storm.direct_damage_eur ?? storm.damage_eur ?? 0) * stormFactor,
+          indirect_damage_eur: Number(storm.indirect_damage_eur || 0) * stormFactor,
           damage_components_eur: scaleDamageComponentMap(storm.damage_components_eur, stormFactor, storm.damage_eur)
         },
         storm_cmcc: {
           ...cmcc,
+          exposure_eur: Number(cmcc.exposure_eur || 0),
           damage_eur: Number(cmcc.damage_eur || 0) * cmccFactor,
+          direct_damage_eur: Number(cmcc.direct_damage_eur ?? cmcc.damage_eur ?? 0) * cmccFactor,
+          indirect_damage_eur: Number(cmcc.indirect_damage_eur || 0) * cmccFactor,
           damage_components_eur: scaleDamageComponentMap(cmcc.damage_components_eur, cmccFactor, cmcc.damage_eur)
         },
       };
@@ -1802,12 +1860,18 @@ function withRp50ImpactScenario(impactPayload) {
     rp50Breakdown = {
       storm: stormRows.map((row) => ({
         ...row,
+        exposure_eur: Number(row?.exposure_eur || 0),
         damage_eur: Number(row?.damage_eur || 0) * stormFactor,
+        direct_damage_eur: Number(row?.direct_damage_eur ?? row?.damage_eur ?? 0) * stormFactor,
+        indirect_damage_eur: Number(row?.indirect_damage_eur || 0) * stormFactor,
         damage_components_eur: scaleDamageComponentMap(row?.damage_components_eur, stormFactor, row?.damage_eur)
       })),
       storm_cmcc: cmccRows.map((row) => ({
         ...row,
+        exposure_eur: Number(row?.exposure_eur || 0),
         damage_eur: Number(row?.damage_eur || 0) * cmccFactor,
+        direct_damage_eur: Number(row?.direct_damage_eur ?? row?.damage_eur ?? 0) * cmccFactor,
+        indirect_damage_eur: Number(row?.indirect_damage_eur || 0) * cmccFactor,
         damage_components_eur: scaleDamageComponentMap(row?.damage_components_eur, cmccFactor, row?.damage_eur)
       })),
     };
@@ -1859,41 +1923,52 @@ function renderPage1Impact(analysis) {
   const scenarioMeta = impactTableScenarioMeta(state.impactTableScenario);
   state.impactTableScenario = scenarioMeta.key;
   const rows = Array.isArray(tables[scenarioMeta.key]) ? tables[scenarioMeta.key] : [];
-  renderImpactScenarioTables(rows);
+  renderImpactScenarioTables(rows, analysis?.exposition?.total_value_by_type_eur || {});
   if (els.impactTableTitle) {
     els.impactTableTitle.textContent = scenarioMeta.title;
   }
   if (els.impactTableScenarioSelect) {
     els.impactTableScenarioSelect.value = scenarioMeta.key;
   }
+  updateImpactTableModeUi();
 
   renderImpactBreakdownCharts(impact);
 }
 
-function renderImpactScenarioTables(rows) {
-  renderImpactScenarioTableForHazard(els.impactTableStormBody, rows, 'storm');
-  renderImpactScenarioTableForHazard(els.impactTableCmccBody, rows, 'storm_cmcc');
+function renderImpactScenarioTables(rows, exposureByClass = {}) {
+  renderImpactScenarioTableForHazard(els.impactTableStormBody, rows, 'storm', exposureByClass);
+  renderImpactScenarioTableForHazard(els.impactTableCmccBody, rows, 'storm_cmcc', exposureByClass);
 }
 
-function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw) {
+function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, exposureByClass = {}) {
   if (!targetBody) return;
   const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
   if (!rows.length) {
-    targetBody.innerHTML = '<tr><td colspan="6">Aucune donnee d\'impact disponible.</td></tr>';
+    targetBody.innerHTML = '<tr><td colspan="8">Aucune donnee d\'impact disponible.</td></tr>';
     return;
   }
+  const displayMode = normalizeImpactTableDisplayMode(state.impactTableDisplayMode);
   targetBody.innerHTML = rows.map((row) => {
     const hazardRow = hazardKey === 'storm_cmcc' ? (row.storm_cmcc || {}) : (row.storm || {});
     const components = normalizeDamageComponentMap(hazardRow.damage_components_eur, hazardRow.damage_eur);
     const rowLabel = NETWORK_LAYER_LABEL[String(row.class_key || '')] || row.class_label || row.class_key || 'Reseau';
+    const exposureEur = Number(hazardRow.exposure_eur ?? exposureByClass?.[row.class_key] ?? 0);
+    const directDamage = Number.isFinite(Number(hazardRow.direct_damage_eur))
+      ? Number(hazardRow.direct_damage_eur)
+      : Number(hazardRow.damage_eur || 0);
+    const indirectDamage = Number.isFinite(Number(hazardRow.indirect_damage_eur))
+      ? Number(hazardRow.indirect_damage_eur)
+      : Math.max(0, Number(hazardRow.damage_eur || 0) - directDamage);
     return `
       <tr>
         <td>${escapeHtml(String(rowLabel))}</td>
         <td class="num">${escapeHtml(formatStateTuple(hazardRow.state_pct))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(components.wind || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(components.rain || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(components.surge || 0))}</td>
-        <td class="num">${escapeHtml(formatTableMoneyEUR(hazardRow.damage_eur || 0))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(components.wind || 0, exposureEur, displayMode))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(components.rain || 0, exposureEur, displayMode))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(components.surge || 0, exposureEur, displayMode))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(directDamage, exposureEur, displayMode))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(indirectDamage, exposureEur, displayMode))}</td>
+        <td class="num">${escapeHtml(formatDamageDisplayValue(hazardRow.damage_eur || 0, exposureEur, displayMode))}</td>
       </tr>
     `;
   }).join('');
@@ -2684,6 +2759,24 @@ function buildContinuousScale(minRaw, maxRaw, stepRaw) {
   };
 }
 
+function buildFiveClassScale(minRaw, maxRaw) {
+  const rawMin = Number(minRaw);
+  const rawMax = Number(maxRaw);
+  const minEdge = Number.isFinite(rawMin) ? Math.floor(rawMin * 2) / 2 : 0;
+  const rawSpan = Number.isFinite(rawMax) ? Math.max(0, rawMax - minEdge) : 0;
+  const step = Math.max(0.5, Math.ceil((rawSpan / 5.0) * 2.0) / 2.0);
+  const edges = [];
+  for (let idx = 0; idx <= 5; idx += 1) {
+    edges.push(Number((minEdge + (step * idx)).toFixed(3)));
+  }
+  return {
+    minEdge: edges[0] ?? minEdge,
+    maxEdge: edges[edges.length - 1] ?? (minEdge + (step * 5)),
+    step,
+    edges
+  };
+}
+
 function buildWindScale(minRaw, maxRaw, stepMps = WIND_SCALE_STEP_MPS) {
   return buildContinuousScale(minRaw, maxRaw, stepMps);
 }
@@ -2693,6 +2786,19 @@ function hazardColorFromScale(componentRaw, valueRaw, scale) {
   const palette = HAZARD_COMPONENT_PALETTES[component] || WIND_PALETTE;
   const value = Number(valueRaw);
   const edges = Array.isArray(scale?.edges) ? scale.edges : [0, 1];
+  if (edges.length >= 2 && Number.isFinite(value)) {
+    const bins = Math.max(1, edges.length - 1);
+    let binIdx = bins - 1;
+    for (let idx = 0; idx < bins; idx += 1) {
+      const hi = Number(edges[idx + 1]);
+      if (!Number.isFinite(hi) || value < hi || idx === bins - 1) {
+        binIdx = idx;
+        break;
+      }
+    }
+    const paletteIdx = Math.round((binIdx / Math.max(1, bins - 1)) * (palette.length - 1));
+    return palette[Math.max(0, Math.min(palette.length - 1, paletteIdx))];
+  }
   const minEdge = Number(edges[0] || 0);
   const maxEdge = Number(edges[edges.length - 1] || (minEdge + 1));
   const span = Math.max(1e-9, maxEdge - minEdge);
@@ -2734,7 +2840,7 @@ function buildHazardLegendHtml(activeComponents, scalesByComponent, metricsByCom
       const mid = (lo + hi) / 2;
       const color = hazardColorFromScale(component, mid, scale);
       sections.push(
-        `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(formatHazardMetricValue(component, lo))} - ${escapeHtml(formatHazardMetricValue(component, hi))} ${escapeHtml(metric?.unitDisplay || '')}</span></div>`
+        `<div class="wind-legend-row"><span class="wind-legend-swatch" style="background:${color}"></span><span>${escapeHtml(formatLegendBoundaryValue(lo, component))} - ${escapeHtml(formatLegendBoundaryValue(hi, component))} ${escapeHtml(metric?.unitDisplay || '')}</span></div>`
       );
     }
   });
@@ -3086,7 +3192,7 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
   const range = resolveHazardMetricRange(payload, metric);
   const min = Number.isFinite(options.colorMin) ? Number(options.colorMin) : Number(range.min || 0);
   const max = Number.isFinite(options.colorMax) ? Number(options.colorMax) : Number(range.max || 0);
-  const scale = options.colorScale || buildContinuousScale(min, max, metric.scaleStep);
+  const scale = options.colorScale || buildFiveClassScale(min, max);
   const fallbackValue = Number(scale.minEdge || min || 0);
   const knownCells = [];
   const knownByIndex = new Map();
@@ -3212,7 +3318,7 @@ function renderWindMaps() {
     const colorMin = Number.isFinite(sharedMin) ? sharedMin : 0;
     const colorMax = Number.isFinite(sharedMax) ? sharedMax : Math.max(colorMin + metric.scaleStep, 1);
     metricsByComponent[component] = metric;
-    scalesByComponent[component] = buildContinuousScale(colorMin, colorMax, metric.scaleStep);
+    scalesByComponent[component] = buildFiveClassScale(colorMin, colorMax);
   });
 
   updateHazardLayerUi();
@@ -6203,6 +6309,19 @@ function bindEvents() {
     els.impactTableScenarioSelect.value = normalizeImpactTableScenario(state.impactTableScenario);
     els.impactTableScenarioSelect.addEventListener('change', () => {
       state.impactTableScenario = normalizeImpactTableScenario(els.impactTableScenarioSelect.value);
+      renderPage1Impact(state.page1Analysis || {});
+    });
+  }
+  if (els.impactTableModeButtons) {
+    updateImpactTableModeUi();
+    els.impactTableModeButtons.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('button[data-impact-table-mode]') : null;
+      if (!btn) return;
+      const mode = normalizeImpactTableDisplayMode(btn.getAttribute('data-impact-table-mode'));
+      if (mode === normalizeImpactTableDisplayMode(state.impactTableDisplayMode)) return;
+      state.impactTableDisplayMode = mode;
+      updateImpactTableModeUi();
       renderPage1Impact(state.page1Analysis || {});
     });
   }

@@ -302,21 +302,18 @@ def _subset_bundle_for_component_ratios(
     if not selected_records:
         return bundle
 
-    selected_coords = [
-        (float(rec.get("lon", 0.0)), float(rec.get("lat", 0.0)))
-        for rec in selected_records
-    ]
-
-    exposure = bundle.exposures.copy(deep=True)
-    exposure = exposure.iloc[selected_indices].copy()
-    exposure.geometry = selected_coords
-    exposure.gdf = exposure
+    exposure = bundle.exposures.copy(deep=False)
+    exposure.set_gdf(
+        bundle.exposures.gdf.iloc[selected_indices].reset_index(drop=True),
+        crs=bundle.exposures.crs,
+    )
 
     from app.risk_engine.exposure_to_climada import ClimadaExposureBundle
 
     return ClimadaExposureBundle(
         exposures=exposure,
         point_records=selected_records,
+        metric_crs=bundle.metric_crs,
         warnings=list(bundle.warnings or []),
     )
 

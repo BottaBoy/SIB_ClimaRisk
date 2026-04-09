@@ -45,6 +45,43 @@ flowchart TD
 - `impact_runner.py`: orchestre le tout, produit `territory_results`, `portfolio_results`, `graphs`, `notes`, `meta.modeling`.
 - `analysis_export.py`: assemble le payload API et exporte les artefacts CSV/JSON.
 
+### 2.1 Mailles spatiales utilisées par les briques principales
+
+Le tableau ci-dessous recense les principales mailles spatiales et pas d'echantillonnage utilises par le code. Certaines lignes ne correspondent pas a une grille fixe, mais a une fenetre spatiale, a un pas d'echantillonnage ou a une resolution de publication.
+
+| Nom element du code | Description rapide | Maille geographique | Notes |
+|---|---|---|---|
+| `exposure_to_climada.py` | Echantillonnage des geometries exposees en points CLIMADA et repartition de la valeur des actifs sur ces points. | Pas de grille fixe; `sampling_spacing_m` pilote l'echantillonnage des lignes/polygones. Regroupement territorial secondaire via `TERRITORY_GRID_DEG = 0.2°`. | Une maille plus fine est possible pour des etudes locales, mais elle augmente surtout le nombre de points, donc le temps CPU/RAM. |
+| `hazard_loader.py` | Chargement des tracks dans une fenetre spatiale autour des expositions et cap sur le nombre de tracks gardes. | Fenetre spatiale avec `DEFAULT_SPATIAL_PADDING_DEG = 4.0°`; petit-cas avec `DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01°`. | Resserer la fenetre accelere le calcul, mais augmente le risque de rater des tracks proches de la zone etudiee. |
+| `climada_engine.py` / `TropCyclone`, `TCRain`, `TCSurgeBathtub` | Construction des hazards CLIMADA vent, pluie et submersion a partir des tracks. | Pas de grille fixe propre au moteur; la resolution est celle des centroides/hazards en entree. | Une maille plus fine depend surtout de la source des tracks et du nombre de centroides disponibles. |
+| `impact_runner.py` | Agregation de `health` et de la dependance elec -> eau par zone territoriale. | `TERRITORY_GRID_DEG = 0.2°`. | Une maille plus fine est faisable pour une etude locale, mais la dependance devient plus bruiante et plus couteuse. |
+| `mean_wind_mps`, `rp50_wind_mps`, `rp100_wind_mps`, `event_max_wind_mps` | Statistiques de cellule pour la couche aléas vent; la meme logique existe pour la pluie (`*_rain_mmph`) et la submersion (`*_surge_m`). | Même maille que la couche d'aléa correspondante: `0.02°` sur Guadeloupe/Martinique, `0.05°` sur les cartes bassin NA/SI. | Ces valeurs sont des statistiques de restitution sur cellule, pas des mailles physiques supplémentaires. Une maille plus fine est possible si l'on accepte plus de calcul et des sorties plus volumineuses. |
+| `scripts/build_guadeloupe_wind_maps.py` | Couche aléas vent pour Guadeloupe/Martinique. | Grille de publication `cell_deg = 0.02°`; submersion interne sur `surge_native_cell_deg = 0.01°`. | On dispose déjà d'une sous-maille plus fine pour le surge. Descendre encore est possible, mais le gain devient marginal et le cout monte vite. |
+| `scripts/build_guadeloupe_wind_maps.py` | Couche aléas pluie pour Guadeloupe/Martinique. | Grille de publication `0.02°`, même maille que le vent. | Une maille plus fine peut aider si l'on veut zoomer un littoral ou un relief local, mais le bénéfice dépend surtout de la qualité du modèle pluie. |
+| `scripts/build_guadeloupe_wind_maps.py` | Couche aléas surge pour Guadeloupe/Martinique. | Calcul natif sur `0.01°`, puis réagrégation en `0.02°` pour l'affichage web. | C'est déjà la maille la plus fine du pipeline courant. La descendre plus bas n'apporterait qu'un gain limité sans nouvelle validation topo/bathy. |
+| `scripts/build_basin_wind_maps.py` | Cartes bassin NA/SI (`mean`, `rp50`, `rp100`, `event_max`) pour STORM et STORM_CMCC. | Grille `0.05°`. | Une maille plus fine est possible, mais elle augmente rapidement le volume de sortie et le temps de traitement sur de grands bassins. |
+| `scripts/build_na_wind_leaflet_overlays.py` / `scripts/build_basin_wind_leaflet_overlays.py` | Rasterisation et rendu Leaflet des couches d'aléa a partir des cellules calculees. | Même maille que le JSON source (`0.02°` ou `0.05°` selon le jeu). | Une maille plus fine ici ne change pas la physique; elle améliore surtout la lisibilité visuelle, au prix d'un rendu plus lourd. |
+| `scripts/build_case_study_multi_hazard_proxy.py` / `scripts/build_guadeloupe_page1_data.py` | Tables et graphiques de restitution page 1/page 2 construits a partir des cellules d'aléa et du proxy multi-aléas. | Pas de nouvelle maille physique; agrégation sur la grille d'aléa correspondante. | On ne gagne en précision que si les grilles amont sont elles-mêmes plus fines et validées. |
+
+### 2.2 Tracks dynamiques: plafond de catalogue et cap conseille
+
+Les chiffres ci-dessous viennent du chargement dynamique STORM/STORM_CMCC sur la fenetre de publication page 5, c'est-à-dire la bbox NA avec le padding spatial du loader. Ils donnent le nombre de tracks réellement disponibles avant tout cap `dynamic_max_tracks`.
+
+| Territoire | STORM tracks disponibles | STORM_CMCC tracks disponibles | Plafond reel de sélection | Commentaire |
+|---|---:|---:|---:|---|
+| Guadeloupe | 23 151 | 24 208 | 23 151 / 24 208 | Au-dessus de ces valeurs, le code ne peut plus enrichir le catalogue car la source est déjà entièrement selectionnee sur cette fenetre. |
+| Martinique | 21 288 | 22 292 | 21 288 / 22 292 | Meme lecture: le cap utile est le nombre de tracks effectivement présents dans la zone. |
+
+| Contexte | `dynamic_max_tracks` conseille | Temps de run indicatif | Pourquoi ce choix |
+|---|---:|---:|---|
+| Runs fixes de demonstration Guadeloupe / Martinique | 1 200 | ~10-20 min par territoire | Compromis deja utilise dans les pages de demo (`page1/page2`) pour garder des RP50/RP100 plus stables sans exploser le temps de calcul. |
+| Runs "light" page 5 pour les utilisateurs | 300 | ~3-6 min par territoire | Compromis interactif deja retenu pour la carte d'aléas; assez léger pour l'UX, mais encore sous-échantillonné pour la queue des extremums. |
+
+En pratique:
+- `300` est le bon ordre de grandeur pour une visualisation rapide et fluide.
+- `1 200` est le bon ordre de grandeur pour les runs de demonstration fixes.
+- Si l'on cherche une convergence plus forte des RP50/RP100, il faut monter encore le cap, mais le temps de calcul augmente vite et le gain devient de plus en plus marginal.
+
 ---
 
 ## 3) Exposition
@@ -122,7 +159,7 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 | `elec_hta_aerien` | `W3.14` | `F6.2` | Mexique + D2 inondation | Courbe reseau electrique aerien HTA |
 | `elec_bt_souterrain` | `W16.1` | `F6.1` | Global + D2 inondation | Option prudente non nulle pour reseau enterre |
 | `elec_hta_souterrain` | `W16.1` | `F6.1` | Global + D2 inondation | Option prudente non nulle pour reseau enterre |
-| `eau_aep_cana` | `W16.1` | `F16.3` | Global + D2 inondation | Reseau eau lineaire |
+| `eau_aep_cana` | `W16.1` | `F19.3` | Global + D2 inondation | Reseau eau lineaire |
 | `eau_eu_cana` | `W19.1` | `F19.3` | Global + D2 inondation | Reseau EU lineaire |
 | `eau_eu_pr` | `EBERENZ_2021_TC` | `F20.3` | Caraibes + D2 inondation | Choix utilisateur conserve pour PR |
 | `eau_eu_step` | `W21.2` | `F18.4` | Philippines + D2 inondation | Ouvrage eau exterieur sensible |
@@ -135,6 +172,7 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 
 Notes:
 - courbe depth de repli globale: `F17.5`,
+- mise a jour specifique: `eau_aep_cana` utilise desormais `F19.3` pour les futurs reruns pluie / submersion cotiere,
 - l'endpoint `GET /api/v1/vulnerability/curves` expose le profil actif pour audit/visualisation admin.
 
 ---
@@ -609,6 +647,14 @@ Important pour l'interpretation:
 - les degats pluie dependent ensuite de la conversion `pluie -> hauteur proxy`, puis de la courbe profondeur-dommage de l'actif;
 - avec des coefficients de ruissellement modestes, la composante pluie peut rester visible en aléa mais faible en dommage.
 
+Lecture metier plus detaillee:
+- `TCRain.from_tracks(...)` ne fait pas un modele hydraulique complet de ruissellement ou d'accumulation sur le terrain;
+- il estime une intensite de pluie locale directement a partir du cyclone synthetique, de sa trajectoire et de ses caracteristiques;
+- cette intensite est ensuite comparee a une courbe de vulnerabilite profondeur-dommage, mais sur un axe pluie-equivalent;
+- le passage profondeur -> pluie proxy est realise une seule fois via un coefficient de base `0.25` dans la construction des courbes;
+- la table `RUNOFF_COEFF_BY_INFRA_CLASS` est conservee dans les metadonnees pour la traçabilite et les futures analyses de sensibilite, mais elle ne re-multiplie pas la pluie pendant le calcul courant des dommages;
+- il n'y a donc pas de "descente de crue" dynamique ni de routage hydrologique dans cette V1.
+
 ##### 6.7.2.2 Comment la submersion cotiere est calculee
 La submersion cotiere n'est pas construite directement depuis les tracks. Elle est derivee du hazard vent deja calcule:
 
@@ -713,7 +759,31 @@ Depuis la correction du 24 mars 2026, la carte de submersion des cas d'etude:
 - s'appuie sur `TCSurgeBathtub` de bout en bout,
 - n'affiche que les cellules qui intersectent effectivement le territoire cible.
 
-##### 6.7.2.4 Comment "evenement le plus fort" est calcule pour le vent (par maille)
+##### 6.7.2.4 Comment les vitesses de vent pour `rp50`, `rp100` et `event_max` sont selectionnees
+La logique vent est construite cellule par cellule, a partir du catalogue synthetique des tracks STORM / STORM_CMCC.
+
+Pour une cellule `i`:
+1. on collecte toutes les intensites `wind_max` qui tombent dans cette cellule sur l'ensemble du catalogue;
+2. on regroupe ensuite par annee synthetique et on conserve, pour chaque annee, le maximum de vent de la cellule;
+3. on obtient ainsi une serie annuelle de maxima `annual_series_i`;
+4. `rp50_wind_mps(i)` est calcule comme le quantile 98% de cette serie;
+5. `rp100_wind_mps(i)` est calcule comme le quantile 99% de cette serie;
+6. `event_max_wind_mps(i)` est le maximum de cette serie annuelle.
+
+Pseudo-code simplifie:
+
+```python
+annual_series_i = max_wind_per_year_for_cell(i)
+rp50 = np.quantile(annual_series_i, 0.98)
+rp100 = np.quantile(annual_series_i, 0.99)
+event_max = np.max(annual_series_i)
+```
+
+Deux consequences importantes:
+- `mean_wind_mps` et les niveaux de retour ne viennent pas du meme estimateur statistique;
+- au niveau d'une zone, les tableaux affichent ensuite une moyenne spatiale de cellules, donc l'interpretation doit toujours se faire avec l'agregation en tete.
+
+##### 6.7.2.5 Comment "evenement le plus fort" est calcule pour le vent (par maille)
 La logique "event_max" vent est calculee **par maille**.
 
 Pour une maille `i`:
@@ -754,16 +824,32 @@ Source depth:
 - `/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx` (feuille `F_Vuln_Depth`)
 - implementation: `backend/app/risk_engine/impact_functions_multi_hazard.py`
 
-Pour la pluie, la V1 repose sur une conversion pluie -> hauteur proxy via coefficients de ruissellement par classe d'infrastructure:
-- `elec_aerien = 0.10`
-- `elec_souterrain = 0.30`
-- `eau_reseau = 0.25`
-- `eau_ouvrage = 0.35`
-- `habitation = 0.20`
+Dans le code courant, la pluie-proxy est construite en deux etapes:
+1. on part de la courbe profondeur-dommage `Fxx.x` de la table D2;
+2. on projette son axe profondeur `depth_m` vers un axe pluie equivalente `mm_proxy` avec un coefficient de base `0.25`.
+
+Concretement, dans `backend/app/risk_engine/impact_functions_multi_hazard.py`:
+
+```python
+base_coeff = 0.25
+rain_intensity_mm = (curve["depth_m"] * 1000.0) / base_coeff
+```
+
+Lecture naturelle:
+- la courbe d'origine dit "si l'eau atteint telle profondeur, le dommage est tel";
+- le backend reconstruit une courbe equivalente "si la pluie proxy atteint telle intensite, le dommage est tel";
+- on ne repasse donc pas une deuxieme fois la meme conversion pendant le calcul des dommages.
+
+La table `RUNOFF_COEFF_BY_INFRA_CLASS` est conservee dans les metadonnees du modele comme resume des hypotheses d'analyse et pour de futures sensibilites, mais le calcul courant de la pluie-proxy utilise le coefficient de base unique `0.25` pour la construction de la courbe.
 
 Cette conversion permet d'utiliser le meme socle `F_Vuln_Depth` pour:
 - la submersion cotiere (`m`),
 - la pluie proxy (`mm_proxy`).
+
+Important:
+- `TCRain.from_tracks(...)` fournit l'intensite de pluie cyclonique;
+- la conversion `depth -> pluie proxy` sert seulement a brancher cette intensite sur les courbes de vulnerabilite;
+- il ne s'agit pas d'un modele hydrologique de crue, de stockage ou de redescente du niveau d'eau.
 
 #### 6.7.6 Regle d'agregation multi-aleas directe
 La combinaison directe appliquee est additive avec plafond par point:

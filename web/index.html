@@ -235,6 +235,10 @@
             <div class="section-head">
               <h3 id="impact-table-title">Tableau des impacts annuels (moyenne)</h3>
               <div class="inline-row tight">
+                <div class="impact-table-mode-buttons" id="impact-table-mode-buttons" role="group" aria-label="Mode d'affichage des impacts">
+                  <button type="button" data-impact-table-mode="money" aria-pressed="true">Montant (€)</button>
+                  <button type="button" data-impact-table-mode="percent" aria-pressed="false">% infra</button>
+                </div>
                 <select id="impact-table-scenario-select" aria-label="Scenario du tableau d impacts">
                   <option value="annual">Moyenne annuelle</option>
                   <option value="rp50">Temps de retour 50 ans</option>
@@ -248,37 +252,61 @@
                 <h4>STORM</h4>
                 <div class="table-wrap compact impact-table-wrap">
                   <table>
+                    <colgroup>
+                      <col class="impact-col-name" />
+                      <col class="impact-col-state" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-surge" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-total" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>Reseau</th>
-                        <th class="num">S0/S1/S2/S3 (%)</th>
-                        <th class="num">Vent (€)</th>
-                        <th class="num">Pluie (€)</th>
-                        <th class="num">Inond. côtière (€)</th>
-                        <th class="num">Total (€)</th>
-                      </tr>
-                    </thead>
-                    <tbody id="impact-table-storm-body"></tbody>
-                  </table>
-                </div>
+                      <th class="num">S0/S1/S2/S3 (%)</th>
+                      <th class="num">Vent</th>
+                      <th class="num">Pluie</th>
+                      <th class="num">Inond. côtière</th>
+                      <th class="num">Direct</th>
+                      <th class="num">Indirect</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="impact-table-storm-body"></tbody>
+                </table>
+              </div>
               </article>
               <article class="impact-table-card">
                 <h4>STORM_CMCC</h4>
                 <div class="table-wrap compact impact-table-wrap">
                   <table>
+                    <colgroup>
+                      <col class="impact-col-name" />
+                      <col class="impact-col-state" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-surge" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-metric" />
+                      <col class="impact-col-total" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th>Reseau</th>
-                        <th class="num">S0/S1/S2/S3 (%)</th>
-                        <th class="num">Vent (€)</th>
-                        <th class="num">Pluie (€)</th>
-                        <th class="num">Inond. côtière (€)</th>
-                        <th class="num">Total (€)</th>
-                      </tr>
-                    </thead>
-                    <tbody id="impact-table-cmcc-body"></tbody>
-                  </table>
-                </div>
+                      <th class="num">S0/S1/S2/S3 (%)</th>
+                      <th class="num">Vent</th>
+                      <th class="num">Pluie</th>
+                      <th class="num">Inond. côtière</th>
+                      <th class="num">Direct</th>
+                      <th class="num">Indirect</th>
+                      <th class="num">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="impact-table-cmcc-body"></tbody>
+                </table>
+              </div>
               </article>
             </div>
           </article>

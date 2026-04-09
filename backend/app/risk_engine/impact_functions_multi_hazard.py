@@ -18,7 +18,8 @@ FLOOD_ASSET_TYPE_TO_CURVE_CODE = {
     "elec_hta_aerien": "F6.2",
     "elec_bt_souterrain": "F6.1",
     "elec_hta_souterrain": "F6.1",
-    "eau_aep_cana": "F16.3",
+    # Courbe mise en cohérence avec les futures sorties pluie/submersion pour AEP canalisations.
+    "eau_aep_cana": "F19.3",
     "eau_eu_cana": "F19.3",
     "eau_eu_pr": "F20.3",
     "eau_eu_step": "F18.4",

@@ -4,9 +4,12 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+
+from journal_guamar_run import record_guamar_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +17,9 @@ PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
 UTC = timezone.utc
 
 
-def _run(cmd: list[str]) -> None:
+def _run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
     print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=env)
 
 
 def _read_meta(path: Path) -> dict:
@@ -73,9 +76,15 @@ def main() -> None:
     if not PYTHON.exists():
         raise FileNotFoundError(f"Python backend venv not found: {PYTHON}")
 
+    session_run_id = datetime.now(UTC).strftime("guamar_session_%Y%m%dT%H%M%SZ")
+    print(f"[session] run_id={session_run_id}", flush=True)
+
     for territory in args.territories:
         run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
         proxy_json = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
+        territory_env = os.environ.copy()
+        if territory == "martinique":
+            territory_env.setdefault("SIB_RISK_MULTI_HAZARD_ENABLED", "false")
 
         _run(
             [
@@ -92,6 +101,8 @@ def main() -> None:
                 "--case-study-run-id",
                 run_id,
             ]
+            ,
+            env=territory_env,
         )
         _run(
             [
@@ -114,6 +125,8 @@ def main() -> None:
                 "--case-study-run-id",
                 run_id,
             ]
+            ,
+            env=territory_env,
         )
         _run(
             [
@@ -130,8 +143,11 @@ def main() -> None:
                 "--case-study-run-id",
                 run_id,
             ]
+            ,
+            env=territory_env,
         )
         _assert_case_study_coherence(territory, run_id)
+        record_guamar_run(territory, session_run_id=session_run_id)
 
 
 if __name__ == "__main__":

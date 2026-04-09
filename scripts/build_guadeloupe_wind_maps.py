@@ -53,6 +53,7 @@ from app.config import load_settings  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs  # noqa: E402
 from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
 from case_study_sources import CASE_STUDY_BBOX, normalize_territory  # noqa: E402
+from journal_guamar_run import encode_track_ids  # noqa: E402
 
 COLUMNS = [
     "Year",
@@ -71,17 +72,39 @@ COLUMNS = [
 ]
 
 UTC = timezone.utc
+
+
+def _pick_existing_path(*candidates: Path) -> Path:
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except Exception:
+            continue
+    return candidates[0]
+
+
 COMPONENT_ORDER = ("wind", "rain", "surge")
 DEFAULT_ADMIN_BOUNDARIES_PATH = Path(
     os.environ.get(
         "SIB_RISK_ADMIN_BOUNDARIES_PATH",
-        str(REPO_ROOT / "data" / "boundaries" / "geoBoundariesCGAZ_ADM0.geojson"),
+        str(
+            _pick_existing_path(
+                REPO_ROOT / "data" / "boundaries" / "geoBoundariesCGAZ_ADM0.geojson",
+                Path("/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson"),
+            )
+        ),
     )
 )
 DEFAULT_ANTILLES_TOPO_PATH = Path(
     os.environ.get(
         "SIB_RISK_HAZARD_SURGE_TOPO_PATH",
-        str(REPO_ROOT / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"),
+        str(
+            _pick_existing_path(
+                REPO_ROOT / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+                Path("/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"),
+            )
+        ),
     )
 )
 TERRITORY_ADMIN_GROUP = {
@@ -112,6 +135,31 @@ def _require_map_deps() -> None:
 
 def _progress(message: str) -> None:
     print(message, flush=True)
+
+
+def _track_ids_from_tracks(tracks: Any) -> list[str]:
+    data = list(getattr(tracks, "data", []) or [])
+    ids: list[str] = []
+    seen: set[str] = set()
+    for track in data:
+        attrs = getattr(track, "attrs", {}) or {}
+        sid = str(attrs.get("sid") or attrs.get("name") or "").strip()
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        ids.append(sid)
+    return ids
+
+
+def _track_journal_entry(hazard_obj: Any, tracks: Any) -> dict[str, Any]:
+    freq = np.asarray(getattr(hazard_obj, "frequency", []), dtype=float).reshape(-1)
+    track_ids = _track_ids_from_tracks(tracks)
+    encoded = encode_track_ids(track_ids)
+    return {
+        "n_events": int(len(track_ids)),
+        "event_frequency_sum": round(float(freq.sum()) if freq.size else 0.0, 8),
+        "track_ids_compressed": encoded,
+    }
 
 
 def _require_climada_petals() -> tuple[Any, Any]:
@@ -623,6 +671,10 @@ def _build_native_wind_and_rain_maps(
             "rain_model": None,
             "dynamic_max_tracks": int(dynamic_max_tracks),
             "storm_years": 0,
+            "track_journal": {
+                "storm": {"n_events": 0, "event_frequency_sum": 0.0, "track_ids_compressed": encode_track_ids([])},
+                "storm_cmcc": {"n_events": 0, "event_frequency_sum": 0.0, "track_ids_compressed": encode_track_ids([])},
+            },
         }
 
     TCRain, _ = _require_climada_petals()
@@ -699,6 +751,10 @@ def _build_native_wind_and_rain_maps(
         "storm_cmcc_parquet_path": str(storm_cmcc_parquet_path),
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
+        "track_journal": {
+            "storm": _track_journal_entry(bundle.storm, bundle.tracks_storm),
+            "storm_cmcc": _track_journal_entry(bundle.storm_cmcc, bundle.tracks_storm_cmcc),
+        },
     }
     return wind_out, rain_out, meta
 
@@ -1161,6 +1217,7 @@ def main() -> None:
             "native_rain_model": native_hazard_meta.get("rain_model"),
             "native_hazard_source": native_hazard_meta.get("hazard_source"),
             "native_hazard_basin_ids": native_hazard_meta.get("hazard_basin_ids") or [],
+            "track_journal": native_hazard_meta.get("track_journal") or {},
             "surge_native_cell_deg": float(args.surge_native_cell_deg),
         },
         "storm": {
