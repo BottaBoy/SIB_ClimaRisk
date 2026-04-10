@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
@@ -26,6 +27,7 @@ from app.risk_engine.exposure_to_climada import build_climada_exposure  # noqa: 
 from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
 from app.risk_engine.impact_functions import resolve_tc_impact_func_id  # noqa: E402
 from app.risk_engine.impact_functions_multi_hazard import get_multi_hazard_vulnerability_payload  # noqa: E402
+from app.risk_engine.landslide_engine import run_landslide_direct_impacts, scenario_loss_factors  # noqa: E402
 from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
 
 try:
@@ -37,6 +39,12 @@ except Exception:  # pragma: no cover - surfaced through empty fallback at runti
 DAMAGE_BREAKDOWN_LABELS: dict[str, str] = {}
 MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
 _HELPERS_LOADED = False
+
+
+def _stable_seed(*parts: object) -> int:
+    payload = "|".join(str(part) for part in parts).encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "big") % (2**32 - 1)
 
 
 def _load_case_study_helpers() -> None:
@@ -385,6 +393,74 @@ def _build_surge_proxy_losses_from_hazard_map(
     return out
 
 
+def _build_landslide_proxy_losses(
+    exposure_bundle: Any,
+    point_records: list[dict[str, Any]],
+    *,
+    territory: str,
+    settings: Any,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, dict[str, Any]]:
+    values = np.asarray(
+        [max(0.0, float(rec.get("value_eur") or 0.0)) for rec in point_records],
+        dtype=float,
+    ).reshape(-1)
+    if values.size == 0:
+        return {}
+
+    source_map = {
+        "storm": (
+            ("precipitation", Path(settings.landslide_precip_current_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+        "storm_cmcc": (
+            ("precipitation", Path(settings.landslide_precip_ssp585_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+    }
+
+    out: dict[str, dict[str, Any]] = {}
+    for hazard_key, sources in source_map.items():
+        scenario_arrays = {
+            scenario: np.zeros_like(values, dtype=float)
+            for scenario in MAP_SCENARIOS
+        }
+        source_paths: list[str] = []
+        for source_name, source_path in sources:
+            path = Path(source_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Missing landslide raster for {hazard_key}/{source_name}: {path}")
+            source_paths.append(str(path))
+            result = run_landslide_direct_impacts(
+                exposure_bundle,
+                bbox=bbox,
+                path_sourcefile=path,
+                corr_fact=float(settings.landslide_corr_fact),
+                n_years=int(settings.landslide_n_years),
+                dist=str(settings.landslide_dist),
+                random_seed=_stable_seed(territory, hazard_key, source_name, path.name),
+            )
+            factors = scenario_loss_factors(result)
+            annual = np.asarray(getattr(result, "eai_direct_by_point", []), dtype=float).reshape(-1)
+            annual = np.nan_to_num(annual, nan=0.0, posinf=0.0, neginf=0.0)
+            annual = np.minimum(np.maximum(annual, 0.0), values)
+            for scenario in MAP_SCENARIOS:
+                factor = 1.0 if scenario == "annual" else float(factors.get(scenario, 0.0) or 0.0)
+                if factor <= 0.0:
+                    continue
+                scenario_arrays[scenario] = np.minimum(
+                    values,
+                    scenario_arrays[scenario] + np.minimum(np.maximum(annual * factor, 0.0), values),
+                )
+
+        out[hazard_key] = {
+            "scenario_arrays": scenario_arrays,
+            "scenario_totals": {scenario: float(arr.sum()) for scenario, arr in scenario_arrays.items()},
+            "source_paths": source_paths,
+        }
+    return out
+
+
 def _breakdown_shares_from_point_losses(point_losses: np.ndarray, point_records: list[dict[str, Any]]) -> dict[str, float]:
     raw = {class_key: 0.0 for class_key in DAMAGE_BREAKDOWN_LABELS}
     losses = np.asarray(point_losses, dtype=float).reshape(-1)
@@ -397,7 +473,17 @@ def _breakdown_shares_from_point_losses(point_losses: np.ndarray, point_records:
     return _normalize_breakdown_share_map(raw)
 
 
-def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, territory: str, sample_point_count: int, settings: Any, args: argparse.Namespace) -> dict[str, Any]:
+def _build_proxy_payload(
+    run: Any,
+    exposure_bundle: Any,
+    point_records: list[dict[str, Any]],
+    *,
+    territory: str,
+    sample_point_count: int,
+    landslide_bbox: tuple[float, float, float, float],
+    settings: Any,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
     component_ratios = _component_ratios_from_climada_run(run)
     default_proxy = _default_multi_hazard_proxy(component_ratios)
     notes = list(getattr(run, "notes", []) or [])
@@ -406,23 +492,50 @@ def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, terri
         point_records,
         flood_curve_file=Path(settings.d2_flood_curve_file),
     )
+    landslide_proxy_losses = _build_landslide_proxy_losses(
+        exposure_bundle,
+        point_records,
+        territory=territory,
+        settings=settings,
+        bbox=landslide_bbox,
+    )
     used_surge_fallback = False
+    if landslide_proxy_losses:
+        notes.append(
+            "Landslide probabilistic rasters integrated for the case-study proxy (precipitation current / SSP585 + earthquake)."
+        )
 
     hazards_payload: dict[str, Any] = {}
+    point_values = np.asarray(
+        [max(0.0, float(rec.get("value_eur") or 0.0)) for rec in point_records],
+        dtype=float,
+    ).reshape(-1)
     for hazard_key in ("storm", "storm_cmcc"):
         hazard_total = (getattr(run, "hazards", {}) or {}).get(hazard_key)
         hazard_components = (getattr(run, "component_hazards", {}) or {}).get(hazard_key, {}) or {}
         wind_result = hazard_components.get("wind")
         rain_result = hazard_components.get("rain")
+        landslide_payload = landslide_proxy_losses.get(hazard_key, {}) if isinstance(landslide_proxy_losses, dict) else {}
+        landslide_annual_losses = np.asarray(
+            (landslide_payload.get("scenario_arrays") or {}).get("annual", np.zeros_like(point_values)),
+            dtype=float,
+        ).reshape(-1)
         combined_annual_losses = np.asarray(
             getattr(hazard_total, "eai_direct_by_point", getattr(wind_result, "eai_direct_by_point", [])),
             dtype=float,
         ).reshape(-1)
+        if landslide_annual_losses.size:
+            n = min(combined_annual_losses.size, landslide_annual_losses.size, point_values.size)
+            combined_annual_losses[:n] = np.minimum(
+                np.maximum(combined_annual_losses[:n] + landslide_annual_losses[:n], 0.0),
+                point_values[:n],
+            )
         annual_shares = _breakdown_shares_from_point_losses(combined_annual_losses, point_records)
 
         scenarios: dict[str, Any] = {}
         for scenario in MAP_SCENARIOS:
-            combined_loss = _scenario_loss_from_result(hazard_total, scenario)
+            landslide_loss = float((landslide_payload.get("scenario_totals") or {}).get(scenario, 0.0) or 0.0)
+            combined_loss = _scenario_loss_from_result(hazard_total, scenario) + landslide_loss
             wind_loss = _scenario_loss_from_result(wind_result, scenario)
             rain_loss = _scenario_loss_from_result(rain_result, scenario)
             if wind_loss > 0.0:
@@ -433,6 +546,16 @@ def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, terri
                 ((component_ratios.get(hazard_key) or {}).get(scenario))
                 or ((default_proxy.get(hazard_key) or {}).get("component_ratios") or {}).get(scenario)
             )
+            landslide_share = max(0.0, min(1.0, landslide_loss / max(combined_loss, 1e-9))) if combined_loss > 0.0 else 0.0
+            if landslide_share > 0.0:
+                scenario_ratio_map = _normalize_component_ratio_map(
+                    {
+                        "wind": float(scenario_ratio_map.get("wind", 0.0)) * (1.0 - landslide_share),
+                        "rain": float(scenario_ratio_map.get("rain", 0.0)) * (1.0 - landslide_share),
+                        "surge": float(scenario_ratio_map.get("surge", 0.0)) * (1.0 - landslide_share),
+                        "landslide": landslide_share,
+                    }
+                )
             if scenario in {"rp50", "rp100", "event_max"} and float(scenario_ratio_map.get("surge", 0.0)) <= 0.0:
                 surge_proxy_loss = float(((surge_proxy_losses.get(hazard_key) or {}).get(scenario)) or 0.0)
                 if surge_proxy_loss > 0.0:
@@ -441,6 +564,7 @@ def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, terri
                             "wind": wind_loss,
                             "rain": rain_loss,
                             "surge": surge_proxy_loss,
+                            "landslide": landslide_loss,
                         }
                     )
                     used_surge_fallback = True
@@ -476,6 +600,10 @@ def _build_proxy_payload(run: Any, point_records: list[dict[str, Any]], *, terri
             "storm_years": int(settings.storm_years),
             "hazard_storm_path": str(args.hazard_storm_path),
             "hazard_storm_cmcc_path": str(args.hazard_storm_cmcc_path),
+            "landslide_sources": {
+                "storm": [str(Path(settings.landslide_precip_current_path)), str(Path(settings.landslide_earthquake_path))],
+                "storm_cmcc": [str(Path(settings.landslide_precip_ssp585_path)), str(Path(settings.landslide_earthquake_path))],
+            },
             "notes": notes,
             "modeling": getattr(run, "modeling", {}) or {},
         },
@@ -549,6 +677,13 @@ def main() -> None:
         infra_eau_dir=case_cfg["infra_eau_dir"],
         territory=territory,
     )
+    bbox_cfg = dict(case_cfg.get("wind_bbox") or {})
+    landslide_bbox = (
+        float(bbox_cfg["lon_min"]),
+        float(bbox_cfg["lat_min"]),
+        float(bbox_cfg["lon_max"]),
+        float(bbox_cfg["lat_max"]),
+    )
     sample_bundle = build_climada_exposure(
         exposure,
         spacing_m=float(args.spacing_m),
@@ -599,9 +734,11 @@ def main() -> None:
 
     payload = _build_proxy_payload(
         run,
+        sample_bundle,
         list(sample_bundle.point_records or []),
         territory=territory,
         sample_point_count=len(list(sample_bundle.point_records or [])),
+        landslide_bbox=landslide_bbox,
         settings=settings,
         args=args,
     )

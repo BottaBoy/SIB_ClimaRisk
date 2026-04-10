@@ -1185,11 +1185,14 @@ button:disabled {
   table-layout: fixed;
 }
 
-.impact-table-wrap col.impact-col-name { width: 34%; }
-.impact-table-wrap col.impact-col-state { width: 15%; }
-.impact-table-wrap col.impact-col-metric { width: 8.25%; }
-.impact-table-wrap col.impact-col-surge { width: 8.5%; }
-.impact-table-wrap col.impact-col-total { width: 9.5%; }
+.impact-table-wrap col.impact-col-name { width: 29%; }
+.impact-table-wrap col.impact-col-state { width: 12%; }
+.impact-table-wrap col.impact-col-metric { width: 7%; }
+.impact-table-wrap col.impact-col-surge { width: 7%; }
+.impact-table-wrap col.impact-col-landslide { width: 10.5%; }
+.impact-table-wrap col.impact-col-direct { width: 10.5%; }
+.impact-table-wrap col.impact-col-indirect { width: 10.5%; }
+.impact-table-wrap col.impact-col-total { width: 10%; }
 
 .impact-table-wrap th,
 .impact-table-wrap td {
@@ -1255,6 +1258,14 @@ button:disabled {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hazard-compare-grid.landslide-mode {
+  grid-template-columns: 1fr;
+}
+
+.hazard-compare-grid.landslide-mode .hazard-chart-secondary {
+  display: none;
 }
 
 .chart-card {

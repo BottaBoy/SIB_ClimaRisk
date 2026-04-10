@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Journal helper for Guadeloupe / Martinique reruns.
+
+Rule: every completed Guadeloupe/Martinique run must be journalized here
+immediately after the page-analysis artefacts are written.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -28,6 +34,16 @@ def _load_meta(path: Path) -> dict[str, Any]:
     payload = _load_json(path)
     meta = payload.get("meta") if isinstance(payload, dict) else None
     return meta if isinstance(meta, dict) else {}
+
+
+def _load_meta_from_value(raw_path: Any) -> dict[str, Any]:
+    path_text = str(raw_path or "").strip()
+    if not path_text:
+        return {}
+    path = Path(path_text)
+    if not path.exists():
+        return {}
+    return _load_meta(path)
 
 
 def _normalize_track_ids(track_ids: Any) -> list[str]:
@@ -121,6 +137,12 @@ def _format_value(value: Any, *, digits: int = 2) -> str:
         return str(value)
 
 
+def _format_bool(value: Any) -> str:
+    if value is None:
+        return "-"
+    return "oui" if bool(value) else "non"
+
+
 def _compute_overlap_pct(current_ids: list[str], previous_ids: list[str] | None) -> float | None:
     if not current_ids or not previous_ids:
         return None
@@ -138,6 +160,7 @@ def _extract_run_entry(
     hazard_key: str,
     wind_meta: dict[str, Any],
     page_meta: dict[str, Any],
+    proxy_meta: dict[str, Any],
     impact_summary: dict[str, Any],
     session_run_id: str | None = None,
 ) -> dict[str, Any]:
@@ -163,6 +186,14 @@ def _extract_run_entry(
         )
     wind_pml_50 = float(summary.get("rp50_total_loss_eur") or 0.0)
     wind_pml_100 = float(summary.get("rp100_total_loss_eur") or 0.0)
+    component_light_rerun = page_meta.get("component_light_rerun")
+    sampling_spacing_m = float(page_meta.get("sampling_spacing_m") or 0.0)
+    max_points_total = int(proxy_meta.get("max_points_total") or 0)
+    max_points_per_feature = int(proxy_meta.get("max_points_per_feature") or 0)
+    component_light_rerun_active = isinstance(component_light_rerun, dict) and bool(component_light_rerun)
+    if (not max_points_total or not max_points_per_feature) and component_light_rerun_active:
+        max_points_total = int(component_light_rerun.get("max_points_total") or max_points_total or 0)
+        max_points_per_feature = int(component_light_rerun.get("max_points_per_feature") or max_points_per_feature or 0)
 
     return {
         "territory": territory,
@@ -171,6 +202,10 @@ def _extract_run_entry(
         "case_study_run_id": str(page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
         "session_run_id": str(session_run_id or page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
         "dynamic_max_tracks": int(wind_meta.get("dynamic_max_tracks") or wind_meta.get("native_dynamic_max_tracks") or 0),
+        "sampling_spacing_m": round(sampling_spacing_m, 2),
+        "max_points_total": max_points_total,
+        "max_points_per_feature": max_points_per_feature,
+        "component_light_rerun_active": component_light_rerun_active,
         "sum_event_frequency": round(sum_event_frequency, 8),
         "n_events": n_events,
         "wind_pml_50": round(wind_pml_50, 2),
@@ -200,15 +235,28 @@ def record_guamar_run(territory: str, *, session_run_id: str | None = None) -> l
         page_meta = {}
     if not isinstance(impact_summary, dict):
         impact_summary = {}
+    proxy_meta = _load_meta_from_value(page_meta.get("multi_hazard_proxy_json"))
 
     history = _read_history()
     new_rows: list[dict[str, Any]] = []
+    current_case_study_run_id = str(page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or session_run_id or "")
+    if current_case_study_run_id:
+        history = [
+            row
+            for row in history
+            if not (
+                str(row.get("case_study_run_id") or "") == current_case_study_run_id
+                and str(row.get("territory") or "").lower() == territory
+                and str(row.get("hazard") or "").lower() in {"storm", "storm_cmcc"}
+            )
+        ]
     for hazard_key in ("storm", "storm_cmcc"):
         row = _extract_run_entry(
             territory=territory,
             hazard_key=hazard_key,
             wind_meta=wind_meta,
             page_meta=page_meta,
+            proxy_meta=proxy_meta,
             impact_summary=impact_summary,
             session_run_id=session_run_id,
         )
@@ -217,7 +265,7 @@ def record_guamar_run(territory: str, *, session_run_id: str | None = None) -> l
         for prev in reversed(history):
             if (
                 str(prev.get("territory") or "").lower() == territory
-                and str(prev.get("hazard") or "").lower() == hazard_key.upper()
+                and str(prev.get("hazard") or "").lower() == hazard_key.lower()
             ):
                 previous_ids = decode_track_ids(prev.get("track_ids_compressed"))
                 previous_row = prev
@@ -255,9 +303,12 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
     lines.append("")
     lines.append("Journal des reruns Guadeloupe / Martinique.")
     lines.append("")
+    lines.append("Règle: chaque run terminé doit être journalisé automatiquement juste après la génération des artefacts de page.")
+    lines.append("")
     lines.append("Le journal brut est stocke dans `docs/Journalisation_Run_GuaMar.jsonl`.")
     lines.append("Les identifiants de tracks sont stockes compresses en `zlib+base64` dans le journal brut.")
     lines.append("Le pourcentage de tracks communs correspond a `|A ∩ B| / |A|` entre le run courant et le run precedent du meme territoire et du meme alea.")
+    lines.append("`sampling_spacing_m` vient du JSON de page; `max_points_total` et `max_points_per_feature` viennent du proxy multi-aléas léger utilisé pour la page; `component_light_rerun_active` indique si la page contient un bloc `component_light_rerun`.")
     lines.append("")
     if not sorted_rows:
         lines.append("Aucune entree journalisee pour le moment.")
@@ -265,8 +316,8 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
         JOURNAL_MD.write_text("\n".join(lines), encoding="utf-8")
         return
 
-    lines.append("| Date du run | ID de session | Territoire | Alea | dynamic_max_tracks | sum(event_frequency) | n_events | % tracks communs vs run precedent | wind_pml_50 | wind_pml_100 | Track IDs compacts |")
-    lines.append("|---|---|---|---|---:|---:|---:|---:|---:|---:|---|")
+    lines.append("| Date du run | ID de session | Territoire | Alea | dynamic_max_tracks | sampling_spacing_m | max_points_total | max_points_per_feature | component_light_rerun_active | sum(event_frequency) | n_events | % tracks communs vs run precedent | wind_pml_50 | wind_pml_100 | Track IDs compacts |")
+    lines.append("|---|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|")
     for row in sorted_rows:
         overlap = row.get("common_track_share_pct")
         overlap_text = "-" if overlap is None else _format_value(overlap, digits=2)
@@ -280,6 +331,10 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
                     str(row.get("territory") or "-"),
                     str(row.get("hazard") or "-"),
                     str(int(row.get("dynamic_max_tracks") or 0)),
+                    _format_value(row.get("sampling_spacing_m"), digits=2),
+                    str(int(row.get("max_points_total") or 0)) if row.get("max_points_total") is not None else "-",
+                    str(int(row.get("max_points_per_feature") or 0)) if row.get("max_points_per_feature") is not None else "-",
+                    _format_bool(row.get("component_light_rerun_active")),
                     _format_value(row.get("sum_event_frequency"), digits=6),
                     str(int(row.get("n_events") or 0)),
                     overlap_text,
@@ -295,6 +350,8 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
     lines.append("- `ID de session` est identique pour les quatre lignes produites par un meme rerun Guadeloupe + Martinique.")
     lines.append("- La comparaison `% tracks communs vs run precedent` se fait avec le dernier run du meme territoire et du meme alea.")
     lines.append("- `n_events` correspond au nombre de tracks uniques journalises pour le run courant.")
+    lines.append("- `max_points_total` et `max_points_per_feature` journalisent le proxy multi-aléas léger utilisé pour la page, pas le maillage principal de la page.")
+    lines.append("- `component_light_rerun_active` signale la présence du bloc `component_light_rerun` dans le JSON de page.")
     lines.append("- `Track IDs compacts` affiche `count | sha256[0:12] | preview` ; la liste complete est stockee dans le JSONL compressé.")
     lines.append("")
     JOURNAL_MD.write_text("\n".join(lines), encoding="utf-8")

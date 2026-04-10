@@ -25,12 +25,14 @@ const state = {
   },
   mapReady: false,
   windMaps: null,
+  landslideMaps: null,
   windLayerOpacity: 0.82,
   windMapMode: 'mean',
   selectedHazardComponents: {
     wind: true,
     rain: false,
-    surge: false
+    surge: false,
+    landslide: false
   },
   adminVisuMaps: null,
   adminVisuMapsPromise: null,
@@ -40,11 +42,13 @@ const state = {
   adminVulnerabilityCurvesPromise: null,
   adminHydroVulnerabilityCurves: {
     rain: null,
-    surge: null
+    surge: null,
+    landslide: null
   },
   adminHydroVulnerabilityPromises: {
     rain: null,
-    surge: null
+    surge: null,
+    landslide: null
   },
   adminHydroHazardComponent: 'rain',
   adminPopulationTerritory: 'glp',
@@ -98,12 +102,14 @@ const windMapRef = {
     layersByComponent: {
       wind: null,
       rain: null,
-      surge: null
+      surge: null,
+      landslide: null
     },
     paneNamesByComponent: {
       wind: 'hazard-cells-storm-wind',
       rain: 'hazard-cells-storm-rain',
-      surge: 'hazard-cells-storm-surge'
+      surge: 'hazard-cells-storm-surge',
+      landslide: 'hazard-cells-storm-landslide'
     }
   },
   storm_cmcc: {
@@ -113,12 +119,14 @@ const windMapRef = {
     layersByComponent: {
       wind: null,
       rain: null,
-      surge: null
+      surge: null,
+      landslide: null
     },
     paneNamesByComponent: {
       wind: 'hazard-cells-cmcc-wind',
       rain: 'hazard-cells-cmcc-rain',
-      surge: 'hazard-cells-cmcc-surge'
+      surge: 'hazard-cells-cmcc-surge',
+      landslide: 'hazard-cells-cmcc-landslide'
     }
   }
 };
@@ -233,21 +241,25 @@ const WIND_PADDING_CELLS = 6;
 const WIND_SCALE_STEP_MPS = 5;
 const RAIN_SCALE_STEP_MMPH = 25;
 const SURGE_SCALE_STEP_M = 0.25;
-const HAZARD_COMPONENT_ORDER = ['wind', 'rain', 'surge'];
+const HAZARD_COMPONENT_ORDER = ['wind', 'rain', 'surge', 'landslide'];
+const IMPACT_COMPONENT_ORDER = ['wind', 'rain', 'surge', 'landslide'];
 const HAZARD_COMPONENT_LABEL = {
   wind: 'Vent',
   rain: 'Pluie',
-  surge: 'Inond. cotiere'
+  surge: 'Inond. cotiere',
+  landslide: 'Mouv. terrain'
 };
 const HAZARD_COMPONENT_LONG_LABEL = {
   wind: 'Storm (vent)',
   rain: 'Pluie',
-  surge: 'Inondations cotieres'
+  surge: 'Inondations cotieres',
+  landslide: 'Mouvements de terrain'
 };
 const HAZARD_COMPONENT_PALETTES = {
   wind: ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'],
   rain: ['#edf8fb', '#ccece6', '#99d8c9', '#66c2a4', '#41ae76', '#238b45', '#006d2c', '#005824'],
-  surge: ['#f7fcfd', '#d0eff2', '#a6dbe4', '#72c5d6', '#3eaac4', '#167f96', '#0a596e', '#04384a']
+  surge: ['#f7fcfd', '#d0eff2', '#a6dbe4', '#72c5d6', '#3eaac4', '#167f96', '#0a596e', '#04384a'],
+  landslide: ['#f7efe8', '#e8c9ae', '#d39b6f', '#ac6940', '#734127']
 };
 const WIND_PALETTE = ['#d9f0a3', '#fee391', '#feb24c', '#fd8d3c', '#f46d43', '#e31a1c', '#b10026', '#800026', '#67000d'];
 const ADMIN_VISU_LEGEND_COLORS = ['#30123b', '#4145ab', '#4685f9', '#39b6f7', '#1bd0d5', '#4be28a', '#a4ef63', '#f1e54e', '#f9b737', '#ed6925', '#c32503'];
@@ -338,6 +350,10 @@ const els = {
   hazardLayerWind: document.getElementById('hazard-layer-wind'),
   hazardLayerRain: document.getElementById('hazard-layer-rain'),
   hazardLayerSurge: document.getElementById('hazard-layer-surge'),
+  hazardLayerLandslide: document.getElementById('hazard-layer-landslide'),
+  hazardCompareGrid: document.getElementById('hazard-compare-grid'),
+  hazardChartYearCard: document.getElementById('hazard-chart-year-card'),
+  hazardChartEventCard: document.getElementById('hazard-chart-event-card'),
   windMapTitleStorm: document.getElementById('wind-map-title-storm'),
   windMapTitleCmcc: document.getElementById('wind-map-title-cmcc'),
   adminVisuOpacitySlider: document.getElementById('admin-visu-opacity-slider'),
@@ -385,6 +401,8 @@ const els = {
   adminPopulationCaption: document.getElementById('admin-population-caption'),
   adminVulnerabilityGrid: document.getElementById('admin-vulnerability-grid'),
   adminVulnerabilityCaption: document.getElementById('admin-vulnerability-caption'),
+  adminLandslideVulnerabilityGrid: document.getElementById('admin-landslide-vulnerability-grid'),
+  adminLandslideVulnerabilityCaption: document.getElementById('admin-landslide-vulnerability-caption'),
   adminHydroHazardSelect: document.getElementById('admin-hydro-hazard-select'),
   adminHydroVulnerabilityGrid: document.getElementById('admin-hydro-vulnerability-grid'),
   adminHydroVulnerabilityCaption: document.getElementById('admin-hydro-vulnerability-caption'),
@@ -562,6 +580,15 @@ function loadAdminPage5Panels() {
         els.adminVulnerabilityCaption.textContent = `Courbes de vulnerabilite indisponibles: ${err.message}`;
       }
     });
+  ensureAdminHydroVulnerabilityCurvesLoaded('landslide')
+    .then(() => {
+      renderAdminLandslideVulnerabilityCurves();
+    })
+    .catch((err) => {
+      if (els.adminLandslideVulnerabilityCaption) {
+        els.adminLandslideVulnerabilityCaption.textContent = `Courbes de mouvements de terrain indisponibles: ${err.message}`;
+      }
+    });
 }
 
 function setActivePage(pageKey, { updateHash = true } = {}) {
@@ -628,6 +655,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       });
       if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
       resizeAdminVulnerabilityOverviewCharts();
+      resizeAdminVulnerabilityCharts('landslide');
     }, 80);
   }
 }
@@ -797,6 +825,7 @@ function formatWindBinLabel(valueRaw) {
 
 function normalizeHazardComponent(raw) {
   const value = String(raw || '').trim().toLowerCase();
+  if (value.includes('landslide') || value === 'ls') return 'landslide';
   if (value.includes('surge')) return 'surge';
   if (value === 'tr' || value.includes('rain')) return 'rain';
   if (value === 'rain') return 'rain';
@@ -819,7 +848,8 @@ function setSelectedHazardComponent(componentRaw) {
   state.selectedHazardComponents = {
     wind: selected === 'wind',
     rain: selected === 'rain',
-    surge: selected === 'surge'
+    surge: selected === 'surge',
+    landslide: selected === 'landslide'
   };
   updateHazardLayerUi();
 }
@@ -849,6 +879,7 @@ function vulnerabilityIntensityDisplayUnit(unitRaw) {
   if (unit.includes('km/h') || unit.includes('kmh') || unit.includes('m/s')) return WIND_SPEED_UNIT_DISPLAY;
   if (unit.includes('mm')) return 'mm proxy';
   if (unit === 'm') return 'm';
+  if (unit === 'class' || unit === 'classe') return 'classe';
   return String(unitRaw || '').trim() || 'unite';
 }
 
@@ -1314,7 +1345,12 @@ function updateMetaBadges() {
     return;
   }
   const result = getActiveResult();
-  if (!result) return;
+  if (!result) {
+    els.badgeSource.textContent = 'Source: —';
+    els.badgeUpdated.textContent = 'Mis a jour: —';
+    els.badgeEngine.textContent = 'Moteur: —';
+    return;
+  }
   els.badgeSource.textContent = `Source: ${result.meta?.source || 'inconnue'}`;
   els.badgeUpdated.textContent = `Mis a jour: ${formatDate(result.meta?.updated_at)}`;
   els.badgeEngine.textContent = `Moteur: ${result.meta?.engine || 'n/a'}`;
@@ -1383,8 +1419,8 @@ function renderKpis() {
 
 function renderInfraSummary() {
   const analysis = state.page1Analysis;
-  const territory = state.caseStudyTerritory === 'martinique' ? 'martinique' : 'guadeloupe';
-  const territoryLabel = territory === 'martinique' ? 'Martinique' : 'Guadeloupe';
+  const territory = caseStudyTerritoryFromAnalysis(analysis, state.currentPage === 'page2' ? 'martinique' : 'guadeloupe');
+  const territoryLabel = caseStudyTerritoryLabel(territory);
   const territoryLabelLower = territoryLabel.toLowerCase();
   if (els.caseStudyTitle) {
     els.caseStudyTitle.textContent = `Impact des risques physiques sur les infrastructures : etude de cas ${territoryLabel}`;
@@ -1460,7 +1496,7 @@ function renderPage1Exposition(analysis) {
   const totals = expo.total_value_by_type_eur || {};
   const valuation = expo.valuation_metadata || {};
   const newValues = valuation.new_values || {};
-  const territory = state.caseStudyTerritory === 'martinique' ? 'Martinique' : 'Guadeloupe';
+  const territory = caseStudyTerritoryLabel(caseStudyTerritoryFromAnalysis(analysis));
 
   if (els.expositionSummaryText) {
     els.expositionSummaryText.textContent = `L’exposition représente tous les enjeux qui peuvent et doivent être protégés face aux risques physiques. Dans ce cas d’étude sur la ${territory}, ont été pris en compte les réseaux d’eau potable (AEP), d’eau usées (EU) ainsi que les réseaux electriques (Basse tension aérien, basse tension souterrain, haute tension aerien, haute tension souterrain).`;
@@ -1592,8 +1628,23 @@ function buildSharedHistogramPair(valuesStorm, valuesCmcc, binCount = 14) {
   };
 }
 
+function caseStudyHazardMapsForComponent(componentRaw) {
+  const component = normalizeHazardComponent(componentRaw);
+  return component === 'landslide' ? state.landslideMaps : state.windMaps;
+}
+
 function selectedHazardChartConfig(componentRaw) {
   const component = normalizeHazardComponent(componentRaw);
+  if (component === 'landslide') {
+    return {
+      component,
+      yearTitle: 'Répartition des mailles par risque score des mouvements de terrain (climat actuel vs SSP585)',
+      eventTitle: 'Comparaison non affichée pour les mouvements de terrain',
+      xAxisLabel: 'Risque score des mailles',
+      unitDisplay: '',
+      yAxisName: 'Part des mailles (%)'
+    };
+  }
   if (component === 'rain') {
     return {
       component,
@@ -1626,9 +1677,26 @@ function selectedHazardChartConfig(componentRaw) {
 
 function buildAdditionalHazardComparisonRows(componentRaw) {
   const component = normalizeHazardComponent(componentRaw);
-  const storm = state.windMaps?.storm;
-  const cmcc = state.windMaps?.storm_cmcc;
+  const maps = caseStudyHazardMapsForComponent(component);
+  const storm = maps?.storm;
+  const cmcc = maps?.storm_cmcc;
   if (!storm || !cmcc) return [];
+
+  if (component === 'landslide') {
+    const metric = hazardMetricConfig(component, 'mean');
+    const stormValues = finiteMetricValuesFromCells(storm.cells, metric.valueKey);
+    const cmccValues = finiteMetricValuesFromCells(cmcc.cells, metric.valueKey);
+    if (!stormValues.length || !cmccValues.length) return [];
+    const stormAvg = averageFinite(stormValues);
+    const cmccAvg = averageFinite(cmccValues);
+    if (!Number.isFinite(stormAvg) || !Number.isFinite(cmccAvg)) return [];
+    return [{
+      indicator: 'Mouvements de terrain - score moyen (risque score)',
+      storm: stormAvg,
+      storm_cmcc: cmccAvg,
+      delta: cmccAvg - stormAvg
+    }];
+  }
 
   const scenarios = [
     { key: 'mean', label: 'Moyenne annuelle' },
@@ -1692,11 +1760,53 @@ function renderSelectedHazardComparisonCharts(analysis, componentRaw) {
   if (els.hazardChartYearTitle) els.hazardChartYearTitle.textContent = cfg.yearTitle;
   if (els.hazardChartEventTitle) els.hazardChartEventTitle.textContent = cfg.eventTitle;
 
-  const storm = state.windMaps?.storm;
-  const cmcc = state.windMaps?.storm_cmcc;
+  const maps = caseStudyHazardMapsForComponent(component);
+  const storm = maps?.storm;
+  const cmcc = maps?.storm_cmcc;
+  if (els.hazardCompareGrid) {
+    els.hazardCompareGrid.classList.toggle('landslide-mode', component === 'landslide');
+  }
+  if (els.hazardChartEventCard) {
+    els.hazardChartEventCard.hidden = component === 'landslide';
+  }
+  if (els.hazardChartYearCard) {
+    els.hazardChartYearCard.classList.toggle('full-span', component === 'landslide');
+  }
   if (!storm || !cmcc) {
-    renderHistogramComparisonChart('page1_year_compare', 'page1-chart-year-compare', null, null, 'STORM', 'STORM_CMCC', '#0083CB', '#F39655', cfg);
-    renderHistogramComparisonChart('page1_track_compare', 'page1-chart-track-compare', null, null, 'STORM', 'STORM_CMCC', '#00A6E2', '#A4A64B', cfg);
+    if (component === 'landslide') {
+      renderHistogramComparisonChart(
+        'page1_year_compare',
+        'page1-chart-year-compare',
+        null,
+        null,
+        'Climat actuel',
+        'SSP585',
+        '#8C5A3C',
+        '#D39B6F',
+        cfg
+      );
+    } else {
+      renderHistogramComparisonChart('page1_year_compare', 'page1-chart-year-compare', null, null, 'STORM', 'STORM_CMCC', '#0083CB', '#F39655', cfg);
+      renderHistogramComparisonChart('page1_track_compare', 'page1-chart-track-compare', null, null, 'STORM', 'STORM_CMCC', '#00A6E2', '#A4A64B', cfg);
+    }
+    return;
+  }
+
+  if (component === 'landslide') {
+    const metric = hazardMetricConfig(component, 'mean');
+    const stormHist = buildHistogramFromValues(finiteMetricValuesFromCells(storm.cells, metric.valueKey), 0, 5, 5);
+    const cmccHist = buildHistogramFromValues(finiteMetricValuesFromCells(cmcc.cells, metric.valueKey), 0, 5, 5);
+    renderHistogramComparisonChart(
+      'page1_year_compare',
+      'page1-chart-year-compare',
+      stormHist,
+      cmccHist,
+      'Climat actuel',
+      'SSP585',
+      '#8C5A3C',
+      '#D39B6F',
+      cfg
+    );
     return;
   }
 
@@ -1740,14 +1850,28 @@ function renderSelectedHazardComparisonCharts(analysis, componentRaw) {
 function renderPage1Hazard(analysis) {
   const hazard = analysis?.hazard || {};
   if (els.hazardSummaryText) {
-    els.hazardSummaryText.innerHTML = escapeHtml(String(hazard.summary_text || '')).replaceAll('\n', '<br />');
+    const territory = caseStudyTerritoryLabel(caseStudyTerritoryFromAnalysis(analysis));
+    const summaryParts = [escapeHtml(String(hazard.summary_text || '')).replaceAll('\n', '<br />')];
+    const landslideMaps = state.landslideMaps;
+    const landslideStormMean = Number(landslideMaps?.storm?.mean_landslide_score_mean);
+    const landslideCmccMean = Number(landslideMaps?.storm_cmcc?.mean_landslide_score_mean);
+    if (Number.isFinite(landslideStormMean) && Number.isFinite(landslideCmccMean)) {
+      summaryParts.push(
+        `Les mouvements de terrain sont affichés comme un <strong>modèle probabiliste</strong> sans unité. Sur la ${territory}, le score moyen des mailles est de ${escapeHtml(numberFmt.format(landslideStormMean))} pour le climat actuel et de ${escapeHtml(numberFmt.format(landslideCmccMean))} pour SSP585.`
+      );
+      summaryParts.push(
+        'Dans les cartes NGI, 0 et 1 correspondent à une probabilité nulle de mouvement de terrain, tandis que 2, 3, 4 et 5 indiquent une probabilité croissante.'
+      );
+    }
+    els.hazardSummaryText.innerHTML = summaryParts.join('<br /><br />');
   }
 
   if (els.hazardGuadeloupeCompareBody) {
     const windRows = buildAdditionalHazardComparisonRows('wind');
     const rainRows = buildAdditionalHazardComparisonRows('rain');
     const surgeRows = buildAdditionalHazardComparisonRows('surge');
-    const rows = [...windRows, ...rainRows, ...surgeRows];
+    const landslideRows = buildAdditionalHazardComparisonRows('landslide');
+    const rows = [...windRows, ...rainRows, ...surgeRows, ...landslideRows];
     if (!rows.length) {
       els.hazardGuadeloupeCompareBody.innerHTML = '<tr><td colspan="4">Tableau indisponible.</td></tr>';
     } else {
@@ -1766,21 +1890,22 @@ function renderPage1Hazard(analysis) {
 }
 
 function impactComponentOrder(impactPayload) {
-  const raw = Array.isArray(impactPayload?.component_order) ? impactPayload.component_order : HAZARD_COMPONENT_ORDER;
+  const raw = Array.isArray(impactPayload?.component_order) ? impactPayload.component_order : IMPACT_COMPONENT_ORDER;
   const normalized = raw.map((component) => normalizeHazardComponent(component));
-  const ordered = HAZARD_COMPONENT_ORDER.filter((component) => normalized.includes(component));
-  return ordered.length ? ordered : [...HAZARD_COMPONENT_ORDER];
+  const ordered = IMPACT_COMPONENT_ORDER.filter((component) => normalized.includes(component));
+  return ordered.length ? ordered : [...IMPACT_COMPONENT_ORDER];
 }
 
 function normalizeDamageComponentMap(mapRaw, totalFallback = 0) {
   const out = {
     wind: 0,
     rain: 0,
-    surge: 0
+    surge: 0,
+    landslide: 0
   };
   let hasExplicitValue = false;
   if (mapRaw && typeof mapRaw === 'object') {
-    HAZARD_COMPONENT_ORDER.forEach((component) => {
+    IMPACT_COMPONENT_ORDER.forEach((component) => {
       const value = Number(mapRaw?.[component]);
       if (Number.isFinite(value)) {
         out[component] = value;
@@ -1799,7 +1924,7 @@ function scaleDamageComponentMap(mapRaw, factorRaw, totalFallback = 0) {
   const factor = Number.isFinite(Number(factorRaw)) ? Number(factorRaw) : 1;
   const base = normalizeDamageComponentMap(mapRaw, totalFallback);
   const scaled = {};
-  HAZARD_COMPONENT_ORDER.forEach((component) => {
+  IMPACT_COMPONENT_ORDER.forEach((component) => {
     scaled[component] = Number(base[component] || 0) * factor;
   });
   return scaled;
@@ -1919,11 +2044,12 @@ function impactTableScenarioMeta(scenarioRaw) {
 
 function renderPage1Impact(analysis) {
   const impact = withRp50ImpactScenario(analysis?.impact || {});
+  const componentOrder = impactComponentOrder(impact);
   const tables = impact.state_damage_tables || {};
   const scenarioMeta = impactTableScenarioMeta(state.impactTableScenario);
   state.impactTableScenario = scenarioMeta.key;
   const rows = Array.isArray(tables[scenarioMeta.key]) ? tables[scenarioMeta.key] : [];
-  renderImpactScenarioTables(rows, analysis?.exposition?.total_value_by_type_eur || {});
+  renderImpactScenarioTables(rows, analysis?.exposition?.total_value_by_type_eur || {}, componentOrder);
   if (els.impactTableTitle) {
     els.impactTableTitle.textContent = scenarioMeta.title;
   }
@@ -1935,16 +2061,16 @@ function renderPage1Impact(analysis) {
   renderImpactBreakdownCharts(impact);
 }
 
-function renderImpactScenarioTables(rows, exposureByClass = {}) {
-  renderImpactScenarioTableForHazard(els.impactTableStormBody, rows, 'storm', exposureByClass);
-  renderImpactScenarioTableForHazard(els.impactTableCmccBody, rows, 'storm_cmcc', exposureByClass);
+function renderImpactScenarioTables(rows, exposureByClass = {}, componentOrder = IMPACT_COMPONENT_ORDER) {
+  renderImpactScenarioTableForHazard(els.impactTableStormBody, rows, 'storm', exposureByClass, componentOrder);
+  renderImpactScenarioTableForHazard(els.impactTableCmccBody, rows, 'storm_cmcc', exposureByClass, componentOrder);
 }
 
-function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, exposureByClass = {}) {
+function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, exposureByClass = {}, componentOrder = IMPACT_COMPONENT_ORDER) {
   if (!targetBody) return;
   const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
   if (!rows.length) {
-    targetBody.innerHTML = '<tr><td colspan="8">Aucune donnee d\'impact disponible.</td></tr>';
+    targetBody.innerHTML = `<tr><td colspan="${5 + componentOrder.length}">Aucune donnee d'impact disponible.</td></tr>`;
     return;
   }
   const displayMode = normalizeImpactTableDisplayMode(state.impactTableDisplayMode);
@@ -1959,13 +2085,14 @@ function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, expo
     const indirectDamage = Number.isFinite(Number(hazardRow.indirect_damage_eur))
       ? Number(hazardRow.indirect_damage_eur)
       : Math.max(0, Number(hazardRow.damage_eur || 0) - directDamage);
+    const componentCells = componentOrder.map((component) => `
+      <td class="num">${escapeHtml(formatDamageDisplayValue(components[component] || 0, exposureEur, displayMode))}</td>
+    `).join('');
     return `
       <tr>
         <td>${escapeHtml(String(rowLabel))}</td>
         <td class="num">${escapeHtml(formatStateTuple(hazardRow.state_pct))}</td>
-        <td class="num">${escapeHtml(formatDamageDisplayValue(components.wind || 0, exposureEur, displayMode))}</td>
-        <td class="num">${escapeHtml(formatDamageDisplayValue(components.rain || 0, exposureEur, displayMode))}</td>
-        <td class="num">${escapeHtml(formatDamageDisplayValue(components.surge || 0, exposureEur, displayMode))}</td>
+        ${componentCells}
         <td class="num">${escapeHtml(formatDamageDisplayValue(directDamage, exposureEur, displayMode))}</td>
         <td class="num">${escapeHtml(formatDamageDisplayValue(indirectDamage, exposureEur, displayMode))}</td>
         <td class="num">${escapeHtml(formatDamageDisplayValue(hazardRow.damage_eur || 0, exposureEur, displayMode))}</td>
@@ -2529,6 +2656,23 @@ function hazardMetricConfig(componentRaw, modeRaw) {
   const component = normalizeHazardComponent(componentRaw);
   const mode = normalizeWindMapMode(modeRaw);
 
+  if (component === 'landslide') {
+    return {
+      component,
+      mode: 'mean',
+      valueKey: 'mean_landslide_score',
+      minKey: 'mean_landslide_score_min',
+      maxKey: 'mean_landslide_score_max',
+      legendTitle: 'Probabilités de mouvements de terrain',
+      captionLabel: 'probabilités de mouvements de terrain',
+      mapLabel: 'risque score',
+      tooltipLabel: 'Risque score',
+      unitDisplay: 'risque score',
+      scaleStep: 1,
+      estimateFrom: null
+    };
+  }
+
   if (component === 'rain') {
     if (mode === 'rp50') {
       return {
@@ -2856,9 +3000,11 @@ function updateHazardLayerUi() {
   if (els.hazardLayerWind) els.hazardLayerWind.checked = isHazardComponentVisible('wind');
   if (els.hazardLayerRain) els.hazardLayerRain.checked = isHazardComponentVisible('rain');
   if (els.hazardLayerSurge) els.hazardLayerSurge.checked = isHazardComponentVisible('surge');
+  if (els.hazardLayerLandslide) els.hazardLayerLandslide.checked = isHazardComponentVisible('landslide');
   if (els.hazardLayerWind && selected === 'wind') els.hazardLayerWind.checked = true;
   if (els.hazardLayerRain && selected === 'rain') els.hazardLayerRain.checked = true;
   if (els.hazardLayerSurge && selected === 'surge') els.hazardLayerSurge.checked = true;
+  if (els.hazardLayerLandslide && selected === 'landslide') els.hazardLayerLandslide.checked = true;
 }
 
 function currentHazardLayerPaneOpacity() {
@@ -3288,7 +3434,8 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
 }
 
 function renderWindMaps() {
-  const payload = state.windMaps;
+  const selectedComponent = getSelectedHazardComponent();
+  const payload = selectedComponent === 'landslide' ? state.landslideMaps : state.windMaps;
   if (!payload) return;
   const meta = payload.meta || {};
   const storm = payload.storm;
@@ -3326,10 +3473,14 @@ function renderWindMaps() {
   clearHazardMapLayers('storm_cmcc');
 
   if (els.windMapTitleStorm) {
-    els.windMapTitleStorm.textContent = 'Cartes des aleas (STORM)';
+    els.windMapTitleStorm.textContent = selectedComponent === 'landslide'
+      ? 'Cartes des probabilités de mouvements de terrain (climat actuel)'
+      : 'Cartes des aleas (STORM)';
   }
   if (els.windMapTitleCmcc) {
-    els.windMapTitleCmcc.textContent = 'Cartes des aleas (STORM_CMCC)';
+    els.windMapTitleCmcc.textContent = selectedComponent === 'landslide'
+      ? 'Cartes des probabilités de mouvements de terrain (SSP585)'
+      : 'Cartes des aleas (STORM_CMCC)';
   }
 
   if (!activeComponents.length) {
@@ -3346,14 +3497,19 @@ function renderWindMaps() {
   }
 
   const componentText = activeComponents.map((component) => HAZARD_COMPONENT_LONG_LABEL[component] || component).join(', ');
-  const scenarioText = hazardScenarioLabel(mode);
   const allowExtrapolation = !Boolean(meta?.territory_mask_path || meta?.cell_clip_rule);
   const coverageText = allowExtrapolation
     ? 'extrapolation spatiale active autour de la zone etudiee'
     : 'clipping territorial natif (mailles hors territoire masquees)';
 
   if (storm && els.windStormCaption) {
-    els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(storm.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    if (selectedComponent === 'landslide') {
+      const meanScore = Number(storm.mean_landslide_score_mean);
+      els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${componentText} · climat actuel · score moyen ${Number.isFinite(meanScore) ? numberFmt.format(meanScore) : 'n/a'} (risque score)`;
+    } else {
+      const scenarioText = hazardScenarioLabel(mode);
+      els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(storm.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    }
     activeComponents.forEach((component) => {
       renderHazardComponentMapLayer('storm', component, storm, meta, {
         gridSpec: sharedGrid,
@@ -3364,7 +3520,13 @@ function renderWindMaps() {
     ensureWindLegend('storm', activeComponents, scalesByComponent, metricsByComponent);
   }
   if (cmcc && els.windCmccCaption) {
-    els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(cmcc.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    if (selectedComponent === 'landslide') {
+      const meanScore = Number(cmcc.mean_landslide_score_mean);
+      els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${componentText} · SSP585 · score moyen ${Number.isFinite(meanScore) ? numberFmt.format(meanScore) : 'n/a'} (risque score)`;
+    } else {
+      const scenarioText = hazardScenarioLabel(mode);
+      els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(cmcc.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+    }
     activeComponents.forEach((component) => {
       renderHazardComponentMapLayer('storm_cmcc', component, cmcc, meta, {
         gridSpec: sharedGrid,
@@ -3892,6 +4054,7 @@ function adminVulnerabilityXAxisLabel(payload) {
   const unitDisplay = vulnerabilityIntensityDisplayUnit(payload?.intensity_unit);
   if (component === 'rain') return `Pluie proxy (${unitDisplay})`;
   if (component === 'surge') return `Submersion cotiere (${unitDisplay})`;
+  if (component === 'landslide') return `Valeur pixel (${unitDisplay})`;
   return `Vitesse vent (${unitDisplay})`;
 }
 
@@ -3899,6 +4062,7 @@ function adminVulnerabilityHazardLabel(payload) {
   const component = normalizeHazardComponent(payload?.hazard_component || payload?.haz_type);
   if (component === 'rain') return 'pluie';
   if (component === 'surge') return 'submersion cotiere';
+  if (component === 'landslide') return 'mouvements de terrain';
   return 'vent';
 }
 
@@ -3919,6 +4083,11 @@ function renderAdminVulnerabilityCurveChart(curve, payload, options = {}) {
   const maxX = mainPoints.reduce((acc, point) => Math.max(acc, Number(point?.[0] || 0)), 0);
   const axisMax = maxX > 0 ? Math.ceil(maxX * 1.05) : 1;
   const unitDisplay = vulnerabilityIntensityDisplayUnit(curve.intensity_unit || payload?.intensity_unit);
+  const component = normalizeHazardComponent(payload?.hazard_component || payload?.haz_type);
+  const curveCode = String(curve.code || '').toLowerCase();
+  const color = component === 'landslide'
+    ? (curveCode.includes('proxy') ? '#C88B5A' : '#8C5A3C')
+    : '#F39655';
 
   const lowerArr = Array.isArray(curve.uncertaintyLower) ? curve.uncertaintyLower : [];
   const upperArr = Array.isArray(curve.uncertaintyUpper) ? curve.uncertaintyUpper : [];
@@ -3955,8 +4124,8 @@ function renderAdminVulnerabilityCurveChart(curve, payload, options = {}) {
     data: mainPoints,
     showSymbol: false,
     symbol: 'none',
-    lineStyle: { width: 2, color: '#F39655' },
-    areaStyle: { color: 'rgba(243, 150, 85, 0.18)' }
+    lineStyle: { width: 2, color },
+    areaStyle: { color: `${color}33` }
   });
 
   chart.setOption({
@@ -4037,7 +4206,10 @@ function renderAdminVulnerabilityCurveSet(payload, options = {}) {
     const curveCount = payload.curves.length;
     const hasUncertainty = payload.curves.some((curve) => Array.isArray(curve.uncertaintyLower) && Array.isArray(curve.uncertaintyUpper));
     const uncertaintyText = hasUncertainty ? 'incertitude visible (bornes basse/haute)' : 'incertitude non disponible dans la source';
-    captionEl.textContent = `${curveCount} courbes (${payload.profile}) · alea ${adminVulnerabilityHazardLabel(payload)} · axe X en ${vulnerabilityIntensityDisplayUnit(payload.intensity_unit)} · ${uncertaintyText}.`;
+    captionEl.textContent = String(
+      options.captionText
+      || `${curveCount} courbes (${payload.profile}) · alea ${adminVulnerabilityHazardLabel(payload)} · axe X en ${vulnerabilityIntensityDisplayUnit(payload.intensity_unit)} · ${uncertaintyText}.`
+    );
   }
 
   setTimeout(() => {
@@ -4049,6 +4221,9 @@ function renderVulnerabilityOverviewCards(cards, options = {}) {
   const gridEl = options.gridEl || els.adminVulnerabilityGrid;
   const captionEl = options.captionEl || els.adminVulnerabilityCaption;
   const scope = String(options.scope || '').trim();
+  const componentOrder = Array.isArray(options.componentOrder) && options.componentOrder.length
+    ? options.componentOrder.map((component) => normalizeHazardComponent(component))
+    : ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS;
   if (!gridEl) return;
 
   if (!cards.length) {
@@ -4058,13 +4233,13 @@ function renderVulnerabilityOverviewCards(cards, options = {}) {
   }
 
   const signature = cards
-    .map((card) => `${card.key}:${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => card.curves?.[component]?.code || '-').join('/')}`)
+    .map((card) => `${card.key}:${componentOrder.map((component) => card.curves?.[component]?.code || '-').join('/')}`)
     .join('|');
 
   if (gridEl.dataset.signature !== signature) {
     disposeAdminVulnerabilityOverviewCharts(scope);
     gridEl.innerHTML = cards.map((card) => {
-      const codes = ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS
+      const codes = componentOrder
         .map((component) => `${ADMIN_VULNERABILITY_OVERVIEW_META[component].label}: ${card.curves?.[component]?.code || 'n/a'}`)
         .join(' · ');
       return `
@@ -4074,7 +4249,7 @@ function renderVulnerabilityOverviewCards(cards, options = {}) {
           <div class="admin-vulnerability-item-meta"><strong>Infra modele source:</strong> ${escapeHtml(card.modeledType)} (${escapeHtml(card.modeledCharacteristics)})</div>
           <div class="admin-vulnerability-item-code"><strong>Codes courbes:</strong> ${escapeHtml(codes)}</div>
           <div class="admin-vulnerability-mini-grid">
-            ${ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.map((component) => `
+            ${componentOrder.map((component) => `
               <div class="admin-vulnerability-mini-card">
                 <div class="admin-vulnerability-mini-title">${escapeHtml(ADMIN_VULNERABILITY_OVERVIEW_META[component].label)}</div>
                 <div id="${escapeHtml(adminOverviewDomId(card.key, component, scope))}" class="admin-vulnerability-chart admin-vulnerability-chart-mini"></div>
@@ -4088,7 +4263,7 @@ function renderVulnerabilityOverviewCards(cards, options = {}) {
   }
 
   cards.forEach((card) => {
-    ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS.forEach((component) => {
+    componentOrder.forEach((component) => {
       renderAdminVulnerabilityOverviewMiniChart(card.key, component, card.curves?.[component] || null, scope);
     });
   });
@@ -4107,6 +4282,7 @@ function renderVulnerabilityOverviewCards(cards, options = {}) {
 function collectCaseStudyVulnerabilityExampleCards() {
   const wantedKeys = ['eau_eu_pr', 'elec_bt_aerien'];
   const cards = collectAdminVulnerabilityOverviewCards();
+  mergeComponentCurveIntoCards(cards, 'landslide', state.adminHydroVulnerabilityCurves?.landslide || null);
   const byKey = new Map(cards.map((card) => [String(card.key), card]));
   return wantedKeys
     .map((key) => byKey.get(key))
@@ -4128,6 +4304,37 @@ function renderAdminVulnerabilityOverviewCurves() {
   });
 }
 
+function selectCaseStudyLandslideCurve(payload) {
+  if (!payload || !Array.isArray(payload.curves)) return null;
+  const preferredCode = String(payload?.default_curve?.code || '').trim();
+  if (preferredCode) {
+    const preferred = payload.curves.find((curve) => String(curve?.code || '') === preferredCode);
+    if (preferred) return preferred;
+  }
+  return payload.curves[0] || null;
+}
+
+function mergeComponentCurveIntoCards(cards, component, payload, options = {}) {
+  const curve = options.curve || selectCaseStudyLandslideCurve(payload);
+  if (!curve) return cards;
+  const assetTypes = new Set(
+    Array.isArray(curve.sibAssetTypes)
+      ? curve.sibAssetTypes.map((assetType) => String(assetType || '').trim()).filter(Boolean)
+      : Array.isArray(curve.sib_asset_types)
+        ? curve.sib_asset_types.map((assetType) => String(assetType || '').trim()).filter(Boolean)
+        : []
+  );
+  if (!assetTypes.size) return cards;
+
+  cards.forEach((card) => {
+    if (assetTypes.has(String(card.key || '').trim())) {
+      card.curves = card.curves || {};
+      card.curves[component] = curve;
+    }
+  });
+  return cards;
+}
+
 function renderCaseStudyVulnerabilityExamples() {
   const gridEl = els.caseStudyVulnerabilityGrid;
   if (!gridEl) return;
@@ -4136,9 +4343,10 @@ function renderCaseStudyVulnerabilityExamples() {
     gridEl,
     captionEl: els.caseStudyVulnerabilityCaption,
     scope: 'page1_examples',
+    componentOrder: ['wind', 'surge', 'rain', 'landslide'],
     emptyCaptionText: 'Courbes de vulnérabilité indisponibles.',
     emptyTitle: 'Aucune courbe disponible',
-    captionText: `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière et pluie.`
+    captionText: `${cards.length} infrastructures affichées · chaque carte combine vent, submersion côtière, pluie et mouvements de terrain.`
   });
 }
 
@@ -4147,7 +4355,8 @@ function loadCaseStudyVulnerabilityExamples() {
   state.caseStudyVulnerabilityExamplesPromise = Promise.all([
     ensureAdminVulnerabilityCurvesLoaded(),
     ensureAdminHydroVulnerabilityCurvesLoaded('rain'),
-    ensureAdminHydroVulnerabilityCurvesLoaded('surge')
+    ensureAdminHydroVulnerabilityCurvesLoaded('surge'),
+    ensureAdminHydroVulnerabilityCurvesLoaded('landslide')
   ])
     .then(() => {
       renderCaseStudyVulnerabilityExamples();
@@ -4176,11 +4385,36 @@ function renderAdminHydroVulnerabilityCurves() {
   renderAdminVulnerabilityOverviewCurves();
 }
 
+function renderAdminLandslideVulnerabilityCurves() {
+  if (!runtime.allowAdminVisu) return;
+  const gridEl = els.adminLandslideVulnerabilityGrid;
+  const captionEl = els.adminLandslideVulnerabilityCaption;
+  if (!gridEl || !captionEl) return;
+
+  const payload = state.adminHydroVulnerabilityCurves?.landslide || null;
+  if (!payload || !Array.isArray(payload.curves)) {
+    captionEl.textContent = 'Chargement des courbes de mouvements de terrain...';
+    return;
+  }
+
+  const curveCount = payload.curves.length;
+  const hasUncertainty = payload.curves.some((curve) => Array.isArray(curve.uncertaintyLower) && Array.isArray(curve.uncertaintyUpper));
+  const uncertaintyText = hasUncertainty ? 'incertitude visible (bornes basse/haute)' : 'incertitude non disponible dans la source';
+  renderAdminVulnerabilityCurveSet(payload, {
+    gridEl,
+    captionEl,
+    groupKey: 'landslide',
+    loadingText: 'Chargement des courbes de mouvements de terrain...',
+    captionText: `${curveCount} courbes (${payload.profile}) · hypothèse 5 paliers (référence) et proxy D2 (comparaison) · axe X en ${vulnerabilityIntensityDisplayUnit(payload.intensity_unit)} · ${uncertaintyText}.`
+  });
+}
+
 const ADMIN_VULNERABILITY_OVERVIEW_COMPONENTS = ['wind', 'surge', 'rain'];
 const ADMIN_VULNERABILITY_OVERVIEW_META = {
   wind: { label: 'Vent', color: '#FFFFFF' },
   surge: { label: 'Submersion côtière', color: '#003A76' },
-  rain: { label: 'Pluie', color: '#5BC5F2' }
+  rain: { label: 'Pluie', color: '#5BC5F2' },
+  landslide: { label: 'Mouv. terrain', color: '#8C5A3C' }
 };
 
 function adminOverviewSlug(raw) {
@@ -4797,7 +5031,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
         const valA = Number(rows.find((r) => r.seriesName === labelA)?.value?.[1] || 0);
         const valB = Number(rows.find((r) => r.seriesName === labelB)?.value?.[1] || 0);
         return [
-          `<strong>${escapeHtml(numberFmt.format(binValue))} ${escapeHtml(unitDisplay)}</strong>`,
+          `<strong>${escapeHtml(numberFmt.format(binValue))}${unitDisplay ? ` ${escapeHtml(unitDisplay)}` : ''}</strong>`,
           `${escapeHtml(labelA)}: ${escapeHtml(numberFmt.format(valA))}%`,
           `${escapeHtml(labelB)}: ${escapeHtml(numberFmt.format(valB))}%`
         ].join('<br/>');
@@ -4812,7 +5046,7 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       type: 'value',
       min: axisMinX,
       max: axisMaxX,
-      name: `${xAxisLabel} (${unitDisplay})`,
+      name: unitDisplay ? `${xAxisLabel} (${unitDisplay})` : xAxisLabel,
       nameLocation: 'middle',
       nameGap: 54,
       nameTextStyle: { color: '#edf4f2', fontSize: 12, fontWeight: 700, padding: [10, 0, 0, 0] },
@@ -4820,7 +5054,9 @@ function renderHistogramComparisonChart(refKey, domId, graphA, graphB, labelA, l
       axisLabel: {
         color: '#abc0ba',
         margin: 10,
-        formatter: (value) => peopleFmtInt.format(Math.round(Number(value) || 0))
+        formatter: component === 'landslide'
+          ? (value) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(Number(value) || 0)
+          : (value) => peopleFmtInt.format(Math.round(Number(value) || 0))
       }
     },
     yAxis: {
@@ -4965,7 +5201,7 @@ function renderStackedImpactBarChart(refKey, domId, rows, paletteByComponent) {
 
   const labels = safeRows.map((row) => row.label);
   const series = [];
-  const components = [...HAZARD_COMPONENT_ORDER];
+  const components = [...IMPACT_COMPONENT_ORDER];
   components.forEach((component) => {
     series.push({
       name: `STORM ${HAZARD_COMPONENT_LABEL[component] || component}`,
@@ -5224,6 +5460,7 @@ function renderAll() {
     renderAdminVisuPage();
     renderAdminPopulationMap();
     renderAdminVulnerabilityOverviewCurves();
+    renderAdminLandslideVulnerabilityCurves();
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -5232,7 +5469,7 @@ function renderAll() {
     ensureNetworkStatesLoaded();
   }
   renderNetworkStateMap();
-
+  updateMetaBadges();
   if (state.currentPage === 'page3') {
     renderTerritorySelectionState();
     renderKpis();
@@ -5243,7 +5480,6 @@ function renderAll() {
   if (!state.activeResult) {
     return;
   }
-  updateMetaBadges();
   renderNotes();
 
 }
@@ -5270,6 +5506,16 @@ function normalizeCaseStudyTerritory(territory) {
   return String(territory || '').trim().toLowerCase() === 'martinique' ? 'martinique' : 'guadeloupe';
 }
 
+function caseStudyTerritoryFromAnalysis(analysis, fallbackTerritory = null) {
+  const meta = analysis?.meta || {};
+  const territoryRaw = meta.case_study_territory || meta.valuation_territory || fallbackTerritory || 'guadeloupe';
+  return normalizeCaseStudyTerritory(territoryRaw);
+}
+
+function caseStudyTerritoryLabel(territory) {
+  return normalizeCaseStudyTerritory(territory) === 'martinique' ? 'Martinique' : 'Guadeloupe';
+}
+
 function caseStudyFileBase(territory) {
   return normalizeCaseStudyTerritory(territory);
 }
@@ -5292,6 +5538,18 @@ async function fetchWindMaps(territory = 'guadeloupe') {
     }
   }
   throw lastErr || new Error('Impossible de charger les cartes des vents');
+}
+
+async function fetchLandslideMaps(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-landslide-maps.json`, window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload || !payload.meta || !payload.storm || !payload.storm_cmcc) {
+    throw new Error('Payload carte des mouvements de terrain invalide');
+  }
+  return payload;
 }
 
 async function fetchCaseStudyMultiHazardProxy(territory = 'guadeloupe') {
@@ -5325,21 +5583,23 @@ function caseStudyRunId(payload) {
   return String(payload?.meta?.case_study_run_id || '').trim();
 }
 
-function validateCaseStudyArtifactsCoherence(territory, windMaps, analysis, multiHazardProxy) {
+function validateCaseStudyArtifactsCoherence(territory, windMaps, landslideMaps, analysis, multiHazardProxy) {
   const key = normalizeCaseStudyTerritory(territory);
   const windRunId = caseStudyRunId(windMaps);
+  const landslideRunId = caseStudyRunId(landslideMaps);
   const analysisRunId = caseStudyRunId(analysis);
   const proxyRunId = caseStudyRunId(multiHazardProxy);
-  const runIds = [windRunId, analysisRunId, proxyRunId];
+  const runIds = [windRunId, landslideRunId, analysisRunId, proxyRunId];
   const withRunIdCount = runIds.filter((value) => Boolean(value)).length;
   if (withRunIdCount > 0 && withRunIdCount < runIds.length) {
-    throw new Error(`Artefacts incoherents pour ${key}: run_id partiellement present (wind/proxy/analysis).`);
+    throw new Error(`Artefacts incoherents pour ${key}: run_id partiellement present (wind/landslide/proxy/analysis).`);
   }
 
-  const referenceRunId = windRunId || analysisRunId || proxyRunId || '';
+  const referenceRunId = windRunId || landslideRunId || analysisRunId || proxyRunId || '';
   if (referenceRunId) {
     const mismatch = [];
     if (windRunId && windRunId !== referenceRunId) mismatch.push(`wind=${windRunId}`);
+    if (landslideRunId && landslideRunId !== referenceRunId) mismatch.push(`landslide=${landslideRunId}`);
     if (analysisRunId && analysisRunId !== referenceRunId) mismatch.push(`analysis=${analysisRunId}`);
     if (proxyRunId && proxyRunId !== referenceRunId) mismatch.push(`proxy=${proxyRunId}`);
     if (mismatch.length) {
@@ -5350,10 +5610,14 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, analysis, mult
   }
 
   const windAt = parseIsoTimestampSafe(windMaps?.meta?.generated_at);
+  const landslideAt = parseIsoTimestampSafe(landslideMaps?.meta?.generated_at);
   const proxyAt = parseIsoTimestampSafe(multiHazardProxy?.meta?.generated_at);
   const analysisAt = parseIsoTimestampSafe(analysis?.meta?.generated_at);
   if (Number.isFinite(windAt) && Number.isFinite(proxyAt) && proxyAt < windAt) {
     throw new Error(`Artefacts incoherents pour ${key}: proxy plus ancien que wind-maps.`);
+  }
+  if (Number.isFinite(windAt) && Number.isFinite(landslideAt) && landslideAt < windAt) {
+    throw new Error(`Artefacts incoherents pour ${key}: landslide plus ancien que wind-maps.`);
   }
   if (Number.isFinite(proxyAt) && Number.isFinite(analysisAt) && analysisAt < proxyAt) {
     throw new Error(`Artefacts incoherents pour ${key}: page-analysis plus ancien que proxy.`);
@@ -5789,13 +6053,15 @@ async function ensureCaseStudyLoaded(territory) {
   if (cache.promise) return cache.promise;
   cache.promise = Promise.all([
     fetchWindMaps(key),
+    fetchLandslideMaps(key),
     fetchWaterInfra(key),
     fetchPage1Analysis(key),
     fetchNetworkStates(key),
     fetchCaseStudyMultiHazardProxy(key)
-  ]).then(([windMaps, waterInfra, analysis, networkStates, multiHazardProxy]) => {
-    validateCaseStudyArtifactsCoherence(key, windMaps, analysis, multiHazardProxy);
+  ]).then(([windMaps, landslideMaps, waterInfra, analysis, networkStates, multiHazardProxy]) => {
+    validateCaseStudyArtifactsCoherence(key, windMaps, landslideMaps, analysis, multiHazardProxy);
     cache.windMaps = windMaps;
+    cache.landslideMaps = landslideMaps;
     cache.waterInfra = waterInfra;
     cache.analysis = analysis;
     cache.networkStates = networkStates;
@@ -5816,6 +6082,7 @@ function applyCaseStudyState(territory, payload) {
     resetCaseStudyMapLayers();
   }
   state.windMaps = payload?.windMaps || null;
+  state.landslideMaps = payload?.landslideMaps || null;
   state.waterInfra = payload?.waterInfra || null;
   state.page1Analysis = payload?.analysis || null;
   state.networkStates = payload?.networkStates || null;
@@ -6220,6 +6487,15 @@ function bindEvents() {
       renderPage1Hazard(state.page1Analysis || {});
     });
   }
+  if (els.hazardLayerLandslide) {
+    els.hazardLayerLandslide.addEventListener('change', () => {
+      if (!els.hazardLayerLandslide.checked) return;
+      setSelectedHazardComponent('landslide');
+      resetHazardMapFitState();
+      renderWindMaps();
+      renderPage1Hazard(state.page1Analysis || {});
+    });
+  }
   if (els.caseStudyVisuHazardSelect) {
     els.caseStudyVisuHazardSelect.value = normalizeAdminVisuHazard(state.caseStudyVisuHazard);
     els.caseStudyVisuHazardSelect.addEventListener('change', () => {
@@ -6575,6 +6851,16 @@ async function bootstrap() {
           console.warn('Admin vulnerability curves preload failed', err);
           if (state.currentPage === 'page5') {
             setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
+          }
+        });
+      ensureAdminHydroVulnerabilityCurvesLoaded('landslide')
+        .then(() => {
+          if (state.currentPage === 'page5') renderAdminLandslideVulnerabilityCurves();
+        })
+        .catch((err) => {
+          console.warn('Admin landslide curves preload failed', err);
+          if (state.currentPage === 'page5') {
+            setStatus(`Courbes de mouvements de terrain indisponibles: ${err.message}`, 'error');
           }
         });
     }

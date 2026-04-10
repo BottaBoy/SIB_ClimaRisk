@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from app.risk_engine.exposure_to_climada import ClimadaExposureBundle
 
 
-COMPONENT_ORDER = ("wind", "rain", "surge")
+COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
 
 DAMAGE_BREAKDOWN_LABELS = {
@@ -97,7 +97,7 @@ def _normalize_component_ratio_map(raw: dict[str, Any] | None) -> dict[str, floa
             out[comp] = 0.0
     total = sum(out.values())
     if total <= 0.0:
-        return {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        return {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {comp: out[comp] / total for comp in COMPONENT_ORDER}
 
 
@@ -118,7 +118,7 @@ def _normalize_breakdown_share_map(raw: dict[str, Any] | None) -> dict[str, floa
 
 
 def _default_component_ratios() -> dict[str, dict[str, dict[str, float]]]:
-    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {
         hazard: {scenario: dict(base) for scenario in MAP_SCENARIOS}
         for hazard in ("storm", "storm_cmcc")

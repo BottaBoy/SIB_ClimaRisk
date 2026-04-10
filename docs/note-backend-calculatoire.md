@@ -851,15 +851,49 @@ Important:
 - la conversion `depth -> pluie proxy` sert seulement a brancher cette intensite sur les courbes de vulnerabilite;
 - il ne s'agit pas d'un modele hydrologique de crue, de stockage ou de redescente du niveau d'eau.
 
+#### 6.7.5 bis Mouvements de terrain probabilistes
+Les rasters landslide fournis dans `/home/ubuntu/uploads/Landslide` sont des sorties de modele probabiliste, pas des evenements historiques observes. Ils codent une classe ordinale d'aléa:
+- `0` et `1` = probabilite nulle de mouvement de terrain,
+- `2`, `3`, `4` et `5` = probabilites croissantes.
+
+Pour la V1 SIB, le mapping de dommage retenu est:
+- `0/1 -> 0%`,
+- `2 -> 25%`,
+- `3 -> 50%`,
+- `4 -> 75%`,
+- `5 -> 100%`.
+
+Le branchement backend natif s'appuie sur CLIMADA Petals `Landslide.from_prob` dans un sous-ensemble spatial restreint autour de l'exposition pour garder les tests rapides.
+
+Scenarios actifs:
+- `LS_GuaMar_Precipitation_ClimatActuel` -> `STORM`,
+- `LS_GuaMar_Precipitation_ClimatSSP585` -> `STORM_CMCC`,
+- `LS_GuaMar_Eathquake` -> `STORM` et `STORM_CMCC` sans sensibilité climat.
+
+La version actuelle n'active que la Guadeloupe et la Martinique. Les rasters Reunion sont prets pour plus tard mais restent hors perimetre.
+
+Choix de courbe de vulnerabilite:
+- la courbe de reference est l'**hypothèse 5 paliers**;
+- la courbe de comparaison est la **proxy D2**, exposee depuis la feuille `L_Categorical` du classeur `Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx`;
+- les feuilles `E_*` du classeur restent un fallback documentaire possible, mais elles ne sont pas utilisees par defaut dans la V1.
+
+L'API backend expose ces courbes via:
+- `GET /api/v1/vulnerability/curves?hazard_component=landslide`
+
+Sur l'interface:
+- la page 5 affiche un sous-bloc dedie aux mouvements de terrain;
+- le repertoire des courbes de vulnerabilite reste separe du bloc vent / submersion / pluie;
+- la page 3 publique reste inchangée et ne charge pas landslide.
+
 #### 6.7.6 Regle d'agregation multi-aleas directe
-La combinaison directe appliquee est additive avec plafond par point:
+La combinaison directe appliquee est additive avec plafond par point. Le plafonnement est applique avant la classification d'etat et avant l'agregation des tableaux:
 
 ```text
 EAI_direct_total(point) = min(value_point,
-                              EAI_wind(point) + EAI_rain(point) + EAI_surge(point))
+                              EAI_wind(point) + EAI_rain(point) + EAI_surge(point) + EAI_landslide(point))
 
 MaxLoss_total(point) = min(value_point,
-                           MaxLoss_wind(point) + MaxLoss_rain(point) + MaxLoss_surge(point))
+                           MaxLoss_wind(point) + MaxLoss_rain(point) + MaxLoss_surge(point) + MaxLoss_landslide(point))
 ```
 
 Puis la propagation elec -> eau (indirect) s'applique sur ce direct total, sans rupture de schema des sorties historiques.
@@ -880,8 +914,14 @@ Dans `meta.modeling`:
 - `multi_hazard_surge_topo_path`
 - `multi_hazard_flood_curve_file`
 
+Dans le proxy multi-aleas (`web/data/*-multi-hazard-proxy.json`):
+- `landslide_sources`
+
+Dans le meta racine des JSON page 1 / page 2:
+- `hazard_components = ["wind", "rain", "surge", "landslide"]`
+
 Dans les JSON page 1 / page 2 (`web/data/*-page*-analysis.json`):
-- `impact.component_order = ["wind", "rain", "surge"]`
+- `impact.component_order = ["wind", "rain", "surge", "landslide"]`
 - `impact.state_damage_tables[*].storm.damage_components_eur`
 - `impact.state_damage_tables[*].storm_cmcc.damage_components_eur`
 - `impact.damage_breakdown_by_scenario[*].storm[*].damage_components_eur`
@@ -894,18 +934,27 @@ Pour la page Guadeloupe/Martinique:
 - un seul aléa est selectionnable a la fois (`Storm (vent)`, `Pluie`, `Inondations cotieres`)
 - les deux graphes de comparaison sous la carte sont dynamiques selon l'aléa selectionne (titres + axes + unites)
 - le bloc impact utilise un seul tableau pilote par menu deroulant (`annual`, `rp50`, `rp100`, `event_max`)
+- les tableaux page 1 / page 2 affichent maintenant les dommages landslide en colonne dédiée
 - les graphes de degats sont regroupes en vues generales eau/electricite par scenario
 
 Pour la page 5:
 - les cartes de courbes sont organisees par infrastructure
 - chaque infrastructure affiche 3 mini-graphes (`vent`, `submersion cotiere`, `pluie`)
-- l'endpoint backend supporte `GET /api/v1/vulnerability/curves?hazard_component=wind|rain|surge`
+- un sous-bloc supplementaire affiche les courbes de mouvements de terrain, avec la reference `hypothèse 5 paliers` et la `proxy D2`
+- l'endpoint backend supporte `GET /api/v1/vulnerability/curves?hazard_component=wind|rain|surge|landslide`
 
 #### 6.7.9 Variables runtime ajoutees
 - `SIB_RISK_MULTI_HAZARD_ENABLED`
 - `SIB_RISK_HAZARD_RAIN_MODEL`
 - `SIB_RISK_HAZARD_SURGE_TOPO_PATH`
 - `SIB_RISK_D2_FLOOD_CURVE_FILE`
+- `SIB_RISK_LANDSLIDE_ROOT`
+- `SIB_RISK_LANDSLIDE_PRECIP_CURRENT_PATH`
+- `SIB_RISK_LANDSLIDE_PRECIP_SSP585_PATH`
+- `SIB_RISK_LANDSLIDE_EARTHQUAKE_PATH`
+- `SIB_RISK_LANDSLIDE_CORR_FACT`
+- `SIB_RISK_LANDSLIDE_N_YEARS`
+- `SIB_RISK_LANDSLIDE_DIST`
 
 #### 6.7.10 Lien avec evolutions futures (glissements / inondations pluviales)
 Le modele pluie (`TCRain`) est conserve comme socle commun pour:
@@ -948,6 +997,8 @@ Les sorties visibles page 1 / page 2 et page 3 sont volontairement limitees a:
 - `event_max`
 
 Le scenario `rp1000` n'est plus expose dans les cartes et tableaux du front.
+Le calcul public de la page 3 reste volontairement limite a `wind`, `rain` et `surge`:
+le bloc landslide n'y est pas active faute de couverture complete sur toute l'emprise STORM.
 
 Objectif:
 - garder une chaine native CLIMADA pour `TropCyclone`, `TCRain` et `TCSurgeBathtub`,
