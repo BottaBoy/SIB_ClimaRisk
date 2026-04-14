@@ -93,10 +93,43 @@ def build_territory_csv(territory_results: list[dict[str, Any]]) -> bytes:
     if not territory_results:
         output.write("territory_id,territory_label\n")
     else:
-        fieldnames = list(territory_results[0].keys())
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
+        # Flatten social_metrics from nested dict to flat columns
+        flattened_results = []
         for row in territory_results:
+            flat_row = dict(row)
+            
+            # Handle social_metrics if present
+            social_metrics = flat_row.pop("social_metrics", {})
+            if isinstance(social_metrics, dict):
+                for hazard, metrics_dict in social_metrics.items():
+                    if isinstance(metrics_dict, dict):
+                        for metric_name, metric_value in metrics_dict.items():
+                            col_name = f"social_{hazard}_{metric_name}"
+                            flat_row[col_name] = metric_value
+            
+            flattened_results.append(flat_row)
+        
+        # Get all fieldnames from all rows to ensure complete column set
+        all_fieldnames = set()
+        for row in flattened_results:
+            all_fieldnames.update(row.keys())
+        
+        # Sort fieldnames: standard ones first, then social ones
+        standard_fields = [
+            "territory_id", "territory_label", "lat", "lon", 
+            "exposure_eur", "population_total",
+            "eai_storm_direct_eur", "eai_storm_indirect_eur", "eai_storm_eur",
+            "eai_cmcc_direct_eur", "eai_cmcc_indirect_eur", "eai_cmcc_eur",
+            "risk_index_storm", "risk_index_cmcc"
+        ]
+        social_fields = sorted([f for f in all_fieldnames if f.startswith("social_")])
+        other_fields = sorted([f for f in all_fieldnames if f not in standard_fields and not f.startswith("social_")])
+        
+        fieldnames = [f for f in standard_fields if f in all_fieldnames] + other_fields + social_fields
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames, restval="")
+        writer.writeheader()
+        for row in flattened_results:
             writer.writerow(row)
     return output.getvalue().encode("utf-8")
 

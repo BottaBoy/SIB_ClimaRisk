@@ -543,6 +543,10 @@ button:disabled {
   color: #ffffff;
 }
 
+.water-map-toolbar {
+  justify-content: flex-end;
+}
+
 .draw-map-card .map {
   height: 360px;
 }
@@ -629,6 +633,20 @@ button:disabled {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.conclusion-table-wrap {
+  max-height: none;
+}
+
+.conclusion-table-wrap table {
+  table-layout: fixed;
+}
+
+.conclusion-table-wrap th,
+.conclusion-table-wrap td {
+  white-space: normal;
+  word-break: break-word;
 }
 
 .metric-list {

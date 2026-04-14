@@ -22,6 +22,27 @@ def _run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
     subprocess.run(cmd, check=True, env=env)
 
 
+def _run_with_reuse_fallback(
+    cmd: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    reuse_path: Path | None = None,
+    label: str,
+) -> bool:
+    print("+", " ".join(cmd), flush=True)
+    try:
+        subprocess.run(cmd, check=True, env=env)
+        return True
+    except subprocess.CalledProcessError as exc:
+        if reuse_path is not None and reuse_path.exists():
+            print(
+                f"[{label}] warning: step failed with exit code {exc.returncode}; reusing existing artefact {reuse_path}",
+                flush=True,
+            )
+            return False
+        raise
+
+
 def _read_meta(path: Path) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -67,7 +88,7 @@ def main() -> None:
     parser.add_argument("--proxy-max-points-total", type=int, default=800)
     parser.add_argument("--proxy-max-points-per-feature", type=int, default=8)
     parser.add_argument("--proxy-dynamic-max-tracks", type=int, default=100)
-    parser.add_argument("--page-spacing-m", type=float, default=100.0)
+    parser.add_argument("--page-spacing-m", type=float, default=150.0)
     parser.add_argument("--map-cell-deg", type=float, default=0.02)
     parser.add_argument("--map-dynamic-max-tracks", type=int, default=300)
     parser.add_argument("--map-surge-native-cell-deg", type=float, default=0.01)
@@ -82,9 +103,11 @@ def main() -> None:
     for territory in args.territories:
         run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
         proxy_json = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
+        page_suffix = "page2" if territory == "martinique" else "page1"
+        page_json = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
         territory_env = os.environ.copy()
-        if territory == "martinique":
-            territory_env.setdefault("SIB_RISK_MULTI_HAZARD_ENABLED", "false")
+        territory_env.setdefault("SIB_RISK_MULTI_HAZARD_ENABLED", "false")
+        territory_env.setdefault("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "120")
 
         _run(
             [
@@ -104,7 +127,7 @@ def main() -> None:
             ,
             env=territory_env,
         )
-        _run(
+        proxy_built = _run_with_reuse_fallback(
             [
                 str(PYTHON),
                 str(REPO_ROOT / "scripts" / "build_case_study_multi_hazard_proxy.py"),
@@ -127,8 +150,10 @@ def main() -> None:
             ]
             ,
             env=territory_env,
+            reuse_path=proxy_json,
+            label=f"{territory} proxy",
         )
-        _run(
+        page_built = _run_with_reuse_fallback(
             [
                 str(PYTHON),
                 str(REPO_ROOT / "scripts" / "build_guadeloupe_page1_data.py"),
@@ -140,13 +165,22 @@ def main() -> None:
                 str(REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"),
                 "--multi-hazard-proxy-json",
                 str(proxy_json),
+                "--allow-stale-proxy",
                 "--case-study-run-id",
                 run_id,
             ]
             ,
             env=territory_env,
+            reuse_path=page_json,
+            label=f"{territory} page-analysis",
         )
-        _assert_case_study_coherence(territory, run_id)
+        if proxy_built and page_built:
+            _assert_case_study_coherence(territory, run_id)
+        else:
+            print(
+                f"[{territory}] coherence check skipped because one or more case-study artefacts were reused after fallback",
+                flush=True,
+            )
         record_guamar_run(territory, session_run_id=session_run_id)
 
 

@@ -23,6 +23,7 @@ class InterdependencyAggregationResult:
     component_health: dict[str, dict[str, dict[str, float]]]
     interdependency: dict[str, Any]
     dependency_scaler_by_hazard: dict[str, float]
+    detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = None  # [hazard][territory][infra_classname] -> state
 
 
 def _new_state_bucket() -> dict[str, float]:
@@ -66,6 +67,30 @@ def _dependency_state_from_elec_health(health: float) -> str:
     if health < 0.75:
         return "S1"
     return "S0"
+
+
+def _infra_class_to_standardized_name(infra_class: str) -> str:
+    """
+    Map infrastructure class to standardized names for social impact metrics.
+
+    Maps asset types to: "elec", "water_aep", "water_eu", or "other"
+    """
+    infra_class_lower = str(infra_class or "").lower()
+    
+    # Electricity
+    if "elec" in infra_class_lower:
+        return "elec"
+    
+    # Water - requires distinguishing between AEP (potable) and EU (wastewater)
+    if "eau" in infra_class_lower or "water" in infra_class_lower:
+        # Try to distinguish AEP vs EU from asset_type if needed
+        # For now, default based on common patterns
+        if "eu" in infra_class_lower or "used" in infra_class_lower or "waste" in infra_class_lower:
+            return "water_eu"
+        else:
+            return "water_aep"
+    
+    return "other"
 
 
 def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
@@ -190,6 +215,16 @@ def aggregate_impacts_with_interdependency(
         hazard: {"local_territory": 0, "nearest_territory": 0, "global": 0}
         for hazard in hazard_keys
     }
+    
+    # Track detailed states for social impact metrics: [hazard][territory][infra_standardized_name] = state
+    detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = {
+        hazard: defaultdict(lambda: {
+            "elec": "S0",
+            "water_aep": "S0",
+            "water_eu": "S0",
+        })
+        for hazard in hazard_keys
+    }
 
     for idx, rec in enumerate(point_records):
         territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
@@ -283,6 +318,14 @@ def aggregate_impacts_with_interdependency(
                 asset_row["eai_cmcc_indirect_eur"] += indirect_eai
                 asset_row["eai_cmcc_eur"] += total_eai
             _bucket_add_state(component_buckets_by_hazard[hazard][infra_class], state=final_state, weight=value)
+            
+            # Update detailed states for social impact metrics
+            # Keep worst state (highest order) seen for each infrastructure type
+            infra_std_name = _infra_class_to_standardized_name(infra_class)
+            if infra_std_name != "other":
+                current_state = detailed_states_by_territory[hazard][territory_id].get(infra_std_name, "S0")
+                if STATE_ORDER.get(final_state, 0) > STATE_ORDER.get(current_state, 0):
+                    detailed_states_by_territory[hazard][territory_id][infra_std_name] = final_state
 
     for _, hazard in dependency_impacted_feature_hazard:
         dependency_impacted_assets_by_hazard[hazard] += 1
@@ -404,4 +447,7 @@ def aggregate_impacts_with_interdependency(
         component_health=component_health,
         interdependency=interdependency,
         dependency_scaler_by_hazard=scaler_by_hazard,
+        detailed_states_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in detailed_states_by_territory.items()
+        },
     )

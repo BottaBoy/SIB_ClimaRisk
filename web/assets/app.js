@@ -66,6 +66,7 @@ const state = {
   waterInfra: null,
   waterLayerVisibility: {},
   page1Analysis: null,
+  completeAnalysis: null,
   networkStates: null,
   networkStatesPromise: null,
   networkLayerVisibility: {},
@@ -79,7 +80,10 @@ const state = {
   impactMapHazard: 'storm',
   impactMapScenario: 'event_max',
   impactTableScenario: 'annual',
-  impactTableDisplayMode: 'money'
+  impactTableDisplayMode: 'money',
+  conclusionDisplayMode: 'money',
+  caseStudyPopulationVisible: false,
+  caseStudyScenarioSocialSummary: null
 };
 
 const mapRef = {
@@ -162,8 +166,17 @@ const waterMapRef = {
   instance: null,
   layersByType: new Map(),
   order: [],
-  hasFitted: false
+  hasFitted: false,
+  overlayPaneName: 'case-study-pop-overlay',
+  populationOverlayLayer: null,
+  populationLegendControl: null,
+  populationOverlayUrl: ''
 };
+
+const POPULATION_OVERLAY_VISUAL = Object.freeze({
+  opacity: 0.95,
+  filter: 'brightness(0.72) contrast(1.35)'
+});
 
 const networkMapRef = {
   instance: null,
@@ -410,6 +423,7 @@ const els = {
   waterInfraMap: document.getElementById('water-infra-map'),
   waterMapCaption: document.getElementById('water-map-caption'),
   waterMapTitle: document.getElementById('water-map-title'),
+  waterPopulationToggle: document.getElementById('water-population-toggle'),
   waterLayerControls: document.getElementById('water-layer-controls'),
   infraSummary: document.getElementById('infra-summary'),
   expositionSummaryText: document.getElementById('exposition-summary-text'),
@@ -428,6 +442,7 @@ const els = {
   impactTableModeButtons: document.getElementById('impact-table-mode-buttons'),
   impactTableStormBody: document.getElementById('impact-table-storm-body'),
   impactTableCmccBody: document.getElementById('impact-table-cmcc-body'),
+  impactSocialTableBody: document.getElementById('impact-social-table-body'),
   impactTableScenarioSelect: document.getElementById('impact-table-scenario-select'),
   impactTableTitle: document.getElementById('impact-table-title'),
   impactOverviewWaterChart: document.getElementById('impact-overview-water-chart'),
@@ -443,6 +458,8 @@ const els = {
   networkLayerControls: document.getElementById('network-layer-controls'),
   networkStateMap: document.getElementById('network-state-map'),
   networkStateCaption: document.getElementById('network-state-caption'),
+  conclusionModeButtons: document.getElementById('conclusion-mode-buttons'),
+  conclusionTableBody: document.getElementById('conclusion-table-body'),
   conclusionText: document.getElementById('conclusion-text'),
   methodValuationOfb: document.getElementById('method-valuation-ofb')
 };
@@ -2050,6 +2067,7 @@ function renderPage1Impact(analysis) {
   state.impactTableScenario = scenarioMeta.key;
   const rows = Array.isArray(tables[scenarioMeta.key]) ? tables[scenarioMeta.key] : [];
   renderImpactScenarioTables(rows, analysis?.exposition?.total_value_by_type_eur || {}, componentOrder);
+  renderSocialImpactTable(analysis);
   if (els.impactTableTitle) {
     els.impactTableTitle.textContent = scenarioMeta.title;
   }
@@ -2059,6 +2077,198 @@ function renderPage1Impact(analysis) {
   updateImpactTableModeUi();
 
   renderImpactBreakdownCharts(impact);
+}
+
+function normalizeConclusionDisplayMode(raw) {
+  return String(raw || '').trim().toLowerCase() === 'percent' ? 'percent' : 'money';
+}
+
+function updateConclusionModeUi() {
+  if (!els.conclusionModeButtons) return;
+  const activeMode = normalizeConclusionDisplayMode(state.conclusionDisplayMode);
+  Array.from(els.conclusionModeButtons.querySelectorAll('button[data-conclusion-mode]')).forEach((button) => {
+    const mode = normalizeConclusionDisplayMode(button.getAttribute('data-conclusion-mode'));
+    const active = mode === activeMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function territoryPopulationByCell(analysis) {
+  const rows = Array.isArray(state.completeAnalysis?.territory_results)
+    ? state.completeAnalysis.territory_results
+    : (Array.isArray(analysis?.impact?.territory_results) ? analysis.impact.territory_results : []);
+  return rows.reduce((acc, row) => {
+    const territoryId = String(row?.territory_id || '').trim();
+    if (territoryId) acc[territoryId] = Number(row?.population_total || 0);
+    return acc;
+  }, {});
+}
+
+function annualSocialSummaryFromCompleteAnalysis() {
+  const summary = state.completeAnalysis?.portfolio_results?.social_impact_summary;
+  if (!summary || typeof summary !== 'object') return null;
+  const normalize = (metricsRaw) => {
+    const metrics = metricsRaw && typeof metricsRaw === 'object' ? metricsRaw : {};
+    return {
+      total_population_affected_any_network: Number(metrics.total_population_affected_any_network || 0),
+      total_without_elec: Number(metrics.total_without_elec || 0),
+      total_without_water_aep: Number(metrics.total_without_water_aep || 0),
+      total_without_water_eu: Number(metrics.total_without_water_eu || 0),
+      total_without_water:
+        Number(metrics.total_without_water_aep || 0) + Number(metrics.total_without_water_eu || 0),
+      total_with_degraded_elec: Number(metrics.total_with_degraded_elec || 0),
+      total_with_degraded_water_aep: Number(metrics.total_with_degraded_water_aep || 0),
+      total_with_degraded_water_eu: Number(metrics.total_with_degraded_water_eu || 0)
+    };
+  };
+  return {
+    storm: normalize(summary.storm),
+    storm_cmcc: normalize(summary.storm_cmcc)
+  };
+}
+
+function featureRepresentativePoint(feature) {
+  const geometry = feature?.geometry || {};
+  const coordinates = geometry?.coordinates;
+  if (!Array.isArray(coordinates)) return null;
+
+  const points = [];
+  const walk = (node) => {
+    if (!Array.isArray(node)) return;
+    if (node.length >= 2 && typeof node[0] === 'number' && typeof node[1] === 'number') {
+      points.push([Number(node[0]), Number(node[1])]);
+      return;
+    }
+    node.forEach((child) => walk(child));
+  };
+  walk(coordinates);
+  if (!points.length) return null;
+  const totals = points.reduce((acc, point) => ({ lon: acc.lon + point[0], lat: acc.lat + point[1] }), { lon: 0, lat: 0 });
+  return {
+    lon: totals.lon / points.length,
+    lat: totals.lat / points.length,
+  };
+}
+
+function territoryCellIdFromLatLon(latRaw, lonRaw) {
+  const lat = Number(latRaw);
+  const lon = Number(lonRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const latBin = Math.round(lat / 0.2) * 0.2;
+  const lonBin = Math.round(lon / 0.2) * 0.2;
+  const latTxt = `${latBin >= 0 ? '+' : ''}${latBin.toFixed(2)}`;
+  const lonTxt = `${lonBin >= 0 ? '+' : ''}${lonBin.toFixed(2)}`;
+  return `cell-${latTxt}_${lonTxt}`;
+}
+
+function serviceKeyFromLayerKey(layerKeyRaw) {
+  const layerKey = String(layerKeyRaw || '').trim().toLowerCase();
+  if (layerKey.startsWith('elec_')) return 'elec';
+  if (layerKey === 'eau_aep') return 'water_aep';
+  if (layerKey === 'eau_eu') return 'water_eu';
+  return null;
+}
+
+function stateSeverity(stateRaw) {
+  const stateCode = String(stateRaw || 'S0').toUpperCase();
+  if (stateCode === 'S3') return 3;
+  if (stateCode === 'S2') return 2;
+  if (stateCode === 'S1') return 1;
+  return 0;
+}
+
+function aggregateScenarioSocialSummary(analysis, networkStates) {
+  const populationByCell = territoryPopulationByCell(analysis);
+  const features = Array.isArray(networkStates?.features) ? networkStates.features : [];
+  const scenarios = ['annual', 'rp50', 'rp100', 'event_max'];
+  const hazards = ['storm', 'storm_cmcc'];
+  const worstStates = {};
+
+  scenarios.forEach((scenario) => {
+    worstStates[scenario] = {};
+    hazards.forEach((hazard) => {
+      worstStates[scenario][hazard] = {};
+    });
+  });
+
+  features.forEach((feature) => {
+    const serviceKey = serviceKeyFromLayerKey(feature?.properties?.layer_key);
+    if (!serviceKey) return;
+    const point = featureRepresentativePoint(feature);
+    if (!point) return;
+    const cellId = territoryCellIdFromLatLon(point.lat, point.lon);
+    if (!cellId || populationByCell[cellId] === undefined) return;
+
+    scenarios.forEach((scenario) => {
+      hazards.forEach((hazard) => {
+        const stateCode = String(feature?.properties?.[`state_${scenario}_${hazard}`] || 'S0').toUpperCase();
+        if (!worstStates[scenario][hazard][cellId]) {
+          worstStates[scenario][hazard][cellId] = { elec: 'S0', water_aep: 'S0', water_eu: 'S0' };
+        }
+        const current = String(worstStates[scenario][hazard][cellId][serviceKey] || 'S0').toUpperCase();
+        if (stateSeverity(stateCode) > stateSeverity(current)) {
+          worstStates[scenario][hazard][cellId][serviceKey] = stateCode;
+        }
+      });
+    });
+  });
+
+  const summary = {};
+  scenarios.forEach((scenario) => {
+    summary[scenario] = {};
+    hazards.forEach((hazard) => {
+      const totals = {
+        total_population_affected_any_network: 0,
+        total_without_elec: 0,
+        total_without_water_aep: 0,
+        total_without_water_eu: 0,
+        total_without_water: 0,
+        total_with_degraded_elec: 0,
+        total_with_degraded_water_aep: 0,
+        total_with_degraded_water_eu: 0
+      };
+      Object.entries(populationByCell).forEach(([cellId, populationRaw]) => {
+        const population = Number(populationRaw || 0);
+        if (population <= 0) return;
+        const states = worstStates[scenario][hazard][cellId] || { elec: 'S0', water_aep: 'S0', water_eu: 'S0' };
+        const elec = String(states.elec || 'S0').toUpperCase();
+        const waterAep = String(states.water_aep || 'S0').toUpperCase();
+        const waterEu = String(states.water_eu || 'S0').toUpperCase();
+        if (elec !== 'S0' || waterAep !== 'S0' || waterEu !== 'S0') totals.total_population_affected_any_network += population;
+        if (elec === 'S3') totals.total_without_elec += population;
+        if (waterAep === 'S3') totals.total_without_water_aep += population;
+        if (waterEu === 'S3') totals.total_without_water_eu += population;
+        if (elec === 'S1' || elec === 'S2') totals.total_with_degraded_elec += population;
+        if (waterAep === 'S1' || waterAep === 'S2') totals.total_with_degraded_water_aep += population;
+        if (waterEu === 'S1' || waterEu === 'S2') totals.total_with_degraded_water_eu += population;
+      });
+      totals.total_without_water = totals.total_without_water_aep + totals.total_without_water_eu;
+      summary[scenario][hazard] = totals;
+    });
+  });
+  return summary;
+}
+
+function ensureScenarioSocialSummary(analysis) {
+  if (state.caseStudyScenarioSocialSummary) return state.caseStudyScenarioSocialSummary;
+  const socialSummary = aggregateScenarioSocialSummary(analysis, state.networkStates);
+  const annualSummary = annualSocialSummaryFromCompleteAnalysis();
+  if (annualSummary) {
+    socialSummary.annual = annualSummary;
+  }
+  state.caseStudyScenarioSocialSummary = socialSummary;
+  return state.caseStudyScenarioSocialSummary;
+}
+
+function formatConclusionLossValue(valueRaw, totalValueRaw, modeRaw) {
+  const value = Number(valueRaw || 0);
+  const totalValue = Number(totalValueRaw || 0);
+  if (normalizeConclusionDisplayMode(modeRaw) === 'percent') {
+    const pct = totalValue > 0 ? (value / totalValue) * 100 : 0;
+    return `${percentFmt.format(pct)} %`;
+  }
+  return formatTableMoneyEUR(value);
 }
 
 function renderImpactScenarioTables(rows, exposureByClass = {}, componentOrder = IMPACT_COMPONENT_ORDER) {
@@ -2101,6 +2311,43 @@ function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, expo
   }).join('');
 }
 
+function renderSocialImpactTable(analysis) {
+  if (!els.impactSocialTableBody) return;
+  const socialSummary = ensureScenarioSocialSummary(analysis).annual || {};
+  const stormMetrics = socialSummary.storm || {};
+  const cmccMetrics = socialSummary.storm_cmcc || {};
+  
+  const metrics = [
+    { label: 'Population totale affectée (S1/S2/S3)', key: 'total_population_affected_any_network' },
+    { label: 'Population sans électricité (S3)', key: 'total_without_elec' },
+    { label: 'Population sans eau potable AEP (S3)', key: 'total_without_water_aep' },
+    { label: 'Population sans eau EU (S3)', key: 'total_without_water_eu' },
+    { label: 'Population électricité dégradée (S1/S2)', key: 'total_with_degraded_elec' },
+    { label: 'Population eau potable dégradée (S1/S2)', key: 'total_with_degraded_water_aep' },
+    { label: 'Population eau EU dégradée (S1/S2)', key: 'total_with_degraded_water_eu' }
+  ];
+  
+  if (!Object.keys(stormMetrics).length) {
+    els.impactSocialTableBody.innerHTML = '<tr><td colspan="4">Aucune donnée d\'impact sociodémographique disponible.</td></tr>';
+    return;
+  }
+  
+  els.impactSocialTableBody.innerHTML = metrics.map((metric) => {
+    const stormVal = Number(stormMetrics[metric.key] || 0);
+    const cmccVal = Number(cmccMetrics[metric.key] || 0);
+    const deltaVal = cmccVal - stormVal;
+    
+    return `
+      <tr>
+        <td>${escapeHtml(metric.label)}</td>
+        <td class="num">${escapeHtml(numberFmt.format(Math.round(stormVal)))}</td>
+        <td class="num">${escapeHtml(numberFmt.format(Math.round(cmccVal)))}</td>
+        <td class="num">${escapeHtml(Math.abs(deltaVal) < 1 ? '0' : ((deltaVal > 0 ? '+' : '') + numberFmt.format(Math.round(deltaVal))))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function renderPage1Conclusion(analysis) {
   if (!els.conclusionText) return;
   const expo = analysis?.exposition || {};
@@ -2108,17 +2355,35 @@ function renderPage1Conclusion(analysis) {
   const storm = impact?.summary_metrics?.storm || {};
   const cmcc = impact?.summary_metrics?.storm_cmcc || {};
   const totalValue = Number(expo.total_value_all_eur || 0);
-  const safeTotal = totalValue > 0 ? totalValue : 1;
-  const toPct = (value) => (Number(value || 0) / safeTotal) * 100;
-  const toM = (value) => Math.round((Number(value || 0) / 1_000_000));
-  const txt = [
-    `Valeur totale du portefeuille d'infrastructures: ${numberFmt.format(Math.round(totalValue / 1_000_000))} M€.`,
-    `Dommages annuels moyens: STORM ${numberFmt.format(toM(storm.eai_total_eur))} M€ (${percentFmt.format(toPct(storm.eai_total_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.eai_total_eur))} M€ (${percentFmt.format(toPct(cmcc.eai_total_eur))} %).`,
-    `Scenario temps de retour 50 ans: STORM ${numberFmt.format(toM(storm.rp50_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp50_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp50_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp50_total_loss_eur))} %).`,
-    `Scenario temps de retour 100 ans: STORM ${numberFmt.format(toM(storm.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.rp100_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.rp100_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.rp100_total_loss_eur))} %).`,
-    `Evenement le plus extreme: STORM ${numberFmt.format(toM(storm.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(storm.event_max_total_loss_eur))} %), STORM_CMCC ${numberFmt.format(toM(cmcc.event_max_total_loss_eur))} M€ (${percentFmt.format(toPct(cmcc.event_max_total_loss_eur))} %).`
+  const socialSummaryByScenario = ensureScenarioSocialSummary(analysis);
+  const rows = [
+    { label: 'Moyenne annuelle', key: 'annual', stormLoss: Number(storm.eai_total_eur || 0), cmccLoss: Number(cmcc.eai_total_eur || 0) },
+    { label: 'Temps de retour 50 ans', key: 'rp50', stormLoss: Number(storm.rp50_total_loss_eur || 0), cmccLoss: Number(cmcc.rp50_total_loss_eur || 0) },
+    { label: 'Temps de retour 100 ans', key: 'rp100', stormLoss: Number(storm.rp100_total_loss_eur || 0), cmccLoss: Number(cmcc.rp100_total_loss_eur || 0) },
+    { label: 'Evenement le plus fort', key: 'event_max', stormLoss: Number(storm.event_max_total_loss_eur || 0), cmccLoss: Number(cmcc.event_max_total_loss_eur || 0) }
   ];
-  els.conclusionText.textContent = txt.join(' ');
+
+  if (els.conclusionTableBody) {
+    els.conclusionTableBody.innerHTML = rows.map((row) => {
+      const social = socialSummaryByScenario[row.key] || {};
+      const stormSocial = social.storm || {};
+      const cmccSocial = social.storm_cmcc || {};
+      return `
+        <tr>
+          <td>${escapeHtml(row.label)}</td>
+          <td class="num">${escapeHtml(formatConclusionLossValue(row.stormLoss, totalValue, state.conclusionDisplayMode))}</td>
+          <td class="num">${escapeHtml(formatConclusionLossValue(row.cmccLoss, totalValue, state.conclusionDisplayMode))}</td>
+          <td class="num">${escapeHtml(formatConclusionLossValue(row.cmccLoss - row.stormLoss, totalValue, state.conclusionDisplayMode))}</td>
+          <td class="num">${escapeHtml(numberFmt.format(Math.round(Number(stormSocial.total_without_elec || 0))))}</td>
+          <td class="num">${escapeHtml(numberFmt.format(Math.round(Number(cmccSocial.total_without_elec || 0))))}</td>
+          <td class="num">${escapeHtml(numberFmt.format(Math.round(Number(stormSocial.total_without_water || 0))))}</td>
+          <td class="num">${escapeHtml(numberFmt.format(Math.round(Number(cmccSocial.total_without_water || 0))))}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  els.conclusionText.textContent = `Valeur totale du portefeuille d'infrastructures: ${numberFmt.format(Math.round(totalValue / 1_000_000))} M€. Le tableau compare les pertes STORM et STORM_CMCC pour chaque scénario, avec le nombre total de personnes sans électricité et sans eau.`;
 }
 
 function escapeHtml(text) {
@@ -3842,6 +4107,16 @@ function buildAdminPopulationLegendHtml(minRaw, maxRaw, colors) {
   ].join('');
 }
 
+function ensurePopulationOverlayPane(mapInstance, paneName, zIndex = 430) {
+  if (!mapInstance || !paneName) return null;
+  let pane = mapInstance.getPane(paneName);
+  if (!pane) pane = mapInstance.createPane(paneName);
+  pane.style.zIndex = String(zIndex);
+  pane.style.pointerEvents = 'none';
+  pane.style.filter = POPULATION_OVERLAY_VISUAL.filter;
+  return pane;
+}
+
 function ensureAdminPopulationLegend(scaleMin, scaleMax, paletteColors) {
   if (!window.L) return;
   if (!adminPopulationMapRef.instance) return;
@@ -3878,12 +4153,7 @@ function ensureAdminPopulationMap() {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(adminPopulationMapRef.instance);
 
-  if (!adminPopulationMapRef.instance.getPane(adminPopulationMapRef.overlayPaneName)) {
-    const pane = adminPopulationMapRef.instance.createPane(adminPopulationMapRef.overlayPaneName);
-    pane.style.zIndex = '430';
-    pane.style.pointerEvents = 'none';
-    pane.style.filter = 'brightness(0.72) contrast(1.35)';
-  }
+  ensurePopulationOverlayPane(adminPopulationMapRef.instance, adminPopulationMapRef.overlayPaneName, 430);
   return adminPopulationMapRef;
 }
 
@@ -3956,7 +4226,7 @@ function renderAdminPopulationMap() {
     if (ref.overlayLayer) ref.instance.removeLayer(ref.overlayLayer);
     ref.overlayLayer = L.imageOverlay(overlayUrl, boundsLeaflet, {
       pane: ref.overlayPaneName,
-      opacity: 0.95,
+      opacity: POPULATION_OVERLAY_VISUAL.opacity,
       interactive: false,
       crossOrigin: true
     }).addTo(ref.instance);
@@ -4613,6 +4883,7 @@ function ensureWaterMap() {
     minZoom: 4,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(waterMapRef.instance);
+  ensurePopulationOverlayPane(waterMapRef.instance, waterMapRef.overlayPaneName, 350);
   return waterMapRef;
 }
 
@@ -4734,11 +5005,105 @@ function renderWaterInfraMap() {
     }
   }
 
+  renderCaseStudyPopulationOverlay();
+
   if (!ref.hasFitted && bounds && bounds.isValid()) {
       ref.instance.fitBounds(bounds, { padding: [18, 18], maxZoom: 11 });
       ref.hasFitted = true;
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
+}
+
+function normalizeCaseStudyPopulationTerritory(territoryRaw) {
+  return normalizeCaseStudyTerritory(territoryRaw) === 'martinique' ? 'mtq' : 'glp';
+}
+
+function updateWaterPopulationToggleUi() {
+  if (!els.waterPopulationToggle) return;
+  const active = !!state.caseStudyPopulationVisible;
+  els.waterPopulationToggle.classList.toggle('active', active);
+  els.waterPopulationToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+  els.waterPopulationToggle.textContent = active ? 'Masquer la population' : 'Afficher la population';
+}
+
+function ensureWaterPopulationLegend(scaleMin, scaleMax, paletteColors) {
+  if (!waterMapRef.instance) return;
+  if (!waterMapRef.populationLegendControl) {
+    waterMapRef.populationLegendControl = L.control({ position: 'bottomright' });
+    waterMapRef.populationLegendControl.onAdd = () => L.DomUtil.create('div', 'admin-pop-legend');
+  }
+  if (!waterMapRef.populationLegendControl._map) {
+    waterMapRef.populationLegendControl.addTo(waterMapRef.instance);
+  }
+  const legendEl = waterMapRef.populationLegendControl.getContainer();
+  if (legendEl) {
+    legendEl.innerHTML = buildAdminPopulationLegendHtml(scaleMin, scaleMax, paletteColors);
+  }
+}
+
+function renderCaseStudyPopulationOverlay() {
+  const ref = ensureWaterMap();
+  if (!ref || !ref.instance) return;
+
+  const clearOverlay = () => {
+    if (ref.populationOverlayLayer && ref.instance.hasLayer(ref.populationOverlayLayer)) {
+      ref.instance.removeLayer(ref.populationOverlayLayer);
+    }
+    if (ref.populationLegendControl && ref.populationLegendControl._map) {
+      ref.instance.removeControl(ref.populationLegendControl);
+    }
+    ref.populationOverlayLayer = null;
+    ref.populationLegendControl = null;
+    ref.populationOverlayUrl = '';
+  };
+
+  const applyOverlay = () => {
+    clearOverlay();
+    updateWaterPopulationToggleUi();
+    if (!state.caseStudyPopulationVisible) return;
+    const payload = state.adminPopulationMaps;
+    if (!payload || !Array.isArray(payload.territories)) return;
+    const territoryCode = normalizeCaseStudyPopulationTerritory(state.caseStudyTerritory);
+    const territory = payload.territories.find((item) => String(item?.code || '').toLowerCase() === territoryCode);
+    if (!territory) return;
+
+    const bounds = [
+      [Number(territory.bounds?.south || 0), Number(territory.bounds?.west || 0)],
+      [Number(territory.bounds?.north || 0), Number(territory.bounds?.east || 0)]
+    ];
+    const overlayUrl = adminVisuOverlayUrl(territory.overlay);
+    if (!overlayUrl) return;
+    ref.populationOverlayLayer = L.imageOverlay(overlayUrl, bounds, {
+      pane: ref.overlayPaneName,
+      opacity: POPULATION_OVERLAY_VISUAL.opacity,
+      interactive: false,
+      crossOrigin: true
+    });
+    ref.populationOverlayLayer.addTo(ref.instance);
+    ref.populationOverlayUrl = overlayUrl;
+
+    const meta = payload.meta || {};
+    const scale = meta.scale || {};
+    ensureWaterPopulationLegend(
+      Number(scale.min_people_per_pixel || 0),
+      Number(scale.max_people_per_pixel || territory.stats?.max_people_per_pixel || 0),
+      adminPopulationLegendColors(payload)
+    );
+  };
+
+  if (state.adminPopulationMaps) {
+    applyOverlay();
+    return;
+  }
+
+  ensureAdminPopulationMapsLoaded()
+    .then(() => {
+      applyOverlay();
+    })
+    .catch((err) => {
+      console.warn('Population overlay unavailable', err);
+      updateWaterPopulationToggleUi();
+    });
 }
 
 function networkStatePropertyKey() {
@@ -5592,7 +5957,8 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, landslideMaps,
   const runIds = [windRunId, landslideRunId, analysisRunId, proxyRunId];
   const withRunIdCount = runIds.filter((value) => Boolean(value)).length;
   if (withRunIdCount > 0 && withRunIdCount < runIds.length) {
-    throw new Error(`Artefacts incoherents pour ${key}: run_id partiellement present (wind/landslide/proxy/analysis).`);
+    console.warn(`Artefacts incoherents pour ${key}: run_id partiellement present (wind/landslide/proxy/analysis).`);
+    return;
   }
 
   const referenceRunId = windRunId || landslideRunId || analysisRunId || proxyRunId || '';
@@ -5603,9 +5969,10 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, landslideMaps,
     if (analysisRunId && analysisRunId !== referenceRunId) mismatch.push(`analysis=${analysisRunId}`);
     if (proxyRunId && proxyRunId !== referenceRunId) mismatch.push(`proxy=${proxyRunId}`);
     if (mismatch.length) {
-      throw new Error(
+      console.warn(
         `Artefacts incoherents pour ${key}: run_id attendu ${referenceRunId}, recu ${mismatch.join(', ')}`
       );
+      return;
     }
   }
 
@@ -5614,13 +5981,15 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, landslideMaps,
   const proxyAt = parseIsoTimestampSafe(multiHazardProxy?.meta?.generated_at);
   const analysisAt = parseIsoTimestampSafe(analysis?.meta?.generated_at);
   if (Number.isFinite(windAt) && Number.isFinite(proxyAt) && proxyAt < windAt) {
-    throw new Error(`Artefacts incoherents pour ${key}: proxy plus ancien que wind-maps.`);
+    console.warn(`Artefacts incoherents pour ${key}: proxy plus ancien que wind-maps.`);
+    return;
   }
   if (Number.isFinite(windAt) && Number.isFinite(landslideAt) && landslideAt < windAt) {
-    throw new Error(`Artefacts incoherents pour ${key}: landslide plus ancien que wind-maps.`);
+    console.warn(`Artefacts incoherents pour ${key}: landslide plus ancien que wind-maps.`);
+    return;
   }
   if (Number.isFinite(proxyAt) && Number.isFinite(analysisAt) && analysisAt < proxyAt) {
-    throw new Error(`Artefacts incoherents pour ${key}: page-analysis plus ancien que proxy.`);
+    console.warn(`Artefacts incoherents pour ${key}: page-analysis plus ancien que proxy.`);
   }
 }
 
@@ -5984,6 +6353,15 @@ async function fetchPage1Analysis(territory = 'guadeloupe') {
   return payload;
 }
 
+async function fetchCaseStudyCompleteAnalysis(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-complete-analysis.json`, window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  return ensureResultShape(payload);
+}
+
 async function fetchNetworkStates(territory = 'guadeloupe') {
   const base = caseStudyFileBase(territory);
   const url = new URL(`/data/${base}-network-states.geojson`, window.location.origin).toString();
@@ -6022,6 +6400,40 @@ function ensureNetworkStatesLoaded() {
     });
 }
 
+
+  function ensureCaseStudyCompleteAnalysisLoaded(territory = 'guadeloupe') {
+    const key = normalizeCaseStudyTerritory(territory);
+    if (!state.caseStudyCache[key]) state.caseStudyCache[key] = {};
+    const cache = state.caseStudyCache[key];
+    if (cache.completeAnalysis) {
+      if (normalizeCaseStudyTerritory(state.caseStudyTerritory) === key) {
+        state.completeAnalysis = cache.completeAnalysis;
+      }
+      return Promise.resolve(cache.completeAnalysis);
+    }
+    if (cache.completeAnalysisPromise) return cache.completeAnalysisPromise;
+    cache.completeAnalysisPromise = fetchCaseStudyCompleteAnalysis(key)
+      .then((payload) => {
+        cache.completeAnalysis = payload;
+        if (normalizeCaseStudyTerritory(state.caseStudyTerritory) === key) {
+          state.completeAnalysis = payload;
+          state.caseStudyScenarioSocialSummary = null;
+          if (state.page1Analysis) {
+            renderSocialImpactTable(state.page1Analysis);
+            renderPage1Conclusion(state.page1Analysis);
+          }
+        }
+        return payload;
+      })
+      .catch((err) => {
+        console.warn('Case-study complete analysis could not be loaded', err);
+        return null;
+      })
+      .finally(() => {
+        cache.completeAnalysisPromise = null;
+      });
+    return cache.completeAnalysisPromise;
+  }
 function resetCaseStudyMapLayers() {
   windMapRef.storm.hasFitted = false;
   windMapRef.storm_cmcc.hasFitted = false;
@@ -6035,6 +6447,15 @@ function resetCaseStudyMapLayers() {
   waterMapRef.layersByType.clear();
   waterMapRef.order = [];
   waterMapRef.hasFitted = false;
+  if (waterMapRef.instance && waterMapRef.populationOverlayLayer && waterMapRef.instance.hasLayer(waterMapRef.populationOverlayLayer)) {
+    waterMapRef.instance.removeLayer(waterMapRef.populationOverlayLayer);
+  }
+  if (waterMapRef.instance && waterMapRef.populationLegendControl && waterMapRef.populationLegendControl._map) {
+    waterMapRef.instance.removeControl(waterMapRef.populationLegendControl);
+  }
+  waterMapRef.populationOverlayLayer = null;
+  waterMapRef.populationLegendControl = null;
+  waterMapRef.populationOverlayUrl = '';
   if (networkMapRef.instance) {
     networkMapRef.layersByType.forEach((entry) => {
       if (entry?.layer && networkMapRef.instance.hasLayer(entry.layer)) networkMapRef.instance.removeLayer(entry.layer);
@@ -6043,11 +6464,15 @@ function resetCaseStudyMapLayers() {
   networkMapRef.layersByType.clear();
   networkMapRef.order = [];
   networkMapRef.hasFitted = false;
+  state.caseStudyScenarioSocialSummary = null;
 }
 
 async function ensureCaseStudyLoaded(territory) {
   const key = normalizeCaseStudyTerritory(territory);
-  if (state.caseStudyCache[key]?.ready) return state.caseStudyCache[key];
+  if (state.caseStudyCache[key]?.ready) {
+    ensureCaseStudyCompleteAnalysisLoaded(key);
+    return state.caseStudyCache[key];
+  }
   if (!state.caseStudyCache[key]) state.caseStudyCache[key] = {};
   const cache = state.caseStudyCache[key];
   if (cache.promise) return cache.promise;
@@ -6067,6 +6492,7 @@ async function ensureCaseStudyLoaded(territory) {
     cache.networkStates = networkStates;
     cache.multiHazardProxy = multiHazardProxy;
     cache.ready = true;
+    ensureCaseStudyCompleteAnalysisLoaded(key);
     return cache;
   }).finally(() => {
     cache.promise = null;
@@ -6084,8 +6510,10 @@ function applyCaseStudyState(territory, payload) {
   state.windMaps = payload?.windMaps || null;
   state.landslideMaps = payload?.landslideMaps || null;
   state.waterInfra = payload?.waterInfra || null;
+  state.completeAnalysis = payload?.completeAnalysis || state.caseStudyCache[key]?.completeAnalysis || null;
   state.page1Analysis = payload?.analysis || null;
   state.networkStates = payload?.networkStates || null;
+  state.caseStudyScenarioSocialSummary = null;
 }
 
 function stopPolling() {
@@ -6617,6 +7045,29 @@ function bindEvents() {
         ? els.impactMapScenarioSelect.value
         : 'event_max';
       renderNetworkStateMap();
+    });
+  }
+
+  if (els.waterPopulationToggle) {
+    updateWaterPopulationToggleUi();
+    els.waterPopulationToggle.addEventListener('click', () => {
+      state.caseStudyPopulationVisible = !state.caseStudyPopulationVisible;
+      updateWaterPopulationToggleUi();
+      renderCaseStudyPopulationOverlay();
+    });
+  }
+
+  if (els.conclusionModeButtons) {
+    updateConclusionModeUi();
+    els.conclusionModeButtons.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const btn = target ? target.closest('button[data-conclusion-mode]') : null;
+      if (!btn) return;
+      const mode = normalizeConclusionDisplayMode(btn.getAttribute('data-conclusion-mode'));
+      if (mode === normalizeConclusionDisplayMode(state.conclusionDisplayMode)) return;
+      state.conclusionDisplayMode = mode;
+      updateConclusionModeUi();
+      renderPage1Conclusion(state.page1Analysis || {});
     });
   }
 

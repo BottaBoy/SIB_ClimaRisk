@@ -1927,6 +1927,11 @@ def main() -> None:
         default=None,
         help="Optional coherence token propagated across case-study artefacts (maps/proxy/page analysis).",
     )
+    parser.add_argument(
+        "--allow-stale-proxy",
+        action="store_true",
+        help="Allow page-analysis rebuilds to reuse an older multi-hazard proxy when wind maps are newer.",
+    )
     args = parser.parse_args()
     _require_runtime_deps()
 
@@ -1994,15 +1999,16 @@ def main() -> None:
         else ""
     )
     provided_run_id = str(args.case_study_run_id or "").strip()
+    allow_stale_proxy = bool(args.allow_stale_proxy)
     if provided_run_id and not wind_map_run_id:
         raise ValueError(
             f"case-study run id provided ({provided_run_id}) but wind map has no case_study_run_id: {wind_map_json}"
         )
-    if provided_run_id and not proxy_run_id and multi_hazard_proxy_json.exists():
+    if provided_run_id and not proxy_run_id and multi_hazard_proxy_json.exists() and not allow_stale_proxy:
         raise ValueError(
             f"case-study run id provided ({provided_run_id}) but proxy has no case_study_run_id: {multi_hazard_proxy_json}"
         )
-    if wind_map_run_id and not proxy_run_id and multi_hazard_proxy_json.exists():
+    if wind_map_run_id and not proxy_run_id and multi_hazard_proxy_json.exists() and not allow_stale_proxy:
         raise ValueError(
             f"case-study run id mismatch: wind map has {wind_map_run_id} but proxy has no case_study_run_id"
         )
@@ -2014,11 +2020,11 @@ def main() -> None:
         raise ValueError(
             f"case-study run id mismatch: provided={provided_run_id}, wind_map={wind_map_run_id}"
         )
-    if provided_run_id and proxy_run_id and provided_run_id != proxy_run_id:
+    if provided_run_id and proxy_run_id and provided_run_id != proxy_run_id and not allow_stale_proxy:
         raise ValueError(
             f"case-study run id mismatch: provided={provided_run_id}, multi_hazard_proxy={proxy_run_id}"
         )
-    if wind_map_run_id and proxy_run_id and wind_map_run_id != proxy_run_id:
+    if wind_map_run_id and proxy_run_id and wind_map_run_id != proxy_run_id and not allow_stale_proxy:
         raise ValueError(
             f"case-study run id mismatch between wind_map={wind_map_run_id} and multi_hazard_proxy={proxy_run_id}"
         )

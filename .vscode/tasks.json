@@ -1,0 +1,76 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "SIB: Check Run Progress (300 tracks)",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "-c",
+        "import subprocess, time; from pathlib import Path; from datetime import datetime; now = time.time(); gua_file = Path('/home/ubuntu/sib-work/web/data/guadeloupe-complete-analysis.json'); mar_file = Path('/home/ubuntu/sib-work/web/data/martinique-complete-analysis.json'); result = subprocess.run(['pgrep', '-f', 'run_complete_analysis.py'], capture_output=True, text=True); running = bool(result.stdout.strip()); print('\\n' + '='*70); print('RUN STATUS CHECK'); print('='*70); print(f'\\nProcess running: {running}'); print(f'\\nGuadeloupe: {gua_file.exists()}'); print(f'Martinique: {mar_file.exists()}'); if running: print('\\nStill computing... Check back in ~10 minutes'); elif gua_file.exists() and mar_file.exists(): gua_age = (now - gua_file.stat().st_mtime)/60; mar_age = (now - mar_file.stat().st_mtime)/60; print(f'\\n✓✓ COMPLETED! Files updated ~{int(gua_age)} and {int(mar_age)} min ago'); else: print('\\nOne or both files missing'); print('='*70)"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Only (sib.shared.elio.dev)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_only.py",
+        "--vhost",
+        "sib.shared.elio.dev"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Only (sib.dev.elio.bottagisio.com)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_only.py",
+        "--vhost",
+        "sib.dev.elio.bottagisio.com"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Only (Both Servers)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_only.py",
+        "--vhost",
+        "both"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    }
+  ]
+}

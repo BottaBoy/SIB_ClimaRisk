@@ -29,3 +29,24 @@ Notes:
 - `max_points_total` et `max_points_per_feature` journalisent le proxy multi-aléas léger utilisé pour la page, pas le maillage principal de la page.
 - `component_light_rerun_active` signale la présence du bloc `component_light_rerun` dans le JSON de page.
 - `Track IDs compacts` affiche `count | sha256[0:12] | preview` ; la liste complete est stockee dans le JSONL compressé.
+
+
+
+
+## Run [2026-04-13 13:40:39]
+**Run ID**: `20260413_134039`
+### Guadeloupe
+### Martinique
+**Total Duration**: 0s (0.0m)
+
+## Run [2026-04-13 13:34:13]
+**Run ID**: `20260413_133413`
+### Guadeloupe
+### Martinique
+**Total Duration**: 0s (0.0m)
+
+## Run [2026-04-13 13:32:52]
+**Run ID**: `20260413_133252`
+### Guadeloupe
+### Martinique
+**Total Duration**: 0s (0.0m)

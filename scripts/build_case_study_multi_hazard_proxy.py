@@ -556,7 +556,7 @@ def _build_proxy_payload(
                         "landslide": landslide_share,
                     }
                 )
-            if scenario in {"rp50", "rp100", "event_max"} and float(scenario_ratio_map.get("surge", 0.0)) <= 0.0:
+            if float(scenario_ratio_map.get("surge", 0.0)) <= 0.0:
                 surge_proxy_loss = float(((surge_proxy_losses.get(hazard_key) or {}).get(scenario)) or 0.0)
                 if surge_proxy_loss > 0.0:
                     scenario_ratio_map = _normalize_component_ratio_map(
@@ -726,7 +726,7 @@ def main() -> None:
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         dynamic_max_tracks=int(args.dynamic_max_tracks),
         track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
-        multi_hazard_enabled=bool(settings.multi_hazard_enabled),
+        multi_hazard_enabled=False,
         rain_model=settings.hazard_rain_model,
         surge_topo_path=Path(settings.hazard_surge_topo_path),
         flood_curve_file=Path(settings.d2_flood_curve_file),

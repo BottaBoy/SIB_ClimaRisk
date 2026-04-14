@@ -64,6 +64,7 @@ class Settings:
     landslide_corr_fact: float = 500.0
     landslide_n_years: int = 200
     landslide_dist: str = "poisson"
+    population_data_dir: Path | None = Path("/home/ubuntu/uploads/Population")
     example_qgis_points_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"
     example_qgis_lines_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"
     example_qgis_polygons_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"
@@ -215,6 +216,7 @@ def load_settings() -> Settings:
         landslide_corr_fact=float(env.get("SIB_RISK_LANDSLIDE_CORR_FACT", "500.0")),
         landslide_n_years=int(env.get("SIB_RISK_LANDSLIDE_N_YEARS", "200")),
         landslide_dist=str(env.get("SIB_RISK_LANDSLIDE_DIST", "poisson")).strip().lower(),
+        population_data_dir=Path(env.get("SIB_RISK_POPULATION_DATA_DIR", "/home/ubuntu/uploads/Population")) if env.get("SIB_RISK_POPULATION_DATA_DIR") else None,
         example_qgis_points_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POINTS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"))),
         example_qgis_lines_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_LINES_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"))),
         example_qgis_polygons_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POLYGONS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"))),

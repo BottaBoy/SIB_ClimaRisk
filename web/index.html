@@ -10,7 +10,7 @@
     />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
-    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260414-2" />
   </head>
   <body>
     <div class="page-shell">
@@ -101,6 +101,9 @@
         <div class="subpanel water-map-card">
           <h3 id="water-map-title">Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Chargement…</p>
+          <div class="inline-row tight water-map-toolbar">
+            <button id="water-population-toggle" type="button">Afficher la population</button>
+          </div>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
@@ -316,6 +319,28 @@
               </article>
             </div>
           </article>
+          <article class="impact-table-card">
+            <h4>Impacts sociodémographiques (Population affectée)</h4>
+            <div class="table-wrap compact impact-table-wrap">
+              <table>
+                <colgroup>
+                  <col class="impact-col-name" />
+                  <col class="impact-col-metric" />
+                  <col class="impact-col-metric" />
+                  <col class="impact-col-metric" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Indicateur</th>
+                    <th class="num">STORM</th>
+                    <th class="num">STORM_CMCC</th>
+                    <th class="num">Delta (CMCC-STORM)</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-social-table-body"></tbody>
+              </table>
+            </div>
+          </article>
         </div>
         <div class="subpanel">
           <div class="section-head">
@@ -362,11 +387,34 @@
         <div class="section-head">
           <div>
             <h2 id="conclusion-title">Conclusion</h2>
-            <p class="muted" id="conclusion-text">
-              Chargement de la conclusion...
-            </p>
           </div>
         </div>
+        <div class="inline-row tight">
+          <div class="impact-table-mode-buttons" id="conclusion-mode-buttons" role="group" aria-label="Mode d'affichage de la conclusion">
+            <button type="button" data-conclusion-mode="money" aria-pressed="true">Valeur monétaire (€)</button>
+            <button type="button" data-conclusion-mode="percent" aria-pressed="false">% exposition</button>
+          </div>
+        </div>
+        <div class="table-wrap compact conclusion-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scénario</th>
+                <th class="num">STORM</th>
+                <th class="num">STORM_CMCC</th>
+                <th class="num">Delta (CMCC-STORM)</th>
+                <th class="num">Sans électricité STORM</th>
+                <th class="num">Sans électricité STORM_CMCC</th>
+                <th class="num">Sans eau STORM</th>
+                <th class="num">Sans eau STORM_CMCC</th>
+              </tr>
+            </thead>
+            <tbody id="conclusion-table-body"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="conclusion-text">
+          Chargement de la conclusion...
+        </p>
       </section>
 
       <section class="panel disclaimer page-block page1 page2" aria-label="Clause de non responsabilite">
@@ -969,6 +1017,6 @@ scripts/build_guadeloupe_water_infra_map.py
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
-    <script type="module" src="assets/app.js"></script>
+    <script type="module" src="assets/app.js?v=20260414-2"></script>
   </body>
 </html>
