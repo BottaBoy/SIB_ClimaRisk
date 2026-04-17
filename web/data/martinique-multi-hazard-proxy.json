@@ -1,29 +1,49 @@
 {
   "meta": {
-    "generated_at": "2026-04-08T14:48:51+00:00",
-    "case_study_run_id": "martinique_case_20260408T144202Z",
+    "generated_at": "2026-04-16T10:13:02+00:00",
+    "case_study_run_id": "martinique_case_20260416T100652Z",
     "territory": "martinique",
     "territory_label": "Martinique",
     "sample_point_count": 800,
     "sampling_spacing_m": 800.0,
     "max_points_total": 800,
     "max_points_per_feature": 8,
-    "dynamic_max_tracks": 1500,
+    "dynamic_max_tracks": 100,
     "hazard_map_json": "/home/ubuntu/sib-work/web/data/martinique-wind-maps.json",
     "surge_priority_point_count": 4300,
     "surge_priority_source": "hazard_map_cells",
     "storm_years": 10000,
     "hazard_storm_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique.h5",
     "hazard_storm_cmcc_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique_CMCC.h5",
+    "landslide_sources": {
+      "storm": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ],
+      "storm_cmcc": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ]
+    },
     "notes": [
       "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
       "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
       "Impact functions: profile=sib_tc_multicurve_v1 with 9 TC curves.",
-      "Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id=[1], points=800).",
+      "Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id=[1], points=800, tracks=100/100).",
+      "Landslide probabilistic rasters integrated for the case-study proxy (precipitation current / SSP585 + earthquake).",
       "Case-study surge ratio fallback applied: native TCSurgeBathtub map intensities were combined with the CLIMADA multi-hazard surge vulnerability curves on sampled assets because direct point-based surge impacts were null or failed on the lightweight rerun."
     ],
     "modeling": {
       "storm_years": 10000,
+      "execution_profile": "default",
+      "strict_required_components": false,
+      "sharding_enabled": false,
+      "sharding_memory_budget_gb": 0.0,
+      "sharding_max_points_per_shard_requested": 0,
+      "sharding_min_points_per_shard": 512,
+      "sharding_max_retry_depth": 4,
+      "sharding_checkpoint_dir": null,
+      "resume_enabled": false,
       "frequency_normalized": true,
       "top_events_count": 20,
       "hazard_zero_intensity": {
@@ -35,6 +55,13 @@
         1
       ],
       "hazard_point_count": 800,
+      "hazard_track_count_storm": 100,
+      "hazard_track_count_storm_cmcc": 100,
+      "hazard_global_hazards_built": true,
+      "hazard_build_sharded": false,
+      "hazard_build_planned_shards": 1,
+      "hazard_build_max_points_per_shard": 800,
+      "hazard_build_estimated_full_memory_gb": 0.004,
       "impact_function_profile": "sib_tc_multicurve_v1",
       "impact_function_default_curve": {
         "code": "EBERENZ_2021_TC",
@@ -108,6 +135,48 @@
           "wind"
         ]
       },
+      "multi_hazard_component_status_by_hazard": {
+        "storm": {
+          "wind": "complete"
+        },
+        "storm_cmcc": {
+          "wind": "complete"
+        }
+      },
+      "climada_component_sharding": {
+        "storm": {
+          "wind": {
+            "component": "wind",
+            "total_points": 800,
+            "event_count": 100,
+            "memory_budget_gb": 0.0,
+            "estimated_full_memory_gb": 0.001,
+            "max_points_per_shard": 800,
+            "planned_shards": 1,
+            "completed_shards": 1,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "sharded": false,
+            "status": "complete"
+          }
+        },
+        "storm_cmcc": {
+          "wind": {
+            "component": "wind",
+            "total_points": 800,
+            "event_count": 100,
+            "memory_budget_gb": 0.0,
+            "estimated_full_memory_gb": 0.001,
+            "max_points_per_shard": 800,
+            "planned_shards": 1,
+            "completed_shards": 1,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "sharded": false,
+            "status": "complete"
+          }
+        }
+      },
       "multi_hazard_rain_model": "R-CLIPER",
       "multi_hazard_surge_topo_path": "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
       "multi_hazard_flood_curve_file": "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
@@ -117,117 +186,123 @@
     "storm": {
       "scenarios": {
         "annual": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 1.412283,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.0339095668995807,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.9521101085352445,
+            "landslide": 0.01398032456517484
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         },
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.7778432291873405,
+            "wind": 0.0,
             "rain": 0.0,
-            "surge": 0.22215677081265936
+            "surge": 0.8500876460753777,
+            "landslide": 0.14991235392462227
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         },
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8135300628864989,
+            "wind": 0.0,
             "rain": 0.0,
-            "surge": 0.18646993711350124
+            "surge": 0.6651445622856509,
+            "landslide": 0.33485543771434917
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         },
         "event_max": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 1.094758,
           "component_ratios": {
-            "wind": 0.8279593637638589,
+            "wind": 0.7464228791639276,
             "rain": 0.0,
-            "surge": 0.17204063623614105
+            "surge": 0.182847786163894,
+            "landslide": 0.07072933467217835
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         },
         "top10": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 8.735917,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.027163699421131966,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.7627001807679388,
+            "landslide": 0.21013611981092928
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         },
         "top5": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 23.084084,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.019545755176583607,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.5488041512795154,
+            "landslide": 0.43165009354390094
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.02453759592402612,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0024612032202612423,
-            "eau_aep_ouvrages": 0.19106449497036393,
-            "eau_eu_pr": 0.004058110711334883,
-            "eau_eu_step": 0.7778785951740138
+            "eau_aep": 0.01794475110509083,
+            "eau_eu": 0.006211576008837083,
+            "elec_bt_souterrain": 0.016992636233995346,
+            "elec_bt_aerien": 0.017912317976139683,
+            "elec_hta_souterrain": 0.0044593854581897715,
+            "elec_hta_aerien": 0.009928209739359897,
+            "eau_aep_ouvrages": 0.463629799105811,
+            "eau_eu_pr": 0.002247513128841493,
+            "eau_eu_step": 0.4606738112437349
           }
         }
       }
@@ -235,117 +310,123 @@
     "storm_cmcc": {
       "scenarios": {
         "annual": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 1.436371,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.03893127507451731,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.9440802542683152,
+            "landslide": 0.016988470657167486
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         },
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.7569236631340549,
+            "wind": 0.0,
             "rain": 0.0,
-            "surge": 0.243076336865945
+            "surge": 0.7440314322571805,
+            "landslide": 0.2559685677428195
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         },
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.7977513424721684,
+            "wind": 0.0,
             "rain": 0.0,
-            "surge": 0.2022486575278315
+            "surge": 0.7204740893044296,
+            "landslide": 0.2795259106955704
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         },
         "event_max": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 1.096389,
           "component_ratios": {
-            "wind": 0.8247358041355558,
+            "wind": 0.7357866279670525,
             "rain": 0.0,
-            "surge": 0.17526419586444422
+            "surge": 0.19329172982172396,
+            "landslide": 0.07092164221122345
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         },
         "top10": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 15.347648,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.025254077365467992,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.6124093221932143,
+            "landslide": 0.36233660044131766
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         },
         "top5": {
-          "global_multiplier": 1.0,
+          "global_multiplier": 17.306674,
           "component_ratios": {
-            "wind": 1.0,
+            "wind": 0.02406357027295593,
             "rain": 0.0,
-            "surge": 0.0
+            "surge": 0.5835396220239872,
+            "landslide": 0.39239680770305685
           },
           "breakdown_shares": {
-            "eau_aep": 0.0,
-            "eau_eu": 0.0,
-            "elec_bt_souterrain": 0.0,
-            "elec_bt_aerien": 0.019895880795443823,
-            "elec_hta_souterrain": 0.0,
-            "elec_hta_aerien": 0.0016578338105527125,
-            "eau_aep_ouvrages": 0.19271408564372097,
-            "eau_eu_pr": 0.0036921622004778523,
-            "eau_eu_step": 0.7820400375498047
+            "eau_aep": 0.017651931104231276,
+            "eau_eu": 0.024465188173544178,
+            "elec_bt_souterrain": 0.014564593005823565,
+            "elec_bt_aerien": 0.01820104223682874,
+            "elec_hta_souterrain": 0.010001928213712723,
+            "elec_hta_aerien": 0.019555381566864257,
+            "eau_aep_ouvrages": 0.2931678080546693,
+            "eau_eu_pr": 0.002304719571646209,
+            "eau_eu_step": 0.6000874080726798
           }
         }
       }

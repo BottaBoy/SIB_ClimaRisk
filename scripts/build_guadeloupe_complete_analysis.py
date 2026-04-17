@@ -120,7 +120,8 @@ def _bbox_polygon_from_cfg(cfg: dict[str, object]):
 def _clip_to_bbox(gdf: gpd.GeoDataFrame, bbox_polygon) -> gpd.GeoDataFrame:
     gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
     gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(bbox_polygon)
-    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+    geometry = gdf_wgs.geometry
+    return gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
 
 def _line_features(

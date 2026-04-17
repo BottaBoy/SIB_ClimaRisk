@@ -80,3 +80,31 @@ Pour le backend, prevoir en plus:
 - activation du service `sib-risk-api.service`
 - activation du timer `sib-risk-cleanup.timer`
 - verification de `GET /api/v1/health` (via le proxy nginx `/api/` ou directement en local)
+
+## Process publication des runs SIB
+
+Pour publier sur `https://sib.dev.elio.bottagisio.com` sans dependre de l'etat mutable de `web/`, la chaine attendue est maintenant:
+
+1. Executer ou reprendre le run complet.
+	- Tache recommandee: `SIB: Run Complete Analysis (...)`
+	- Le run archive toujours le `complete-analysis.json` par territoire sous `outputs/complete-analysis-runs/<run_id>/territories/<territory>/web/...`
+
+2. Rebuilder les artefacts frontend du territoire si necessaire.
+	- Tache recommandee: `SIB: Rebuild Frontend Artefacts (Guadeloupe Only)`
+	- Le rebuild frontend utilise un profil de publication plus leger que le run d'impact complet.
+	- Pour Guadeloupe, le profil de publication force maintenant un proxy multi-aleas derive du `complete-analysis.json` et un `page-analysis` / `network-states` derives des `asset_results` du `complete-analysis.json`; les reruns CLIMADA frontend lourds ne sont plus un prerequis pour publier.
+
+3. Snapshotter les artefacts web valides dans l'archive du run.
+	- Tache recommandee: `SIB: Snapshot Latest Run Web Artefacts (Guadeloupe Only)`
+	- Cette etape valide que les fichiers `wind-maps`, `multi-hazard-proxy`, `page-analysis` et `network-states` ont bien ete reecrits avant publication.
+
+4. Deployer depuis l'archive du run, pas depuis le `web/` de travail.
+	- Tache recommandee: `SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)`
+	- Cette etape reconstruit un staging a partir du `web/` du repo + des fichiers archives du run (sans reutiliser le root live courant) puis synchronise vers `/var/www/sib.shared.elio.dev`.
+
+## Regle operatoire sib.dev
+
+- `sib.dev.elio.bottagisio.com` est servi depuis `/var/www/sib.shared.elio.dev`.
+- Pour republier un run precedent ou reprendre une publication interrompue, utiliser le couple `snapshot_run_web_artifacts.py` + `deploy_only.py --run-id ...`.
+- Ne pas considerer `SIB: Deploy Only (...)` comme un mecanisme de reprise de run: cette tache copie simplement l'etat courant de `web/`.
+- Le chemin operatoire robuste pour Guadeloupe est maintenant: `wind-maps` frais -> proxy fallback complet -> page-analysis fallback complet -> snapshot archive -> deploy archive.

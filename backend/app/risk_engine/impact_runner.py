@@ -5,7 +5,7 @@ from hashlib import blake2b
 import logging
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..config import Settings, load_settings
 from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
@@ -428,6 +428,9 @@ def _compute_impacts_climada(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
     settings: Settings,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
 ) -> ImpactComputationResult:
     bundle = build_climada_exposure(
         exposure,
@@ -455,6 +458,15 @@ def _compute_impacts_climada(
         rain_model=settings.hazard_rain_model,
         surge_topo_path=settings.hazard_surge_topo_path,
         flood_curve_file=settings.d2_flood_curve_file,
+        execution_profile=settings.climada_execution_profile,
+        memory_budget_gb=float(settings.climada_memory_budget_gb),
+        max_points_per_shard=int(settings.climada_max_points_per_shard),
+        min_points_per_shard=int(settings.climada_min_points_per_shard),
+        max_shard_retry_depth=int(settings.climada_max_shard_retry_depth),
+        strict_required_components=bool(settings.climada_strict_required_components),
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        resume_enabled=resume_enabled,
     )
 
     point_count = len(bundle.point_records)
@@ -991,6 +1003,9 @@ def compute_impacts(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
     settings: Settings | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
     mode = str(runtime_settings.impact_engine_mode or "climada").strip().lower()
@@ -1001,7 +1016,14 @@ def compute_impacts(
         raise ValueError(f"Unsupported impact engine mode: {mode}")
 
     try:
-        return _compute_impacts_climada(exposure, disagg, runtime_settings)
+        return _compute_impacts_climada(
+            exposure,
+            disagg,
+            runtime_settings,
+            progress_callback=progress_callback,
+            checkpoint_dir=checkpoint_dir,
+            resume_enabled=resume_enabled,
+        )
     except DependencyMissingError as exc:
         if runtime_settings.allow_climada_fallback:
             res = compute_impacts_fallback(exposure, disagg)

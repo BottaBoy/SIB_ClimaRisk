@@ -64,7 +64,8 @@ def _case_bbox_polygon(case_cfg: dict[str, object]):
 def _clip_case_gdf(gdf: gpd.GeoDataFrame, case_cfg: dict[str, object]) -> gpd.GeoDataFrame:
     gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
     gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(_case_bbox_polygon(case_cfg))
-    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+    geometry = gdf_wgs.geometry
+    return gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
 
 def _load_layer(
@@ -87,7 +88,8 @@ def _load_layer(
             preserve_topology=False,
         )
     gdf_wgs = gdf_metric.to_crs(WGS84)
-    gdf_wgs = gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+    geometry = gdf_wgs.geometry
+    gdf_wgs = gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
     gdf_wgs["infra_type"] = infra_type
     gdf_wgs["source_group"] = source_group

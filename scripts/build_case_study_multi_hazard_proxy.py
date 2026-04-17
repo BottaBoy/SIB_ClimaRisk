@@ -53,6 +53,7 @@ def _load_case_study_helpers() -> None:
     global _breakdown_class_from_point
     global _component_ratios_from_climada_run
     global _default_multi_hazard_proxy
+    global _load_component_ratio_reference
     global _normalize_breakdown_share_map
     global _normalize_component_ratio_map
     global _resolve_hazard_paths_for_case_study
@@ -66,6 +67,7 @@ def _load_case_study_helpers() -> None:
         _breakdown_class_from_point as _breakdown_class_from_point_impl,
         _component_ratios_from_climada_run as _component_ratios_from_climada_run_impl,
         _default_multi_hazard_proxy as _default_multi_hazard_proxy_impl,
+        _load_component_ratio_reference as _load_component_ratio_reference_impl,
         _normalize_breakdown_share_map as _normalize_breakdown_share_map_impl,
         _normalize_component_ratio_map as _normalize_component_ratio_map_impl,
         _resolve_hazard_paths_for_case_study as _resolve_hazard_paths_for_case_study_impl,
@@ -78,6 +80,7 @@ def _load_case_study_helpers() -> None:
     _breakdown_class_from_point = _breakdown_class_from_point_impl
     _component_ratios_from_climada_run = _component_ratios_from_climada_run_impl
     _default_multi_hazard_proxy = _default_multi_hazard_proxy_impl
+    _load_component_ratio_reference = _load_component_ratio_reference_impl
     _normalize_breakdown_share_map = _normalize_breakdown_share_map_impl
     _normalize_component_ratio_map = _normalize_component_ratio_map_impl
     _resolve_hazard_paths_for_case_study = _resolve_hazard_paths_for_case_study_impl
@@ -611,11 +614,78 @@ def _build_proxy_payload(
     }
 
 
+def _build_fallback_proxy_payload(
+    *,
+    territory: str,
+    settings: Any,
+    args: argparse.Namespace,
+    component_ratios: dict[str, dict[str, dict[str, float]]],
+    fallback_reason: str,
+) -> dict[str, Any]:
+    default_proxy = _default_multi_hazard_proxy(component_ratios)
+    notes = [
+        "Fallback proxy generated from complete-analysis component ratios because the lightweight sampled CLIMADA proxy rerun failed.",
+        f"Fallback reason: {fallback_reason}",
+    ]
+    hazards_payload: dict[str, Any] = {}
+    for hazard_key in ("storm", "storm_cmcc"):
+        hazard_proxy = default_proxy.get(hazard_key) or {}
+        ratios_by_scenario = hazard_proxy.get("component_ratios") if isinstance(hazard_proxy, dict) else {}
+        multipliers_by_scenario = hazard_proxy.get("global_multipliers") if isinstance(hazard_proxy, dict) else {}
+        shares_by_scenario = hazard_proxy.get("breakdown_shares") if isinstance(hazard_proxy, dict) else {}
+        hazards_payload[hazard_key] = {
+            "scenarios": {
+                scenario: {
+                    "global_multiplier": round(float((multipliers_by_scenario or {}).get(scenario, 1.0) or 1.0), 6),
+                    "component_ratios": _normalize_component_ratio_map((ratios_by_scenario or {}).get(scenario)),
+                    "breakdown_shares": dict((shares_by_scenario or {}).get(scenario) or {}),
+                }
+                for scenario in MAP_SCENARIOS
+            }
+        }
+
+    return {
+        "meta": {
+            "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "case_study_run_id": str(getattr(args, "case_study_run_id", "") or ""),
+            "territory": territory,
+            "territory_label": territory_label(territory),
+            "sample_point_count": 0,
+            "sampling_spacing_m": float(args.spacing_m),
+            "max_points_total": int(args.max_points_total),
+            "max_points_per_feature": int(args.max_points_per_feature),
+            "dynamic_max_tracks": int(args.dynamic_max_tracks),
+            "hazard_map_json": str(args.hazard_map_json) if getattr(args, "hazard_map_json", None) else None,
+            "surge_priority_point_count": 0,
+            "surge_priority_source": "complete_analysis_fallback",
+            "storm_years": int(settings.storm_years),
+            "hazard_storm_path": str(args.hazard_storm_path),
+            "hazard_storm_cmcc_path": str(args.hazard_storm_cmcc_path),
+            "landslide_sources": {
+                "storm": [str(Path(settings.landslide_precip_current_path)), str(Path(settings.landslide_earthquake_path))],
+                "storm_cmcc": [str(Path(settings.landslide_precip_ssp585_path)), str(Path(settings.landslide_earthquake_path))],
+            },
+            "notes": notes,
+            "modeling": {
+                "source": "complete_analysis_component_ratios",
+                "fallback": True,
+            },
+        },
+        "hazards": hazards_payload,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a lightweight sampled multi-hazard proxy for Guadeloupe/Martinique case-study reruns.")
     parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
     parser.add_argument("--infra-elec-dir", default=None)
     parser.add_argument("--infra-eau-dir", default=None)
+    parser.add_argument("--complete-analysis-json", default=None)
+    parser.add_argument(
+        "--prefer-complete-analysis-fallback",
+        action="store_true",
+        help="Skip the lightweight sampled CLIMADA proxy run and synthesize the proxy directly from complete-analysis component ratios.",
+    )
     parser.add_argument("--spacing-m", type=float, default=800.0)
     parser.add_argument("--max-points-total", type=int, default=800)
     parser.add_argument("--max-points-per-feature", type=int, default=8)
@@ -640,6 +710,12 @@ def main() -> None:
     hazard_storm_path, hazard_storm_cmcc_path = _resolve_hazard_paths_for_case_study(territory, settings)
     args.hazard_storm_path = str(hazard_storm_path)
     args.hazard_storm_cmcc_path = str(hazard_storm_cmcc_path)
+    complete_analysis_json = (
+        Path(args.complete_analysis_json)
+        if args.complete_analysis_json
+        else (REPO_ROOT / "web" / "data" / f"{territory}-complete-analysis.json")
+    )
+    component_ratio_reference = _load_component_ratio_reference(complete_analysis_json)
 
     out_json = (
         Path(args.out_json)
@@ -711,43 +787,68 @@ def main() -> None:
         priority_scores=priority_scores,
     )
 
-    run = run_climada_direct_impacts(
-        sample_bundle,
-        hazard_storm_path=Path(hazard_storm_path),
-        hazard_storm_cmcc_path=Path(hazard_storm_cmcc_path),
-        storm_years=max(1, int(settings.storm_years)),
-        top_n_events=max(1, int(settings.climada_top_events_count)),
-        prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
-        fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
-        storm_parquet_path=Path(settings.storm_parquet_path),
-        storm_cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
-        wind_unit_in=settings.storm_wind_unit_in,
-        radius_unit_in=settings.storm_radius_unit_in,
-        env_pressure_hpa=float(settings.storm_env_pressure_hpa),
-        dynamic_max_tracks=int(args.dynamic_max_tracks),
-        track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
-        multi_hazard_enabled=False,
-        rain_model=settings.hazard_rain_model,
-        surge_topo_path=Path(settings.hazard_surge_topo_path),
-        flood_curve_file=Path(settings.d2_flood_curve_file),
-    )
+    proxy_fallback_reason = None
+    if bool(args.prefer_complete_analysis_fallback):
+        proxy_fallback_reason = "forced_complete_analysis_fallback"
+        run = None
+    else:
+        try:
+            run = run_climada_direct_impacts(
+                sample_bundle,
+                hazard_storm_path=Path(hazard_storm_path),
+                hazard_storm_cmcc_path=Path(hazard_storm_cmcc_path),
+                storm_years=max(1, int(settings.storm_years)),
+                top_n_events=max(1, int(settings.climada_top_events_count)),
+                prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
+                fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
+                storm_parquet_path=Path(settings.storm_parquet_path),
+                storm_cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
+                wind_unit_in=settings.storm_wind_unit_in,
+                radius_unit_in=settings.storm_radius_unit_in,
+                env_pressure_hpa=float(settings.storm_env_pressure_hpa),
+                dynamic_max_tracks=int(args.dynamic_max_tracks),
+                track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
+                multi_hazard_enabled=False,
+                rain_model=settings.hazard_rain_model,
+                surge_topo_path=Path(settings.hazard_surge_topo_path),
+                flood_curve_file=Path(settings.d2_flood_curve_file),
+            )
+        except Exception as exc:
+            proxy_fallback_reason = f"{type(exc).__name__}: {exc}"
+            logger.warning(
+                "Lightweight sampled proxy build failed for %s; using complete-analysis fallback (%s)",
+                territory,
+                proxy_fallback_reason,
+            )
+            run = None
 
-    payload = _build_proxy_payload(
-        run,
-        sample_bundle,
-        list(sample_bundle.point_records or []),
-        territory=territory,
-        sample_point_count=len(list(sample_bundle.point_records or [])),
-        landslide_bbox=landslide_bbox,
-        settings=settings,
-        args=args,
-    )
+    if run is not None:
+        payload = _build_proxy_payload(
+            run,
+            sample_bundle,
+            list(sample_bundle.point_records or []),
+            territory=territory,
+            sample_point_count=len(list(sample_bundle.point_records or [])),
+            landslide_bbox=landslide_bbox,
+            settings=settings,
+            args=args,
+        )
+    else:
+        payload = _build_fallback_proxy_payload(
+            territory=territory,
+            settings=settings,
+            args=args,
+            component_ratios=component_ratio_reference,
+            fallback_reason=proxy_fallback_reason or "unknown_error",
+        )
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"Wrote {out_json}")
     print(f"territory={territory}")
     print(f"sample_points={len(list(sample_bundle.point_records or []))}")
+    if proxy_fallback_reason:
+        print(f"fallback_proxy=true reason={proxy_fallback_reason}")
     for hazard_key in ("storm", "storm_cmcc"):
         annual = (((payload.get('hazards') or {}).get(hazard_key) or {}).get('scenarios') or {}).get("annual", {})
         print(

@@ -2,12 +2,18 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "SIB: Check Run Progress (300 tracks)",
+      "label": "SIB: Resume Latest Complete Analysis (No Deploy)",
       "type": "shell",
-      "command": "python3",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "-c",
-        "import subprocess, time; from pathlib import Path; from datetime import datetime; now = time.time(); gua_file = Path('/home/ubuntu/sib-work/web/data/guadeloupe-complete-analysis.json'); mar_file = Path('/home/ubuntu/sib-work/web/data/martinique-complete-analysis.json'); result = subprocess.run(['pgrep', '-f', 'run_complete_analysis.py'], capture_output=True, text=True); running = bool(result.stdout.strip()); print('\\n' + '='*70); print('RUN STATUS CHECK'); print('='*70); print(f'\\nProcess running: {running}'); print(f'\\nGuadeloupe: {gua_file.exists()}'); print(f'Martinique: {mar_file.exists()}'); if running: print('\\nStill computing... Check back in ~10 minutes'); elif gua_file.exists() and mar_file.exists(): gua_age = (now - gua_file.stat().st_mtime)/60; mar_age = (now - mar_file.stat().st_mtime)/60; print(f'\\n✓✓ COMPLETED! Files updated ~{int(gua_age)} and {int(mar_age)} min ago'); else: print('\\nOne or both files missing'); print('='*70)"
+        "${workspaceFolder}/scripts/run_complete_analysis.py",
+        "--resume-run-id",
+        "latest",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "1200",
+        "--memory-budget-gb",
+        "6"
       ],
       "presentation": {
         "reveal": "always",
@@ -15,6 +21,95 @@
       },
       "group": {
         "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Monitor Complete Analysis Run",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/monitor_run.py"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe Only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/rerun_case_studies_light.py",
+        "--territories",
+        "guadeloupe",
+        "--proxy-max-points-total",
+        "600",
+        "--proxy-max-points-per-feature",
+        "6",
+        "--proxy-dynamic-max-tracks",
+        "100",
+        "--prefer-complete-analysis-proxy-fallback",
+        "--prefer-complete-analysis-page-fallback",
+        "--page-component-light-spacing-m",
+        "1000",
+        "--page-component-light-max-points-total",
+        "400",
+        "--page-component-light-max-points-per-feature",
+        "4",
+        "--page-component-light-dynamic-max-tracks",
+        "50",
+        "--map-dynamic-max-tracks",
+        "300"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe + Martinique)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/rerun_case_studies_light.py",
+        "--territories",
+        "guadeloupe",
+        "martinique",
+        "--proxy-max-points-total",
+        "600",
+        "--proxy-max-points-per-feature",
+        "6",
+        "--proxy-dynamic-max-tracks",
+        "100",
+        "--prefer-complete-analysis-proxy-fallback",
+        "--prefer-complete-analysis-page-fallback",
+        "--page-component-light-spacing-m",
+        "1000",
+        "--page-component-light-max-points-total",
+        "400",
+        "--page-component-light-max-points-per-feature",
+        "4",
+        "--page-component-light-dynamic-max-tracks",
+        "50",
+        "--map-dynamic-max-tracks",
+        "300"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
         "isDefault": false
       }
     },
@@ -62,6 +157,86 @@
         "${workspaceFolder}/scripts/deploy_only.py",
         "--vhost",
         "both"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Snapshot Latest Run Web Artefacts",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
+        "--run-id",
+        "latest"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Snapshot Latest Run Web Artefacts (Guadeloupe Only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
+        "--run-id",
+        "latest",
+        "--territories",
+        "guadeloupe"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Archived Latest Run (sib.dev.elio.bottagisio.com)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_only.py",
+        "--run-id",
+        "latest",
+        "--vhost",
+        "sib.dev.elio.bottagisio.com"
+      ],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "none",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev.elio.bottagisio.com)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_only.py",
+        "--run-id",
+        "latest",
+        "--territories",
+        "guadeloupe",
+        "--vhost",
+        "sib.dev.elio.bottagisio.com"
       ],
       "presentation": {
         "reveal": "always",

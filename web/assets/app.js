@@ -1017,6 +1017,30 @@ function formatDate(value) {
   return dateFmt.format(d);
 }
 
+function dateValueTimestamp(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  const ts = d.getTime();
+  return Number.isNaN(ts) ? null : ts;
+}
+
+function currentCaseStudyBadgeMeta() {
+  const caseMeta = state.page1Analysis?.meta || null;
+  const completeMeta = state.completeAnalysis?.meta || null;
+  const caseUpdatedAt = caseMeta?.generated_at || null;
+  const completeUpdatedAt = completeMeta?.updated_at || completeMeta?.generated_at || null;
+  const caseTs = dateValueTimestamp(caseUpdatedAt);
+  const completeTs = dateValueTimestamp(completeUpdatedAt);
+  return {
+    caseMeta,
+    completeMeta,
+    caseUpdatedAt,
+    completeUpdatedAt,
+    hasNewerCompleteAnalysis:
+      Number.isFinite(completeTs) && (!Number.isFinite(caseTs) || completeTs > caseTs)
+  };
+}
+
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
@@ -1354,12 +1378,33 @@ function getHazardLabel(hazardKey) {
 }
 
 function updateMetaBadges() {
-  const caseMeta = state.page1Analysis?.meta || null;
-  if ((state.currentPage === 'page1' || state.currentPage === 'page2') && caseMeta) {
-    els.badgeSource.textContent = `Source: ${caseMeta.source || 'inconnue'}`;
-    els.badgeUpdated.textContent = `Mis a jour: ${formatDate(caseMeta.generated_at)}`;
-    els.badgeEngine.textContent = `Moteur: climada_with_interdependency_v1`;
-    return;
+  if (state.currentPage === 'page1' || state.currentPage === 'page2') {
+    const badgeMeta = currentCaseStudyBadgeMeta();
+    if (badgeMeta.caseMeta || badgeMeta.completeMeta) {
+      const engine = badgeMeta.completeMeta?.engine || 'climada_with_interdependency_v1';
+      if (badgeMeta.hasNewerCompleteAnalysis && badgeMeta.completeUpdatedAt) {
+        const sourceParts = dedupeNonEmptyStrings([
+          badgeMeta.completeMeta?.source,
+          badgeMeta.caseMeta?.source
+        ]);
+        els.badgeSource.textContent = `Source: ${sourceParts.join(' + ') || "analyse complete + vue cas d'etude"}`;
+        els.badgeUpdated.textContent =
+          `Mis a jour impacts: ${formatDate(badgeMeta.completeUpdatedAt)} | ` +
+          `Vue cas d'etude: ${formatDate(badgeMeta.caseUpdatedAt)}`;
+        els.badgeEngine.textContent = `Moteur: ${engine}`;
+        return;
+      }
+      if (badgeMeta.caseMeta) {
+        els.badgeSource.textContent = `Source: ${badgeMeta.caseMeta.source || 'inconnue'}`;
+        els.badgeUpdated.textContent = `Mis a jour: ${formatDate(badgeMeta.caseUpdatedAt)}`;
+        els.badgeEngine.textContent = `Moteur: ${engine}`;
+        return;
+      }
+      els.badgeSource.textContent = `Source: ${badgeMeta.completeMeta?.source || 'inconnue'}`;
+      els.badgeUpdated.textContent = `Mis a jour: ${formatDate(badgeMeta.completeUpdatedAt)}`;
+      els.badgeEngine.textContent = `Moteur: ${engine}`;
+      return;
+    }
   }
   const result = getActiveResult();
   if (!result) {
@@ -6422,6 +6467,7 @@ function ensureNetworkStatesLoaded() {
             renderSocialImpactTable(state.page1Analysis);
             renderPage1Conclusion(state.page1Analysis);
           }
+          updateMetaBadges();
         }
         return payload;
       })

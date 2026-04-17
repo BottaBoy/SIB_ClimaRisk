@@ -71,6 +71,12 @@ class Settings:
     impact_engine_mode: str = "climada"
     allow_climada_fallback: bool = False
     climada_metric_crs: str = "EPSG:3857"
+    climada_execution_profile: str = "default"
+    climada_memory_budget_gb: float = 0.0
+    climada_max_points_per_shard: int = 0
+    climada_min_points_per_shard: int = 512
+    climada_max_shard_retry_depth: int = 4
+    climada_strict_required_components: bool = False
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
     cors_allowed_origins: tuple[str, ...] = (
@@ -223,6 +229,12 @@ def load_settings() -> Settings:
         impact_engine_mode=str(env.get("SIB_RISK_IMPACT_ENGINE_MODE", "climada")).strip().lower(),
         allow_climada_fallback=_env_bool(env, "SIB_RISK_ALLOW_CLIMADA_FALLBACK", False),
         climada_metric_crs=str(env.get("SIB_RISK_CLIMADA_METRIC_CRS", "EPSG:3857")).strip(),
+        climada_execution_profile=str(env.get("SIB_RISK_CLIMADA_EXECUTION_PROFILE", "default")).strip().lower(),
+        climada_memory_budget_gb=float(env.get("SIB_RISK_CLIMADA_MEMORY_BUDGET_GB", "0")),
+        climada_max_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_SHARD", "0")),
+        climada_min_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MIN_POINTS_PER_SHARD", "512")),
+        climada_max_shard_retry_depth=int(env.get("SIB_RISK_CLIMADA_MAX_SHARD_RETRY_DEPTH", "4")),
+        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", False),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
         cors_allowed_origins=_env_csv(

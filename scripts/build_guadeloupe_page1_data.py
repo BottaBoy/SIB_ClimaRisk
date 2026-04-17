@@ -232,7 +232,8 @@ def _case_bbox_polygon(case_cfg: dict[str, Any]):
 def _clip_case_gdf(gdf: gpd.GeoDataFrame, case_cfg: dict[str, Any]) -> gpd.GeoDataFrame:
     gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
     gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(_case_bbox_polygon(case_cfg))
-    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+    geometry = gdf_wgs.geometry
+    return gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
 
 def _state_from_ratio(ratio: float) -> str:
@@ -1825,6 +1826,436 @@ def _build_conclusion_text(exposure_metrics: dict[str, Any], impact_metrics: dic
     )
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return float(default)
+    if not np.isfinite(out):
+        return float(default)
+    return out
+
+
+def _load_complete_analysis_payload(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        raise FileNotFoundError(f"Missing complete-analysis JSON for fallback synthesis: {path}")
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Unable to read complete-analysis JSON: {path}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid complete-analysis payload (expected object): {path}")
+    if not isinstance(payload.get("portfolio_results"), dict):
+        raise ValueError(f"Invalid complete-analysis payload (missing portfolio_results): {path}")
+    if not isinstance(payload.get("asset_results"), list):
+        raise ValueError(f"Invalid complete-analysis payload (missing asset_results): {path}")
+    return payload
+
+
+def _mean_top_event_loss(events: Any, keep: int) -> float:
+    losses: list[float] = []
+    for row in list(events or [])[: max(1, int(keep))]:
+        if not isinstance(row, dict):
+            continue
+        loss = _safe_float(row.get("loss_eur"), 0.0)
+        if loss > 0.0:
+            losses.append(loss)
+    if not losses:
+        return 0.0
+    return float(np.mean(np.asarray(losses, dtype=float)))
+
+
+def _scenario_targets_from_complete_analysis(payload: dict[str, Any]) -> dict[str, dict[str, float]]:
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    portfolio = portfolio if isinstance(portfolio, dict) else {}
+    event_summary = portfolio.get("event_summary") if isinstance(portfolio.get("event_summary"), dict) else {}
+
+    out: dict[str, dict[str, float]] = {}
+    for hazard_key, top_events_key in (
+        ("storm", "storm_top_events"),
+        ("storm_cmcc", "storm_cmcc_top_events"),
+    ):
+        hazard_payload = portfolio.get(hazard_key) if isinstance(portfolio.get(hazard_key), dict) else {}
+        annual = _safe_float(hazard_payload.get("eai_eur"), 0.0)
+        rp50 = _safe_float(hazard_payload.get("pml_50_eur"), 0.0)
+        rp100 = _safe_float(hazard_payload.get("pml_100_eur"), 0.0)
+        event_max = _safe_float(hazard_payload.get("max_event_loss_eur"), 0.0)
+        top_events = event_summary.get(top_events_key) if isinstance(event_summary.get(top_events_key), list) else []
+        top10 = _mean_top_event_loss(top_events, 10)
+        top5 = _mean_top_event_loss(top_events, 5)
+        if top10 <= 0.0:
+            top10 = event_max or rp100 or annual
+        if top5 <= 0.0:
+            top5 = top10 or event_max or rp100 or annual
+        out[hazard_key] = {
+            "annual": annual,
+            "rp50": rp50 or rp100 or annual,
+            "rp100": rp100 or rp50 or annual,
+            "event_max": event_max or top5 or rp100 or annual,
+            "top10": top10,
+            "top5": top5,
+        }
+    return out
+
+
+def _event_id_max_from_complete_analysis(payload: dict[str, Any], hazard_key: str) -> int:
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    portfolio = portfolio if isinstance(portfolio, dict) else {}
+    event_summary = portfolio.get("event_summary") if isinstance(portfolio.get("event_summary"), dict) else {}
+    event_key = "storm_top_events" if hazard_key == "storm" else "storm_cmcc_top_events"
+    events = event_summary.get(event_key) if isinstance(event_summary.get(event_key), list) else []
+    if not events:
+        return 0
+    first = events[0] if isinstance(events[0], dict) else {}
+    try:
+        return int(first.get("event_id") or 0)
+    except Exception:
+        return 0
+
+
+def _allocate_additional_loss(
+    target_total: float,
+    base_loss: np.ndarray,
+    values: np.ndarray,
+    preferred_weights: np.ndarray,
+) -> np.ndarray:
+    base = np.minimum(np.maximum(np.asarray(base_loss, dtype=float).reshape(-1), 0.0), values)
+    vals = np.asarray(values, dtype=float).reshape(-1)
+    weights = np.maximum(np.asarray(preferred_weights, dtype=float).reshape(-1), 0.0)
+
+    residual = max(0.0, float(target_total) - float(base.sum()))
+    if residual <= 0.0:
+        return np.zeros_like(base, dtype=float)
+
+    available = np.minimum(np.maximum(vals - base, 0.0), vals)
+    if not np.any(available > 1e-9):
+        return np.zeros_like(base, dtype=float)
+
+    allocation = np.zeros_like(base, dtype=float)
+    remaining = residual
+    active = available > 1e-9
+    current_weights = np.where(active, weights, 0.0)
+
+    for _ in range(6):
+        if remaining <= 1e-6 or not np.any(active):
+            break
+        basis = np.where(active, current_weights, 0.0)
+        if float(basis.sum()) <= 0.0:
+            basis = np.where(active, available, 0.0)
+        basis_sum = float(basis.sum())
+        if basis_sum <= 0.0:
+            break
+        proposed = (basis / basis_sum) * remaining
+        clipped = np.minimum(proposed, available)
+        spent = float(clipped.sum())
+        if spent <= 1e-9:
+            break
+        allocation += clipped
+        available -= clipped
+        remaining -= spent
+        active = available > 1e-9
+        current_weights = np.where(active, current_weights, 0.0)
+
+    return np.minimum(np.maximum(allocation, 0.0), np.maximum(vals - base, 0.0))
+
+
+def _compute_impact_metrics_from_complete_analysis(
+    complete_analysis_payload: dict[str, Any],
+    *,
+    spacing_m: float,
+    network_value_per_km: dict[str, float],
+    exposure_value_by_class: dict[str, float],
+    component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
+    multi_hazard_proxy: dict[str, dict[str, dict[str, Any]]] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    assets_raw = complete_analysis_payload.get("asset_results") if isinstance(complete_analysis_payload, dict) else None
+    assets = [row for row in (assets_raw or []) if isinstance(row, dict)]
+    if not assets:
+        raise ValueError("Complete-analysis payload has no asset_results for page-analysis fallback")
+
+    values = np.asarray([max(0.0, _safe_float(row.get("exposure_eur"), 0.0)) for row in assets], dtype=float)
+    feature_ids = [str(row.get("asset_id") or f"asset-{idx + 1}") for idx, row in enumerate(assets)]
+    class_keys = [_network_class_from_point(row) for row in assets]
+    breakdown_class_keys = [_breakdown_class_from_point(row) for row in assets]
+    weights_km = np.asarray(
+        [
+            (float(values[idx]) / float(network_value_per_km[class_key]))
+            if class_key in network_value_per_km and float(network_value_per_km[class_key]) > 0.0
+            else 0.0
+            for idx, class_key in enumerate(class_keys)
+        ],
+        dtype=float,
+    )
+
+    if component_ratios_by_hazard is None:
+        component_ratios_by_hazard = _default_component_ratios()
+    if multi_hazard_proxy is None:
+        multi_hazard_proxy = _default_multi_hazard_proxy(component_ratios_by_hazard)
+
+    scenario_targets = _scenario_targets_from_complete_analysis(complete_analysis_payload)
+    all_infra_mask = np.asarray([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
+    network_mask = np.asarray([ck in NETWORK_CLASS_LABELS for ck in class_keys], dtype=bool)
+    water_mask = np.asarray(
+        [
+            ck in {"eau_aep", "eau_eu", "eau_aep_ouvrages", "eau_eu_pr", "eau_eu_step"}
+            for ck in breakdown_class_keys
+        ],
+        dtype=bool,
+    )
+
+    hazard_outputs: dict[str, Any] = {}
+    for hazard_key, asset_key_suffix in (("storm", "storm"), ("storm_cmcc", "cmcc")):
+        annual_direct = np.asarray(
+            [max(0.0, _safe_float(row.get(f"eai_{asset_key_suffix}_direct_eur"), 0.0)) for row in assets],
+            dtype=float,
+        )
+        annual_total = np.asarray(
+            [max(0.0, _safe_float(row.get(f"eai_{asset_key_suffix}_eur"), 0.0)) for row in assets],
+            dtype=float,
+        )
+        annual_total = np.minimum(np.maximum(annual_total, 0.0), values)
+        annual_direct = np.minimum(np.maximum(annual_direct, 0.0), annual_total)
+        annual_indirect = np.maximum(annual_total - annual_direct, 0.0)
+
+        annual_reference_total = float(scenario_targets.get(hazard_key, {}).get("annual") or float(annual_total[all_infra_mask].sum()))
+        if annual_reference_total <= 0.0:
+            annual_reference_total = float(annual_total[all_infra_mask].sum())
+
+        hazard_proxy = (multi_hazard_proxy or {}).get(hazard_key, {}) if isinstance(multi_hazard_proxy, dict) else {}
+        scenario_component_ratios = (
+            hazard_proxy.get("component_ratios")
+            if isinstance(hazard_proxy, dict)
+            else None
+        ) or (component_ratios_by_hazard or {}).get(hazard_key, {})
+        scenario_global_multipliers = (
+            hazard_proxy.get("global_multipliers")
+            if isinstance(hazard_proxy, dict)
+            else None
+        ) or {}
+        scenario_breakdown_shares = (
+            hazard_proxy.get("breakdown_shares")
+            if isinstance(hazard_proxy, dict)
+            else None
+        ) or {}
+
+        scenario_results: dict[str, dict[str, Any]] = {}
+        direct_losses_by_scenario: dict[str, np.ndarray] = {}
+        for scenario in MAP_SCENARIOS:
+            base_target_total = float(
+                (scenario_targets.get(hazard_key) or {}).get(scenario, annual_reference_total) or annual_reference_total
+            )
+            if scenario == "annual" or annual_reference_total <= 0.0:
+                scenario_scale = 1.0
+            else:
+                scenario_scale = max(0.0, base_target_total) / max(annual_reference_total, 1e-9)
+
+            raw_direct = np.minimum(np.maximum(annual_direct * scenario_scale, 0.0), values)
+            adjusted_direct = _apply_multi_hazard_proxy_to_direct_losses(
+                raw_direct,
+                values=values,
+                breakdown_class_keys=breakdown_class_keys,
+                scenario=scenario,
+                global_multipliers=scenario_global_multipliers,
+                breakdown_shares=scenario_breakdown_shares,
+                component_ratios=scenario_component_ratios if isinstance(scenario_component_ratios, dict) else None,
+            )
+
+            scenario_multiplier = _safe_float(
+                scenario_global_multipliers.get(scenario, scenario_global_multipliers.get("annual", 1.0)),
+                1.0,
+            )
+            target_total = min(float(values[all_infra_mask].sum()), max(0.0, base_target_total * max(0.0, scenario_multiplier)))
+            indirect_weights = np.where(water_mask, np.maximum(annual_indirect * scenario_scale, 0.0), 0.0)
+            if float(indirect_weights.sum()) <= 0.0:
+                indirect_weights = np.where(water_mask, np.maximum(values - adjusted_direct, 0.0), 0.0)
+            indirect_alloc = _allocate_additional_loss(
+                target_total,
+                adjusted_direct,
+                values,
+                indirect_weights,
+            )
+            total_loss = np.minimum(values, adjusted_direct + indirect_alloc)
+
+            direct_ratio = np.divide(adjusted_direct, np.maximum(values, 1.0))
+            final_ratio = np.divide(total_loss, np.maximum(values, 1.0))
+            direct_state = np.asarray([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
+            final_state = np.asarray([_state_from_ratio(float(v)) for v in final_ratio], dtype=object)
+            scenario_results[scenario] = {
+                "direct_state": direct_state,
+                "final_state": final_state,
+                "total_loss": total_loss,
+                "indirect_s3_flag": (final_state == "S3") & (direct_state != "S3"),
+            }
+            direct_losses_by_scenario[scenario] = adjusted_direct
+
+        rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
+        for scenario in TABLE_SCENARIOS:
+            rows: list[dict[str, Any]] = []
+            for network_class_key, label in NETWORK_CLASS_LABELS.items():
+                mask = np.asarray([ck == network_class_key for ck in class_keys], dtype=bool)
+                total_w = float(weights_km[mask].sum())
+                class_exposure = round(float(exposure_value_by_class.get(network_class_key, 0.0)), 2)
+                if total_w <= 0.0:
+                    state_pct = {s: 0.0 for s in ("S0", "S1", "S2", "S3")}
+                    damage_val = 0.0
+                else:
+                    state_pct = {
+                        s: round(
+                            float(weights_km[mask & (scenario_results[scenario]["final_state"] == s)].sum())
+                            / total_w
+                            * 100.0,
+                            3,
+                        )
+                        for s in ("S0", "S1", "S2", "S3")
+                    }
+                    damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
+                component_ratios = _normalize_component_ratio_map(
+                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                )
+                rows.append(
+                    {
+                        "class_key": network_class_key,
+                        "class_label": label,
+                        "exposure_eur": class_exposure,
+                        "state_pct": state_pct,
+                        "damage_eur": damage_val,
+                        "direct_damage_eur": direct_val,
+                        "indirect_damage_eur": indirect_val,
+                        "damage_components_eur": _allocate_damage_components(damage_val, component_ratios),
+                    }
+                )
+            rows_by_scenario[scenario] = rows
+
+        breakdown_by_scenario: dict[str, list[dict[str, Any]]] = {}
+        for scenario in MAP_SCENARIOS:
+            rows: list[dict[str, Any]] = []
+            for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
+                mask = np.asarray([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
+                damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
+                component_ratios = _normalize_component_ratio_map(
+                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                )
+                rows.append(
+                    {
+                        "class_key": breakdown_class_key,
+                        "class_label": label,
+                        "exposure_eur": round(float(exposure_value_by_class.get(breakdown_class_key, 0.0)), 2),
+                        "damage_eur": damage_val,
+                        "direct_damage_eur": direct_val,
+                        "indirect_damage_eur": indirect_val,
+                        "damage_components_eur": _allocate_damage_components(damage_val, component_ratios),
+                    }
+                )
+            breakdown_by_scenario[scenario] = rows
+
+        network_total_w = float(weights_km[network_mask].sum())
+        direct_s3_annual = float(weights_km[network_mask & (scenario_results["annual"]["direct_state"] == "S3")].sum())
+        direct_s3_event = float(weights_km[network_mask & (scenario_results["event_max"]["direct_state"] == "S3")].sum())
+        indirect_s3_annual = float(weights_km[network_mask & scenario_results["annual"]["indirect_s3_flag"]].sum())
+        indirect_s3_event = float(weights_km[network_mask & scenario_results["event_max"]["indirect_s3_flag"]].sum())
+
+        hazard_outputs[hazard_key] = {
+            "rows_by_scenario": rows_by_scenario,
+            "breakdown_by_scenario": breakdown_by_scenario,
+            "summary": {
+                "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
+                "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
+                "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "eai_total_eur": round(float(scenario_results["annual"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp50_total_loss_eur": round(float(scenario_results["rp50"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp100_total_loss_eur": round(float(scenario_results["rp100"]["total_loss"][all_infra_mask].sum()), 2),
+                "event_max_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
+                "top10_total_loss_eur": round(float(scenario_results["top10"]["total_loss"][all_infra_mask].sum()), 2),
+                "top5_total_loss_eur": round(float(scenario_results["top5"]["total_loss"][all_infra_mask].sum()), 2),
+                "event_id_max": _event_id_max_from_complete_analysis(complete_analysis_payload, hazard_key),
+            },
+            "feature_states": {
+                scenario: _aggregate_feature_states(feature_ids, scenario_results[scenario]["final_state"])
+                for scenario in MAP_SCENARIOS
+            },
+        }
+
+    merged_rows = _merge_rows_by_scenario(hazard_outputs)
+    summary_text = _build_impact_summary_text(hazard_outputs)
+
+    legacy_rows: list[dict[str, Any]] = []
+    for class_key in NETWORK_CLASS_LABELS.keys():
+        row_storm_annual = _row_for_class(hazard_outputs, "storm", "annual", class_key)
+        row_storm_event = _row_for_class(hazard_outputs, "storm", "event_max", class_key)
+        row_cmcc_annual = _row_for_class(hazard_outputs, "storm_cmcc", "annual", class_key)
+        row_cmcc_event = _row_for_class(hazard_outputs, "storm_cmcc", "event_max", class_key)
+        legacy_rows.append(
+            {
+                "class_key": class_key,
+                "class_label": NETWORK_CLASS_LABELS[class_key],
+                "storm": {
+                    "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
+                    "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "exposure_eur": float(row_storm_annual.get("exposure_eur", 0.0)),
+                    "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
+                    "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                    "direct_eai_eur": float(row_storm_annual.get("direct_damage_eur", 0.0)),
+                    "indirect_eai_eur": float(row_storm_annual.get("indirect_damage_eur", 0.0)),
+                    "direct_event_max_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
+                    "indirect_event_max_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
+                },
+                "storm_cmcc": {
+                    "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
+                    "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "exposure_eur": float(row_cmcc_annual.get("exposure_eur", 0.0)),
+                    "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
+                    "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                    "direct_eai_eur": float(row_cmcc_annual.get("direct_damage_eur", 0.0)),
+                    "indirect_eai_eur": float(row_cmcc_annual.get("indirect_damage_eur", 0.0)),
+                    "direct_event_max_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
+                    "indirect_event_max_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
+                },
+            }
+        )
+
+    impact_payload = {
+        "summary_text": summary_text,
+        "component_order": list(COMPONENT_ORDER),
+        "summary_metrics": {haz: hazard_outputs[haz]["summary"] for haz in ("storm", "storm_cmcc")},
+        "state_damage_tables": merged_rows,
+        "state_damage_table": legacy_rows,
+        "damage_breakdown": {
+            "storm": _legacy_breakdown_rows(hazard_outputs, "storm"),
+            "storm_cmcc": _legacy_breakdown_rows(hazard_outputs, "storm_cmcc"),
+        },
+        "damage_breakdown_by_scenario": {
+            scenario: {
+                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][scenario],
+                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][scenario],
+            }
+            for scenario in MAP_SCENARIOS
+        },
+        "map_defaults": {
+            "hazard": "storm",
+            "scenario": "event_max",
+        },
+    }
+    exposure_summary = complete_analysis_payload.get("exposure_summary") if isinstance(complete_analysis_payload, dict) else None
+    aux = {
+        "hazard_feature_states": {
+            "storm": hazard_outputs["storm"]["feature_states"],
+            "storm_cmcc": hazard_outputs["storm_cmcc"]["feature_states"],
+        },
+        "disaggregation": {
+            "sampling_spacing_m": float(spacing_m),
+            "asset_count_points": int(_safe_float((exposure_summary or {}).get("asset_count_points"), float(len(assets)))),
+        },
+    }
+    return impact_payload, aux
+
+
 def _load_zone_wind_comparison_table(doc_path: Path, zone_heading: str) -> list[dict[str, str]]:
     if not doc_path.exists():
         return []
@@ -1931,6 +2362,11 @@ def main() -> None:
         "--allow-stale-proxy",
         action="store_true",
         help="Allow page-analysis rebuilds to reuse an older multi-hazard proxy when wind maps are newer.",
+    )
+    parser.add_argument(
+        "--prefer-complete-analysis-fallback",
+        action="store_true",
+        help="Skip the heavy CLIMADA page-analysis rerun and synthesize page-analysis/network-states directly from complete-analysis asset results.",
     )
     args = parser.parse_args()
     _require_runtime_deps()
@@ -2044,32 +2480,57 @@ def main() -> None:
         float(bbox_cfg["lon_max"]),
         float(bbox_cfg["lat_max"]),
     )
-    exposure: NormalizedExposure = build_complete_exposure(
-        infra_elec_dir=case_cfg["infra_elec_dir"],
-        infra_eau_dir=case_cfg["infra_eau_dir"],
-        territory=territory,
-    )
-    impact_metrics, aux = _compute_impact_metrics(
-        exposure,
-        spacing_m=float(args.spacing_m),
-        settings=settings,
-        network_value_per_km=exposure_metrics["value_per_km_eur"],
-        exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
-        territory=territory,
-        landslide_bbox=landslide_bbox,
-        hazard_storm_path=hazard_storm_path,
-        hazard_storm_cmcc_path=hazard_storm_cmcc_path,
-        component_ratios_by_hazard=component_ratios_by_hazard,
-        multi_hazard_proxy=multi_hazard_proxy,
-        component_light_spacing_m=float(args.component_light_spacing_m),
-        component_light_max_points_total=int(args.component_light_max_points_total),
-        component_light_max_points_per_feature=int(args.component_light_max_points_per_feature),
-        component_light_dynamic_max_tracks=(
-            int(args.component_light_dynamic_max_tracks)
-            if args.component_light_dynamic_max_tracks is not None
-            else None
-        ),
-    )
+    fallback_reason: str | None = None
+    if bool(args.prefer_complete_analysis_fallback):
+        fallback_reason = "forced_complete_analysis_fallback"
+        complete_analysis_payload = _load_complete_analysis_payload(complete_analysis_json)
+        impact_metrics, aux = _compute_impact_metrics_from_complete_analysis(
+            complete_analysis_payload,
+            spacing_m=float(args.spacing_m),
+            network_value_per_km=exposure_metrics["value_per_km_eur"],
+            exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
+            component_ratios_by_hazard=component_ratios_by_hazard,
+            multi_hazard_proxy=multi_hazard_proxy,
+        )
+    else:
+        try:
+            exposure: NormalizedExposure = build_complete_exposure(
+                infra_elec_dir=case_cfg["infra_elec_dir"],
+                infra_eau_dir=case_cfg["infra_eau_dir"],
+                territory=territory,
+            )
+            impact_metrics, aux = _compute_impact_metrics(
+                exposure,
+                spacing_m=float(args.spacing_m),
+                settings=settings,
+                network_value_per_km=exposure_metrics["value_per_km_eur"],
+                exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
+                territory=territory,
+                landslide_bbox=landslide_bbox,
+                hazard_storm_path=hazard_storm_path,
+                hazard_storm_cmcc_path=hazard_storm_cmcc_path,
+                component_ratios_by_hazard=component_ratios_by_hazard,
+                multi_hazard_proxy=multi_hazard_proxy,
+                component_light_spacing_m=float(args.component_light_spacing_m),
+                component_light_max_points_total=int(args.component_light_max_points_total),
+                component_light_max_points_per_feature=int(args.component_light_max_points_per_feature),
+                component_light_dynamic_max_tracks=(
+                    int(args.component_light_dynamic_max_tracks)
+                    if args.component_light_dynamic_max_tracks is not None
+                    else None
+                ),
+            )
+        except Exception as exc:
+            fallback_reason = f"{type(exc).__name__}: {exc}"
+            complete_analysis_payload = _load_complete_analysis_payload(complete_analysis_json)
+            impact_metrics, aux = _compute_impact_metrics_from_complete_analysis(
+                complete_analysis_payload,
+                spacing_m=float(args.spacing_m),
+                network_value_per_km=exposure_metrics["value_per_km_eur"],
+                exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
+                component_ratios_by_hazard=component_ratios_by_hazard,
+                multi_hazard_proxy=multi_hazard_proxy,
+            )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
     zone_wind_compare_rows = _build_zone_wind_comparison_table_from_wind_map_payload(wind_map_payload)
     if not zone_wind_compare_rows:
@@ -2106,9 +2567,22 @@ def main() -> None:
             "wind_map_json": str(wind_map_json),
             "wind_map_generated_at": wind_map_meta.get("generated_at") if isinstance(wind_map_meta, dict) else None,
             "wind_map_run_id": wind_map_run_id or None,
+            "complete_analysis_json": str(complete_analysis_json) if complete_analysis_json.exists() else None,
             "valuation_source": SOURCE_LABEL,
             "valuation_territory": str(valuation_metadata["territory_effective"]),
             "valuation_version": str(valuation_metadata["valuation_version"]),
+            "notes": (
+                [
+                    "Fallback page analysis generated from complete-analysis asset results because the heavy case-study CLIMADA page-analysis rerun was skipped or failed.",
+                    f"Fallback reason: {fallback_reason}",
+                ]
+                if fallback_reason
+                else []
+            ),
+            "modeling": {
+                "source": "complete_analysis_asset_fallback" if fallback_reason else "case_study_page_analysis",
+                "fallback": bool(fallback_reason),
+            },
         },
         "exposition": exposure_metrics,
         "hazard": {
@@ -2140,6 +2614,8 @@ def main() -> None:
     print(f"State map features: {len(geometry_features)}")
     print(f"EAI STORM: {impact_metrics['summary_metrics']['storm']['eai_total_eur']}")
     print(f"EAI STORM_CMCC: {impact_metrics['summary_metrics']['storm_cmcc']['eai_total_eur']}")
+    if fallback_reason:
+        print(f"fallback_page_analysis=true reason={fallback_reason}")
 
 
 if __name__ == "__main__":

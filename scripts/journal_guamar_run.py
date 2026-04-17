@@ -46,6 +46,17 @@ def _load_meta_from_value(raw_path: Any) -> dict[str, Any]:
     return _load_meta(path)
 
 
+def _is_case_study_row(payload: dict[str, Any]) -> bool:
+    territory = str(payload.get("territory") or "").strip().lower()
+    hazard = str(payload.get("hazard") or "").strip().lower()
+    if territory not in {"guadeloupe", "martinique"}:
+        return False
+    if hazard not in {"storm", "storm_cmcc"}:
+        return False
+    generated_at = str(payload.get("generated_at") or "").strip()
+    return bool(generated_at)
+
+
 def _normalize_track_ids(track_ids: Any) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -104,7 +115,7 @@ def _read_history() -> list[dict[str, Any]]:
             payload = json.loads(line)
         except Exception:
             continue
-        if isinstance(payload, dict):
+        if isinstance(payload, dict) and _is_case_study_row(payload):
             history.append(payload)
     return history
 
@@ -125,7 +136,8 @@ def _row_track_digest(blob: dict[str, Any] | None) -> str:
         preview_text = ", ".join(str(item) for item in preview)
     else:
         preview_text = "-"
-    return f"{count} ids | {sha} | {preview_text}"
+    # Markdown table cells must not contain unescaped pipes.
+    return f"{count} ids / {sha} / {preview_text}"
 
 
 def _format_value(value: Any, *, digits: int = 2) -> str:

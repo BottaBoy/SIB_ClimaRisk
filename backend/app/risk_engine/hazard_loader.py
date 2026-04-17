@@ -47,7 +47,10 @@ class HazardBundle:
     point_count: int = 0
     tracks_storm: Any | None = None
     tracks_storm_cmcc: Any | None = None
+    track_count_storm: int = 0
+    track_count_storm_cmcc: int = 0
     centroids: Any | None = None
+    global_hazards_built: bool = True
 
 
 @dataclass(frozen=True)
@@ -612,6 +615,7 @@ def load_storm_hazards_from_parquet_for_points(
     wind_unit_in: str = "m/s",
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
+    build_hazards: bool = True,
 ) -> HazardBundle:
     coords = list(point_coords)
     if not coords:
@@ -619,7 +623,6 @@ def load_storm_hazards_from_parquet_for_points(
 
     basin_ids = _basin_ids_for_points(coords, basin_coverages)
     spatial_window = _build_spatial_window(coords, padding_deg=spatial_padding_deg)
-    centroids = _build_centroids_from_points(coords)
     tracks_storm = _get_or_build_tracks(
         storm_parquet_path,
         provider_name="STORM",
@@ -642,12 +645,15 @@ def load_storm_hazards_from_parquet_for_points(
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
+    track_count_storm = int(len(getattr(tracks_storm, "data", [])))
+    track_count_cmcc = int(len(getattr(tracks_cmcc, "data", [])))
 
-    storm = _build_hazard_from_tracks(tracks_storm, centroids)
-    storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids)
+    centroids = _build_centroids_from_points(coords) if build_hazards else None
+    storm = _build_hazard_from_tracks(tracks_storm, centroids) if centroids is not None else None
+    storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids) if centroids is not None else None
     return HazardBundle(
-        storm=_normalize_frequency_safe(storm, storm_years),
-        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years),
+        storm=_normalize_frequency_safe(storm, storm_years) if storm is not None else None,
+        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years) if storm_cmcc is not None else None,
         storm_years=storm_years,
         normalized_on_copy=True,
         source="dynamic_parquet",
@@ -655,7 +661,10 @@ def load_storm_hazards_from_parquet_for_points(
         point_count=int(len(coords)),
         tracks_storm=tracks_storm,
         tracks_storm_cmcc=tracks_cmcc,
+        track_count_storm=track_count_storm,
+        track_count_storm_cmcc=track_count_cmcc,
         centroids=centroids,
+        global_hazards_built=bool(centroids is not None),
     )
 
 
@@ -674,4 +683,6 @@ def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> H
         storm_years=storm_years,
         normalized_on_copy=True,
         source="precomputed_hdf5",
+        track_count_storm=int(len(getattr(storm, "event_id", []))),
+        track_count_storm_cmcc=int(len(getattr(storm_cmcc, "event_id", []))),
     )

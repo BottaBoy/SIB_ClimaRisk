@@ -3,8 +3,10 @@
 Script Python pour exécuter la pipeline d'analyse complète du risque cyclonique sur les infrastructures (eau + électricité) en Guadeloupe et Martinique, avec support pour:
 
 - 🎛️ **Configuration dynamique**: Ajuster `dynamic_max_tracks` pour contrôler la richesse de l'analyse
+- 🧩 **Exécution shardée**: Découpage automatique des points CLIMADA selon un budget mémoire pour éviter les `MemoryError` sur les runs lourds
 - 📊 **Multi-territoire**: Lancer les runs pour Guadeloupe, Martinique, ou les deux
 - 📝 **Journalisation automatique**: Logs en markdown + JSONL pour suivi et audit
+- 📁 **Manifeste de run**: Suivi détaillé par territoire / aléa / composant / shard dans `outputs/complete-analysis-runs/`
 - 🚀 **Déploiement automatique**: Résultats déployés automatiquement sur le serveur web après succès
 - ⏱️ **Tracking**: Suivi de la progression avec timestamps
 
@@ -63,8 +65,48 @@ python3 scripts/run_complete_analysis.py
 2. Lance l'analyse pour Martinique
 3. Exporte les résultats JSON dans `web/data/`
 4. Déploie automatiquement les résultats sur `sib.dev.elio.bottagisio.com`
-5. Journalise tout dans `docs/Journalisation_Run_GuaMar.{md,jsonl}`
-6. **Durée estimée: 40-45 minutes**
+5. Journalise tout dans `docs/Journalisation_Run_CompleteAnalysis.{md,jsonl}`
+6. Écrit aussi un manifeste temps réel dans `outputs/complete-analysis-runs/latest-manifest.json`
+7. **Durée estimée: 40-45 minutes**
+
+### Budget mémoire et shards d'exposition
+
+```bash
+# Budget mémoire par composant CLIMADA (default: 6 GiB)
+python3 scripts/run_complete_analysis.py --memory-budget-gb 6
+
+# Forcer un cap explicite sur le nombre de points par shard
+python3 scripts/run_complete_analysis.py --max-points-per-shard 6000
+
+# Autoriser un run dégradé si un composant multi-aléa éligible échoue
+python3 scripts/run_complete_analysis.py --allow-degraded-components
+```
+
+Par défaut, le runner complet active un profil `complete-analysis` strict:
+
+- les points CLIMADA sont shardés automatiquement si nécessaire
+- un échec d'un composant éligible `rain` ou `surge` fait échouer le territoire
+- le suivi détaillé se fait via le manifeste de run plutôt qu'uniquement via les JSON finaux
+
+### Reprendre un run interrompu
+
+```bash
+# Reprendre le dernier run connu via le manifeste latest-manifest.json
+python3 scripts/run_complete_analysis.py --resume-run-id latest --no-deploy
+
+# Reprendre un run précis
+python3 scripts/run_complete_analysis.py --resume-run-id 20260415_101530 --no-deploy
+
+# Reprendre avec un cap de shard plus agressif pour terminer un run OOM
+python3 scripts/run_complete_analysis.py --resume-run-id latest --no-deploy --max-points-per-shard 1500
+```
+
+En mode reprise:
+
+- les territoires déjà exportés avec succès sont sautés
+- les shards déjà checkpointés sont rechargés au lieu d'être recalculés
+- les plans de split déclenchés après `MemoryError` sont réutilisés
+- les checkpoints sont stockés sous `outputs/complete-analysis-runs/<run_id>/territories/<territory>/checkpoints/`
 
 ### Personnaliser `dynamic_max_tracks`
 
@@ -133,14 +175,14 @@ Parameters: dynamic_max_tracks=1200, territories=['guadeloupe', 'martinique']
 [17:20:45] INFO: ✓ Deployment successful
 ============================================================
 Run complete. Logs written to:
-  /home/ubuntu/sib-work/docs/Journalisation_Run_GuaMar.md
-  /home/ubuntu/sib-work/docs/Journalisation_Run_GuaMar.jsonl
+  /home/ubuntu/sib-work/docs/Journalisation_Run_CompleteAnalysis.md
+  /home/ubuntu/sib-work/docs/Journalisation_Run_CompleteAnalysis.jsonl
 ============================================================
 ```
 
 ### Fichiers de journalisation
 
-#### Markdown (`docs/Journalisation_Run_GuaMar.md`)
+#### Markdown (`docs/Journalisation_Run_CompleteAnalysis.md`)
 
 Format lisible pour humans:
 
@@ -161,7 +203,7 @@ Format lisible pour humans:
 **Total Duration**: 2145s (35.7m)
 ```
 
-#### JSONL (`docs/Journalisation_Run_GuaMar.jsonl`)
+#### JSONL (`docs/Journalisation_Run_CompleteAnalysis.jsonl`)
 
 Format structuré pour parsing automatisé:
 
@@ -245,11 +287,23 @@ Pendant l'exécution:
 cd /home/ubuntu/sib-work
 python3 scripts/run_complete_analysis.py
 
-# Terminal 2: Suivre les logs en temps réel
-tail -f /home/ubuntu/sib-work/docs/Journalisation_Run_GuaMar.md
+# Terminal 2: Suivre le manifeste opérateur en temps réel
+/home/ubuntu/sib-work/backend/.venv/bin/python scripts/monitor_run.py
 
-# Terminal 3: Vérifier l'event log structured
-tail -f /home/ubuntu/sib-work/docs/Journalisation_Run_GuaMar.jsonl | jq .
+# Terminal 3: Vérifier l'event log structuré
+tail -f /home/ubuntu/sib-work/docs/Journalisation_Run_CompleteAnalysis.jsonl | jq .
+```
+
+Le manifeste temps réel principal est écrit dans:
+
+```bash
+/home/ubuntu/sib-work/outputs/complete-analysis-runs/latest-manifest.json
+```
+
+Chaque run garde aussi son propre manifeste versionné dans:
+
+```bash
+/home/ubuntu/sib-work/outputs/complete-analysis-runs/<run_id>/manifest.json
 ```
 
 ## Dépannage
@@ -286,6 +340,8 @@ C'est normal! Les étapes principales:
 
 Pour accélérer: utiliser `--dynamic-max-tracks 800` (moins de précision, ~30% plus rapide)
 
+Si le run a déjà produit plusieurs shards avant interruption, préférer `--resume-run-id latest` plutôt qu'un redémarrage complet.
+
 ### Vérifier le déploiement
 
 ```bash
@@ -305,7 +361,13 @@ Vous pouvez lancer directement depuis VS Code:
 2. Taper: `python3 scripts/run_complete_analysis.py --dynamic-max-tracks 1200`
 3. Observer la progression affichée
 4. Les résultats seront déployés automatiquement après succès
-5. Consulter les logs: `cat docs/Journalisation_Run_GuaMar.md`
+5. Consulter les logs: `cat docs/Journalisation_Run_CompleteAnalysis.md`
+
+Les tâches workspace incluent aussi désormais:
+
+1. un lancement standard avec budget mémoire
+2. un suivi via `scripts/monitor_run.py`
+3. une reprise du dernier run via `--resume-run-id latest`
 
 ## Architecture interne
 

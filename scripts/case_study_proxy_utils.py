@@ -125,6 +125,46 @@ def _default_component_ratios() -> dict[str, dict[str, dict[str, float]]]:
     }
 
 
+def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, dict[str, float]]]:
+    out = _default_component_ratios()
+    if path is None or not path.exists():
+        return out
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return out
+
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    if not isinstance(portfolio, dict):
+        return out
+
+    for hazard in ("storm", "storm_cmcc"):
+        hazard_payload = portfolio.get(hazard)
+        if not isinstance(hazard_payload, dict):
+            continue
+
+        annual_raw = hazard_payload.get("components_direct_eai_eur")
+        if isinstance(annual_raw, dict):
+            annual_clean = {k: v for k, v in annual_raw.items() if str(k) != "combined_capped"}
+            annual_ratio = _normalize_component_ratio_map(annual_clean)
+            for scenario in ("annual", "rp50", "rp100", "top10", "top5"):
+                out[hazard][scenario] = dict(annual_ratio)
+
+        event_raw = hazard_payload.get("components_direct_max_event_loss_eur")
+        if isinstance(event_raw, dict):
+            out[hazard]["event_max"] = _normalize_component_ratio_map(event_raw)
+        elif isinstance(annual_raw, dict):
+            annual_clean = {k: v for k, v in annual_raw.items() if str(k) != "combined_capped"}
+            out[hazard]["event_max"] = _normalize_component_ratio_map(annual_clean)
+
+        out[hazard]["rp50"] = dict(
+            out[hazard].get("rp100") or out[hazard].get("annual") or {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        )
+
+    return out
+
+
 def _default_multi_hazard_proxy(
     component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:

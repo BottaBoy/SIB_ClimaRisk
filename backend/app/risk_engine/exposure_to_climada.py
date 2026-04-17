@@ -325,3 +325,37 @@ def build_climada_exposure(
         metric_crs=metric_crs,
         warnings=warnings,
     )
+
+
+def subset_climada_exposure_bundle(
+    exposure_bundle: ClimadaExposureBundle,
+    *,
+    point_indices: list[int],
+) -> ClimadaExposureBundle:
+    """Return an exact subset of a CLIMADA exposure bundle for point-level sharding."""
+    if not point_indices:
+        raise InputValidationError("CLIMADA exposure shard requires at least one point index.")
+
+    exposures = getattr(exposure_bundle, "exposures", None)
+    gdf = getattr(exposures, "gdf", None)
+    if exposures is None or gdf is None:
+        raise DependencyMissingError("CLIMADA exposure object is required for sharded impact computation.")
+
+    point_records = list(exposure_bundle.point_records or [])
+    valid_indices = [int(idx) for idx in point_indices if 0 <= int(idx) < len(point_records)]
+    if not valid_indices:
+        raise InputValidationError("No valid CLIMADA point indices were provided for the shard.")
+
+    subset_gdf = gdf.iloc[valid_indices].copy()
+    subset_point_records = [point_records[idx] for idx in valid_indices]
+
+    exposures_cls = type(exposures)
+    subset_exposures = exposures_cls(subset_gdf)
+    subset_exposures.check()
+
+    return ClimadaExposureBundle(
+        exposures=subset_exposures,
+        point_records=subset_point_records,
+        metric_crs=str(exposure_bundle.metric_crs),
+        warnings=list(exposure_bundle.warnings or []),
+    )
