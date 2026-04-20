@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-04-17T08:07:56+00:00",
-    "case_study_run_id": "guadeloupe_case_20260417T080310Z",
+    "generated_at": "2026-04-20T14:00:57+00:00",
+    "case_study_run_id": "guadeloupe_case_20260420T135604Z",
     "source": "guadeloupe_case_study_computed",
     "case_study_territory": "guadeloupe",
     "case_study_label": "Guadeloupe",
@@ -24,10 +24,10 @@
       "dynamic_max_tracks": 50
     },
     "multi_hazard_proxy_json": "/home/ubuntu/sib-work/web/data/guadeloupe-multi-hazard-proxy.json",
-    "multi_hazard_proxy_run_id": "guadeloupe_case_20260417T080310Z",
+    "multi_hazard_proxy_run_id": "guadeloupe_case_20260420T135604Z",
     "wind_map_json": "/home/ubuntu/sib-work/web/data/guadeloupe-wind-maps.json",
-    "wind_map_generated_at": "2026-04-17T08:07:08+00:00",
-    "wind_map_run_id": "guadeloupe_case_20260417T080310Z",
+    "wind_map_generated_at": "2026-04-20T14:00:07+00:00",
+    "wind_map_run_id": "guadeloupe_case_20260420T135604Z",
     "complete_analysis_json": "/home/ubuntu/sib-work/web/data/guadeloupe-complete-analysis.json",
     "valuation_source": "Comparateur de couts OFB (moyenne territoriale observee)",
     "valuation_territory": "guadeloupe",
@@ -323,8 +323,8 @@
             "direct_damage_eur": 1885239.53,
             "indirect_damage_eur": 1088.18,
             "damage_components_eur": {
-              "wind": 1886327.71,
-              "rain": 0.0,
+              "wind": 1681350.44,
+              "rain": 204977.27,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -341,8 +341,8 @@
             "direct_damage_eur": 1829594.58,
             "indirect_damage_eur": 1062.03,
             "damage_components_eur": {
-              "wind": 1830656.61,
-              "rain": 0.0,
+              "wind": 1626359.4,
+              "rain": 204297.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -363,8 +363,8 @@
             "direct_damage_eur": 496893.45,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 496893.45,
-              "rain": 0.0,
+              "wind": 442898.66,
+              "rain": 53994.79,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -381,8 +381,8 @@
             "direct_damage_eur": 482066.72,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 482066.72,
-              "rain": 0.0,
+              "wind": 428269.14,
+              "rain": 53797.58,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -443,8 +443,8 @@
             "direct_damage_eur": 4802895.39,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4802895.39,
-              "rain": 0.0,
+              "wind": 4280990.11,
+              "rain": 521905.28,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -461,8 +461,8 @@
             "direct_damage_eur": 4745218.54,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4745218.54,
-              "rain": 0.0,
+              "wind": 4215662.69,
+              "rain": 529555.85,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -523,8 +523,8 @@
             "direct_damage_eur": 144420.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 144420.51,
-              "rain": 0.0,
+              "wind": 128727.1,
+              "rain": 15693.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -541,8 +541,8 @@
             "direct_damage_eur": 161699.94,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 161699.94,
-              "rain": 0.0,
+              "wind": 143654.59,
+              "rain": 18045.35,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -565,8 +565,8 @@
             "direct_damage_eur": 30638782.68,
             "indirect_damage_eur": 17684.96,
             "damage_components_eur": {
-              "wind": 30656467.64,
-              "rain": 0.0,
+              "wind": 27325191.19,
+              "rain": 3331276.45,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -583,8 +583,8 @@
             "direct_damage_eur": 30777906.84,
             "indirect_damage_eur": 17865.74,
             "damage_components_eur": {
-              "wind": 30795772.58,
-              "rain": 0.0,
+              "wind": 27359032.75,
+              "rain": 3436739.83,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -605,8 +605,8 @@
             "direct_damage_eur": 8075478.04,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 8075478.04,
-              "rain": 0.0,
+              "wind": 7197958.49,
+              "rain": 877519.55,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -623,8 +623,8 @@
             "direct_damage_eur": 8109449.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 8109449.36,
-              "rain": 0.0,
+              "wind": 7204452.82,
+              "rain": 904996.54,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -685,8 +685,8 @@
             "direct_damage_eur": 78056324.28,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 78056324.28,
-              "rain": 0.0,
+              "wind": 69574355.72,
+              "rain": 8481968.56,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -703,8 +703,8 @@
             "direct_damage_eur": 79825277.02,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 79825277.02,
-              "rain": 0.0,
+              "wind": 70916953.38,
+              "rain": 8908323.64,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -765,8 +765,8 @@
             "direct_damage_eur": 2347112.16,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2347112.16,
-              "rain": 0.0,
+              "wind": 2092063.88,
+              "rain": 255048.28,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -783,8 +783,8 @@
             "direct_damage_eur": 2720157.65,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2720157.65,
-              "rain": 0.0,
+              "wind": 2416594.1,
+              "rain": 303563.55,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -807,8 +807,8 @@
             "direct_damage_eur": 42743509.4,
             "indirect_damage_eur": 24671.9,
             "damage_components_eur": {
-              "wind": 42768181.3,
-              "rain": 0.0,
+              "wind": 38120788.89,
+              "rain": 4647392.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -825,8 +825,8 @@
             "direct_damage_eur": 44341973.45,
             "indirect_damage_eur": 25739.32,
             "damage_components_eur": {
-              "wind": 44367712.77,
-              "rain": 0.0,
+              "wind": 39416374.56,
+              "rain": 4951338.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -847,8 +847,8 @@
             "direct_damage_eur": 11265926.43,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11265926.43,
-              "rain": 0.0,
+              "wind": 10041717.7,
+              "rain": 1224208.73,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -865,8 +865,8 @@
             "direct_damage_eur": 11683347.74,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11683347.74,
-              "rain": 0.0,
+              "wind": 10379512.08,
+              "rain": 1303835.66,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -927,8 +927,8 @@
             "direct_damage_eur": 108894705.93,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 108894705.93,
-              "rain": 0.0,
+              "wind": 97061693.28,
+              "rain": 11833012.65,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -945,8 +945,8 @@
             "direct_damage_eur": 115004907.0,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 115004907.0,
-              "rain": 0.0,
+              "wind": 102170614.79,
+              "rain": 12834292.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1007,8 +1007,8 @@
             "direct_damage_eur": 3274405.89,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 3274405.89,
-              "rain": 0.0,
+              "wind": 2918593.49,
+              "rain": 355812.4,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1025,8 +1025,8 @@
             "direct_damage_eur": 3918952.61,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 3918952.61,
-              "rain": 0.0,
+              "wind": 3481606.2,
+              "rain": 437346.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1049,9 +1049,9 @@
             "direct_damage_eur": 81748175.13,
             "indirect_damage_eur": 47185.72,
             "damage_components_eur": {
-              "wind": 81795360.85,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 69953484.19,
+              "rain": 11841855.59,
+              "surge": 21.07,
               "landslide": 0.0
             }
           },
@@ -1067,9 +1067,9 @@
             "direct_damage_eur": 74377157.64,
             "indirect_damage_eur": 43173.93,
             "damage_components_eur": {
-              "wind": 74420331.57,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 62311717.0,
+              "rain": 12108594.66,
+              "surge": 19.91,
               "landslide": 0.0
             }
           }
@@ -1089,9 +1089,9 @@
             "direct_damage_eur": 21546404.12,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 21546404.12,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 18427035.77,
+              "rain": 3119362.8,
+              "surge": 5.55,
               "landslide": 0.0
             }
           },
@@ -1107,9 +1107,9 @@
             "direct_damage_eur": 19597102.45,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 19597102.45,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 16408541.54,
+              "rain": 3188555.67,
+              "surge": 5.24,
               "landslide": 0.0
             }
           }
@@ -1169,9 +1169,9 @@
             "direct_damage_eur": 208264216.43,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 208264216.43,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 178112883.42,
+              "rain": 30151279.37,
+              "surge": 53.64,
               "landslide": 0.0
             }
           },
@@ -1187,9 +1187,9 @@
             "direct_damage_eur": 192903865.84,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 192903865.84,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 161517301.01,
+              "rain": 31386513.21,
+              "surge": 51.62,
               "landslide": 0.0
             }
           }
@@ -1249,10 +1249,10 @@
             "direct_damage_eur": 6262394.22,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6262394.22,
-              "rain": 0.0,
-              "surge": 0.0,
-              "landslide": 0.0
+              "wind": 5355759.67,
+              "rain": 906632.93,
+              "surge": 1.61,
+              "landslide": 0.01
             }
           },
           "storm_cmcc": {
@@ -1267,9 +1267,9 @@
             "direct_damage_eur": 6573468.28,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6573468.28,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 5503927.31,
+              "rain": 1069539.21,
+              "surge": 1.76,
               "landslide": 0.0
             }
           }
@@ -1751,8 +1751,8 @@
             "direct_damage_eur": 1885239.53,
             "indirect_damage_eur": 1088.18,
             "damage_components_eur": {
-              "wind": 1886327.71,
-              "rain": 0.0,
+              "wind": 1681350.44,
+              "rain": 204977.27,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1765,8 +1765,8 @@
             "direct_damage_eur": 496893.45,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 496893.45,
-              "rain": 0.0,
+              "wind": 442898.66,
+              "rain": 53994.79,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1793,8 +1793,8 @@
             "direct_damage_eur": 4802895.39,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4802895.39,
-              "rain": 0.0,
+              "wind": 4280990.11,
+              "rain": 521905.28,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1821,8 +1821,8 @@
             "direct_damage_eur": 144420.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 144420.51,
-              "rain": 0.0,
+              "wind": 128727.1,
+              "rain": 15693.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1835,8 +1835,8 @@
             "direct_damage_eur": 4063582.85,
             "indirect_damage_eur": 1055.13,
             "damage_components_eur": {
-              "wind": 4064637.98,
-              "rain": 0.0,
+              "wind": 3622955.24,
+              "rain": 441682.74,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1849,8 +1849,8 @@
             "direct_damage_eur": 2065948.53,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2065948.53,
-              "rain": 0.0,
+              "wind": 1841452.81,
+              "rain": 224495.72,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1863,8 +1863,8 @@
             "direct_damage_eur": 13984401.42,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 13984401.42,
-              "rain": 0.0,
+              "wind": 12464790.37,
+              "rain": 1519611.05,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1879,8 +1879,8 @@
             "direct_damage_eur": 1829594.58,
             "indirect_damage_eur": 1062.03,
             "damage_components_eur": {
-              "wind": 1830656.61,
-              "rain": 0.0,
+              "wind": 1626359.4,
+              "rain": 204297.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1893,8 +1893,8 @@
             "direct_damage_eur": 482066.72,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 482066.72,
-              "rain": 0.0,
+              "wind": 428269.14,
+              "rain": 53797.58,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1921,8 +1921,8 @@
             "direct_damage_eur": 4745218.54,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4745218.54,
-              "rain": 0.0,
+              "wind": 4215662.69,
+              "rain": 529555.85,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1949,8 +1949,8 @@
             "direct_damage_eur": 161699.94,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 161699.94,
-              "rain": 0.0,
+              "wind": 143654.59,
+              "rain": 18045.35,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1963,8 +1963,8 @@
             "direct_damage_eur": 3766749.08,
             "indirect_damage_eur": 1032.56,
             "damage_components_eur": {
-              "wind": 3767781.64,
-              "rain": 0.0,
+              "wind": 3347305.58,
+              "rain": 420476.06,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1977,8 +1977,8 @@
             "direct_damage_eur": 1946492.86,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1946492.86,
-              "rain": 0.0,
+              "wind": 1729268.58,
+              "rain": 217224.28,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -1991,8 +1991,8 @@
             "direct_damage_eur": 12991537.82,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 12991537.82,
-              "rain": 0.0,
+              "wind": 11541711.05,
+              "rain": 1449826.77,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2009,8 +2009,8 @@
             "direct_damage_eur": 30638782.68,
             "indirect_damage_eur": 17684.96,
             "damage_components_eur": {
-              "wind": 30656467.64,
-              "rain": 0.0,
+              "wind": 27325191.19,
+              "rain": 3331276.45,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2023,8 +2023,8 @@
             "direct_damage_eur": 8075478.04,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 8075478.04,
-              "rain": 0.0,
+              "wind": 7197958.49,
+              "rain": 877519.55,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2051,8 +2051,8 @@
             "direct_damage_eur": 78056324.28,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 78056324.28,
-              "rain": 0.0,
+              "wind": 69574355.72,
+              "rain": 8481968.56,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2079,8 +2079,8 @@
             "direct_damage_eur": 2347112.16,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2347112.16,
-              "rain": 0.0,
+              "wind": 2092063.88,
+              "rain": 255048.28,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2093,8 +2093,8 @@
             "direct_damage_eur": 66041067.93,
             "indirect_damage_eur": 17147.97,
             "damage_components_eur": {
-              "wind": 66058215.9,
-              "rain": 0.0,
+              "wind": 58880018.41,
+              "rain": 7178197.49,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2107,8 +2107,8 @@
             "direct_damage_eur": 33575652.88,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 33575652.88,
-              "rain": 0.0,
+              "wind": 29927163.99,
+              "rain": 3648488.89,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2121,8 +2121,8 @@
             "direct_damage_eur": 227273526.39,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 227273526.39,
-              "rain": 0.0,
+              "wind": 202576912.45,
+              "rain": 24696613.94,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2137,8 +2137,8 @@
             "direct_damage_eur": 30777906.84,
             "indirect_damage_eur": 17865.74,
             "damage_components_eur": {
-              "wind": 30795772.58,
-              "rain": 0.0,
+              "wind": 27359032.75,
+              "rain": 3436739.83,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2151,8 +2151,8 @@
             "direct_damage_eur": 8109449.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 8109449.36,
-              "rain": 0.0,
+              "wind": 7204452.82,
+              "rain": 904996.54,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2179,8 +2179,8 @@
             "direct_damage_eur": 79825277.02,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 79825277.02,
-              "rain": 0.0,
+              "wind": 70916953.38,
+              "rain": 8908323.64,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2207,8 +2207,8 @@
             "direct_damage_eur": 2720157.65,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2720157.65,
-              "rain": 0.0,
+              "wind": 2416594.1,
+              "rain": 303563.55,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2221,8 +2221,8 @@
             "direct_damage_eur": 63365214.1,
             "indirect_damage_eur": 17369.99,
             "damage_components_eur": {
-              "wind": 63382584.09,
-              "rain": 0.0,
+              "wind": 56309228.47,
+              "rain": 7073355.62,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2235,8 +2235,8 @@
             "direct_damage_eur": 32744399.54,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 32744399.54,
-              "rain": 0.0,
+              "wind": 29090197.27,
+              "rain": 3654202.27,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2249,8 +2249,8 @@
             "direct_damage_eur": 218546963.98,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 218546963.98,
-              "rain": 0.0,
+              "wind": 194157608.16,
+              "rain": 24389355.82,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2267,8 +2267,8 @@
             "direct_damage_eur": 42743509.4,
             "indirect_damage_eur": 24671.9,
             "damage_components_eur": {
-              "wind": 42768181.3,
-              "rain": 0.0,
+              "wind": 38120788.89,
+              "rain": 4647392.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2281,8 +2281,8 @@
             "direct_damage_eur": 11265926.43,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11265926.43,
-              "rain": 0.0,
+              "wind": 10041717.7,
+              "rain": 1224208.73,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2309,8 +2309,8 @@
             "direct_damage_eur": 108894705.93,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 108894705.93,
-              "rain": 0.0,
+              "wind": 97061693.28,
+              "rain": 11833012.65,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2337,8 +2337,8 @@
             "direct_damage_eur": 3274405.89,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 3274405.89,
-              "rain": 0.0,
+              "wind": 2918593.49,
+              "rain": 355812.4,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2351,8 +2351,8 @@
             "direct_damage_eur": 92132479.17,
             "indirect_damage_eur": 23922.77,
             "damage_components_eur": {
-              "wind": 92156401.94,
-              "rain": 0.0,
+              "wind": 82142252.4,
+              "rain": 10014149.54,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2365,8 +2365,8 @@
             "direct_damage_eur": 46840674.09,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 46840674.09,
-              "rain": 0.0,
+              "wind": 41750745.39,
+              "rain": 5089928.7,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2379,8 +2379,8 @@
             "direct_damage_eur": 317064428.15,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 317064428.15,
-              "rain": 0.0,
+              "wind": 282610711.08,
+              "rain": 34453717.07,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2395,8 +2395,8 @@
             "direct_damage_eur": 44341973.45,
             "indirect_damage_eur": 25739.32,
             "damage_components_eur": {
-              "wind": 44367712.77,
-              "rain": 0.0,
+              "wind": 39416374.56,
+              "rain": 4951338.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2409,8 +2409,8 @@
             "direct_damage_eur": 11683347.74,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11683347.74,
-              "rain": 0.0,
+              "wind": 10379512.08,
+              "rain": 1303835.66,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2437,8 +2437,8 @@
             "direct_damage_eur": 115004907.0,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 115004907.0,
-              "rain": 0.0,
+              "wind": 102170614.79,
+              "rain": 12834292.21,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2465,8 +2465,8 @@
             "direct_damage_eur": 3918952.61,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 3918952.61,
-              "rain": 0.0,
+              "wind": 3481606.2,
+              "rain": 437346.41,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2479,8 +2479,8 @@
             "direct_damage_eur": 91290764.38,
             "indirect_damage_eur": 25025.07,
             "damage_components_eur": {
-              "wind": 91315789.45,
-              "rain": 0.0,
+              "wind": 81125150.15,
+              "rain": 10190639.3,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2493,8 +2493,8 @@
             "direct_damage_eur": 47175115.0,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 47175115.0,
-              "rain": 0.0,
+              "wind": 41910476.93,
+              "rain": 5264638.07,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2507,8 +2507,8 @@
             "direct_damage_eur": 314862336.95,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 314862336.95,
-              "rain": 0.0,
+              "wind": 279724399.41,
+              "rain": 35137937.54,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2525,9 +2525,9 @@
             "direct_damage_eur": 81748175.13,
             "indirect_damage_eur": 47185.72,
             "damage_components_eur": {
-              "wind": 81795360.85,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 69953484.19,
+              "rain": 11841855.59,
+              "surge": 21.07,
               "landslide": 0.0
             }
           },
@@ -2539,9 +2539,9 @@
             "direct_damage_eur": 21546404.12,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 21546404.12,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 18427035.77,
+              "rain": 3119362.8,
+              "surge": 5.55,
               "landslide": 0.0
             }
           },
@@ -2567,9 +2567,9 @@
             "direct_damage_eur": 208264216.43,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 208264216.43,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 178112883.42,
+              "rain": 30151279.37,
+              "surge": 53.64,
               "landslide": 0.0
             }
           },
@@ -2595,10 +2595,10 @@
             "direct_damage_eur": 6262394.22,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6262394.22,
-              "rain": 0.0,
-              "surge": 0.0,
-              "landslide": 0.0
+              "wind": 5355759.67,
+              "rain": 906632.93,
+              "surge": 1.61,
+              "landslide": 0.01
             }
           },
           {
@@ -2609,9 +2609,9 @@
             "direct_damage_eur": 176205981.9,
             "indirect_damage_eur": 45752.96,
             "damage_components_eur": {
-              "wind": 176251734.86,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 150734990.59,
+              "rain": 25516698.88,
+              "surge": 45.39,
               "landslide": 0.0
             }
           },
@@ -2623,9 +2623,9 @@
             "direct_damage_eur": 89584118.92,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 89584118.92,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 76614629.26,
+              "rain": 12969466.59,
+              "surge": 23.07,
               "landslide": 0.0
             }
           },
@@ -2637,9 +2637,9 @@
             "direct_damage_eur": 606394719.73,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 606394719.73,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 518604270.45,
+              "rain": 87790293.11,
+              "surge": 156.17,
               "landslide": 0.0
             }
           }
@@ -2653,9 +2653,9 @@
             "direct_damage_eur": 74377157.64,
             "indirect_damage_eur": 43173.93,
             "damage_components_eur": {
-              "wind": 74420331.57,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 62311717.0,
+              "rain": 12108594.66,
+              "surge": 19.91,
               "landslide": 0.0
             }
           },
@@ -2667,9 +2667,9 @@
             "direct_damage_eur": 19597102.45,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 19597102.45,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 16408541.54,
+              "rain": 3188555.67,
+              "surge": 5.24,
               "landslide": 0.0
             }
           },
@@ -2695,9 +2695,9 @@
             "direct_damage_eur": 192903865.84,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 192903865.84,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 161517301.01,
+              "rain": 31386513.21,
+              "surge": 51.62,
               "landslide": 0.0
             }
           },
@@ -2723,9 +2723,9 @@
             "direct_damage_eur": 6573468.28,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6573468.28,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 5503927.31,
+              "rain": 1069539.21,
+              "surge": 1.76,
               "landslide": 0.0
             }
           },
@@ -2737,9 +2737,9 @@
             "direct_damage_eur": 153126869.3,
             "indirect_damage_eur": 41975.9,
             "damage_components_eur": {
-              "wind": 153168845.2,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 128247396.02,
+              "rain": 24921408.19,
+              "surge": 40.99,
               "landslide": 0.0
             }
           },
@@ -2751,9 +2751,9 @@
             "direct_damage_eur": 79129337.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 79129337.11,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 66254540.34,
+              "rain": 12874775.6,
+              "surge": 21.17,
               "landslide": 0.0
             }
           },
@@ -2765,9 +2765,9 @@
             "direct_damage_eur": 528135395.15,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 528135395.15,
-              "rain": 0.0,
-              "surge": 0.0,
+              "wind": 442204738.73,
+              "rain": 85930515.09,
+              "surge": 141.33,
               "landslide": 0.0
             }
           }
@@ -2783,8 +2783,8 @@
             "direct_damage_eur": 70797808.23,
             "indirect_damage_eur": 40865.08,
             "damage_components_eur": {
-              "wind": 70838673.31,
-              "rain": 0.0,
+              "wind": 63141008.76,
+              "rain": 7697664.55,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2797,8 +2797,8 @@
             "direct_damage_eur": 18660210.88,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 18660210.88,
-              "rain": 0.0,
+              "wind": 16632504.3,
+              "rain": 2027706.58,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2825,8 +2825,8 @@
             "direct_damage_eur": 180366718.06,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 180366718.06,
-              "rain": 0.0,
+              "wind": 160767219.28,
+              "rain": 19599498.78,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2853,8 +2853,8 @@
             "direct_damage_eur": 5423531.29,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5423531.29,
-              "rain": 0.0,
+              "wind": 4834184.79,
+              "rain": 589346.5,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2867,8 +2867,8 @@
             "direct_damage_eur": 152602762.02,
             "indirect_damage_eur": 39624.25,
             "damage_components_eur": {
-              "wind": 152642386.27,
-              "rain": 0.0,
+              "wind": 136055544.22,
+              "rain": 16586842.05,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2881,8 +2881,8 @@
             "direct_damage_eur": 77584108.29,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 77584108.29,
-              "rain": 0.0,
+              "wind": 69153452.94,
+              "rain": 8430655.35,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2895,8 +2895,8 @@
             "direct_damage_eur": 525166672.05,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 525166672.05,
-              "rain": 0.0,
+              "wind": 468099583.07,
+              "rain": 57067088.98,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2911,8 +2911,8 @@
             "direct_damage_eur": 71797994.67,
             "indirect_damage_eur": 41676.79,
             "damage_components_eur": {
-              "wind": 71839671.46,
-              "rain": 0.0,
+              "wind": 63822523.67,
+              "rain": 8017147.79,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2925,8 +2925,8 @@
             "direct_damage_eur": 18917537.34,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 18917537.34,
-              "rain": 0.0,
+              "wind": 16806382.19,
+              "rain": 2111155.15,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2953,8 +2953,8 @@
             "direct_damage_eur": 186214574.07,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 186214574.07,
-              "rain": 0.0,
+              "wind": 165433441.16,
+              "rain": 20781132.91,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2981,8 +2981,8 @@
             "direct_damage_eur": 6345521.33,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6345521.33,
-              "rain": 0.0,
+              "wind": 5637375.24,
+              "rain": 708146.09,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -2995,8 +2995,8 @@
             "direct_damage_eur": 147816917.11,
             "indirect_damage_eur": 40520.3,
             "damage_components_eur": {
-              "wind": 147857437.41,
-              "rain": 0.0,
+              "wind": 131356875.76,
+              "rain": 16500561.65,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3009,8 +3009,8 @@
             "direct_damage_eur": 76385383.69,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 76385383.69,
-              "rain": 0.0,
+              "wind": 67860944.51,
+              "rain": 8524439.18,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3023,8 +3023,8 @@
             "direct_damage_eur": 509821341.49,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 509821341.49,
-              "rain": 0.0,
+              "wind": 452926412.02,
+              "rain": 56894929.47,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3041,8 +3041,8 @@
             "direct_damage_eur": 73779550.69,
             "indirect_damage_eur": 42586.17,
             "damage_components_eur": {
-              "wind": 73822136.86,
-              "rain": 0.0,
+              "wind": 65800275.08,
+              "rain": 8021861.78,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3055,8 +3055,8 @@
             "direct_damage_eur": 19446110.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 19446110.11,
-              "rain": 0.0,
+              "wind": 17333004.01,
+              "rain": 2113106.1,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3083,8 +3083,8 @@
             "direct_damage_eur": 187963098.72,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 187963098.72,
-              "rain": 0.0,
+              "wind": 167538141.37,
+              "rain": 20424957.35,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3111,8 +3111,8 @@
             "direct_damage_eur": 5651950.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5651950.41,
-              "rain": 0.0,
+              "wind": 5037782.81,
+              "rain": 614167.6,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3125,8 +3125,8 @@
             "direct_damage_eur": 159029827.3,
             "indirect_damage_eur": 41293.07,
             "damage_components_eur": {
-              "wind": 159071120.37,
-              "rain": 0.0,
+              "wind": 141785701.73,
+              "rain": 17285418.64,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3139,8 +3139,8 @@
             "direct_damage_eur": 80851664.67,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 80851664.67,
-              "rain": 0.0,
+              "wind": 72065941.23,
+              "rain": 8785723.44,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3153,8 +3153,8 @@
             "direct_damage_eur": 547284754.55,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 547284754.55,
-              "rain": 0.0,
+              "wind": 487814210.35,
+              "rain": 59470544.2,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3169,8 +3169,8 @@
             "direct_damage_eur": 73107241.79,
             "indirect_damage_eur": 42436.78,
             "damage_components_eur": {
-              "wind": 73149678.57,
-              "rain": 0.0,
+              "wind": 64986336.9,
+              "rain": 8163341.67,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3183,8 +3183,8 @@
             "direct_damage_eur": 19262501.46,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 19262501.46,
-              "rain": 0.0,
+              "wind": 17112849.08,
+              "rain": 2149652.38,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3211,8 +3211,8 @@
             "direct_damage_eur": 189610224.56,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 189610224.56,
-              "rain": 0.0,
+              "wind": 168450144.6,
+              "rain": 21160079.96,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3239,8 +3239,8 @@
             "direct_damage_eur": 6461232.85,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6461232.85,
-              "rain": 0.0,
+              "wind": 5740173.61,
+              "rain": 721059.24,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3253,8 +3253,8 @@
             "direct_damage_eur": 150512380.6,
             "indirect_damage_eur": 41259.2,
             "damage_components_eur": {
-              "wind": 150553639.8,
-              "rain": 0.0,
+              "wind": 133752187.96,
+              "rain": 16801451.84,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3267,8 +3267,8 @@
             "direct_damage_eur": 77778282.53,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 77778282.53,
-              "rain": 0.0,
+              "wind": 69098398.93,
+              "rain": 8679883.6,
               "surge": 0.0,
               "landslide": 0.0
             }
@@ -3281,8 +3281,8 @@
             "direct_damage_eur": 519118009.56,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 519118009.56,
-              "rain": 0.0,
+              "wind": 461185592.58,
+              "rain": 57932416.98,
               "surge": 0.0,
               "landslide": 0.0
             }

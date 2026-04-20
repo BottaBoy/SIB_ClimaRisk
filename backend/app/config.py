@@ -42,6 +42,7 @@ class Settings:
     demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
     storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
+    territory_grid_deg: float = 0.2
     data_root: Path = Path(__file__).resolve().parents[2] / "data"
     hazard_storm_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
     hazard_storm_cmcc_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
@@ -56,8 +57,12 @@ class Settings:
     hazard_track_cache_max_entries: int = 8
     multi_hazard_enabled: bool = True
     hazard_rain_model: str = "R-CLIPER"
+    hazard_rain_max_dist_inland_km: float = 2000.0
     hazard_surge_topo_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
     d2_flood_curve_file: Path = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    multi_hazard_rain_base_runoff_coeff: float = 0.25
+    wind_asset_type_to_curve_code: dict[str, str] | None = None
+    flood_asset_type_to_curve_code: dict[str, str] | None = None
     landslide_precip_current_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif")
     landslide_precip_ssp585_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif")
     landslide_earthquake_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif")
@@ -79,6 +84,19 @@ class Settings:
     climada_strict_required_components: bool = False
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
+    interdependency_state_threshold_s0_to_s1: float = 0.05
+    interdependency_state_threshold_s1_to_s2: float = 0.15
+    interdependency_state_threshold_s2_to_s3: float = 0.35
+    interdependency_health_weight_s1: float = 0.3
+    interdependency_health_weight_s2: float = 0.7
+    interdependency_health_weight_s3: float = 1.0
+    interdependency_dependency_state_threshold_s1: float = 0.75
+    interdependency_dependency_state_threshold_s2: float = 0.55
+    interdependency_dependency_state_threshold_s3: float = 0.35
+    interdependency_uplift_s0: float = 0.0
+    interdependency_uplift_s1: float = 0.10
+    interdependency_uplift_s2: float = 0.25
+    interdependency_uplift_s3: float = 0.45
     cors_allowed_origins: tuple[str, ...] = (
         "https://app.sib.elio.dev",
         "https://sib.dev.elio.bottagisio.com",
@@ -200,6 +218,7 @@ def load_settings() -> Settings:
         demo_result_path=demo_result_path,
         storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
+        territory_grid_deg=float(env.get("SIB_RISK_TERRITORY_GRID_DEG", "0.2")),
         data_root=Path(env.get("SIB_RISK_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))),
         hazard_storm_path=Path(env.get("SIB_RISK_HAZARD_STORM_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"))),
         hazard_storm_cmcc_path=Path(env.get("SIB_RISK_HAZARD_STORM_CMCC_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"))),
@@ -214,8 +233,10 @@ def load_settings() -> Settings:
         hazard_track_cache_max_entries=int(env.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES", "8")),
         multi_hazard_enabled=_env_bool(env, "SIB_RISK_MULTI_HAZARD_ENABLED", True),
         hazard_rain_model=str(env.get("SIB_RISK_HAZARD_RAIN_MODEL", "R-CLIPER")).strip(),
+        hazard_rain_max_dist_inland_km=float(env.get("SIB_RISK_HAZARD_RAIN_MAX_DIST_INLAND_KM", "2000.0")),
         hazard_surge_topo_path=hazard_surge_topo_path,
         d2_flood_curve_file=d2_flood_curve_file,
+        multi_hazard_rain_base_runoff_coeff=float(env.get("SIB_RISK_MULTI_HAZARD_RAIN_BASE_RUNOFF_COEFF", "0.25")),
         landslide_precip_current_path=landslide_precip_current_path,
         landslide_precip_ssp585_path=landslide_precip_ssp585_path,
         landslide_earthquake_path=landslide_earthquake_path,
@@ -237,6 +258,19 @@ def load_settings() -> Settings:
         climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", False),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
+        interdependency_state_threshold_s0_to_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S0_TO_S1", "0.05")),
+        interdependency_state_threshold_s1_to_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S1_TO_S2", "0.15")),
+        interdependency_state_threshold_s2_to_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S2_TO_S3", "0.35")),
+        interdependency_health_weight_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S1", "0.3")),
+        interdependency_health_weight_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S2", "0.7")),
+        interdependency_health_weight_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S3", "1.0")),
+        interdependency_dependency_state_threshold_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S1", "0.75")),
+        interdependency_dependency_state_threshold_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S2", "0.55")),
+        interdependency_dependency_state_threshold_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S3", "0.35")),
+        interdependency_uplift_s0=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S0", "0.0")),
+        interdependency_uplift_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S1", "0.10")),
+        interdependency_uplift_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S2", "0.25")),
+        interdependency_uplift_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S3", "0.45")),
         cors_allowed_origins=_env_csv(
             env,
             "SIB_RISK_CORS_ALLOWED_ORIGINS",

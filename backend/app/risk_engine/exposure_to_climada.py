@@ -47,11 +47,16 @@ def _infer_infra_class(feature: Any) -> str:
     return "habitation"
 
 
-def _territory_for_coords(lat: float | None, lon: float | None) -> tuple[str, str]:
+def _territory_for_coords(
+    lat: float | None,
+    lon: float | None,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
+) -> tuple[str, str]:
     if lat is None or lon is None:
         return "uploaded-aggregate", "Uploaded Exposure (aggregate)"
-    lat_bin = round(float(lat) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
-    lon_bin = round(float(lon) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
+    grid_deg = max(1e-6, float(territory_grid_deg or TERRITORY_GRID_DEG))
+    lat_bin = round(float(lat) / grid_deg) * grid_deg
+    lon_bin = round(float(lon) / grid_deg) * grid_deg
     return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}", f"Zone ({lat_bin:.2f}, {lon_bin:.2f})"
 
 
@@ -232,6 +237,7 @@ def build_climada_exposure(
     spacing_m: float,
     metric_crs: str = DEFAULT_METRIC_CRS,
     max_points_per_feature: int = DEFAULT_MAX_POINTS_PER_FEATURE,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
     impact_func_id: int = 2,
     impact_func_id_resolver: Callable[[str | None], int] | None = None,
 ) -> ClimadaExposureBundle:
@@ -276,7 +282,11 @@ def build_climada_exposure(
             except Exception:
                 point_impact_func_id = int(impact_func_id)
         for idx, (lon, lat) in enumerate(sampled, start=1):
-            territory_id, territory_label = _territory_for_coords(lat, lon)
+            territory_id, territory_label = _territory_for_coords(
+                lat,
+                lon,
+                territory_grid_deg=float(territory_grid_deg),
+            )
             point_id = f"{feat.feature_id}::p{idx}"
             row = {
                 "value": float(split_value),

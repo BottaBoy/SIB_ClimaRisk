@@ -54,6 +54,12 @@ from app.risk_engine.analysis_export import build_result_payload
 from app.config import load_settings, Settings
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation
 from app.risk_engine.impact_runner import compute_impacts
+from app.risk_engine.sensitivity_scenarios import (
+    SensitivityScenario,
+    apply_settings_overrides,
+    resolve_scenario_from_pack,
+    scenario_manifest_fields,
+)
 from app.risk_engine.types import NormalizedExposure, NormalizedFeature
 
 # Case study specific
@@ -140,6 +146,27 @@ def _resolve_resume_run_id(raw_value: str) -> str:
     if not run_id:
         raise ValueError(f"Latest run manifest does not contain a run_id: {latest_manifest}")
     return run_id
+
+
+def _build_complete_analysis_settings(
+    *,
+    dynamic_max_tracks: int,
+    memory_budget_gb: float,
+    max_points_per_shard: int,
+    min_points_per_shard: int,
+    allow_degraded_components: bool,
+    scenario: SensitivityScenario | None,
+) -> Settings:
+    settings = load_settings()
+    settings_dict = dataclasses.asdict(settings)
+    settings_dict["hazard_dynamic_max_tracks"] = int(dynamic_max_tracks)
+    settings_dict["climada_execution_profile"] = "complete-analysis"
+    settings_dict["climada_memory_budget_gb"] = max(0.0, float(memory_budget_gb))
+    settings_dict["climada_max_points_per_shard"] = max(0, int(max_points_per_shard))
+    settings_dict["climada_min_points_per_shard"] = max(1, int(min_points_per_shard))
+    settings_dict["climada_strict_required_components"] = not bool(allow_degraded_components)
+    settings = Settings(**settings_dict)
+    return apply_settings_overrides(settings, scenario)
 
 
 class RunLogger:
@@ -813,6 +840,7 @@ def run_territory_analysis(
     min_points_per_shard: int,
     allow_degraded_components: bool,
     resume_enabled: bool,
+    scenario: SensitivityScenario | None,
 ) -> dict[str, Any] | None:
     """Run complete analysis for a single territory. Returns result dict or None on error."""
     territory_key = normalize_territory(territory)
@@ -843,12 +871,21 @@ def run_territory_analysis(
             asset_count=asset_count,
             duration_seconds=int(load_time),
         )
+
+        settings = _build_complete_analysis_settings(
+            dynamic_max_tracks=dynamic_max_tracks,
+            memory_budget_gb=memory_budget_gb,
+            max_points_per_shard=max_points_per_shard,
+            min_points_per_shard=min_points_per_shard,
+            allow_degraded_components=allow_degraded_components,
+            scenario=scenario,
+        )
         
         # Disaggregate
         logger.info(f"Computing disaggregation...")
         current_phase = "disaggregation"
         run_manifest.set_phase(territory_key, "disaggregation", "running")
-        disagg = summarize_disaggregation(exposure, spacing_m=100.0)
+        disagg = summarize_disaggregation(exposure, spacing_m=float(settings.default_sampling_spacing_m))
         logger.info(f"✓ Disaggregation complete - {disagg.asset_count_points} sample points")
         run_logger.log_event(
             "disaggregation",
@@ -866,30 +903,20 @@ def run_territory_analysis(
         )
         
         # Compute impacts
-        logger.info(f"Computing impacts (dynamic_max_tracks={dynamic_max_tracks})...")
+        logger.info(f"Computing impacts (dynamic_max_tracks={int(settings.hazard_dynamic_max_tracks)})...")
         current_phase = "impacts"
         run_manifest.set_phase(
             territory_key,
             "impacts",
             "running",
-            dynamic_max_tracks=int(dynamic_max_tracks),
+            dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
             memory_budget_gb=float(memory_budget_gb),
             max_points_per_shard=int(max_points_per_shard),
             min_points_per_shard=int(min_points_per_shard),
             strict_components=not bool(allow_degraded_components),
+            scenario_id=(scenario.scenario_id if scenario is not None else None),
         )
         impact_start = time.time()
-        
-        # Create custom settings with dynamic_max_tracks
-        settings = load_settings()
-        settings_dict = dataclasses.asdict(settings)
-        settings_dict['hazard_dynamic_max_tracks'] = dynamic_max_tracks
-        settings_dict['climada_execution_profile'] = 'complete-analysis'
-        settings_dict['climada_memory_budget_gb'] = max(0.0, float(memory_budget_gb))
-        settings_dict['climada_max_points_per_shard'] = max(0, int(max_points_per_shard))
-        settings_dict['climada_min_points_per_shard'] = max(1, int(min_points_per_shard))
-        settings_dict['climada_strict_required_components'] = not bool(allow_degraded_components)
-        settings = Settings(**settings_dict)
         checkpoint_dir = run_manifest.checkpoint_dir_for_territory(territory_key)
         seen_component_transitions: set[tuple[str, str]] = set()
 
@@ -1136,8 +1163,6 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
             str(FRONTEND_PROXY_MAX_POINTS_PER_FEATURE),
             "--proxy-dynamic-max-tracks",
             str(FRONTEND_PROXY_DYNAMIC_MAX_TRACKS),
-            "--prefer-complete-analysis-proxy-fallback",
-            "--prefer-complete-analysis-page-fallback",
             "--page-component-light-spacing-m",
             str(FRONTEND_PAGE_COMPONENT_LIGHT_SPACING_M),
             "--page-component-light-max-points-total",
@@ -1250,8 +1275,35 @@ def main():
         default=None,
         help="Resume a previous sharded run from outputs/complete-analysis-runs/<run_id> (or use 'latest')",
     )
+    parser.add_argument(
+        "--scenario-pack",
+        type=str,
+        default=None,
+        help="Path to a JSON sensitivity scenario pack generated from the workbook extractor",
+    )
+    parser.add_argument(
+        "--scenario-id",
+        type=str,
+        default=None,
+        help="Scenario identifier inside the sensitivity scenario pack",
+    )
     
     args = parser.parse_args()
+    if bool(args.scenario_pack) != bool(args.scenario_id):
+        parser.error("--scenario-pack and --scenario-id must be provided together")
+
+    scenario: SensitivityScenario | None = None
+    if args.scenario_pack and args.scenario_id:
+        scenario = resolve_scenario_from_pack(args.scenario_pack, args.scenario_id)
+
+    effective_settings = _build_complete_analysis_settings(
+        dynamic_max_tracks=int(args.dynamic_max_tracks),
+        memory_budget_gb=float(args.memory_budget_gb),
+        max_points_per_shard=int(args.max_points_per_shard),
+        min_points_per_shard=int(args.min_points_per_shard),
+        allow_degraded_components=bool(args.allow_degraded_components),
+        scenario=scenario,
+    )
     
     # Determine territories
     if args.territories == "gua":
@@ -1264,24 +1316,31 @@ def main():
     logger.info("=" * 60)
     logger.info(f"SIB Complete Analysis Runner")
     logger.info(
-        "Parameters: dynamic_max_tracks=%s, territories=%s, memory_budget_gb=%.2f, max_points_per_shard=%s, min_points_per_shard=%s, strict_components=%s",
-        args.dynamic_max_tracks,
+        "Parameters: dynamic_max_tracks=%s (requested=%s), territories=%s, memory_budget_gb=%.2f, max_points_per_shard=%s, min_points_per_shard=%s, strict_components=%s, scenario_id=%s",
+        int(effective_settings.hazard_dynamic_max_tracks),
+        int(args.dynamic_max_tracks),
         territories,
         float(args.memory_budget_gb),
         int(args.max_points_per_shard),
         int(args.min_points_per_shard),
         not bool(args.allow_degraded_components),
+        scenario.scenario_id if scenario is not None else None,
     )
     logger.info("=" * 60)
     
     parameters = {
-        "dynamic_max_tracks": int(args.dynamic_max_tracks),
+        "dynamic_max_tracks": int(effective_settings.hazard_dynamic_max_tracks),
+        "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
         "territories": list(territories),
         "no_deploy": bool(args.no_deploy),
         "memory_budget_gb": float(args.memory_budget_gb),
         "max_points_per_shard": int(args.max_points_per_shard),
         "min_points_per_shard": int(args.min_points_per_shard),
         "allow_degraded_components": bool(args.allow_degraded_components),
+        "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
+        "territory_grid_deg": float(effective_settings.territory_grid_deg),
+        "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
+        **scenario_manifest_fields(scenario),
     }
     resume_enabled = bool(args.resume_run_id)
     if resume_enabled:
@@ -1304,9 +1363,14 @@ def main():
     run_logger.log_event(
         "resume" if resume_enabled else "start",
         status="initiated",
-        dynamic_max_tracks=args.dynamic_max_tracks,
+        dynamic_max_tracks=int(effective_settings.hazard_dynamic_max_tracks),
+        requested_dynamic_max_tracks=int(args.dynamic_max_tracks),
         territories=territories,
         manifest_path=str(run_manifest.manifest_path),
+        sampling_spacing_m=float(effective_settings.default_sampling_spacing_m),
+        territory_grid_deg=float(effective_settings.territory_grid_deg),
+        climada_max_points_per_feature=int(effective_settings.climada_max_points_per_feature),
+        **scenario_manifest_fields(scenario),
     )
     
     results = {}
@@ -1333,6 +1397,7 @@ def main():
             min_points_per_shard=int(args.min_points_per_shard),
             allow_degraded_components=bool(args.allow_degraded_components),
             resume_enabled=resume_enabled,
+            scenario=scenario,
         )
         if result:
             results[territory] = result

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any, Callable
 import copy
@@ -34,6 +35,7 @@ _SHARD_MEMORY_MULTIPLIER = {
     "surge": 1.75,
 }
 _DYNAMIC_HAZARD_MEMORY_MULTIPLIER = 6.0
+CENTROID_ASSIGNMENT_THRESHOLD_DEG = 5.0
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +52,7 @@ class HazardImpactResult:
     pml_eur: dict[int, float]
     tvar_95_eur: float
     top_events: list[dict[str, Any]]
+    matching: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -120,6 +123,313 @@ def _approx_max_loss_per_point(np: Any, eai_exp: Any, at_event: Any) -> Any:
     evt_max = float(evt.max()) if evt.size else 0.0
     factor = (evt_max / eai_sum) if eai_sum > 0.0 else 0.0
     return eai * max(0.0, factor)
+
+
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    radius_km = 6371.0088
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    dlat = lat2_rad - lat1_rad
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1_rad) * math.cos(lat2_rad) * (math.sin(dlon / 2.0) ** 2)
+    return radius_km * (2.0 * math.asin(math.sqrt(a)))
+
+
+def _round_or_none(value: Any, digits: int = 4) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return round(numeric, digits)
+
+
+def _resolve_centroid_assignment_column(exposures: Any, hazard_obj: Any) -> str | None:
+    gdf = getattr(exposures, "gdf", None)
+    columns = getattr(gdf, "columns", None)
+    if gdf is None or columns is None:
+        return None
+
+    column_names = [str(col) for col in list(columns)]
+    haz_type = str(getattr(hazard_obj, "haz_type", "") or "").strip()
+    preferred = f"centr_{haz_type}" if haz_type else None
+    if preferred and preferred in column_names:
+        return preferred
+
+    centroid_columns = [name for name in column_names if name.startswith("centr_")]
+    if len(centroid_columns) == 1:
+        return centroid_columns[0]
+    if centroid_columns:
+        return centroid_columns[0]
+    return None
+
+
+def _coerce_centroid_index(raw_value: Any, centroid_count: int) -> int | None:
+    if raw_value is None:
+        return None
+    try:
+        numeric = float(raw_value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    index = int(numeric)
+    if index < 0 or index >= max(0, int(centroid_count)):
+        return None
+    return index
+
+
+def _positive_intensity_centroid_mask(np: Any, hazard_obj: Any, centroid_count: int) -> Any:
+    if centroid_count <= 0:
+        return np.zeros(0, dtype=bool)
+
+    intensity = getattr(hazard_obj, "intensity", None)
+    if intensity is None:
+        return np.zeros(int(centroid_count), dtype=bool)
+
+    try:
+        positive = (intensity > 0).sum(axis=0)
+        if hasattr(positive, "A1"):
+            arr = np.asarray(positive.A1, dtype=float).reshape(-1)
+        elif hasattr(positive, "toarray"):
+            arr = np.asarray(positive.toarray(), dtype=float).reshape(-1)
+        else:
+            arr = np.asarray(positive, dtype=float).reshape(-1)
+        if arr.size == centroid_count:
+            return arr > 0.0
+    except Exception:
+        pass
+
+    try:
+        dense = np.asarray(intensity, dtype=float)
+        if dense.ndim == 1:
+            dense = dense.reshape(1, -1)
+        if dense.ndim >= 2 and dense.shape[-1] == centroid_count:
+            return np.nan_to_num(dense, nan=0.0, posinf=0.0, neginf=0.0).max(axis=0) > 0.0
+    except Exception:
+        pass
+
+    return np.zeros(int(centroid_count), dtype=bool)
+
+
+def _compute_matching_summary(
+    np: Any,
+    *,
+    exposures: Any,
+    point_records: list[dict[str, Any]],
+    hazard_obj: Any,
+    direct_eai_by_point: Any,
+    component_name: str,
+    hazard_key: str | None,
+) -> dict[str, Any]:
+    point_count = int(len(point_records))
+    point_values = np.asarray(
+        [max(0.0, float(rec.get("value_eur", 0.0) or 0.0)) for rec in point_records],
+        dtype=float,
+    )
+    point_value_total = float(point_values.sum()) if point_values.size else 0.0
+    centroid_count = int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0)
+    centroid_column = _resolve_centroid_assignment_column(exposures, hazard_obj)
+    haz_type = str(getattr(hazard_obj, "haz_type", "") or "").strip() or None
+
+    summary: dict[str, Any] = {
+        "status": "complete",
+        "hazard": str(hazard_key or "unknown"),
+        "component": str(component_name),
+        "haz_type": haz_type,
+        "centroid_column": centroid_column,
+        "point_count": point_count,
+        "point_value_total_eur": round(point_value_total, 2),
+        "centroid_count": centroid_count,
+        "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+    }
+
+    gdf = getattr(exposures, "gdf", None)
+    if gdf is None or centroid_column is None or centroid_column not in getattr(gdf, "columns", []):
+        summary.update(
+            {
+                "status": "unavailable",
+                "reason": "missing_centroid_assignment",
+                "assigned_point_count": 0,
+                "assigned_point_fraction": 0.0,
+                "positive_hazard_point_count": 0,
+                "positive_hazard_point_fraction": 0.0,
+                "positive_direct_loss_point_count": 0,
+                "positive_direct_loss_point_fraction": 0.0,
+            }
+        )
+        return summary
+
+    assignment_values = list(gdf[centroid_column])
+    centroid_lats = _as_1d_float(np, getattr(getattr(hazard_obj, "centroids", None), "lat", []))
+    centroid_lons = _as_1d_float(np, getattr(getattr(hazard_obj, "centroids", None), "lon", []))
+    positive_centroid_mask = _positive_intensity_centroid_mask(np, hazard_obj, centroid_count)
+
+    assigned_mask = np.zeros(point_count, dtype=bool)
+    positive_hazard_mask = np.zeros(point_count, dtype=bool)
+    direct_eai = _as_1d_float(np, direct_eai_by_point)
+    positive_direct_mask = np.zeros(point_count, dtype=bool)
+    positive_direct_mask[: min(point_count, direct_eai.size)] = direct_eai[: min(point_count, direct_eai.size)] > 0.0
+    unique_assigned_centroids: set[int] = set()
+    distance_km_values: list[float] = []
+
+    for idx, rec in enumerate(point_records):
+        assigned_idx = _coerce_centroid_index(
+            assignment_values[idx] if idx < len(assignment_values) else None,
+            centroid_count,
+        )
+        if assigned_idx is None:
+            continue
+        assigned_mask[idx] = True
+        unique_assigned_centroids.add(int(assigned_idx))
+
+        if assigned_idx < positive_centroid_mask.size and bool(positive_centroid_mask[assigned_idx]):
+            positive_hazard_mask[idx] = True
+
+        lat = rec.get("lat")
+        lon = rec.get("lon")
+        if (
+            lat is not None
+            and lon is not None
+            and assigned_idx < centroid_lats.size
+            and assigned_idx < centroid_lons.size
+        ):
+            distance_km = _haversine_km(
+                float(lon),
+                float(lat),
+                float(centroid_lons[assigned_idx]),
+                float(centroid_lats[assigned_idx]),
+            )
+            if math.isfinite(distance_km):
+                distance_km_values.append(float(distance_km))
+
+    assigned_value = float(point_values[assigned_mask].sum()) if point_values.size else 0.0
+    positive_hazard_value = float(point_values[positive_hazard_mask].sum()) if point_values.size else 0.0
+    positive_direct_value = float(point_values[positive_direct_mask].sum()) if point_values.size else 0.0
+    distance_arr = np.asarray(distance_km_values, dtype=float) if distance_km_values else np.zeros(0, dtype=float)
+
+    summary.update(
+        {
+            "assigned_centroid_count": int(len(unique_assigned_centroids)),
+            "positive_centroid_count": int(positive_centroid_mask.sum()) if positive_centroid_mask.size else 0,
+            "positive_centroid_fraction": _round_or_none(
+                float(positive_centroid_mask.sum()) / float(max(centroid_count, 1)),
+                digits=4,
+            ),
+            "assigned_point_count": int(assigned_mask.sum()),
+            "assigned_point_fraction": _round_or_none(float(assigned_mask.sum()) / float(max(point_count, 1)), digits=4),
+            "assigned_value_eur": round(assigned_value, 2),
+            "assigned_value_fraction": _round_or_none(assigned_value / float(max(point_value_total, 1.0)), digits=4),
+            "unassigned_point_count": int(point_count - int(assigned_mask.sum())),
+            "positive_hazard_point_count": int(positive_hazard_mask.sum()),
+            "positive_hazard_point_fraction": _round_or_none(
+                float(positive_hazard_mask.sum()) / float(max(point_count, 1)),
+                digits=4,
+            ),
+            "positive_hazard_value_eur": round(positive_hazard_value, 2),
+            "positive_hazard_value_fraction": _round_or_none(
+                positive_hazard_value / float(max(point_value_total, 1.0)),
+                digits=4,
+            ),
+            "positive_direct_loss_point_count": int(positive_direct_mask.sum()),
+            "positive_direct_loss_point_fraction": _round_or_none(
+                float(positive_direct_mask.sum()) / float(max(point_count, 1)),
+                digits=4,
+            ),
+            "positive_direct_loss_value_eur": round(positive_direct_value, 2),
+            "positive_direct_loss_value_fraction": _round_or_none(
+                positive_direct_value / float(max(point_value_total, 1.0)),
+                digits=4,
+            ),
+            "assignment_distance_mean_km": _round_or_none(distance_arr.mean() if distance_arr.size else None, digits=3),
+            "assignment_distance_p95_km": _round_or_none(
+                np.percentile(distance_arr, 95) if distance_arr.size else None,
+                digits=3,
+            ),
+            "assignment_distance_max_km": _round_or_none(distance_arr.max() if distance_arr.size else None, digits=3),
+        }
+    )
+    return summary
+
+
+def _build_combined_matching_summary(
+    np: Any,
+    *,
+    hazard_key: str,
+    point_records: list[dict[str, Any]],
+    total_metrics: HazardImpactResult,
+    component_metrics: dict[str, HazardImpactResult],
+    hazard_zero_intensity: bool,
+) -> dict[str, Any]:
+    point_values = np.asarray(
+        [max(0.0, float(rec.get("value_eur", 0.0) or 0.0)) for rec in point_records],
+        dtype=float,
+    )
+    point_count = int(point_values.size)
+    point_value_total = float(point_values.sum()) if point_values.size else 0.0
+    direct_eai = _as_1d_float(np, total_metrics.eai_direct_by_point)
+    positive_direct_mask = np.zeros(point_count, dtype=bool)
+    positive_direct_mask[: min(point_count, direct_eai.size)] = direct_eai[: min(point_count, direct_eai.size)] > 0.0
+    positive_direct_value = float(point_values[positive_direct_mask].sum()) if point_values.size else 0.0
+
+    reference_component_name = None
+    reference_matching: dict[str, Any] | None = None
+    for candidate_name in ("wind", "rain", "surge"):
+        candidate = component_metrics.get(candidate_name)
+        candidate_matching = dict(getattr(candidate, "matching", {}) or {}) if candidate is not None else {}
+        if candidate_matching.get("status") == "complete":
+            reference_component_name = candidate_name
+            reference_matching = candidate_matching
+            break
+
+    summary: dict[str, Any] = {
+        "status": "complete" if reference_matching else "unavailable",
+        "hazard": str(hazard_key),
+        "component": "combined",
+        "component_names": [name for name in ("wind", "rain", "surge") if name in component_metrics],
+        "reference_component": reference_component_name,
+        "point_count": point_count,
+        "point_value_total_eur": round(point_value_total, 2),
+        "hazard_zero_intensity": bool(hazard_zero_intensity),
+        "positive_direct_loss_point_count": int(positive_direct_mask.sum()),
+        "positive_direct_loss_point_fraction": _round_or_none(
+            float(positive_direct_mask.sum()) / float(max(point_count, 1)),
+            digits=4,
+        ),
+        "positive_direct_loss_value_eur": round(positive_direct_value, 2),
+        "positive_direct_loss_value_fraction": _round_or_none(
+            positive_direct_value / float(max(point_value_total, 1.0)),
+            digits=4,
+        ),
+    }
+    if reference_matching is not None:
+        for key in (
+            "haz_type",
+            "centroid_column",
+            "centroid_count",
+            "positive_centroid_count",
+            "positive_centroid_fraction",
+            "assigned_centroid_count",
+            "assigned_point_count",
+            "assigned_point_fraction",
+            "assigned_value_eur",
+            "assigned_value_fraction",
+            "unassigned_point_count",
+            "positive_hazard_point_count",
+            "positive_hazard_point_fraction",
+            "positive_hazard_value_eur",
+            "positive_hazard_value_fraction",
+            "assignment_distance_mean_km",
+            "assignment_distance_p95_km",
+            "assignment_distance_max_km",
+            "assignment_threshold_deg",
+        ):
+            if key in reference_matching:
+                summary[key] = reference_matching[key]
+    return summary
 
 
 def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
@@ -1178,6 +1488,21 @@ def _compute_component_impact_sharded(
             event_name=getattr(hazard_obj, "event_name", []),
             top_n_events=top_n_events,
         )
+        result.matching = {
+            "status": "complete",
+            "hazard": str(hazard_key or "unknown"),
+            "component": str(component_name),
+            "point_count": 0,
+            "point_value_total_eur": 0.0,
+            "centroid_count": int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0),
+            "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+            "assigned_point_count": 0,
+            "assigned_point_fraction": 0.0,
+            "positive_hazard_point_count": 0,
+            "positive_hazard_point_fraction": 0.0,
+            "positive_direct_loss_point_count": 0,
+            "positive_direct_loss_point_fraction": 0.0,
+        }
         sharding_info["status"] = "complete"
         return result, sharding_info
 
@@ -1237,13 +1562,23 @@ def _compute_component_impact_sharded(
                     },
                 )
                 return cached_metrics, sharding_info
+        component_exposures = exposure_builder(exposure_bundle)
         metrics = _compute_component_impact(
             np,
             ImpactCalc,
-            exposures=exposure_builder(exposure_bundle),
+            exposures=component_exposures,
             impfset=impfset,
             hazard_obj=hazard_obj,
             top_n_events=top_n_events,
+        )
+        metrics.matching = _compute_matching_summary(
+            np,
+            exposures=component_exposures,
+            point_records=point_records,
+            hazard_obj=hazard_obj,
+            direct_eai_by_point=metrics.eai_direct_by_point,
+            component_name=component_name,
+            hazard_key=hazard_key,
         )
         _save_shard_checkpoint(
             np,
@@ -1487,6 +1822,16 @@ def _compute_component_impact_sharded(
         event_name=event_name,
         top_n_events=top_n_events,
     )
+    matching_exposures = exposure_builder(exposure_bundle)
+    result.matching = _compute_matching_summary(
+        np,
+        exposures=matching_exposures,
+        point_records=point_records,
+        hazard_obj=hazard_obj,
+        direct_eai_by_point=result.eai_direct_by_point,
+        component_name=component_name,
+        hazard_key=hazard_key,
+    )
     sharding_info["status"] = "complete"
     _emit_progress(
         progress_callback,
@@ -1512,7 +1857,7 @@ def _compute_component_impact(
     exposures.assign_centroids(
         hazard_obj,
         distance="euclidean",
-        threshold=5.0,
+        threshold=float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
         overwrite=True,
     )
     impact = ImpactCalc(exposures, impfset, hazard_obj).impact(
@@ -1863,7 +2208,7 @@ def _compute_dynamic_hazard_sharded_results(
                         centroids=wind_hazard.centroids,
                         model=requested_rain_model,
                         ignore_distance_to_coast=True,
-                        max_dist_inland_km=2000,
+                        max_dist_inland_km=float(rain_max_dist_inland_km),
                     )
                     rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
                     shard_metrics, inner_sharding = _compute_component_impact_sharded(
@@ -2005,6 +2350,16 @@ def _compute_dynamic_hazard_sharded_results(
         point_values_eur=point_values_eur,
         top_n_events=top_n_events,
     )
+    total_metrics.matching = _build_combined_matching_summary(
+        np,
+        hazard_key=hazard_key,
+        point_records=point_records,
+        total_metrics=total_metrics,
+        component_metrics=components,
+        hazard_zero_intensity=bool(
+            float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+        ),
+    )
     return total_metrics, components, component_status, component_sharding, component_notes
 
 
@@ -2027,8 +2382,12 @@ def run_climada_direct_impacts(
     track_cache_max_entries: int | None = None,
     multi_hazard_enabled: bool = True,
     rain_model: str = "R-CLIPER",
+    rain_max_dist_inland_km: float = 2000.0,
     surge_topo_path: Path | None = None,
     flood_curve_file: Path | None = None,
+    wind_asset_type_to_curve_code: dict[str, str] | None = None,
+    flood_asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = 0.25,
     execution_profile: str = "default",
     memory_budget_gb: float = 0.0,
     max_points_per_shard: int = 0,
@@ -2044,7 +2403,9 @@ def run_climada_direct_impacts(
     ImpactCalc = runtime["ImpactCalc"]
     ImpactFuncSet = runtime["ImpactFuncSet"]
 
-    vulnerability_payload = get_tc_vulnerability_payload()
+    vulnerability_payload = get_tc_vulnerability_payload(
+        asset_type_to_curve_code=wind_asset_type_to_curve_code,
+    )
     impact_funcs = try_build_climada_impact_funcs()
     if impact_funcs is None:
         raise DependencyMissingError("Unable to instantiate CLIMADA impact functions for tropical cyclone.")
@@ -2200,6 +2561,8 @@ def run_climada_direct_impacts(
                     surge_haz_type="TCSurgeBathtub",
                     rain_haz_type="TR",
                     flood_curve_file=Path(flood_curve_file),
+                    asset_type_to_curve_code=flood_asset_type_to_curve_code,
+                    rain_proxy_base_runoff_coeff=rain_proxy_base_runoff_coeff,
                 )
                 impfset_rain = ImpactFuncSet(multi_hazard_model.rain_funcs)
                 impfset_surge = ImpactFuncSet(multi_hazard_model.surge_funcs)
@@ -2416,7 +2779,7 @@ def run_climada_direct_impacts(
                         centroids=wind_hazard.centroids,
                         model=requested_rain_model,
                         ignore_distance_to_coast=True,
-                        max_dist_inland_km=2000,
+                        max_dist_inland_km=float(rain_max_dist_inland_km),
                     )
                     rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
                     rain_metrics, rain_sharding = _compute_component_impact_sharded(
@@ -2481,6 +2844,16 @@ def run_climada_direct_impacts(
             point_values_eur=point_values_eur,
             top_n_events=top_n_events,
         )
+        total_metrics.matching = _build_combined_matching_summary(
+            np,
+            hazard_key=hazard_key,
+            point_records=list(exposure_bundle.point_records or []),
+            total_metrics=total_metrics,
+            component_metrics=components,
+            hazard_zero_intensity=bool(
+                float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+            ),
+        )
 
         out[hazard_key] = total_metrics
         component_out[hazard_key] = components
@@ -2497,6 +2870,24 @@ def run_climada_direct_impacts(
         any(name in {"rain", "surge"} for name in names)
         for names in components_by_hazard.values()
     )
+
+    matching_qa = {
+        "status": "complete",
+        "point_count": int(len(exposure_bundle.point_records or [])),
+        "point_value_total_eur": round(sum(point_values_eur), 2),
+        "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+        "hazards": {},
+    }
+    for hazard_key in ("storm", "storm_cmcc"):
+        if hazard_key not in out:
+            continue
+        matching_qa["hazards"][hazard_key] = {
+            "combined": dict(getattr(out[hazard_key], "matching", {}) or {}),
+            "components": {
+                component_name: dict(getattr(component_metrics, "matching", {}) or {})
+                for component_name, component_metrics in (component_out.get(hazard_key) or {}).items()
+            },
+        }
 
     modeling = {
         "storm_years": int(storm_years),
@@ -2536,6 +2927,7 @@ def run_climada_direct_impacts(
         "multi_hazard_rain_model": requested_rain_model,
         "multi_hazard_surge_topo_path": str(surge_topo_path) if surge_topo_path else None,
         "multi_hazard_flood_curve_file": str(flood_curve_file) if flood_curve_file else None,
+        "hazard_exposure_matching_qa": matching_qa,
     }
     if multi_hazard_model is not None:
         modeling["multi_hazard_impact_mapping"] = multi_hazard_model.mapping_info

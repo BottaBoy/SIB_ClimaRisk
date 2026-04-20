@@ -256,6 +256,12 @@ def _scenario_loss_from_result(result: Any, scenario: str) -> float:
     return float(np.asarray(getattr(result, "eai_direct_by_point", []), dtype=float).sum())
 
 
+def _is_effectively_wind_only_ratio_map(ratio_map: dict[str, float] | None, *, tol: float = 1e-9) -> bool:
+    normalized = _normalize_component_ratio_map(ratio_map if isinstance(ratio_map, dict) else None)
+    non_wind = float(normalized.get("rain", 0.0)) + float(normalized.get("surge", 0.0)) + float(normalized.get("landslide", 0.0))
+    return non_wind <= float(tol)
+
+
 def _load_hazard_map_payload(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
@@ -486,6 +492,7 @@ def _build_proxy_payload(
     landslide_bbox: tuple[float, float, float, float],
     settings: Any,
     args: argparse.Namespace,
+    component_ratio_reference: dict[str, dict[str, dict[str, float]]],
 ) -> dict[str, Any]:
     component_ratios = _component_ratios_from_climada_run(run)
     default_proxy = _default_multi_hazard_proxy(component_ratios)
@@ -503,6 +510,7 @@ def _build_proxy_payload(
         bbox=landslide_bbox,
     )
     used_surge_fallback = False
+    used_complete_analysis_ratio_backfill = False
     if landslide_proxy_losses:
         notes.append(
             "Landslide probabilistic rasters integrated for the case-study proxy (precipitation current / SSP585 + earthquake)."
@@ -549,6 +557,12 @@ def _build_proxy_payload(
                 ((component_ratios.get(hazard_key) or {}).get(scenario))
                 or ((default_proxy.get(hazard_key) or {}).get("component_ratios") or {}).get(scenario)
             )
+            reference_ratio_map = _normalize_component_ratio_map(
+                ((component_ratio_reference.get(hazard_key) or {}).get(scenario))
+            )
+            if _is_effectively_wind_only_ratio_map(scenario_ratio_map) and not _is_effectively_wind_only_ratio_map(reference_ratio_map):
+                scenario_ratio_map = dict(reference_ratio_map)
+                used_complete_analysis_ratio_backfill = True
             landslide_share = max(0.0, min(1.0, landslide_loss / max(combined_loss, 1e-9))) if combined_loss > 0.0 else 0.0
             if landslide_share > 0.0:
                 scenario_ratio_map = _normalize_component_ratio_map(
@@ -584,6 +598,10 @@ def _build_proxy_payload(
     if used_surge_fallback:
         notes.append(
             "Case-study surge ratio fallback applied: native TCSurgeBathtub map intensities were combined with the CLIMADA multi-hazard surge vulnerability curves on sampled assets because direct point-based surge impacts were null or failed on the lightweight rerun."
+        )
+    if used_complete_analysis_ratio_backfill:
+        notes.append(
+            "Component-ratio backfill applied from complete-analysis because the lightweight sampled rerun produced wind-only splits for one or more scenarios."
         )
 
     return {
@@ -626,6 +644,7 @@ def _build_fallback_proxy_payload(
     notes = [
         "Fallback proxy generated from complete-analysis component ratios because the lightweight sampled CLIMADA proxy rerun failed.",
         f"Fallback reason: {fallback_reason}",
+        "Fallback limitation: complete-analysis component ratios currently include wind/rain/surge only; landslide ratios are set to 0.0 in this mode.",
     ]
     hazards_payload: dict[str, Any] = {}
     for hazard_key in ("storm", "storm_cmcc"):
@@ -669,6 +688,7 @@ def _build_fallback_proxy_payload(
             "modeling": {
                 "source": "complete_analysis_component_ratios",
                 "fallback": True,
+                "landslide_component_supported": False,
             },
         },
         "hazards": hazards_payload,
@@ -832,6 +852,7 @@ def main() -> None:
             landslide_bbox=landslide_bbox,
             settings=settings,
             args=args,
+            component_ratio_reference=component_ratio_reference,
         )
     else:
         payload = _build_fallback_proxy_payload(

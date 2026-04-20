@@ -74,6 +74,7 @@ def build_result_payload(
         "territory_results": comp.territory_results,
         "asset_results": comp.asset_results,
         "portfolio_results": comp.portfolio_results,
+        "matching_qa": comp.matching_qa,
         "graphs": comp.graphs,
         "artifacts": {
             "plots_png": [],

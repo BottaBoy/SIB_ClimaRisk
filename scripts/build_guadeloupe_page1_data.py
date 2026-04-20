@@ -1483,6 +1483,7 @@ def _compute_impact_metrics(
 
             final_state_arr = np.array(final_state, dtype=object)
             return {
+                "direct_loss": np.minimum(np.maximum(direct, 0.0), values),
                 "direct_state": direct_state,
                 "final_state": final_state_arr,
                 "total_loss": np.minimum(np.maximum(total_loss, 0.0), values),
@@ -1541,7 +1542,15 @@ def _compute_impact_metrics(
                         for s in ("S0", "S1", "S2", "S3")
                     }
                     damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            scenario_results[scenario]["direct_loss"],
+                            scenario_results[scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
@@ -1567,7 +1576,15 @@ def _compute_impact_metrics(
             for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
                 mask = np.array([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
                 damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            scenario_results[scenario]["direct_loss"],
+                            scenario_results[scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
@@ -2111,7 +2128,15 @@ def _compute_impact_metrics_from_complete_analysis(
                         for s in ("S0", "S1", "S2", "S3")
                     }
                     damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            direct_losses_by_scenario[scenario],
+                            scenario_results[scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
@@ -2136,7 +2161,15 @@ def _compute_impact_metrics_from_complete_analysis(
             for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
                 mask = np.asarray([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
                 damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            direct_losses_by_scenario[scenario],
+                            scenario_results[scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None

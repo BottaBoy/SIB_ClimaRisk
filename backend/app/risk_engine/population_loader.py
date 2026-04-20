@@ -189,6 +189,7 @@ def aggregate_population_by_territory(
     metadata: Optional[dict],
     territories: Optional[dict[str, dict]] = None,
     bounds: Optional[Tuple[float, float, float, float]] = None,
+    cell_size_deg: float = TERRITORY_GRID_DEG,
 ) -> dict[str, float]:
     """
     Aggregate population from raster into 0.2° grid cells.
@@ -224,14 +225,14 @@ def aggregate_population_by_territory(
 
         result = {}
 
-        lat_centers = _aligned_grid_centers(minlat, maxlat)
-        lon_centers = _aligned_grid_centers(minlon, maxlon)
+        lat_centers = _aligned_grid_centers(minlat, maxlat, step=cell_size_deg)
+        lon_centers = _aligned_grid_centers(minlon, maxlon, step=cell_size_deg)
 
         for lat in lat_centers:
             for lon in lon_centers:
                 # Sample population in this cell
                 population = _sample_population_in_cell(
-                    raster_data, metadata, lat, lon, TERRITORY_GRID_DEG
+                    raster_data, metadata, lat, lon, cell_size_deg
                 )
 
                 if population > 0:
@@ -253,6 +254,7 @@ def aggregate_population_by_territory(
 def load_population_data(
     population_data_dir: str | Path,
     territories: Optional[list[str]] = None,
+    cell_size_deg: float = TERRITORY_GRID_DEG,
 ) -> dict[str, dict[str, float]]:
     """
     Load and aggregate population data for specified territories.
@@ -292,7 +294,10 @@ def load_population_data(
 
         # Aggregate by grid
         aggregated = aggregate_population_by_territory(
-            raster_data, metadata, bounds=config["bounds"]
+            raster_data,
+            metadata,
+            bounds=config["bounds"],
+            cell_size_deg=cell_size_deg,
         )
         result[territory_id] = aggregated
         logger.info(f"Loaded {len(aggregated)} cells for {territory_id}")

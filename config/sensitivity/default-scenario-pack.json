@@ -1,0 +1,642 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-20T13:42:46.403702+00:00",
+  "scenario_pack_id": "guadeloupe-sensitivity-default-v1",
+  "territories": [
+    "guadeloupe"
+  ],
+  "source_workbook": "/home/ubuntu/uploads/Sensibility analysis/Analyses sensibilité_2.xlsx",
+  "source_sheet": "Variable to modify for sensibil",
+  "workbook_total_runs": 25,
+  "variables": [
+    {
+      "category": "Vulnerabilite",
+      "parameter_key": "vulnerability_curves_profile",
+      "parameter_label": "vulnérability curves",
+      "current_value": "all vulnerability curves",
+      "role": "selection de la courbe vent/pluie/submersion/mouvemnt de terrain par type d'actif",
+      "priority": "Tres haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py:16",
+      "recommended_action": "revue expert rapide des affectations",
+      "test_values_raw": "Run de sensibilité à part",
+      "test_values": [
+        "manual_profile_required"
+      ],
+      "default_pack_test_values": [
+        "manual_profile_required"
+      ],
+      "run_count": null,
+      "default_pack_run_count": 1,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Vulnerabilite",
+      "parameter_key": "runoff_coeff",
+      "parameter_label": "runoff_coeff",
+      "current_value": "0.25 unique",
+      "role": "Pluie : convertit la profondeur D2 en courbe pluie proxy en mm_proxy",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py:217",
+      "recommended_action": "sensibilite prioritaire et calage terrain",
+      "test_values_raw": "0,1-0,5",
+      "test_values": [
+        "0,1",
+        "0,5"
+      ],
+      "default_pack_test_values": [
+        "0,1",
+        "0,5"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "direct_state_thresholds",
+      "parameter_label": "seuils d'etat directs",
+      "current_value": "5% / 15% / 35%",
+      "role": "convertit le ratio de dommage en S0-S3",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:10",
+      "recommended_action": "expertiser rapidement",
+      "test_values_raw": "10%/20%/40%-10%/15%/50%",
+      "test_values": [
+        "10%/20%/40%",
+        "10%/15%/50%"
+      ],
+      "default_pack_test_values": [
+        "10%/20%/40%",
+        "10%/15%/50%"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "health_weights",
+      "parameter_label": "poids de sante health",
+      "current_value": "0.3 / 0.7 / 1.0",
+      "role": "convertit les masses en etat de sante systeme",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:43",
+      "recommended_action": "tester des ponderations alternatives",
+      "test_values_raw": "0.3/ 1 / 1.0-0.3 / 0.5 / 5",
+      "test_values": [
+        "0.3/ 1 / 1.0",
+        "0.3 / 0.5 / 5"
+      ],
+      "default_pack_test_values": [
+        "0.3/ 1 / 1.0",
+        "0.3 / 0.5 / 5"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "dependency_state_thresholds",
+      "parameter_label": "seuils health -> dependency_state",
+      "current_value": "0.75 / 0.55 / 0.35",
+      "role": "convertit la sante elec en etat de dependance",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:61",
+      "recommended_action": "expertiser rapidement",
+      "test_values_raw": "0.5 / 0.30 / 0.15-0.90 / 0.75 / 0.55",
+      "test_values": [
+        "0.5 / 0.30 / 0.15",
+        "0.90 / 0.75 / 0.55"
+      ],
+      "default_pack_test_values": [
+        "0.5 / 0.30 / 0.15",
+        "0.90 / 0.75 / 0.55"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "uplift_by_state",
+      "parameter_label": "uplift_by_state",
+      "current_value": "0% / 10% / 25% / 45%",
+      "role": "calcule l'EAI indirect eau a partir de l'etat de dependance",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:15; backend/app/risk_engine/interdependency.py:267",
+      "recommended_action": "priorite revue expert",
+      "test_values_raw": "0% / 20% / 50% / 100%-0% / 5% / 10% / 15%",
+      "test_values": [
+        "0% / 20% / 50% / 100%",
+        "0% / 5% / 10% / 15%"
+      ],
+      "default_pack_test_values": [
+        "0% / 20% / 50% / 100%",
+        "0% / 5% / 10% / 15%"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Physique alea",
+      "parameter_key": "max_dist_inland_km",
+      "parameter_label": "max_dist_inland_km",
+      "current_value": "2000 km",
+      "role": "extension inland du champ pluie",
+      "priority": "Moyenne",
+      "robustness": "Moyenne",
+      "source": "backend/app/risk_engine/climada_engine.py:549",
+      "recommended_action": "tester 200/500/1000/2000",
+      "test_values_raw": "200-1000-2000",
+      "test_values": [
+        "200",
+        "1000",
+        "2000"
+      ],
+      "default_pack_test_values": [
+        "200",
+        "1000"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "parameter_label": "hazard_dynamic_max_tracks",
+      "current_value": "1200",
+      "role": "cap numerique sur le nombre de tracks dynamiques",
+      "priority": "Moyenne",
+      "robustness": "Bonne",
+      "source": "backend/app/config.py:55; backend/app/risk_engine/hazard_loader.py:406",
+      "recommended_action": "traiter comme reglage numerique et non comme hypothese scientifique",
+      "test_values_raw": "100-500-800-1000",
+      "test_values": [
+        "100",
+        "500",
+        "800",
+        "1000"
+      ],
+      "default_pack_test_values": [
+        "100",
+        "500",
+        "800",
+        "1000"
+      ],
+      "run_count": 4,
+      "default_pack_run_count": 4,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "territory_grid_deg",
+      "parameter_label": "maille territoriale electrique",
+      "current_value": "0.2 deg",
+      "role": "support spatial local pour resoudre la sante elec",
+      "priority": "Haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/exposure_to_climada.py:11; backend/app/risk_engine/exposure_to_climada.py:50",
+      "recommended_action": "tester 0.05/0.1/0.2",
+      "test_values_raw": "0.05-0.1-0.2",
+      "test_values": [
+        "0.05",
+        "0.1",
+        "0.2"
+      ],
+      "default_pack_test_values": [
+        "0.05",
+        "0.1"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "default_sampling_spacing_m",
+      "parameter_label": "sampling_spacing_m backend",
+      "current_value": "100 m",
+      "role": "discretisation geometrique des expositions",
+      "priority": "Haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/config.py:44; backend/app/risk_engine/exposure_to_climada.py:232",
+      "recommended_action": "tester 50/100/250",
+      "test_values_raw": "50-250",
+      "test_values": [
+        "50",
+        "250"
+      ],
+      "default_pack_test_values": [
+        "50",
+        "250"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "climada_max_points_per_feature",
+      "parameter_label": "climada_max_points_per_feature",
+      "current_value": "300",
+      "role": "cap de sampling par actif",
+      "priority": "Haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/config.py:67; backend/app/risk_engine/exposure_to_climada.py:234",
+      "recommended_action": "tester 100/300/1000",
+      "test_values_raw": "100-500-1000",
+      "test_values": [
+        "100",
+        "500",
+        "1000"
+      ],
+      "default_pack_test_values": [
+        "100",
+        "500",
+        "1000"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 3,
+      "execution_tier": "full_rerun"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario_id": "all-default",
+      "label": "All default",
+      "parameter_key": null,
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "overrides": {
+        "settings": {}
+      },
+      "notes": [
+        "Reference scenario with current default parameters."
+      ]
+    },
+    {
+      "scenario_id": "vulnerability_curves_profile-manual-profile-required",
+      "label": "vulnérability curves = manual_profile_required",
+      "parameter_key": "vulnerability_curves_profile",
+      "execution_tier": "full_rerun",
+      "supported": false,
+      "candidate_value": "manual_profile_required",
+      "overrides": {},
+      "notes": [
+        "Workbook requests a dedicated vulnerability-curve sensitivity run.",
+        "This scenario remains a placeholder until an alternate mapping profile is defined."
+      ]
+    },
+    {
+      "scenario_id": "runoff_coeff-0-1",
+      "label": "runoff_coeff = 0,1",
+      "parameter_key": "runoff_coeff",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0,1",
+      "overrides": {
+        "settings": {
+          "multi_hazard_rain_base_runoff_coeff": 0.1
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "runoff_coeff-0-5",
+      "label": "runoff_coeff = 0,5",
+      "parameter_key": "runoff_coeff",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0,5",
+      "overrides": {
+        "settings": {
+          "multi_hazard_rain_base_runoff_coeff": 0.5
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "direct_state_thresholds-10-20-40",
+      "label": "seuils d'etat directs = 10%/20%/40%",
+      "parameter_key": "direct_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "10%/20%/40%",
+      "overrides": {
+        "settings": {
+          "interdependency_state_threshold_s0_to_s1": 0.1,
+          "interdependency_state_threshold_s1_to_s2": 0.2,
+          "interdependency_state_threshold_s2_to_s3": 0.4
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "direct_state_thresholds-10-15-50",
+      "label": "seuils d'etat directs = 10%/15%/50%",
+      "parameter_key": "direct_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "10%/15%/50%",
+      "overrides": {
+        "settings": {
+          "interdependency_state_threshold_s0_to_s1": 0.1,
+          "interdependency_state_threshold_s1_to_s2": 0.15,
+          "interdependency_state_threshold_s2_to_s3": 0.5
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "health_weights-0-3-1-1-0",
+      "label": "poids de sante health = 0.3/ 1 / 1.0",
+      "parameter_key": "health_weights",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0.3/ 1 / 1.0",
+      "overrides": {
+        "settings": {
+          "interdependency_health_weight_s1": 0.3,
+          "interdependency_health_weight_s2": 1.0,
+          "interdependency_health_weight_s3": 1.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "health_weights-0-3-0-5-5",
+      "label": "poids de sante health = 0.3 / 0.5 / 5",
+      "parameter_key": "health_weights",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0.3 / 0.5 / 5",
+      "overrides": {
+        "settings": {
+          "interdependency_health_weight_s1": 0.3,
+          "interdependency_health_weight_s2": 0.5,
+          "interdependency_health_weight_s3": 5.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "dependency_state_thresholds-0-5-0-30-0-15",
+      "label": "seuils health -> dependency_state = 0.5 / 0.30 / 0.15",
+      "parameter_key": "dependency_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0.5 / 0.30 / 0.15",
+      "overrides": {
+        "settings": {
+          "interdependency_dependency_state_threshold_s1": 0.005,
+          "interdependency_dependency_state_threshold_s2": 0.003,
+          "interdependency_dependency_state_threshold_s3": 0.0015
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "dependency_state_thresholds-0-90-0-75-0-55",
+      "label": "seuils health -> dependency_state = 0.90 / 0.75 / 0.55",
+      "parameter_key": "dependency_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0.90 / 0.75 / 0.55",
+      "overrides": {
+        "settings": {
+          "interdependency_dependency_state_threshold_s1": 0.009000000000000001,
+          "interdependency_dependency_state_threshold_s2": 0.0075,
+          "interdependency_dependency_state_threshold_s3": 0.0055000000000000005
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "uplift_by_state-0-20-50-100",
+      "label": "uplift_by_state = 0% / 20% / 50% / 100%",
+      "parameter_key": "uplift_by_state",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0% / 20% / 50% / 100%",
+      "overrides": {
+        "settings": {
+          "interdependency_uplift_s0": 0.0,
+          "interdependency_uplift_s1": 0.2,
+          "interdependency_uplift_s2": 0.5,
+          "interdependency_uplift_s3": 1.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "uplift_by_state-0-5-10-15",
+      "label": "uplift_by_state = 0% / 5% / 10% / 15%",
+      "parameter_key": "uplift_by_state",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "0% / 5% / 10% / 15%",
+      "overrides": {
+        "settings": {
+          "interdependency_uplift_s0": 0.0,
+          "interdependency_uplift_s1": 0.05,
+          "interdependency_uplift_s2": 0.1,
+          "interdependency_uplift_s3": 0.15
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "max_dist_inland_km-200",
+      "label": "max_dist_inland_km = 200",
+      "parameter_key": "max_dist_inland_km",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "200",
+      "overrides": {
+        "settings": {
+          "hazard_rain_max_dist_inland_km": 200.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "max_dist_inland_km-1000",
+      "label": "max_dist_inland_km = 1000",
+      "parameter_key": "max_dist_inland_km",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "1000",
+      "overrides": {
+        "settings": {
+          "hazard_rain_max_dist_inland_km": 1000.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-100",
+      "label": "hazard_dynamic_max_tracks = 100",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "100",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 100
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-500",
+      "label": "hazard_dynamic_max_tracks = 500",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "500",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 500
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-800",
+      "label": "hazard_dynamic_max_tracks = 800",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "800",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 800
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-1000",
+      "label": "hazard_dynamic_max_tracks = 1000",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "1000",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 1000
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "territory_grid_deg-0-05",
+      "label": "maille territoriale electrique = 0.05",
+      "parameter_key": "territory_grid_deg",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0.05",
+      "overrides": {
+        "settings": {
+          "territory_grid_deg": 0.05
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "territory_grid_deg-0-1",
+      "label": "maille territoriale electrique = 0.1",
+      "parameter_key": "territory_grid_deg",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0.1",
+      "overrides": {
+        "settings": {
+          "territory_grid_deg": 0.1
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "default_sampling_spacing_m-50",
+      "label": "sampling_spacing_m backend = 50",
+      "parameter_key": "default_sampling_spacing_m",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "50",
+      "overrides": {
+        "settings": {
+          "default_sampling_spacing_m": 50.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "default_sampling_spacing_m-250",
+      "label": "sampling_spacing_m backend = 250",
+      "parameter_key": "default_sampling_spacing_m",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "250",
+      "overrides": {
+        "settings": {
+          "default_sampling_spacing_m": 250.0
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "climada_max_points_per_feature-100",
+      "label": "climada_max_points_per_feature = 100",
+      "parameter_key": "climada_max_points_per_feature",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "100",
+      "overrides": {
+        "settings": {
+          "climada_max_points_per_feature": 100
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "climada_max_points_per_feature-500",
+      "label": "climada_max_points_per_feature = 500",
+      "parameter_key": "climada_max_points_per_feature",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "500",
+      "overrides": {
+        "settings": {
+          "climada_max_points_per_feature": 500
+        }
+      },
+      "notes": []
+    },
+    {
+      "scenario_id": "climada_max_points_per_feature-1000",
+      "label": "climada_max_points_per_feature = 1000",
+      "parameter_key": "climada_max_points_per_feature",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "1000",
+      "overrides": {
+        "settings": {
+          "climada_max_points_per_feature": 1000
+        }
+      },
+      "notes": []
+    }
+  ],
+  "scenario_count": 25,
+  "matches_workbook_total_runs": true
+}

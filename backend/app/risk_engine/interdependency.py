@@ -12,6 +12,8 @@ STATE_THRESHOLDS = {
     "S1_to_S2_damage_ratio": 0.15,
     "S2_to_S3_damage_ratio": 0.35,
 }
+HEALTH_WEIGHTS_BY_STATE = {"S1": 0.3, "S2": 0.7, "S3": 1.0}
+DEPENDENCY_STATE_THRESHOLDS = {"S1": 0.75, "S2": 0.55, "S3": 0.35}
 UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
 
 
@@ -37,34 +39,83 @@ def _bucket_add_state(bucket: dict[str, float], *, state: str, weight: float) ->
         bucket[state] += float(weight)
 
 
-def _health_from_bucket(bucket: dict[str, float]) -> float:
+def _coerce_state_thresholds(state_thresholds: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(STATE_THRESHOLDS)
+    for key, value in (state_thresholds or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_health_weights(health_weights_by_state: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(HEALTH_WEIGHTS_BY_STATE)
+    for key, value in (health_weights_by_state or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_dependency_state_thresholds(
+    dependency_state_thresholds: dict[str, float] | None,
+) -> dict[str, float]:
+    merged = dict(DEPENDENCY_STATE_THRESHOLDS)
+    for key, value in (dependency_state_thresholds or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_uplift_by_state(uplift_by_state: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(UPLIFT_BY_STATE)
+    for key, value in (uplift_by_state or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _health_from_bucket(
+    bucket: dict[str, float],
+    *,
+    health_weights_by_state: dict[str, float] | None = None,
+) -> float:
     total = float(bucket.get("total", 0.0))
     if total <= 0.0:
         return 1.0
+    weights = _coerce_health_weights(health_weights_by_state)
     weighted = (
-        0.3 * float(bucket.get("S1", 0.0))
-        + 0.7 * float(bucket.get("S2", 0.0))
-        + 1.0 * float(bucket.get("S3", 0.0))
+        float(weights["S1"]) * float(bucket.get("S1", 0.0))
+        + float(weights["S2"]) * float(bucket.get("S2", 0.0))
+        + float(weights["S3"]) * float(bucket.get("S3", 0.0))
     )
     return max(0.0, min(1.0, 1.0 - (weighted / total)))
 
 
-def _state_from_damage_ratio(damage_ratio: float) -> str:
-    if damage_ratio >= STATE_THRESHOLDS["S2_to_S3_damage_ratio"]:
+def _state_from_damage_ratio(
+    damage_ratio: float,
+    *,
+    state_thresholds: dict[str, float] | None = None,
+) -> str:
+    thresholds = _coerce_state_thresholds(state_thresholds)
+    if damage_ratio >= thresholds["S2_to_S3_damage_ratio"]:
         return "S3"
-    if damage_ratio >= STATE_THRESHOLDS["S1_to_S2_damage_ratio"]:
+    if damage_ratio >= thresholds["S1_to_S2_damage_ratio"]:
         return "S2"
-    if damage_ratio >= STATE_THRESHOLDS["S0_to_S1_damage_ratio"]:
+    if damage_ratio >= thresholds["S0_to_S1_damage_ratio"]:
         return "S1"
     return "S0"
 
 
-def _dependency_state_from_elec_health(health: float) -> str:
-    if health < 0.35:
+def _dependency_state_from_elec_health(
+    health: float,
+    *,
+    dependency_state_thresholds: dict[str, float] | None = None,
+) -> str:
+    thresholds = _coerce_dependency_state_thresholds(dependency_state_thresholds)
+    if health < thresholds["S3"]:
         return "S3"
-    if health < 0.55:
+    if health < thresholds["S2"]:
         return "S2"
-    if health < 0.75:
+    if health < thresholds["S1"]:
         return "S1"
     return "S0"
 
@@ -139,6 +190,8 @@ def _resolve_electric_health(
 
 def _summarize_component_health(
     buckets_by_class: dict[str, dict[str, float]],
+    *,
+    health_weights_by_state: dict[str, float] | None = None,
 ) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for infra_class, bucket in buckets_by_class.items():
@@ -147,7 +200,7 @@ def _summarize_component_health(
         s2 = float(bucket.get("S2", 0.0))
         s3 = float(bucket.get("S3", 0.0))
         out[infra_class] = {
-            "health": round(_health_from_bucket(bucket), 4),
+            "health": round(_health_from_bucket(bucket, health_weights_by_state=health_weights_by_state), 4),
             "L_total": round(total, 4),
             "L_S1": round(s1, 4),
             "L_S2": round(s2, 4),
@@ -162,8 +215,16 @@ def aggregate_impacts_with_interdependency(
     point_records: list[dict[str, Any]],
     hazard_direct_eai: dict[str, list[float]],
     hazard_max_loss: dict[str, list[float]],
+    state_thresholds: dict[str, float] | None = None,
+    health_weights_by_state: dict[str, float] | None = None,
+    dependency_state_thresholds: dict[str, float] | None = None,
+    uplift_by_state: dict[str, float] | None = None,
 ) -> InterdependencyAggregationResult:
     hazard_keys = tuple(hazard_direct_eai.keys())
+    effective_state_thresholds = _coerce_state_thresholds(state_thresholds)
+    effective_health_weights = _coerce_health_weights(health_weights_by_state)
+    effective_dependency_thresholds = _coerce_dependency_state_thresholds(dependency_state_thresholds)
+    effective_uplift = _coerce_uplift_by_state(uplift_by_state)
     elec_classes = {"elec_aerien", "elec_souterrain"}
     water_classes = {"eau_reseau", "eau_ouvrage"}
 
@@ -189,15 +250,21 @@ def aggregate_impacts_with_interdependency(
         for hazard in hazard_keys:
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             ratio = direct_max_loss / max(value, 1.0)
-            state = _state_from_damage_ratio(ratio)
+            state = _state_from_damage_ratio(ratio, state_thresholds=effective_state_thresholds)
             _bucket_add_state(elec_buckets_by_hazard[hazard][territory_id], state=state, weight=value)
             _bucket_add_state(elec_global_bucket[hazard], state=state, weight=value)
 
     elec_health_by_territory: dict[str, dict[str, float]] = {
-        hazard: {territory_id: _health_from_bucket(bucket) for territory_id, bucket in buckets.items()}
+        hazard: {
+            territory_id: _health_from_bucket(bucket, health_weights_by_state=effective_health_weights)
+            for territory_id, bucket in buckets.items()
+        }
         for hazard, buckets in elec_buckets_by_hazard.items()
     }
-    elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
+    elec_health_global = {
+        hazard: _health_from_bucket(bucket, health_weights_by_state=effective_health_weights)
+        for hazard, bucket in elec_global_bucket.items()
+    }
     elec_territory_centroids = {
         tid: (loc["lat_sum"] / loc["count"], loc["lon_sum"] / loc["count"])
         for tid, loc in elec_territory_loc_acc.items()
@@ -280,7 +347,7 @@ def aggregate_impacts_with_interdependency(
             direct_eai = min(value, max(0.0, float(hazard_direct_eai[hazard][idx])))
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             direct_ratio = direct_max_loss / max(value, 1.0)
-            direct_state = _state_from_damage_ratio(direct_ratio)
+            direct_state = _state_from_damage_ratio(direct_ratio, state_thresholds=effective_state_thresholds)
             final_state = direct_state
             indirect_eai = 0.0
 
@@ -295,11 +362,14 @@ def aggregate_impacts_with_interdependency(
                     elec_territory_centroids=elec_territory_centroids,
                 )
                 health_resolution_by_hazard[hazard][source] += 1
-                dependency_state = _dependency_state_from_elec_health(elec_health)
+                dependency_state = _dependency_state_from_elec_health(
+                    elec_health,
+                    dependency_state_thresholds=effective_dependency_thresholds,
+                )
                 if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
                     dependency_impacted_feature_hazard.add((feature_id, hazard))
                     final_state = dependency_state
-                indirect_eai = max(0.0, direct_eai * UPLIFT_BY_STATE[dependency_state])
+                indirect_eai = max(0.0, direct_eai * effective_uplift[dependency_state])
 
             total_eai = min(value, direct_eai + indirect_eai)
             indirect_eai = max(0.0, total_eai - direct_eai)
@@ -421,7 +491,10 @@ def aggregate_impacts_with_interdependency(
         scaler_by_hazard[hazard] = float(eai_total / max(eai_direct, 1.0))
 
     component_health = {
-        hazard: _summarize_component_health(dict(class_buckets))
+        hazard: _summarize_component_health(
+            dict(class_buckets),
+            health_weights_by_state=effective_health_weights,
+        )
         for hazard, class_buckets in component_buckets_by_hazard.items()
     }
 
@@ -436,8 +509,10 @@ def aggregate_impacts_with_interdependency(
             hazard: {k: int(v) for k, v in src.items()}
             for hazard, src in health_resolution_by_hazard.items()
         },
-        "state_thresholds": STATE_THRESHOLDS,
-        "uplift_by_state": UPLIFT_BY_STATE,
+        "state_thresholds": effective_state_thresholds,
+        "health_weights_by_state": effective_health_weights,
+        "dependency_state_thresholds": effective_dependency_thresholds,
+        "uplift_by_state": effective_uplift,
     }
 
     return InterdependencyAggregationResult(

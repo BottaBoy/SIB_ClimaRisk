@@ -432,12 +432,40 @@ def _compute_impacts_climada(
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
 ) -> ImpactComputationResult:
+    wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
+    flood_asset_mapping = dict(settings.flood_asset_type_to_curve_code or {}) or None
+    state_thresholds = {
+        "S0_to_S1_damage_ratio": float(settings.interdependency_state_threshold_s0_to_s1),
+        "S1_to_S2_damage_ratio": float(settings.interdependency_state_threshold_s1_to_s2),
+        "S2_to_S3_damage_ratio": float(settings.interdependency_state_threshold_s2_to_s3),
+    }
+    health_weights_by_state = {
+        "S1": float(settings.interdependency_health_weight_s1),
+        "S2": float(settings.interdependency_health_weight_s2),
+        "S3": float(settings.interdependency_health_weight_s3),
+    }
+    dependency_state_thresholds = {
+        "S1": float(settings.interdependency_dependency_state_threshold_s1),
+        "S2": float(settings.interdependency_dependency_state_threshold_s2),
+        "S3": float(settings.interdependency_dependency_state_threshold_s3),
+    }
+    uplift_by_state = {
+        "S0": float(settings.interdependency_uplift_s0),
+        "S1": float(settings.interdependency_uplift_s1),
+        "S2": float(settings.interdependency_uplift_s2),
+        "S3": float(settings.interdependency_uplift_s3),
+    }
+
     bundle = build_climada_exposure(
         exposure,
         spacing_m=float(disagg.spacing_m),
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
-        impact_func_id_resolver=resolve_tc_impact_func_id,
+        territory_grid_deg=float(settings.territory_grid_deg),
+        impact_func_id_resolver=lambda asset_type: resolve_tc_impact_func_id(
+            asset_type,
+            asset_type_to_curve_code=wind_asset_mapping,
+        ),
     )
     climada = run_climada_direct_impacts(
         bundle,
@@ -456,8 +484,12 @@ def _compute_impacts_climada(
         track_cache_max_entries=int(settings.hazard_track_cache_max_entries),
         multi_hazard_enabled=bool(settings.multi_hazard_enabled),
         rain_model=settings.hazard_rain_model,
+        rain_max_dist_inland_km=float(settings.hazard_rain_max_dist_inland_km),
         surge_topo_path=settings.hazard_surge_topo_path,
         flood_curve_file=settings.d2_flood_curve_file,
+        wind_asset_type_to_curve_code=wind_asset_mapping,
+        flood_asset_type_to_curve_code=flood_asset_mapping,
+        rain_proxy_base_runoff_coeff=float(settings.multi_hazard_rain_base_runoff_coeff),
         execution_profile=settings.climada_execution_profile,
         memory_budget_gb=float(settings.climada_memory_budget_gb),
         max_points_per_shard=int(settings.climada_max_points_per_shard),
@@ -483,6 +515,10 @@ def _compute_impacts_climada(
         point_records=bundle.point_records,
         hazard_direct_eai=hazard_direct_eai,
         hazard_max_loss=hazard_max_loss,
+        state_thresholds=state_thresholds,
+        health_weights_by_state=health_weights_by_state,
+        dependency_state_thresholds=dependency_state_thresholds,
+        uplift_by_state=uplift_by_state,
     )
 
     # Load and integrate population data for social impact metrics
@@ -495,6 +531,7 @@ def _compute_impacts_climada(
             pop_data = load_population_data(
                 population_data_dir=population_data_dir,
                 territories=["GUA", "MTQ"],
+                cell_size_deg=float(settings.territory_grid_deg),
             )
             # Flatten the nested dict: {territory_id -> {cell_id -> pop}} => {cell_id -> pop}
             for territory_pop_dict in pop_data.values():
@@ -623,7 +660,11 @@ def _compute_impacts_climada(
     notes = [
         "CLIMADA production engine is active (STORM + STORM_CMCC with annualized frequencies).",
         "Direct impact is computed by CLIMADA and indirect impact is added by conservative electricity-to-water dependency post-processing.",
-        "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
+        (
+            "Component health uses: health = 1 - "
+            f"({health_weights_by_state['S1']}*L_S1 + {health_weights_by_state['S2']}*L_S2 + "
+            f"{health_weights_by_state['S3']}*L_S3) / L_total."
+        ),
         "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
         "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
         "When enabled, direct multi-hazard uses additive wind+rain+surge losses with per-point capping before interdependency uplift.",
@@ -664,8 +705,18 @@ def _compute_impacts_climada(
         "scenario_mode": "prudent",
         "metric_crs": settings.climada_metric_crs,
         "sampling_spacing_m": float(disagg.spacing_m),
+        "territory_grid_deg": float(settings.territory_grid_deg),
         "max_points_per_feature": int(settings.climada_max_points_per_feature),
+        "rain_max_dist_inland_km": float(settings.hazard_rain_max_dist_inland_km),
+        "rain_proxy_base_runoff_coeff": float(settings.multi_hazard_rain_base_runoff_coeff),
+        "state_thresholds": state_thresholds,
+        "health_weights_by_state": health_weights_by_state,
+        "dependency_state_thresholds": dependency_state_thresholds,
+        "uplift_by_state": uplift_by_state,
+        "wind_asset_type_to_curve_code": wind_asset_mapping,
+        "flood_asset_type_to_curve_code": flood_asset_mapping,
     }
+    matching_qa = dict(climada.modeling.get("hazard_exposure_matching_qa") or {})
 
     return ImpactComputationResult(
         engine="climada_with_interdependency_v1",
@@ -675,6 +726,7 @@ def _compute_impacts_climada(
         graphs=graphs,
         notes=notes,
         modeling=modeling,
+        matching_qa=matching_qa,
     )
 
 
@@ -995,6 +1047,10 @@ def compute_impacts_fallback(
             "dependency_mode": "postprocess_electricity_to_water",
             "scenario_mode": "prudent",
             "fallback_reason": "explicit_fallback_mode",
+        },
+        matching_qa={
+            "status": "not_available",
+            "reason": "fallback_engine",
         },
     )
 
