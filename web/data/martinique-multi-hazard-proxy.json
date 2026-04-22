@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-04-20T14:03:00+00:00",
-    "case_study_run_id": "martinique_case_20260420T140058Z",
+    "generated_at": "2026-04-21T15:08:53+00:00",
+    "case_study_run_id": "martinique_case_20260421T150653Z",
     "territory": "martinique",
     "territory_label": "Martinique",
     "sample_point_count": 0,
@@ -27,11 +27,13 @@
     },
     "notes": [
       "Fallback proxy generated from complete-analysis component ratios because the lightweight sampled CLIMADA proxy rerun failed.",
-      "Fallback reason: forced_complete_analysis_fallback"
+      "Fallback reason: forced_complete_analysis_fallback",
+      "Fallback limitation: complete-analysis component ratios currently include wind/rain/surge only; landslide ratios are set to 0.0 in this mode."
     ],
     "modeling": {
       "source": "complete_analysis_component_ratios",
-      "fallback": true
+      "fallback": true,
+      "landslide_component_supported": false
     }
   },
   "hazards": {

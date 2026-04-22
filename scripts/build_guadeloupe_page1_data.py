@@ -39,6 +39,12 @@ try:
 except Exception:  # pragma: no cover - optional at import time for CLI --help
     box = None  # type: ignore[assignment]
 
+try:
+    from osgeo import gdal, osr
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    gdal = None  # type: ignore[assignment]
+    osr = None  # type: ignore[assignment]
+
 
 UTC = timezone.utc
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +59,10 @@ from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
 from app.risk_engine.impact_functions import (  # noqa: E402
     resolve_tc_impact_func_id,
     try_build_climada_impact_funcs,
+)
+from app.risk_engine.impact_functions_landslide import (  # noqa: E402
+    LANDSLIDE_HYPOTHESIS_CURVE,
+    LANDSLIDE_INTENSITIES,
 )
 from app.risk_engine.landslide_engine import run_landslide_direct_impacts, scenario_loss_factors  # noqa: E402
 from app.risk_engine.types import NormalizedExposure  # noqa: E402
@@ -817,6 +827,84 @@ def _default_component_ratios() -> dict[str, dict[str, dict[str, float]]]:
     }
 
 
+def _combine_component_ratios_with_landslide(
+    base_ratios: dict[str, Any] | None,
+    *,
+    non_landslide_total: float,
+    landslide_total: float,
+) -> dict[str, float]:
+    non_landslide_total = max(0.0, float(non_landslide_total))
+    landslide_total = max(0.0, float(landslide_total))
+    normalized = _normalize_component_ratio_map(base_ratios or {})
+
+    raw = {comp: 0.0 for comp in COMPONENT_ORDER}
+    non_landslide_weight = sum(float(normalized.get(comp, 0.0)) for comp in ("wind", "rain", "surge"))
+    if non_landslide_total > 0.0:
+        if non_landslide_weight <= 0.0:
+            non_landslide_shares = {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        else:
+            non_landslide_shares = {
+                comp: float(normalized.get(comp, 0.0)) / non_landslide_weight
+                for comp in ("wind", "rain", "surge")
+            }
+        for comp in ("wind", "rain", "surge"):
+            raw[comp] = non_landslide_total * float(non_landslide_shares.get(comp, 0.0))
+    raw["landslide"] = landslide_total
+    return _normalize_component_ratio_map(raw)
+
+
+def _align_array_to_feature_ids(
+    source_feature_ids: list[str],
+    target_feature_ids: list[str],
+    values: np.ndarray,
+) -> np.ndarray:
+    arr = np.asarray(values, dtype=float).reshape(-1)
+    if arr.size != len(source_feature_ids):
+        raise ValueError(
+            f"Unable to align feature arrays: got {arr.size} values for {len(source_feature_ids)} source feature ids"
+        )
+
+    source_index: dict[str, list[int]] = defaultdict(list)
+    for idx, feature_id in enumerate(source_feature_ids):
+        source_index[str(feature_id or "")].append(idx)
+
+    out = np.zeros(len(target_feature_ids), dtype=float)
+    missing: list[str] = []
+    for out_idx, feature_id in enumerate(target_feature_ids):
+        key = str(feature_id or "")
+        candidates = source_index.get(key)
+        if not candidates:
+            missing.append(key)
+            continue
+        out[out_idx] = float(arr[candidates.pop(0)])
+
+    if missing:
+        preview = ", ".join(item for item in missing[:5] if item)
+        if len(missing) > 5:
+            preview = f"{preview}, ..."
+        raise ValueError(f"Unable to align landslide losses for {len(missing)} feature ids: {preview}")
+    return out
+
+
+def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    meta = meta if isinstance(meta, dict) else {}
+    modeling = meta.get("modeling") if isinstance(meta.get("modeling"), dict) else {}
+    checkpoint_dir = str(modeling.get("sharding_checkpoint_dir") or "")
+    match = re.search(r"/complete-analysis-runs/([^/]+)/", checkpoint_dir)
+    run_id = match.group(1) if match else ""
+    dynamic_max_tracks = {
+        "storm": int(_safe_float(modeling.get("hazard_track_count_storm"), 0.0)),
+        "storm_cmcc": int(_safe_float(modeling.get("hazard_track_count_storm_cmcc"), 0.0)),
+    }
+    return {
+        "run_id": run_id or None,
+        "generated_at": str(meta.get("updated_at") or "") or None,
+        "sampling_spacing_m": float(_safe_float(meta.get("sampling_spacing_m"), 0.0)),
+        "dynamic_max_tracks": dynamic_max_tracks,
+    }
+
+
 def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, dict[str, float]]]:
     out = _default_component_ratios()
     if path is None or not path.exists():
@@ -997,6 +1085,202 @@ def _build_landslide_proxy_losses(
         out[hazard_key] = {
             "scenario_arrays": scenario_arrays,
             "scenario_totals": {scenario: float(arr.sum()) for scenario, arr in scenario_arrays.items()},
+            "source_paths": source_paths,
+        }
+    return out
+
+
+def _sample_raster_values_for_point_records(
+    path_sourcefile: Path,
+    point_records: list[dict[str, Any]],
+) -> np.ndarray:
+    if gdal is None:
+        raise RuntimeError("GDAL runtime is required for lightweight landslide raster sampling")
+
+    dataset = gdal.Open(str(path_sourcefile))
+    if dataset is None:
+        raise FileNotFoundError(f"Unable to open landslide raster: {path_sourcefile}")
+
+    band = dataset.GetRasterBand(1)
+    if band is None:
+        raise RuntimeError(f"Unable to read landslide raster band: {path_sourcefile}")
+    width = int(dataset.RasterXSize)
+    height = int(dataset.RasterYSize)
+    raster_bytes = band.ReadRaster(
+        0,
+        0,
+        width,
+        height,
+        buf_xsize=width,
+        buf_ysize=height,
+        buf_type=gdal.GDT_Float32,
+    )
+    if raster_bytes is None:
+        raise RuntimeError(f"Unable to read landslide raster array: {path_sourcefile}")
+    raster_arr = np.frombuffer(raster_bytes, dtype=np.float32).reshape(height, width).astype(float, copy=False)
+    nodata = band.GetNoDataValue()
+
+    geotransform = dataset.GetGeoTransform()
+    if geotransform is None:
+        raise RuntimeError(f"Missing geotransform for landslide raster: {path_sourcefile}")
+    origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height = geotransform
+    if abs(float(rot_x or 0.0)) > 1e-9 or abs(float(rot_y or 0.0)) > 1e-9:
+        raise RuntimeError(f"Rotated landslide rasters are not supported for lightweight sampling: {path_sourcefile}")
+    if float(pixel_width or 0.0) == 0.0 or float(pixel_height or 0.0) == 0.0:
+        raise RuntimeError(f"Invalid pixel size in landslide raster: {path_sourcefile}")
+
+    transform = None
+    projection = str(dataset.GetProjection() or "").strip()
+    if projection and osr is not None:
+        try:
+            source_srs = osr.SpatialReference()
+            source_srs.ImportFromEPSG(4326)
+            target_srs = osr.SpatialReference()
+            target_srs.ImportFromWkt(projection)
+            if not bool(source_srs.IsSame(target_srs)):
+                transform = osr.CoordinateTransformation(source_srs, target_srs)
+        except Exception:
+            transform = None
+
+    out = np.zeros(len(point_records), dtype=float)
+    rows = int(raster_arr.shape[0])
+    cols = int(raster_arr.shape[1]) if raster_arr.ndim >= 2 else 0
+    for idx, record in enumerate(point_records):
+        try:
+            lon = float(record.get("lon"))
+            lat = float(record.get("lat"))
+        except Exception:
+            continue
+        if not np.isfinite(lon) or not np.isfinite(lat):
+            continue
+
+        x = lon
+        y = lat
+        if transform is not None:
+            try:
+                x_t, y_t, _ = transform.TransformPoint(float(lon), float(lat))
+                x = float(x_t)
+                y = float(y_t)
+            except Exception:
+                continue
+
+        col = int(np.floor((x - float(origin_x)) / float(pixel_width)))
+        row = int(np.floor((y - float(origin_y)) / float(pixel_height)))
+        if row < 0 or row >= rows or col < 0 or col >= cols:
+            continue
+        value = float(raster_arr[row, col])
+        if nodata is not None and abs(value - float(nodata)) <= 1e-9:
+            continue
+        if np.isfinite(value):
+            out[idx] = value
+
+    return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _simulate_landslide_portfolio_yearly_losses(
+    damage_amounts: np.ndarray,
+    occurrence_rates: np.ndarray,
+    *,
+    n_years: int,
+    dist: str,
+    seed: int,
+) -> np.ndarray:
+    losses = np.asarray(damage_amounts, dtype=float).reshape(-1)
+    rates = np.asarray(occurrence_rates, dtype=float).reshape(-1)
+    if losses.size == 0 or rates.size == 0 or n_years <= 0:
+        return np.zeros(0, dtype=float)
+
+    rng = np.random.default_rng(int(seed))
+    yearly = np.zeros(int(n_years), dtype=float)
+    chunk_size = 2048
+    dist_key = str(dist or "poisson").strip().lower()
+
+    for start in range(0, losses.size, chunk_size):
+        end = min(losses.size, start + chunk_size)
+        chunk_losses = losses[start:end]
+        chunk_rates = np.maximum(rates[start:end], 0.0)
+        if dist_key == "poisson":
+            draws = rng.poisson(chunk_rates.reshape(1, -1), size=(int(n_years), end - start))
+            yearly += draws @ chunk_losses
+        else:
+            draws = rng.random((int(n_years), end - start)) < chunk_rates.reshape(1, -1)
+            yearly += draws.astype(float) @ chunk_losses
+    return yearly
+
+
+def _build_landslide_proxy_losses_lightweight(
+    point_records: list[dict[str, Any]],
+    *,
+    territory: str,
+    settings: Any,
+) -> dict[str, dict[str, Any]]:
+    values = np.asarray(
+        [max(0.0, float(rec.get("value_eur") or 0.0)) for rec in point_records],
+        dtype=float,
+    ).reshape(-1)
+    if values.size == 0:
+        return {}
+
+    corr_fact = max(float(settings.landslide_corr_fact), 1e-9)
+    n_years = max(1, int(settings.landslide_n_years))
+    dist = str(settings.landslide_dist)
+    intensity = np.asarray(LANDSLIDE_INTENSITIES, dtype=float)
+    mdd = np.asarray(LANDSLIDE_HYPOTHESIS_CURVE, dtype=float)
+    source_map = {
+        "storm": (
+            ("precipitation", Path(settings.landslide_precip_current_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+        "storm_cmcc": (
+            ("precipitation", Path(settings.landslide_precip_ssp585_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+    }
+
+    out: dict[str, dict[str, Any]] = {}
+    for hazard_key, sources in source_map.items():
+        annual_losses = np.zeros_like(values, dtype=float)
+        yearly_portfolio_losses = np.zeros(n_years, dtype=float)
+        source_paths: list[str] = []
+        for source_name, source_path in sources:
+            path = Path(source_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Missing landslide raster for {hazard_key}/{source_name}: {path}")
+            source_paths.append(str(path))
+            class_values = _sample_raster_values_for_point_records(path, point_records)
+            class_values = np.where(class_values > 1.0, class_values, 0.0)
+            damage_ratio = np.interp(class_values, intensity, mdd, left=0.0, right=float(mdd[-1]))
+            event_loss_amounts = np.minimum(np.maximum(values * damage_ratio, 0.0), values)
+            occurrence_rates = np.clip(class_values / corr_fact, 0.0, 1.0)
+            annual_source_losses = np.minimum(np.maximum(event_loss_amounts * occurrence_rates, 0.0), values)
+            annual_losses = np.minimum(values, annual_losses + annual_source_losses)
+            yearly_portfolio_losses += _simulate_landslide_portfolio_yearly_losses(
+                event_loss_amounts,
+                occurrence_rates,
+                n_years=n_years,
+                dist=dist,
+                seed=_stable_seed(territory, hazard_key, source_name, path.name),
+            )
+
+        scenario_arrays = {scenario: np.zeros_like(values, dtype=float) for scenario in MAP_SCENARIOS}
+        scenario_totals = {scenario: 0.0 for scenario in MAP_SCENARIOS}
+        annual_total = float(annual_losses.sum())
+        scenario_arrays["annual"] = annual_losses
+        scenario_totals["annual"] = annual_total
+        if annual_total > 0.0 and yearly_portfolio_losses.size:
+            freq = np.full(yearly_portfolio_losses.size, 1.0 / float(yearly_portfolio_losses.size), dtype=float)
+            scenario_totals["rp50"] = _loss_at_return_period(yearly_portfolio_losses, freq, 50.0)
+            scenario_totals["rp100"] = _loss_at_return_period(yearly_portfolio_losses, freq, 100.0)
+            scenario_totals["event_max"] = float(np.max(yearly_portfolio_losses)) if yearly_portfolio_losses.size else 0.0
+            scenario_totals["top10"] = _mean_top_fraction(yearly_portfolio_losses, 0.10)
+            scenario_totals["top5"] = _mean_top_fraction(yearly_portfolio_losses, 0.05)
+            for scenario in ("rp50", "rp100", "event_max", "top10", "top5"):
+                factor = max(0.0, float(scenario_totals.get(scenario, 0.0)) / max(annual_total, 1e-9))
+                scenario_arrays[scenario] = np.minimum(values, annual_losses * factor)
+
+        out[hazard_key] = {
+            "scenario_arrays": scenario_arrays,
+            "scenario_totals": {scenario: float(scenario_totals.get(scenario, 0.0)) for scenario in MAP_SCENARIOS},
             "source_paths": source_paths,
         }
     return out
@@ -1986,6 +2270,10 @@ def _compute_impact_metrics_from_complete_analysis(
     exposure_value_by_class: dict[str, float],
     component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
     multi_hazard_proxy: dict[str, dict[str, dict[str, Any]]] | None = None,
+    landslide_exposure: NormalizedExposure | None = None,
+    settings: Any | None = None,
+    territory: str | None = None,
+    landslide_bbox: tuple[float, float, float, float] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     assets_raw = complete_analysis_payload.get("asset_results") if isinstance(complete_analysis_payload, dict) else None
     assets = [row for row in (assets_raw or []) if isinstance(row, dict)]
@@ -2010,6 +2298,50 @@ def _compute_impact_metrics_from_complete_analysis(
         component_ratios_by_hazard = _default_component_ratios()
     if multi_hazard_proxy is None:
         multi_hazard_proxy = _default_multi_hazard_proxy(component_ratios_by_hazard)
+
+    complete_analysis_source = _extract_complete_analysis_source_metadata(complete_analysis_payload)
+    landslide_scenario_arrays_by_hazard: dict[str, dict[str, np.ndarray]] = {}
+    landslide_support_note: str | None = None
+    if landslide_exposure is not None and settings is not None and territory and landslide_bbox is not None:
+        try:
+            payload_meta = complete_analysis_payload.get("meta") if isinstance(complete_analysis_payload, dict) else None
+            payload_meta = payload_meta if isinstance(payload_meta, dict) else {}
+            source_spacing_m = _safe_float(payload_meta.get("sampling_spacing_m"), spacing_m)
+            if source_spacing_m <= 0.0:
+                source_spacing_m = float(spacing_m)
+            landslide_bundle = build_climada_exposure(
+                landslide_exposure,
+                spacing_m=float(source_spacing_m),
+                metric_crs=settings.climada_metric_crs,
+                max_points_per_feature=settings.climada_max_points_per_feature,
+                impact_func_id_resolver=resolve_tc_impact_func_id,
+            )
+            bundle_point_records = list(landslide_bundle.point_records or [])
+            bundle_feature_ids = [str(rec.get("feature_id") or "") for rec in bundle_point_records]
+            landslide_proxy_losses = _build_landslide_proxy_losses_lightweight(
+                bundle_point_records,
+                territory=territory,
+                settings=settings,
+            )
+            for hazard_key in ("storm", "storm_cmcc"):
+                scenario_arrays_raw = (landslide_proxy_losses.get(hazard_key) or {}).get("scenario_arrays") or {}
+                aligned_arrays: dict[str, np.ndarray] = {}
+                for scenario in MAP_SCENARIOS:
+                    source_arr = np.asarray(
+                        scenario_arrays_raw.get(scenario, np.zeros(len(bundle_feature_ids), dtype=float)),
+                        dtype=float,
+                    ).reshape(-1)
+                    aligned = _align_array_to_feature_ids(bundle_feature_ids, feature_ids, source_arr)
+                    aligned_arrays[scenario] = np.minimum(np.maximum(aligned, 0.0), values)
+                landslide_scenario_arrays_by_hazard[hazard_key] = aligned_arrays
+        except Exception as exc:
+            landslide_support_note = (
+                f"Unable to recompute fallback landslide direct losses from source exposure: {type(exc).__name__}: {exc}"
+            )
+    elif settings is not None and territory and landslide_bbox is not None:
+        landslide_support_note = (
+            "Unable to recompute fallback landslide direct losses because the source exposure could not be rebuilt."
+        )
 
     scenario_targets = _scenario_targets_from_complete_analysis(complete_analysis_payload)
     all_infra_mask = np.asarray([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
@@ -2056,9 +2388,11 @@ def _compute_impact_metrics_from_complete_analysis(
             if isinstance(hazard_proxy, dict)
             else None
         ) or {}
+        landslide_scenario_arrays = landslide_scenario_arrays_by_hazard.get(hazard_key) or {}
 
         scenario_results: dict[str, dict[str, Any]] = {}
         direct_losses_by_scenario: dict[str, np.ndarray] = {}
+        effective_component_ratios_by_scenario: dict[str, dict[str, float]] = {}
         for scenario in MAP_SCENARIOS:
             base_target_total = float(
                 (scenario_targets.get(hazard_key) or {}).get(scenario, annual_reference_total) or annual_reference_total
@@ -2069,7 +2403,7 @@ def _compute_impact_metrics_from_complete_analysis(
                 scenario_scale = max(0.0, base_target_total) / max(annual_reference_total, 1e-9)
 
             raw_direct = np.minimum(np.maximum(annual_direct * scenario_scale, 0.0), values)
-            adjusted_direct = _apply_multi_hazard_proxy_to_direct_losses(
+            adjusted_direct_non_landslide = _apply_multi_hazard_proxy_to_direct_losses(
                 raw_direct,
                 values=values,
                 breakdown_class_keys=breakdown_class_keys,
@@ -2078,12 +2412,35 @@ def _compute_impact_metrics_from_complete_analysis(
                 breakdown_shares=scenario_breakdown_shares,
                 component_ratios=scenario_component_ratios if isinstance(scenario_component_ratios, dict) else None,
             )
+            landslide_direct = np.asarray(
+                landslide_scenario_arrays.get(scenario, np.zeros_like(values, dtype=float)),
+                dtype=float,
+            ).reshape(-1)
+            if landslide_direct.size != values.size:
+                raise ValueError(
+                    f"Aligned landslide array size mismatch for {hazard_key}/{scenario}: "
+                    f"expected {values.size}, got {landslide_direct.size}"
+                )
+            landslide_direct = np.minimum(
+                np.maximum(landslide_direct, 0.0),
+                np.maximum(values - adjusted_direct_non_landslide, 0.0),
+            )
+            adjusted_direct = np.minimum(values, adjusted_direct_non_landslide + landslide_direct)
+            landslide_total = float(landslide_direct[all_infra_mask].sum())
+            effective_component_ratios_by_scenario[scenario] = _combine_component_ratios_with_landslide(
+                scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None,
+                non_landslide_total=float(adjusted_direct_non_landslide[all_infra_mask].sum()),
+                landslide_total=landslide_total,
+            )
 
             scenario_multiplier = _safe_float(
                 scenario_global_multipliers.get(scenario, scenario_global_multipliers.get("annual", 1.0)),
                 1.0,
             )
-            target_total = min(float(values[all_infra_mask].sum()), max(0.0, base_target_total * max(0.0, scenario_multiplier)))
+            target_total = min(
+                float(values[all_infra_mask].sum()),
+                max(0.0, base_target_total * max(0.0, scenario_multiplier)) + landslide_total,
+            )
             indirect_weights = np.where(water_mask, np.maximum(annual_indirect * scenario_scale, 0.0), 0.0)
             if float(indirect_weights.sum()) <= 0.0:
                 indirect_weights = np.where(water_mask, np.maximum(values - adjusted_direct, 0.0), 0.0)
@@ -2138,8 +2495,11 @@ def _compute_impact_metrics_from_complete_analysis(
                     2,
                 )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
-                component_ratios = _normalize_component_ratio_map(
-                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                component_ratios = effective_component_ratios_by_scenario.get(
+                    scenario,
+                    _normalize_component_ratio_map(
+                        scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                    ),
                 )
                 rows.append(
                     {
@@ -2171,8 +2531,11 @@ def _compute_impact_metrics_from_complete_analysis(
                     2,
                 )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
-                component_ratios = _normalize_component_ratio_map(
-                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                component_ratios = effective_component_ratios_by_scenario.get(
+                    scenario,
+                    _normalize_component_ratio_map(
+                        scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                    ),
                 )
                 rows.append(
                     {
@@ -2285,7 +2648,11 @@ def _compute_impact_metrics_from_complete_analysis(
             "sampling_spacing_m": float(spacing_m),
             "asset_count_points": int(_safe_float((exposure_summary or {}).get("asset_count_points"), float(len(assets)))),
         },
+        "complete_analysis_source": complete_analysis_source,
+        "fallback_landslide_supported": bool(landslide_scenario_arrays_by_hazard),
     }
+    if landslide_support_note:
+        aux["fallback_landslide_note"] = landslide_support_note
     return impact_payload, aux
 
 
@@ -2514,8 +2881,18 @@ def main() -> None:
         float(bbox_cfg["lat_max"]),
     )
     fallback_reason: str | None = None
+    fallback_landslide_exposure: NormalizedExposure | None = None
+    fallback_landslide_exposure_error: str | None = None
     if bool(args.prefer_complete_analysis_fallback):
         fallback_reason = "forced_complete_analysis_fallback"
+        try:
+            fallback_landslide_exposure = build_complete_exposure(
+                infra_elec_dir=case_cfg["infra_elec_dir"],
+                infra_eau_dir=case_cfg["infra_eau_dir"],
+                territory=territory,
+            )
+        except Exception as exc:
+            fallback_landslide_exposure_error = f"{type(exc).__name__}: {exc}"
         complete_analysis_payload = _load_complete_analysis_payload(complete_analysis_json)
         impact_metrics, aux = _compute_impact_metrics_from_complete_analysis(
             complete_analysis_payload,
@@ -2524,10 +2901,15 @@ def main() -> None:
             exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
             component_ratios_by_hazard=component_ratios_by_hazard,
             multi_hazard_proxy=multi_hazard_proxy,
+            landslide_exposure=fallback_landslide_exposure,
+            settings=settings,
+            territory=territory,
+            landslide_bbox=landslide_bbox,
         )
     else:
+        exposure: NormalizedExposure | None = None
         try:
-            exposure: NormalizedExposure = build_complete_exposure(
+            exposure = build_complete_exposure(
                 infra_elec_dir=case_cfg["infra_elec_dir"],
                 infra_eau_dir=case_cfg["infra_eau_dir"],
                 territory=territory,
@@ -2563,6 +2945,10 @@ def main() -> None:
                 exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
                 component_ratios_by_hazard=component_ratios_by_hazard,
                 multi_hazard_proxy=multi_hazard_proxy,
+                landslide_exposure=exposure,
+                settings=settings,
+                territory=territory,
+                landslide_bbox=landslide_bbox,
             )
     conclusion_text = _build_conclusion_text(exposure_metrics, impact_metrics)
     zone_wind_compare_rows = _build_zone_wind_comparison_table_from_wind_map_payload(wind_map_payload)
@@ -2573,6 +2959,25 @@ def main() -> None:
 
     geometry_features = _build_network_geometry_features(case_cfg)
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
+
+    fallback_notes = (
+        [
+            "Fallback page analysis generated from complete-analysis asset results because the heavy case-study CLIMADA page-analysis rerun was skipped or failed.",
+            f"Fallback reason: {fallback_reason}",
+        ]
+        if fallback_reason
+        else []
+    )
+    if fallback_reason and fallback_landslide_exposure_error:
+        fallback_notes.append(
+            f"Fallback landslide support note: unable to rebuild the source exposure for landslide recomputation ({fallback_landslide_exposure_error})."
+        )
+    if fallback_reason and aux.get("fallback_landslide_note"):
+        fallback_notes.append(str(aux.get("fallback_landslide_note")))
+    elif fallback_reason and bool(aux.get("fallback_landslide_supported")):
+        fallback_notes.append(
+            "Fallback landslide direct losses were recomputed from the source exposure and source rasters before aggregating the page-analysis metrics."
+        )
 
     payload = {
         "meta": {
@@ -2601,20 +3006,15 @@ def main() -> None:
             "wind_map_generated_at": wind_map_meta.get("generated_at") if isinstance(wind_map_meta, dict) else None,
             "wind_map_run_id": wind_map_run_id or None,
             "complete_analysis_json": str(complete_analysis_json) if complete_analysis_json.exists() else None,
+            "complete_analysis_source": aux.get("complete_analysis_source") if isinstance(aux.get("complete_analysis_source"), dict) else None,
             "valuation_source": SOURCE_LABEL,
             "valuation_territory": str(valuation_metadata["territory_effective"]),
             "valuation_version": str(valuation_metadata["valuation_version"]),
-            "notes": (
-                [
-                    "Fallback page analysis generated from complete-analysis asset results because the heavy case-study CLIMADA page-analysis rerun was skipped or failed.",
-                    f"Fallback reason: {fallback_reason}",
-                ]
-                if fallback_reason
-                else []
-            ),
+            "notes": fallback_notes,
             "modeling": {
                 "source": "complete_analysis_asset_fallback" if fallback_reason else "case_study_page_analysis",
                 "fallback": bool(fallback_reason),
+                "fallback_landslide_component_supported": bool(aux.get("fallback_landslide_supported")) if fallback_reason else True,
             },
         },
         "exposition": exposure_metrics,

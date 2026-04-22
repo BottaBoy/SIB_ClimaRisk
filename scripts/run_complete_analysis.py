@@ -1171,6 +1171,8 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
             str(FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE),
             "--page-component-light-dynamic-max-tracks",
             str(FRONTEND_PAGE_COMPONENT_LIGHT_DYNAMIC_MAX_TRACKS),
+            "--prefer-complete-analysis-proxy-fallback",
+            "--prefer-complete-analysis-page-fallback",
             "--map-dynamic-max-tracks",
             str(frontend_map_dynamic_max_tracks),
         ],
@@ -1181,6 +1183,11 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
         if result.returncode == 2:
             raise RuntimeError(
                 f"rerun_case_studies_light.py detected reused or incoherent frontend artefacts for {joined}; deployment aborted"
+            )
+        if result.returncode == 137:
+            raise RuntimeError(
+                f"rerun_case_studies_light.py was killed by SIGKILL while rebuilding frontend artefacts for {joined}; "
+                "the heavy case-study rerun likely exhausted memory"
             )
         raise RuntimeError(f"rerun_case_studies_light.py failed for {joined} with exit code {result.returncode}")
 

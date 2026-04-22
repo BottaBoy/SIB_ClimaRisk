@@ -7,6 +7,7 @@ from backend.app.risk_engine.climada_engine import (
     _ExposureShard,
     _build_pointwise_surge_hazard,
     _build_surge_hazard,
+    _compute_dynamic_hazard_sharded_results,
     _finalize_component_result_accumulator,
     _estimate_fraction_raster_shape,
     _init_component_result_accumulator,
@@ -114,6 +115,132 @@ def test_plan_hazard_shards_prefers_territory_groups_only():
     ]
     assert [shard.territory_id for shard in shards] == ["gua", "gua", "mar"]
     assert all(shard.infra_class == "mixed" for shard in shards)
+
+
+def test_dynamic_hazard_sharded_rain_uses_configured_inland_distance(monkeypatch: pytest.MonkeyPatch):
+    point_records = [
+        {
+            "point_id": "pt-1",
+            "territory_id": "gua",
+            "infra_class": "mixed",
+            "asset_type": "habitation",
+            "lat": 16.2,
+            "lon": -61.6,
+            "value_eur": 100.0,
+        }
+    ]
+    exposure_bundle = SimpleNamespace(
+        exposures=SimpleNamespace(),
+        point_records=point_records,
+    )
+    hazard_shards = [
+        _ExposureShard(
+            shard_id="hazard-0001",
+            point_indices=(0,),
+            territory_id="gua",
+            infra_class="mixed",
+        )
+    ]
+
+    def _dummy_metrics() -> HazardImpactResult:
+        return HazardImpactResult(
+            eai_direct_by_point=np.array([10.0], dtype=float),
+            max_loss_by_point=np.array([10.0], dtype=float),
+            at_event_loss=np.array([5.0], dtype=float),
+            event_frequency=np.array([0.1], dtype=float),
+            event_id=np.array([101]),
+            event_name=np.array(["evt-101"]),
+            aai_agg_eur=10.0,
+            max_event_loss_eur=5.0,
+            pml_eur={10: 5.0, 20: 0.0, 50: 0.0, 100: 0.0, 200: 0.0},
+            tvar_95_eur=5.0,
+            top_events=[{"event_id": 101, "event_name": "evt-101", "loss_eur": 5.0}],
+        )
+
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.subset_climada_exposure_bundle",
+        lambda bundle, point_indices: SimpleNamespace(
+            exposures=SimpleNamespace(),
+            point_records=[point_records[idx] for idx in point_indices],
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._build_centroids_from_points",
+        lambda coords: "dummy-centroids",
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._build_hazard_from_tracks",
+        lambda tracks, centroids: SimpleNamespace(
+            centroids=centroids,
+            frequency=np.array([1.0], dtype=float),
+            event_id=np.array([101]),
+            event_name=np.array(["evt-101"]),
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._compute_component_impact_sharded",
+        lambda *args, **kwargs: (
+            _dummy_metrics(),
+            {
+                "completed_shards": 1,
+                "resumed_shards": 0,
+                "retry_splits": 0,
+                "sharded": False,
+            },
+        ),
+    )
+
+    rain_calls: list[dict[str, float | str]] = []
+
+    class DummyRain:
+        @staticmethod
+        def from_tracks(tracks, centroids, model, ignore_distance_to_coast, max_dist_inland_km):
+            rain_calls.append(
+                {
+                    "model": str(model),
+                    "max_dist_inland_km": float(max_dist_inland_km),
+                }
+            )
+            return SimpleNamespace(
+                centroids=centroids,
+                frequency=np.array([1.0], dtype=float),
+                event_id=np.array([101]),
+                event_name=np.array(["evt-101"]),
+            )
+
+    total_metrics, components, component_status, component_sharding, component_notes = _compute_dynamic_hazard_sharded_results(
+        np,
+        object(),
+        exposure_bundle=exposure_bundle,
+        tracks=SimpleNamespace(data=[{"track_id": 1}]),
+        hazard_key="storm",
+        storm_years=100,
+        top_n_events=1,
+        hazard_shards=hazard_shards,
+        hazard_point_cap=1,
+        impfset_wind=object(),
+        requested_rain_model="R-CLIPER",
+        rain_max_dist_inland_km=321.0,
+        multi_hazard_ready=True,
+        multi_hazard_model=SimpleNamespace(rain_haz_type="TR"),
+        impfset_rain=object(),
+        impfset_surge=None,
+        TCRain=DummyRain,
+        TCSurgeBathtub=None,
+        surge_topo_path=None,
+        memory_budget_gb=1.0,
+        max_points_per_shard=1,
+        min_points_per_shard=1,
+        max_shard_retry_depth=1,
+        strict_required_components=True,
+    )
+
+    assert rain_calls == [{"model": "R-CLIPER", "max_dist_inland_km": 321.0}]
+    assert total_metrics.aai_agg_eur == 20.0
+    assert components["rain"].aai_agg_eur == 10.0
+    assert component_status["rain"] == "complete"
+    assert component_sharding["rain"]["status"] == "complete"
+    assert any("surge component skipped" in note for note in component_notes)
 
 
 def test_rebuild_component_result_recomputes_metrics_from_arrays():

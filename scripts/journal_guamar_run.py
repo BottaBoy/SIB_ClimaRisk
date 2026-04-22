@@ -198,6 +198,17 @@ def _extract_run_entry(
         )
     wind_pml_50 = float(summary.get("rp50_total_loss_eur") or 0.0)
     wind_pml_100 = float(summary.get("rp100_total_loss_eur") or 0.0)
+    page_modeling = page_meta.get("modeling") if isinstance(page_meta.get("modeling"), dict) else {}
+    fallback_active = bool(page_modeling.get("fallback"))
+    complete_analysis_source = (
+        page_meta.get("complete_analysis_source") if isinstance(page_meta.get("complete_analysis_source"), dict) else {}
+    )
+    source_dynamic_tracks_payload = complete_analysis_source.get("dynamic_max_tracks")
+    if isinstance(source_dynamic_tracks_payload, dict):
+        source_dynamic_max_tracks = int(source_dynamic_tracks_payload.get(hazard_key) or 0)
+    else:
+        source_dynamic_max_tracks = int(source_dynamic_tracks_payload or 0)
+    wind_map_dynamic_max_tracks = int(wind_meta.get("dynamic_max_tracks") or wind_meta.get("native_dynamic_max_tracks") or 0)
     component_light_rerun = page_meta.get("component_light_rerun")
     sampling_spacing_m = float(page_meta.get("sampling_spacing_m") or 0.0)
     max_points_total = int(proxy_meta.get("max_points_total") or 0)
@@ -213,7 +224,11 @@ def _extract_run_entry(
         "generated_at": str(page_meta.get("generated_at") or wind_meta.get("generated_at") or datetime.now(UTC).replace(microsecond=0).isoformat()),
         "case_study_run_id": str(page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
         "session_run_id": str(session_run_id or page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
-        "dynamic_max_tracks": int(wind_meta.get("dynamic_max_tracks") or wind_meta.get("native_dynamic_max_tracks") or 0),
+        "dynamic_max_tracks": source_dynamic_max_tracks if fallback_active and source_dynamic_max_tracks > 0 else wind_map_dynamic_max_tracks,
+        "wind_map_dynamic_max_tracks": wind_map_dynamic_max_tracks,
+        "source_dynamic_max_tracks": source_dynamic_max_tracks,
+        "complete_analysis_run_id": str(complete_analysis_source.get("run_id") or ""),
+        "complete_analysis_generated_at": str(complete_analysis_source.get("generated_at") or ""),
         "sampling_spacing_m": round(sampling_spacing_m, 2),
         "max_points_total": max_points_total,
         "max_points_per_feature": max_points_per_feature,
@@ -328,12 +343,13 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
         JOURNAL_MD.write_text("\n".join(lines), encoding="utf-8")
         return
 
-    lines.append("| Date du run | ID de session | Territoire | Alea | dynamic_max_tracks | sampling_spacing_m | max_points_total | max_points_per_feature | component_light_rerun_active | sum(event_frequency) | n_events | % tracks communs vs run precedent | wind_pml_50 | wind_pml_100 | Track IDs compacts |")
-    lines.append("|---|---|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|")
+    lines.append("| Date du run | ID de session | Territoire | Alea | dynamic_max_tracks | wind_map_dynamic_max_tracks | sampling_spacing_m | max_points_total | max_points_per_feature | component_light_rerun_active | sum(event_frequency) | n_events | % tracks communs vs run precedent | wind_pml_50 | wind_pml_100 | Track IDs compacts |")
+    lines.append("|---|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|")
     for row in sorted_rows:
         overlap = row.get("common_track_share_pct")
         overlap_text = "-" if overlap is None else _format_value(overlap, digits=2)
         session_id = str(row.get("session_run_id") or row.get("case_study_run_id") or "-")
+        wind_map_dynamic_tracks = int(row.get("wind_map_dynamic_max_tracks") or row.get("dynamic_max_tracks") or 0)
         lines.append(
             "| "
             + " | ".join(
@@ -343,6 +359,7 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
                     str(row.get("territory") or "-"),
                     str(row.get("hazard") or "-"),
                     str(int(row.get("dynamic_max_tracks") or 0)),
+                    str(wind_map_dynamic_tracks),
                     _format_value(row.get("sampling_spacing_m"), digits=2),
                     str(int(row.get("max_points_total") or 0)) if row.get("max_points_total") is not None else "-",
                     str(int(row.get("max_points_per_feature") or 0)) if row.get("max_points_per_feature") is not None else "-",
@@ -362,6 +379,7 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
     lines.append("- `ID de session` est identique pour les quatre lignes produites par un meme rerun Guadeloupe + Martinique.")
     lines.append("- La comparaison `% tracks communs vs run precedent` se fait avec le dernier run du meme territoire et du meme alea.")
     lines.append("- `n_events` correspond au nombre de tracks uniques journalises pour le run courant.")
+    lines.append("- Quand la page est generee en fallback depuis le complete-analysis, `dynamic_max_tracks` journalise le run source complet et `wind_map_dynamic_max_tracks` conserve le cap reel des cartes de vent publiees.")
     lines.append("- `max_points_total` et `max_points_per_feature` journalisent le proxy multi-aléas léger utilisé pour la page, pas le maillage principal de la page.")
     lines.append("- `component_light_rerun_active` signale la présence du bloc `component_light_rerun` dans le JSON de page.")
     lines.append("- `Track IDs compacts` affiche `count | sha256[0:12] | preview` ; la liste complete est stockee dans le JSONL compressé.")

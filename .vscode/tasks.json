@@ -62,6 +62,8 @@
         "4",
         "--page-component-light-dynamic-max-tracks",
         "50",
+        "--prefer-complete-analysis-proxy-fallback",
+        "--prefer-complete-analysis-page-fallback",
         "--map-dynamic-max-tracks",
         "300"
       ],
@@ -97,6 +99,8 @@
         "4",
         "--page-component-light-dynamic-max-tracks",
         "50",
+        "--prefer-complete-analysis-proxy-fallback",
+        "--prefer-complete-analysis-page-fallback",
         "--map-dynamic-max-tracks",
         "300"
       ],
@@ -117,24 +121,6 @@
         "${workspaceFolder}/scripts/deploy_only.py",
         "--vhost",
         "sib.shared.elio.dev"
-      ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "group": {
-        "kind": "none",
-        "isDefault": false
-      }
-    },
-    {
-      "label": "SIB: Deploy Only (sib.dev.elio.bottagisio.com)",
-      "type": "shell",
-      "command": "${workspaceFolder}/backend/.venv/bin/python",
-      "args": [
-        "${workspaceFolder}/scripts/deploy_only.py",
-        "--vhost",
-        "sib.dev.elio.bottagisio.com"
       ],
       "presentation": {
         "reveal": "always",

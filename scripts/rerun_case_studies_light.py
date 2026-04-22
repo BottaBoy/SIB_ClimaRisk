@@ -30,6 +30,20 @@ def _info(message: str) -> None:
     print(f"[INFO] {message}", flush=True)
 
 
+def _normalize_called_process_exit_code(exc: subprocess.CalledProcessError) -> int:
+    code = int(exc.returncode)
+    if code >= 0:
+        return code
+    signal_number = abs(code)
+    cmd = exc.cmd if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
+    print(
+        f"[fatal] child process terminated by signal {signal_number}: {' '.join(str(part) for part in cmd)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return 128 + signal_number
+
+
 def _page_spacing_for_territory(territory: str, requested_spacing_m: float | None) -> float:
     if requested_spacing_m is not None:
         return float(requested_spacing_m)
@@ -272,4 +286,4 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except subprocess.CalledProcessError as exc:
-        sys.exit(exc.returncode)
+        sys.exit(_normalize_called_process_exit_code(exc))

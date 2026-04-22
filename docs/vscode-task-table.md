@@ -26,6 +26,26 @@ Ce document resume les taches actuellement definies dans `/home/ubuntu/.vscode/t
 
 ## Frontend, publication et deploy
 
+### Choix de la bonne tache
+
+Cas 1. Publication standard du dernier run pour les deux territoires.
+
+- Utiliser `SIB: Snapshot Latest Run Web Artefacts`.
+- Puis utiliser `SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)`.
+- C'est le chemin recommande: on publie l'archive du dernier run, pas seulement l'etat courant de `web/`.
+
+Cas 2. Publication d'un ancien run archive.
+
+- Il n'y a pas de tache VS Code dediee pour saisir un `run_id` arbitraire.
+- Utiliser la commande `cd /home/ubuntu/sib-work && /home/ubuntu/sib-work/backend/.venv/bin/python scripts/deploy_only.py --run-id <run_id> --vhost sib.dev.elio.bottagisio.com`.
+- Si les artefacts frontend de ce run n'ont jamais ete snapshottes dans l'archive, les produire d'abord avec `scripts/snapshot_run_web_artifacts.py --run-id <run_id>`.
+
+Cas 3. Publication Guadeloupe seule.
+
+- Utiliser `SIB: Prepare Latest Run Publication (Guadeloupe Only)` pour rebuild + snapshot Guadeloupe.
+- Puis utiliser `SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)`.
+- Ce chemin laisse les artefacts Martinique du live inchanges.
+
 | Label | Groupe | Selection rapide | Role |
 | --- | --- | --- | --- |
 | `SIB: Rebuild Frontend Artefacts (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Regenerer les artefacts frontend publication-safe pour la Guadeloupe |
@@ -35,7 +55,6 @@ Ce document resume les taches actuellement definies dans `/home/ubuntu/.vscode/t
 | `SIB: Snapshot Latest Run Web Artefacts` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run pour les deux territoires |
 | `SIB: Snapshot Latest Run Web Artefacts (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run uniquement pour la Guadeloupe |
 | `SIB: Deploy Only (Live shared root)` | `build` | `Ctrl+Shift+B` | Deploie le contenu web actuel sur `sib.shared.elio.dev` |
-| `SIB: Deploy Only (sib.dev alias -> shared root)` | `build` | `Ctrl+Shift+B` | Deploie le contenu web actuel via le label `sib.dev.elio.bottagisio.com` |
 | `SIB: Deploy Only (Both labels, deduped)` | `build` | `Ctrl+Shift+B` | Deploie une seule fois vers les deux labels nginx dedoublonnes |
 | `SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)` | `build` | `Ctrl+Shift+B` | Deploie les artefacts archives du dernier run via l'alias `sib.dev` |
 | `SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)` | `build` | `Ctrl+Shift+B` | Deploie seulement les artefacts archives Guadeloupe du dernier run |

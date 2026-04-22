@@ -8,6 +8,19 @@ Les journaux case-study (`rerun_case_studies_light.py`) restent dans:
 
 Historique migré: 11 run(s).
 
+
+## Run [2026-04-21 12:09:05]
+**Run ID**: `20260421_091134`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 27,445,525 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 35,231,060 EUR
+- Status: ✓ Complete
+**Total Duration**: 10650s (177.5m)
+
 ## Run `20260414_075714`
 - Timestamp: 2026-04-14T07:57:14.873154+00:00
 - Status: -
