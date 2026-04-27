@@ -51,7 +51,7 @@ except ImportError:
 
 # Backend imports
 from app.risk_engine.analysis_export import build_result_payload
-from app.config import load_settings, Settings
+from app.config import load_settings, Settings, resolve_surge_topo_path_for_territory
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation
 from app.risk_engine.impact_runner import compute_impacts
 from app.risk_engine.sensitivity_scenarios import (
@@ -880,6 +880,14 @@ def run_territory_analysis(
             allow_degraded_components=allow_degraded_components,
             scenario=scenario,
         )
+        settings = dataclasses.replace(
+            settings,
+            hazard_surge_topo_path=resolve_surge_topo_path_for_territory(
+                territory_key,
+                settings=settings,
+            ),
+        )
+        logger.info("Using surge topo for %s: %s", territory_key.upper(), settings.hazard_surge_topo_path)
         
         # Disaggregate
         logger.info(f"Computing disaggregation...")

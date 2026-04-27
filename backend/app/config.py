@@ -30,6 +30,54 @@ def _prefer_existing_path(*candidates: Path) -> Path:
     return candidates[0]
 
 
+_DEFAULT_SURGE_TOPO_ROOT = Path("/home/ubuntu/uploads/DEM_Topo/Topo")
+_DEFAULT_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
+    "martinique": _DEFAULT_SURGE_TOPO_ROOT / "Martinique.tif",
+}
+
+
+def _normalize_territory_key(raw: str | None) -> str | None:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "gua": "guadeloupe",
+        "guadeloupe": "guadeloupe",
+        "mar": "martinique",
+        "martinique": "martinique",
+        "mtq": "martinique",
+    }
+    return aliases.get(key)
+
+
+def resolve_surge_topo_path_for_territory(
+    territory: str | None,
+    *,
+    settings: Settings | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    runtime_env = os.environ if env is None else env
+    territory_key = _normalize_territory_key(territory)
+    fallback_path = Path(
+        getattr(
+            settings,
+            "hazard_surge_topo_path",
+            Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+        )
+    )
+    if territory_key is None:
+        return fallback_path
+
+    env_override = runtime_env.get(f"SIB_RISK_HAZARD_SURGE_TOPO_PATH_{territory_key.upper()}")
+    territory_default = _DEFAULT_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    candidates: list[Path] = []
+    if env_override:
+        candidates.append(Path(env_override))
+    if territory_default is not None:
+        candidates.append(territory_default)
+    candidates.append(fallback_path)
+    return _prefer_existing_path(*candidates)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SIB Cyclone Risk API"

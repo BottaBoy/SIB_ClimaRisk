@@ -13,6 +13,11 @@ from journal_guamar_run import record_guamar_run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.app.config import load_settings, resolve_surge_topo_path_for_territory
+
 PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
 UTC = timezone.utc
 TERRITORY_PAGE_SPACING_M = {
@@ -170,6 +175,7 @@ def main() -> int:
     if not PYTHON.exists():
         raise FileNotFoundError(f"Python backend venv not found: {PYTHON}")
 
+    base_settings = load_settings()
     session_run_id = datetime.now(UTC).strftime("guamar_session_%Y%m%dT%H%M%SZ")
     print(f"[session] run_id={session_run_id}", flush=True)
     reused_steps: list[str] = []
@@ -183,6 +189,13 @@ def main() -> int:
         territory_env = os.environ.copy()
         territory_env.setdefault("SIB_RISK_MULTI_HAZARD_ENABLED", "false")
         territory_env.setdefault("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "120")
+        territory_env["SIB_RISK_HAZARD_SURGE_TOPO_PATH"] = str(
+            resolve_surge_topo_path_for_territory(
+                territory,
+                settings=base_settings,
+                env=territory_env,
+            )
+        )
 
         _run(
             [
