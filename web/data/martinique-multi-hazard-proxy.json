@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-04-21T15:08:53+00:00",
-    "case_study_run_id": "martinique_case_20260421T150653Z",
+    "generated_at": "2026-04-27T12:00:56+00:00",
+    "case_study_run_id": "martinique_case_20260427T115925Z",
     "territory": "martinique",
     "territory_label": "Martinique",
     "sample_point_count": 0,
@@ -42,9 +42,9 @@
         "annual": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9148411757828746,
-            "rain": 0.08515875751461953,
-            "surge": 6.67025059325656e-08,
+            "wind": 0.8888197239492152,
+            "rain": 0.11117946914523595,
+            "surge": 8.069055489006856e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -52,9 +52,9 @@
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9148411757828746,
-            "rain": 0.08515875751461953,
-            "surge": 6.67025059325656e-08,
+            "wind": 0.8888197239492152,
+            "rain": 0.11117946914523595,
+            "surge": 8.069055489006856e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -62,9 +62,9 @@
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9148411757828746,
-            "rain": 0.08515875751461953,
-            "surge": 6.67025059325656e-08,
+            "wind": 0.8888197239492152,
+            "rain": 0.11117946914523595,
+            "surge": 8.069055489006856e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -72,9 +72,9 @@
         "event_max": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8787318782579611,
-            "rain": 0.12114101869221772,
-            "surge": 0.0001271030498212059,
+            "wind": 0.8923079812883556,
+            "rain": 0.10297132163948491,
+            "surge": 0.004720697072159412,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -82,9 +82,9 @@
         "top10": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9148411757828746,
-            "rain": 0.08515875751461953,
-            "surge": 6.67025059325656e-08,
+            "wind": 0.8888197239492152,
+            "rain": 0.11117946914523595,
+            "surge": 8.069055489006856e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -92,9 +92,9 @@
         "top5": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9148411757828746,
-            "rain": 0.08515875751461953,
-            "surge": 6.67025059325656e-08,
+            "wind": 0.8888197239492152,
+            "rain": 0.11117946914523595,
+            "surge": 8.069055489006856e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -106,9 +106,9 @@
         "annual": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9031157358895883,
-            "rain": 0.09688418459154578,
-            "surge": 7.951886603466538e-08,
+            "wind": 0.9053457685581503,
+            "rain": 0.09465343614454258,
+            "surge": 7.952973071990083e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -116,9 +116,9 @@
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9031157358895883,
-            "rain": 0.09688418459154578,
-            "surge": 7.951886603466538e-08,
+            "wind": 0.9053457685581503,
+            "rain": 0.09465343614454258,
+            "surge": 7.952973071990083e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -126,9 +126,9 @@
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9031157358895883,
-            "rain": 0.09688418459154578,
-            "surge": 7.951886603466538e-08,
+            "wind": 0.9053457685581503,
+            "rain": 0.09465343614454258,
+            "surge": 7.952973071990083e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -136,9 +136,9 @@
         "event_max": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8835868014221094,
-            "rain": 0.11628263973993334,
-            "surge": 0.00013055883795722945,
+            "wind": 0.9252017698823201,
+            "rain": 0.06850016789736653,
+            "surge": 0.006298062220313456,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -146,9 +146,9 @@
         "top10": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9031157358895883,
-            "rain": 0.09688418459154578,
-            "surge": 7.951886603466538e-08,
+            "wind": 0.9053457685581503,
+            "rain": 0.09465343614454258,
+            "surge": 7.952973071990083e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -156,9 +156,9 @@
         "top5": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.9031157358895883,
-            "rain": 0.09688418459154578,
-            "surge": 7.951886603466538e-08,
+            "wind": 0.9053457685581503,
+            "rain": 0.09465343614454258,
+            "surge": 7.952973071990083e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
