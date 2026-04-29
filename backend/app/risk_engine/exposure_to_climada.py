@@ -275,6 +275,10 @@ def build_climada_exposure(
         split_value = max(0.0, float(feat.value_eur)) / float(len(sampled))
         infra_class = _infer_infra_class(feat)
         asset_type = str((feat.properties or {}).get("asset_type") or "")
+        uses_default_value = bool((feat.properties or {}).get("uses_default_value"))
+        valuation_source = str((feat.properties or {}).get("valuation_source") or "")
+        valuation_version = str((feat.properties or {}).get("valuation_version") or "")
+        default_value_eur = (feat.properties or {}).get("default_value_eur")
         point_impact_func_id = int(impact_func_id)
         if impact_func_id_resolver is not None:
             try:
@@ -313,6 +317,10 @@ def build_climada_exposure(
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
+                    "uses_default_value": uses_default_value,
+                    "valuation_source": valuation_source,
+                    "valuation_version": valuation_version,
+                    "default_value_eur": float(default_value_eur) if default_value_eur is not None else None,
                     "impf_tc": int(point_impact_func_id),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "territory_id": territory_id,

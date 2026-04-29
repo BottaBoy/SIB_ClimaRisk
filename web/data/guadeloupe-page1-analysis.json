@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-04-27T11:59:24+00:00",
-    "case_study_run_id": "guadeloupe_case_20260427T115549Z",
+    "generated_at": "2026-04-29T08:05:40+00:00",
+    "case_study_run_id": "guadeloupe_case_20260429T080020Z",
     "source": "guadeloupe_case_study_computed",
     "case_study_territory": "guadeloupe",
     "case_study_label": "Guadeloupe",
@@ -24,14 +24,14 @@
       "dynamic_max_tracks": 50
     },
     "multi_hazard_proxy_json": "/home/ubuntu/sib-work/web/data/guadeloupe-multi-hazard-proxy.json",
-    "multi_hazard_proxy_run_id": "guadeloupe_case_20260427T115549Z",
+    "multi_hazard_proxy_run_id": "guadeloupe_case_20260429T080020Z",
     "wind_map_json": "/home/ubuntu/sib-work/web/data/guadeloupe-wind-maps.json",
-    "wind_map_generated_at": "2026-04-27T11:58:09+00:00",
-    "wind_map_run_id": "guadeloupe_case_20260427T115549Z",
+    "wind_map_generated_at": "2026-04-29T08:04:21+00:00",
+    "wind_map_run_id": "guadeloupe_case_20260429T080020Z",
     "complete_analysis_json": "/home/ubuntu/sib-work/web/data/guadeloupe-complete-analysis.json",
     "complete_analysis_source": {
-      "run_id": "20260427_113740",
-      "generated_at": "2026-04-27T11:46:25+00:00",
+      "run_id": "20260429_075050",
+      "generated_at": "2026-04-29T08:00:18+00:00",
       "sampling_spacing_m": 100.0,
       "dynamic_max_tracks": {
         "storm": 150,
@@ -50,6 +50,20 @@
       "source": "complete_analysis_asset_fallback",
       "fallback": true,
       "fallback_landslide_component_supported": true
+    },
+    "publication_trace": {
+      "artifact_kind": "case_study_page_analysis",
+      "source_mode": "complete_analysis_asset_fallback",
+      "fallback_active": true,
+      "fallback_reason": "forced_complete_analysis_fallback",
+      "complete_analysis_run_id": "20260429_075050",
+      "complete_analysis_generated_at": "2026-04-29T08:00:18+00:00",
+      "wind_map_run_id": "guadeloupe_case_20260429T080020Z",
+      "wind_map_generated_at": "2026-04-29T08:04:21+00:00",
+      "multi_hazard_proxy_run_id": "guadeloupe_case_20260429T080020Z",
+      "multi_hazard_proxy_fallback_active": true,
+      "multi_hazard_proxy_source_mode": "complete_analysis_component_ratios",
+      "multi_hazard_proxy_fallback_reason": "forced_complete_analysis_fallback"
     }
   },
   "exposition": {
@@ -136,9 +150,6 @@
       "storm": {
         "track_max_hist": {
           "bins_mps": [
-            52.5,
-            53.5,
-            54.5,
             55.5,
             56.5,
             57.5,
@@ -149,31 +160,32 @@
             62.5,
             63.5,
             64.5,
-            65.5
+            65.5,
+            66.5,
+            67.5,
+            68.5
           ],
           "percent": [
-            0.6608,
-            2.8634,
-            3.304,
-            12.1145,
-            21.8062,
-            13.6564,
-            6.8282,
-            7.489,
-            11.4537,
-            7.489,
-            6.3877,
-            3.304,
             2.4229,
-            0.2203
+            2.6432,
+            3.5242,
+            5.5066,
+            9.4714,
+            7.9295,
+            9.4714,
+            7.489,
+            4.8458,
+            7.7093,
+            13.2159,
+            12.7753,
+            7.2687,
+            5.7269
           ],
           "count": 454,
           "bin_step_mps": 1.0
         },
         "year_max_hist": {
           "bins_mps": [
-            31.5,
-            32.5,
             33.5,
             34.5,
             35.5,
@@ -182,14 +194,12 @@
             38.5
           ],
           "percent": [
-            1.5419,
-            33.2599,
-            25.1101,
-            16.5198,
-            12.9956,
-            8.37,
-            2.2026,
-            0.0
+            8.5903,
+            31.9383,
+            28.8546,
+            15.4185,
+            12.7753,
+            2.4229
           ],
           "count": 454,
           "bin_step_mps": 1.0
@@ -200,9 +210,6 @@
       "storm_cmcc": {
         "track_max_hist": {
           "bins_mps": [
-            52.5,
-            53.5,
-            54.5,
             55.5,
             56.5,
             57.5,
@@ -213,7 +220,10 @@
             62.5,
             63.5,
             64.5,
-            65.5
+            65.5,
+            66.5,
+            67.5,
+            68.5
           ],
           "percent": [
             0.0,
@@ -221,23 +231,21 @@
             0.0,
             0.0,
             0.0,
-            2.6432,
-            9.4714,
-            19.3833,
-            18.7225,
-            15.4185,
-            11.0132,
-            10.793,
-            2.8634,
-            9.6916
+            0.0,
+            8.1498,
+            24.6696,
+            27.0925,
+            17.8414,
+            21.5859,
+            0.6608,
+            0.0,
+            0.0
           ],
           "count": 454,
           "bin_step_mps": 1.0
         },
         "year_max_hist": {
           "bins_mps": [
-            31.5,
-            32.5,
             33.5,
             34.5,
             35.5,
@@ -246,14 +254,12 @@
             38.5
           ],
           "percent": [
-            0.0,
-            6.3877,
-            32.1586,
-            19.8238,
-            16.0793,
-            12.1145,
-            12.5551,
-            0.8811
+            1.3216,
+            37.6652,
+            22.6872,
+            13.2159,
+            20.7048,
+            4.4053
           ],
           "count": 454,
           "bin_step_mps": 1.0
@@ -265,32 +271,32 @@
     "zone_wind_comparison_table": [
       {
         "indicator": "Vents - Moyenne annuelle (m/s)",
-        "storm": 33.89,
-        "storm_cmcc": 34.858,
-        "delta": 0.968
+        "storm": 35.4933,
+        "storm_cmcc": 35.6865,
+        "delta": 0.1932
       },
       {
         "indicator": "Vents - Temps de retour 50 ans (m/s)",
-        "storm": 0.0,
-        "storm_cmcc": 0.0,
-        "delta": 0.0
+        "storm": 28.3319,
+        "storm_cmcc": 28.2284,
+        "delta": -0.1035
       },
       {
         "indicator": "Vents - Temps de retour 100 ans (m/s)",
-        "storm": 26.9705,
-        "storm_cmcc": 28.669,
-        "delta": 1.6985
+        "storm": 39.5351,
+        "storm_cmcc": 39.9513,
+        "delta": 0.4163
       },
       {
         "indicator": "Vents - Evenement le plus fort (m/s)",
-        "storm": 58.3602,
-        "storm_cmcc": 61.336,
-        "delta": 2.9758
+        "storm": 63.0691,
+        "storm_cmcc": 63.6996,
+        "delta": 0.6305
       }
     ]
   },
   "impact": {
-    "summary_text": "STORM: EAI 3766099 €, RP50 38085338 €, RP100 38424361 €, evt max 996230766 €. STORM_CMCC: EAI 3782527 €, RP50 31544340 €, RP100 32604016 €, evt max 1060481899 €.",
+    "summary_text": "STORM: EAI 3794591 €, RP50 40837651 €, RP100 41176673 €, p99 981448305 €. STORM_CMCC: EAI 3812600 €, RP50 33179772 €, RP100 34239448 €, p99 1045817351 €.",
     "component_order": [
       "wind",
       "rain",
@@ -300,28 +306,28 @@
     "summary_metrics": {
       "storm": {
         "direct_hs_pct_annual": 0.0,
-        "direct_hs_pct_event_max": 9.189,
+        "direct_hs_pct_p99": 8.23,
         "indirect_hs_pct_annual": 0.0,
-        "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 3766098.56,
-        "rp50_total_loss_eur": 38085337.97,
-        "rp100_total_loss_eur": 38424360.88,
-        "event_max_total_loss_eur": 996230765.61,
-        "top10_total_loss_eur": 849101435.08,
-        "top5_total_loss_eur": 925858084.58,
+        "indirect_hs_pct_p99": 0.0,
+        "eai_total_eur": 3794591.29,
+        "rp50_total_loss_eur": 40837650.55,
+        "rp100_total_loss_eur": 41176673.46,
+        "p99_total_loss_eur": 981448304.7,
+        "top10_total_loss_eur": 853214844.45,
+        "top5_total_loss_eur": 930041336.44,
         "event_id_max": 5
       },
       "storm_cmcc": {
         "direct_hs_pct_annual": 0.0,
-        "direct_hs_pct_event_max": 14.548,
+        "direct_hs_pct_p99": 13.033,
         "indirect_hs_pct_annual": 0.0,
-        "indirect_hs_pct_event_max": 0.0,
-        "eai_total_eur": 3782526.56,
-        "rp50_total_loss_eur": 31544339.96,
-        "rp100_total_loss_eur": 32604015.73,
-        "event_max_total_loss_eur": 1060481898.55,
-        "top10_total_loss_eur": 887887711.1,
-        "top5_total_loss_eur": 993876133.34,
+        "indirect_hs_pct_p99": 0.0,
+        "eai_total_eur": 3812599.59,
+        "rp50_total_loss_eur": 33179772.48,
+        "rp100_total_loss_eur": 34239448.25,
+        "p99_total_loss_eur": 1045817351.22,
+        "top10_total_loss_eur": 892679700.32,
+        "top5_total_loss_eur": 999889368.86,
         "event_id_max": 63
       }
     },
@@ -338,14 +344,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 514375.68,
+            "damage_eur": 514375.71,
             "direct_damage_eur": 514247.82,
-            "indirect_damage_eur": 127.86,
+            "indirect_damage_eur": 127.89,
             "damage_components_eur": {
-              "wind": 340730.86,
-              "rain": 48301.64,
+              "wind": 338172.23,
+              "rain": 51801.52,
               "surge": 0.36,
-              "landslide": 125342.82
+              "landslide": 124401.6
             }
           },
           "storm_cmcc": {
@@ -356,14 +362,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 526794.28,
+            "damage_eur": 526794.32,
             "direct_damage_eur": 526658.13,
-            "indirect_damage_eur": 136.15,
+            "indirect_damage_eur": 136.19,
             "damage_components_eur": {
-              "wind": 346993.45,
-              "rain": 51988.82,
+              "wind": 344256.27,
+              "rain": 55734.25,
               "surge": 0.36,
-              "landslide": 127811.65
+              "landslide": 126803.44
             }
           }
         },
@@ -382,10 +388,10 @@
             "direct_damage_eur": 81642.8,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 54081.53,
-              "rain": 7666.54,
+              "wind": 53675.41,
+              "rain": 8222.05,
               "surge": 0.06,
-              "landslide": 19894.67
+              "landslide": 19745.28
             }
           },
           "storm_cmcc": {
@@ -400,10 +406,10 @@
             "direct_damage_eur": 84921.23,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 55936.66,
-              "rain": 8380.79,
+              "wind": 55495.41,
+              "rain": 8984.57,
               "surge": 0.06,
-              "landslide": 20603.72
+              "landslide": 20441.19
             }
           }
         },
@@ -422,10 +428,10 @@
             "direct_damage_eur": 72002.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 47695.57,
-              "rain": 6761.27,
+              "wind": 47337.41,
+              "rain": 7251.19,
               "surge": 0.05,
-              "landslide": 17545.52
+              "landslide": 17413.76
             }
           },
           "storm_cmcc": {
@@ -440,10 +446,10 @@
             "direct_damage_eur": 72002.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 47427.18,
-              "rain": 7105.85,
+              "wind": 47053.05,
+              "rain": 7617.77,
               "surge": 0.05,
-              "landslide": 17469.33
+              "landslide": 17331.54
             }
           }
         },
@@ -462,10 +468,10 @@
             "direct_damage_eur": 527312.59,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 349300.48,
-              "rain": 49516.46,
+              "wind": 346677.48,
+              "rain": 53104.36,
               "surge": 0.37,
-              "landslide": 128495.28
+              "landslide": 127530.38
             }
           },
           "storm_cmcc": {
@@ -480,10 +486,10 @@
             "direct_damage_eur": 562377.12,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 370431.46,
-              "rain": 55500.45,
+              "wind": 367509.37,
+              "rain": 59498.87,
               "surge": 0.38,
-              "landslide": 136444.83
+              "landslide": 135368.5
             }
           }
         },
@@ -502,10 +508,10 @@
             "direct_damage_eur": 246409.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 163225.69,
-              "rain": 23138.7,
+              "wind": 161999.98,
+              "rain": 24815.3,
               "surge": 0.17,
-              "landslide": 60044.95
+              "landslide": 59594.06
             }
           },
           "storm_cmcc": {
@@ -520,10 +526,10 @@
             "direct_damage_eur": 246409.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 162307.16,
-              "rain": 24317.92,
+              "wind": 161026.83,
+              "rain": 26069.85,
               "surge": 0.17,
-              "landslide": 59784.26
+              "landslide": 59312.66
             }
           }
         },
@@ -542,10 +548,10 @@
             "direct_damage_eur": 39359.65,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 26072.48,
-              "rain": 3696.01,
+              "wind": 25876.69,
+              "rain": 3963.81,
               "surge": 0.03,
-              "landslide": 9591.13
+              "landslide": 9519.12
             }
           },
           "storm_cmcc": {
@@ -560,10 +566,10 @@
             "direct_damage_eur": 40996.88,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 27004.18,
-              "rain": 4045.94,
+              "wind": 26791.16,
+              "rain": 4337.42,
               "surge": 0.03,
-              "landslide": 9946.73
+              "landslide": 9868.27
             }
           }
         }
@@ -580,14 +586,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3584215.2,
-            "direct_damage_eur": 3582617.51,
-            "indirect_damage_eur": 1597.69,
+            "damage_eur": 3770475.67,
+            "direct_damage_eur": 3768771.07,
+            "indirect_damage_eur": 1704.6,
             "damage_components_eur": {
-              "wind": 2933661.44,
-              "rain": 415872.64,
-              "surge": 3.09,
-              "landslide": 234678.03
+              "wind": 3069975.81,
+              "rain": 470261.6,
+              "surge": 3.24,
+              "landslide": 230235.02
             }
           },
           "storm_cmcc": {
@@ -598,14 +604,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3228028.62,
-            "direct_damage_eur": 3226656.99,
-            "indirect_damage_eur": 1371.63,
+            "damage_eur": 3336671.73,
+            "direct_damage_eur": 3335237.04,
+            "indirect_damage_eur": 1434.69,
             "damage_components_eur": {
-              "wind": 2568588.61,
-              "rain": 384842.67,
-              "surge": 2.66,
-              "landslide": 274594.68
+              "wind": 2639495.14,
+              "rain": 427327.8,
+              "surge": 2.73,
+              "landslide": 269846.06
             }
           }
         },
@@ -620,14 +626,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 797816.26,
-            "direct_damage_eur": 797816.26,
+            "damage_eur": 846880.33,
+            "direct_damage_eur": 846880.33,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 653008.45,
-              "rain": 92569.76,
-              "surge": 0.69,
-              "landslide": 52237.36
+              "wind": 689542.21,
+              "rain": 105624.68,
+              "surge": 0.73,
+              "landslide": 51712.71
             }
           },
           "storm_cmcc": {
@@ -638,14 +644,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 692931.87,
-            "direct_damage_eur": 692931.87,
+            "damage_eur": 721553.51,
+            "direct_damage_eur": 721553.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 551375.81,
-              "rain": 82610.71,
-              "surge": 0.57,
-              "landslide": 58944.78
+              "wind": 570789.44,
+              "rain": 92409.41,
+              "surge": 0.59,
+              "landslide": 58354.07
             }
           }
         },
@@ -664,10 +670,10 @@
             "direct_damage_eur": 195643.57,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 160133.24,
-              "rain": 22700.31,
+              "wind": 159295.82,
+              "rain": 24401.07,
               "surge": 0.17,
-              "landslide": 12809.85
+              "landslide": 11946.51
             }
           },
           "storm_cmcc": {
@@ -682,10 +688,10 @@
             "direct_damage_eur": 210525.94,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 167518.51,
-              "rain": 25098.71,
+              "wind": 166537.87,
+              "rain": 26962.07,
               "surge": 0.17,
-              "landslide": 17908.55
+              "landslide": 17025.83
             }
           }
         },
@@ -700,14 +706,14 @@
               "S3": 0.0
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 6171768.97,
-            "direct_damage_eur": 6171768.97,
+            "damage_eur": 6575452.64,
+            "direct_damage_eur": 6575452.64,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5051560.69,
-              "rain": 716103.73,
-              "surge": 5.33,
-              "landslide": 404099.22
+              "wind": 5353828.62,
+              "rain": 820104.19,
+              "surge": 5.64,
+              "landslide": 401514.19
             }
           },
           "storm_cmcc": {
@@ -718,14 +724,14 @@
               "S3": 0.0
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 5360469.72,
-            "direct_damage_eur": 5360469.72,
+            "damage_eur": 5599683.44,
+            "direct_damage_eur": 5599683.44,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4265402.54,
-              "rain": 639070.37,
-              "surge": 4.42,
-              "landslide": 455992.39
+              "wind": 4429664.77,
+              "rain": 717151.89,
+              "surge": 4.59,
+              "landslide": 452862.19
             }
           }
         },
@@ -744,10 +750,10 @@
             "direct_damage_eur": 669539.24,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 548014.37,
-              "rain": 77685.92,
-              "surge": 0.58,
-              "landslide": 43838.37
+              "wind": 545148.53,
+              "rain": 83506.33,
+              "surge": 0.57,
+              "landslide": 40883.81
             }
           },
           "storm_cmcc": {
@@ -762,10 +768,10 @@
             "direct_damage_eur": 720470.26,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 573288.51,
-              "rain": 85893.82,
+              "wind": 569932.53,
+              "rain": 92270.68,
               "surge": 0.59,
-              "landslide": 61287.34
+              "landslide": 58266.46
             }
           }
         },
@@ -780,14 +786,14 @@
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 272700.32,
-            "direct_damage_eur": 272700.32,
+            "damage_eur": 286819.82,
+            "direct_damage_eur": 286819.82,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 223203.79,
-              "rain": 31641.13,
-              "surge": 0.24,
-              "landslide": 17855.16
+              "wind": 233532.84,
+              "rain": 35772.77,
+              "surge": 0.25,
+              "landslide": 17513.96
             }
           },
           "storm_cmcc": {
@@ -798,14 +804,14 @@
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 252785.39,
-            "direct_damage_eur": 252785.39,
+            "damage_eur": 261341.36,
+            "direct_damage_eur": 261341.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 201144.96,
-              "rain": 30136.85,
+              "wind": 206735.73,
+              "rain": 33470.01,
               "surge": 0.21,
-              "landslide": 21503.37
+              "landslide": 21135.41
             }
           }
         }
@@ -822,14 +828,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3691632.99,
-            "direct_damage_eur": 3690035.3,
-            "indirect_damage_eur": 1597.69,
+            "damage_eur": 3877893.45,
+            "direct_damage_eur": 3876188.85,
+            "indirect_damage_eur": 1704.6,
             "damage_components_eur": {
-              "wind": 2994920.34,
-              "rain": 424556.64,
-              "surge": 3.16,
-              "landslide": 272152.85
+              "wind": 3131438.43,
+              "rain": 479676.5,
+              "surge": 3.3,
+              "landslide": 266775.22
             }
           },
           "storm_cmcc": {
@@ -840,14 +846,14 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3563781.81,
-            "direct_damage_eur": 3562410.18,
-            "indirect_damage_eur": 1371.63,
+            "damage_eur": 3672424.92,
+            "direct_damage_eur": 3670990.23,
+            "indirect_damage_eur": 1434.69,
             "damage_components_eur": {
-              "wind": 2743578.94,
-              "rain": 411060.86,
-              "surge": 2.84,
-              "landslide": 409139.17
+              "wind": 2815177.91,
+              "rain": 455770.41,
+              "surge": 2.92,
+              "landslide": 401473.68
             }
           }
         },
@@ -862,14 +868,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 806216.5,
-            "direct_damage_eur": 806216.5,
+            "damage_eur": 855280.57,
+            "direct_damage_eur": 855280.57,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 654061.28,
-              "rain": 92719.01,
-              "surge": 0.69,
-              "landslide": 59435.52
+              "wind": 690647.77,
+              "rain": 105794.03,
+              "surge": 0.73,
+              "landslide": 58838.04
             }
           },
           "storm_cmcc": {
@@ -880,14 +886,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 719188.29,
-            "direct_damage_eur": 719188.29,
+            "damage_eur": 747809.92,
+            "direct_damage_eur": 747809.92,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 553667.41,
-              "rain": 82954.06,
-              "surge": 0.57,
-              "landslide": 82566.25
+              "wind": 573250.1,
+              "rain": 92807.79,
+              "surge": 0.59,
+              "landslide": 81751.44
             }
           }
         },
@@ -906,10 +912,10 @@
             "direct_damage_eur": 222244.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 180300.74,
-              "rain": 25559.24,
+              "wind": 179464.58,
+              "rain": 27490.54,
               "surge": 0.19,
-              "landslide": 16384.19
+              "landslide": 15289.05
             }
           },
           "storm_cmcc": {
@@ -924,10 +930,10 @@
             "direct_damage_eur": 293671.39,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 226083.04,
-              "rain": 33873.23,
+              "wind": 225120.25,
+              "rain": 36446.42,
               "surge": 0.23,
-              "landslide": 33714.89
+              "landslide": 32104.49
             }
           }
         },
@@ -942,14 +948,14 @@
               "S3": 0.0
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 6187529.02,
-            "direct_damage_eur": 6187529.02,
+            "damage_eur": 6591212.7,
+            "direct_damage_eur": 6591212.7,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5019772.17,
-              "rain": 711597.42,
-              "surge": 5.29,
-              "landslide": 456154.14
+              "wind": 5322471.35,
+              "rain": 815300.85,
+              "surge": 5.61,
+              "landslide": 453434.89
             }
           },
           "storm_cmcc": {
@@ -960,14 +966,14 @@
               "S3": 0.0
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 5409730.54,
-            "direct_damage_eur": 5409730.54,
+            "damage_eur": 5648944.27,
+            "direct_damage_eur": 5648944.27,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4164683.36,
-              "rain": 623979.97,
-              "surge": 4.31,
-              "landslide": 621062.9
+              "wind": 4330322.2,
+              "rain": 701068.56,
+              "surge": 4.48,
+              "landslide": 617549.03
             }
           }
         },
@@ -986,10 +992,10 @@
             "direct_damage_eur": 760573.52,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 617032.39,
-              "rain": 87469.84,
+              "wind": 614170.86,
+              "rain": 94079.23,
               "surge": 0.65,
-              "landslide": 56070.64
+              "landslide": 52322.78
             }
           },
           "storm_cmcc": {
@@ -1004,10 +1010,10 @@
             "direct_damage_eur": 1005013.93,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 773710.4,
-              "rain": 115922.33,
+              "wind": 770415.48,
+              "rain": 124728.38,
               "surge": 0.8,
-              "landslide": 115380.4
+              "landslide": 109869.27
             }
           }
         },
@@ -1022,14 +1028,14 @@
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 280978.84,
-            "direct_damage_eur": 280978.84,
+            "damage_eur": 295098.34,
+            "direct_damage_eur": 295098.34,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 227950.41,
-              "rain": 32314.0,
-              "surge": 0.24,
-              "landslide": 20714.19
+              "wind": 238294.91,
+              "rain": 36502.22,
+              "surge": 0.25,
+              "landslide": 20300.96
             }
           },
           "storm_cmcc": {
@@ -1040,19 +1046,19 @@
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 278661.35,
-            "direct_damage_eur": 278661.35,
+            "damage_eur": 287217.32,
+            "direct_damage_eur": 287217.32,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 214527.56,
-              "rain": 32141.92,
-              "surge": 0.22,
-              "landslide": 31991.65
+              "wind": 220172.74,
+              "rain": 35645.43,
+              "surge": 0.23,
+              "landslide": 31398.92
             }
           }
         }
       ],
-      "event_max": [
+      "p99": [
         {
           "class_key": "eau_aep",
           "class_label": "Eau AEP",
@@ -1064,32 +1070,32 @@
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 79399635.78,
-            "direct_damage_eur": 79355139.78,
-            "indirect_damage_eur": 44496.0,
+            "damage_eur": 77479925.28,
+            "direct_damage_eur": 77436516.68,
+            "indirect_damage_eur": 43408.6,
             "damage_components_eur": {
-              "wind": 69076328.5,
-              "rain": 9083459.5,
-              "surge": 842046.54,
-              "landslide": 397801.24
+              "wind": 67438766.76,
+              "rain": 8841558.72,
+              "surge": 805570.1,
+              "landslide": 394029.7
             }
           },
           "storm_cmcc": {
             "state_pct": {
-              "S0": 99.624,
-              "S1": 0.376,
+              "S0": 99.666,
+              "S1": 0.334,
               "S2": 0.0,
               "S3": 0.0
             },
             "exposure_eur": 2447021842.86,
-            "damage_eur": 88342090.36,
-            "direct_damage_eur": 88291887.07,
-            "indirect_damage_eur": 50203.29,
+            "damage_eur": 86242316.96,
+            "direct_damage_eur": 86193311.69,
+            "indirect_damage_eur": 49005.27,
             "damage_components_eur": {
-              "wind": 77754594.28,
-              "rain": 9425324.31,
-              "surge": 818098.75,
-              "landslide": 344073.02
+              "wind": 77160203.08,
+              "rain": 7933558.15,
+              "surge": 807951.22,
+              "landslide": 340604.51
             }
           }
         },
@@ -1104,14 +1110,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 20622332.54,
-            "direct_damage_eur": 20622332.54,
+            "damage_eur": 20116645.42,
+            "direct_damage_eur": 20116645.42,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 17941077.47,
-              "rain": 2359231.51,
-              "surge": 218703.32,
-              "landslide": 103320.24
+              "wind": 17509590.43,
+              "rain": 2295594.65,
+              "surge": 209155.7,
+              "landslide": 102304.64
             }
           },
           "storm_cmcc": {
@@ -1122,14 +1128,14 @@
               "S3": 0.0
             },
             "exposure_eur": 648518585.64,
-            "damage_eur": 23031084.02,
-            "direct_damage_eur": 23031084.02,
+            "damage_eur": 22477900.81,
+            "direct_damage_eur": 22477900.81,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 20270887.71,
-              "rain": 2457214.17,
-              "surge": 213281.13,
-              "landslide": 89701.01
+              "wind": 20110769.89,
+              "rain": 2067775.31,
+              "surge": 210581.63,
+              "landslide": 88773.98
             }
           }
         },
@@ -1148,10 +1154,10 @@
             "direct_damage_eur": 391592.76,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 340679.02,
-              "rain": 44798.91,
-              "surge": 4152.91,
-              "landslide": 1961.92
+              "wind": 340843.55,
+              "rain": 44686.29,
+              "surge": 4071.45,
+              "landslide": 1991.47
             }
           },
           "storm_cmcc": {
@@ -1166,10 +1172,10 @@
             "direct_damage_eur": 324050.3,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 285213.98,
-              "rain": 34573.32,
-              "surge": 3000.89,
-              "landslide": 1262.11
+              "wind": 289924.81,
+              "rain": 29809.87,
+              "surge": 3035.83,
+              "landslide": 1279.79
             }
           }
         },
@@ -1180,36 +1186,36 @@
             "state_pct": {
               "S0": 0.0,
               "S1": 0.0,
-              "S2": 68.526,
-              "S3": 31.474
+              "S2": 71.811,
+              "S3": 28.189
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 168888607.26,
-            "direct_damage_eur": 168888607.26,
+            "damage_eur": 164727973.24,
+            "direct_damage_eur": 164727973.24,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 146930206.93,
-              "rain": 19321156.94,
-              "surge": 1791092.18,
-              "landslide": 846151.21
+              "wind": 143379737.74,
+              "rain": 18797798.81,
+              "surge": 1712700.79,
+              "landslide": 837735.9
             }
           },
           "storm_cmcc": {
             "state_pct": {
               "S0": 0.0,
               "S1": 0.0,
-              "S2": 50.169,
-              "S3": 49.831
+              "S2": 55.36,
+              "S3": 44.64
             },
             "exposure_eur": 507135994.96,
-            "damage_eur": 191825760.14,
-            "direct_damage_eur": 191825760.14,
+            "damage_eur": 187202369.27,
+            "direct_damage_eur": 187202369.27,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 168836101.69,
-              "rain": 20466122.02,
-              "surge": 1776417.26,
-              "landslide": 747119.17
+              "wind": 167488227.81,
+              "rain": 17221022.53,
+              "surge": 1753783.86,
+              "landslide": 739335.07
             }
           }
         },
@@ -1228,10 +1234,10 @@
             "direct_damage_eur": 1340124.37,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1165885.34,
-              "rain": 153312.61,
-              "surge": 14212.25,
-              "landslide": 6714.17
+              "wind": 1166448.4,
+              "rain": 152927.2,
+              "surge": 13933.47,
+              "landslide": 6815.3
             }
           },
           "storm_cmcc": {
@@ -1246,10 +1252,10 @@
             "direct_damage_eur": 1108977.86,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 976070.67,
-              "rain": 118318.19,
-              "surge": 10269.78,
-              "landslide": 4319.22
+              "wind": 992192.23,
+              "rain": 102016.51,
+              "surge": 10389.33,
+              "landslide": 4379.79
             }
           }
         },
@@ -1258,38 +1264,38 @@
           "class_label": "Elec HTA aerien",
           "storm": {
             "state_pct": {
-              "S0": 61.714,
-              "S1": 38.286,
+              "S0": 64.577,
+              "S1": 35.423,
               "S2": 0.0,
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 6020908.06,
-            "direct_damage_eur": 6020908.06,
+            "damage_eur": 5875383.11,
+            "direct_damage_eur": 5875383.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5238087.29,
-              "rain": 688802.59,
-              "surge": 63852.75,
-              "landslide": 30165.43
+              "wind": 5113951.64,
+              "rain": 670464.57,
+              "surge": 61087.22,
+              "landslide": 29879.68
             }
           },
           "storm_cmcc": {
             "state_pct": {
-              "S0": 57.166,
-              "S1": 42.834,
+              "S0": 60.017,
+              "S1": 39.983,
               "S2": 0.0,
               "S3": 0.0
             },
             "exposure_eur": 130464320.83,
-            "damage_eur": 6955021.3,
-            "direct_damage_eur": 6955021.3,
+            "damage_eur": 6789656.3,
+            "direct_damage_eur": 6789656.3,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6121485.89,
-              "rain": 742039.62,
-              "surge": 64407.51,
-              "landslide": 27088.28
+              "wind": 6074642.67,
+              "rain": 624590.51,
+              "surge": 63608.11,
+              "landslide": 26815.01
             }
           }
         }
@@ -1306,19 +1312,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 99.666,
             "S1": 0.334,
             "S2": 0.0,
             "S3": 0.0
           },
           "exposure_eur": 2447021842.86,
-          "eai_eur": 514375.68,
-          "event_max_loss_eur": 79399635.78,
+          "eai_eur": 514375.71,
+          "p99_loss_eur": 77479925.28,
           "direct_eai_eur": 514247.82,
-          "indirect_eai_eur": 127.86,
-          "direct_event_max_loss_eur": 79355139.78,
-          "indirect_event_max_loss_eur": 44496.0
+          "indirect_eai_eur": 127.89,
+          "direct_p99_loss_eur": 77436516.68,
+          "indirect_p99_loss_eur": 43408.6
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1327,19 +1333,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
-            "S0": 99.624,
-            "S1": 0.376,
+          "state_pct_p99": {
+            "S0": 99.666,
+            "S1": 0.334,
             "S2": 0.0,
             "S3": 0.0
           },
           "exposure_eur": 2447021842.86,
-          "eai_eur": 526794.28,
-          "event_max_loss_eur": 88342090.36,
+          "eai_eur": 526794.32,
+          "p99_loss_eur": 86242316.96,
           "direct_eai_eur": 526658.13,
-          "indirect_eai_eur": 136.15,
-          "direct_event_max_loss_eur": 88291887.07,
-          "indirect_event_max_loss_eur": 50203.29
+          "indirect_eai_eur": 136.19,
+          "direct_p99_loss_eur": 86193311.69,
+          "indirect_p99_loss_eur": 49005.27
         }
       },
       {
@@ -1352,7 +1358,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 99.959,
             "S1": 0.041,
             "S2": 0.0,
@@ -1360,11 +1366,11 @@
           },
           "exposure_eur": 648518585.64,
           "eai_eur": 81642.8,
-          "event_max_loss_eur": 20622332.54,
+          "p99_loss_eur": 20116645.42,
           "direct_eai_eur": 81642.8,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 20622332.54,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 20116645.42,
+          "indirect_p99_loss_eur": 0.0
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1373,7 +1379,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 99.959,
             "S1": 0.041,
             "S2": 0.0,
@@ -1381,11 +1387,11 @@
           },
           "exposure_eur": 648518585.64,
           "eai_eur": 84921.23,
-          "event_max_loss_eur": 23031084.02,
+          "p99_loss_eur": 22477900.81,
           "direct_eai_eur": 84921.23,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 23031084.02,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 22477900.81,
+          "indirect_p99_loss_eur": 0.0
         }
       },
       {
@@ -1398,7 +1404,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 100.0,
             "S1": 0.0,
             "S2": 0.0,
@@ -1406,11 +1412,11 @@
           },
           "exposure_eur": 1690705197.91,
           "eai_eur": 72002.41,
-          "event_max_loss_eur": 391592.76,
+          "p99_loss_eur": 391592.76,
           "direct_eai_eur": 72002.41,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 391592.76,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 391592.76,
+          "indirect_p99_loss_eur": 0.0
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1419,7 +1425,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 100.0,
             "S1": 0.0,
             "S2": 0.0,
@@ -1427,11 +1433,11 @@
           },
           "exposure_eur": 1690705197.91,
           "eai_eur": 72002.41,
-          "event_max_loss_eur": 324050.3,
+          "p99_loss_eur": 324050.3,
           "direct_eai_eur": 72002.41,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 324050.3,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 324050.3,
+          "indirect_p99_loss_eur": 0.0
         }
       },
       {
@@ -1444,19 +1450,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 0.0,
             "S1": 0.0,
-            "S2": 68.526,
-            "S3": 31.474
+            "S2": 71.811,
+            "S3": 28.189
           },
           "exposure_eur": 507135994.96,
           "eai_eur": 527312.59,
-          "event_max_loss_eur": 168888607.26,
+          "p99_loss_eur": 164727973.24,
           "direct_eai_eur": 527312.59,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 168888607.26,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 164727973.24,
+          "indirect_p99_loss_eur": 0.0
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1465,19 +1471,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 0.0,
             "S1": 0.0,
-            "S2": 50.169,
-            "S3": 49.831
+            "S2": 55.36,
+            "S3": 44.64
           },
           "exposure_eur": 507135994.96,
           "eai_eur": 562377.12,
-          "event_max_loss_eur": 191825760.14,
+          "p99_loss_eur": 187202369.27,
           "direct_eai_eur": 562377.12,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 191825760.14,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 187202369.27,
+          "indirect_p99_loss_eur": 0.0
         }
       },
       {
@@ -1490,7 +1496,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 100.0,
             "S1": 0.0,
             "S2": 0.0,
@@ -1498,11 +1504,11 @@
           },
           "exposure_eur": 3517758430.5,
           "eai_eur": 246409.51,
-          "event_max_loss_eur": 1340124.37,
+          "p99_loss_eur": 1340124.37,
           "direct_eai_eur": 246409.51,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 1340124.37,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 1340124.37,
+          "indirect_p99_loss_eur": 0.0
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1511,7 +1517,7 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
+          "state_pct_p99": {
             "S0": 100.0,
             "S1": 0.0,
             "S2": 0.0,
@@ -1519,11 +1525,11 @@
           },
           "exposure_eur": 3517758430.5,
           "eai_eur": 246409.51,
-          "event_max_loss_eur": 1108977.86,
+          "p99_loss_eur": 1108977.86,
           "direct_eai_eur": 246409.51,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 1108977.86,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 1108977.86,
+          "indirect_p99_loss_eur": 0.0
         }
       },
       {
@@ -1536,19 +1542,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
-            "S0": 61.714,
-            "S1": 38.286,
+          "state_pct_p99": {
+            "S0": 64.577,
+            "S1": 35.423,
             "S2": 0.0,
             "S3": 0.0
           },
           "exposure_eur": 130464320.83,
           "eai_eur": 39359.65,
-          "event_max_loss_eur": 6020908.06,
+          "p99_loss_eur": 5875383.11,
           "direct_eai_eur": 39359.65,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 6020908.06,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 5875383.11,
+          "indirect_p99_loss_eur": 0.0
         },
         "storm_cmcc": {
           "state_pct_annual": {
@@ -1557,19 +1563,19 @@
             "S2": 0.0,
             "S3": 0.0
           },
-          "state_pct_event_max": {
-            "S0": 57.166,
-            "S1": 42.834,
+          "state_pct_p99": {
+            "S0": 60.017,
+            "S1": 39.983,
             "S2": 0.0,
             "S3": 0.0
           },
           "exposure_eur": 130464320.83,
           "eai_eur": 40996.88,
-          "event_max_loss_eur": 6955021.3,
+          "p99_loss_eur": 6789656.3,
           "direct_eai_eur": 40996.88,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 6955021.3,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 6789656.3,
+          "indirect_p99_loss_eur": 0.0
         }
       }
     ],
@@ -1578,184 +1584,184 @@
         {
           "class_key": "eau_aep",
           "class_label": "Reseau eau AEP",
-          "eai_eur": 514375.68,
-          "event_max_loss_eur": 79399635.78,
+          "eai_eur": 514375.71,
+          "p99_loss_eur": 77479925.28,
           "direct_eai_eur": 514247.82,
-          "indirect_eai_eur": 127.86,
-          "direct_event_max_loss_eur": 79355139.78,
-          "indirect_event_max_loss_eur": 44496.0
+          "indirect_eai_eur": 127.89,
+          "direct_p99_loss_eur": 77436516.68,
+          "indirect_p99_loss_eur": 43408.6
         },
         {
           "class_key": "eau_eu",
           "class_label": "Reseau eau EU",
           "eai_eur": 81642.8,
-          "event_max_loss_eur": 20622332.54,
+          "p99_loss_eur": 20116645.42,
           "direct_eai_eur": 81642.8,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 20622332.54,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 20116645.42,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
           "eai_eur": 72002.41,
-          "event_max_loss_eur": 391592.76,
+          "p99_loss_eur": 391592.76,
           "direct_eai_eur": 72002.41,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 391592.76,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 391592.76,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_bt_aerien",
           "class_label": "Basse tension aerien",
           "eai_eur": 527312.59,
-          "event_max_loss_eur": 168888607.26,
+          "p99_loss_eur": 164727973.24,
           "direct_eai_eur": 527312.59,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 168888607.26,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 164727973.24,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
           "eai_eur": 246409.51,
-          "event_max_loss_eur": 1340124.37,
+          "p99_loss_eur": 1340124.37,
           "direct_eai_eur": 246409.51,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 1340124.37,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 1340124.37,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_hta_aerien",
           "class_label": "Haute tension aerien",
           "eai_eur": 39359.65,
-          "event_max_loss_eur": 6020908.06,
+          "p99_loss_eur": 5875383.11,
           "direct_eai_eur": 39359.65,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 6020908.06,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 5875383.11,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "eau_aep_ouvrages",
           "class_label": "Ouvrages AEP",
-          "eai_eur": 557877.28,
-          "event_max_loss_eur": 146796826.73,
-          "direct_eai_eur": 557752.02,
-          "indirect_eai_eur": 125.26,
-          "direct_event_max_loss_eur": 146753238.46,
-          "indirect_event_max_loss_eur": 43588.27
+          "eai_eur": 562432.72,
+          "p99_loss_eur": 144740157.79,
+          "direct_eai_eur": 562307.43,
+          "indirect_eai_eur": 125.29,
+          "direct_p99_loss_eur": 144697634.74,
+          "indirect_p99_loss_eur": 42523.05
         },
         {
           "class_key": "eau_eu_pr",
           "class_label": "Postes de refoulement",
           "eai_eur": 211161.61,
-          "event_max_loss_eur": 71869932.61,
+          "p99_loss_eur": 70097586.14,
           "direct_eai_eur": 211161.61,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 71869932.61,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 70097586.14,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "eau_eu_step",
           "class_label": "STEP",
-          "eai_eur": 1515957.03,
-          "event_max_loss_eur": 500900805.49,
-          "direct_eai_eur": 1515957.03,
+          "eai_eur": 1539894.29,
+          "p99_loss_eur": 496678916.56,
+          "direct_eai_eur": 1539894.29,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 500900805.49,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 496678916.56,
+          "indirect_p99_loss_eur": 0.0
         }
       ],
       "storm_cmcc": [
         {
           "class_key": "eau_aep",
           "class_label": "Reseau eau AEP",
-          "eai_eur": 526794.28,
-          "event_max_loss_eur": 88342090.36,
+          "eai_eur": 526794.32,
+          "p99_loss_eur": 86242316.96,
           "direct_eai_eur": 526658.13,
-          "indirect_eai_eur": 136.15,
-          "direct_event_max_loss_eur": 88291887.07,
-          "indirect_event_max_loss_eur": 50203.29
+          "indirect_eai_eur": 136.19,
+          "direct_p99_loss_eur": 86193311.69,
+          "indirect_p99_loss_eur": 49005.27
         },
         {
           "class_key": "eau_eu",
           "class_label": "Reseau eau EU",
           "eai_eur": 84921.23,
-          "event_max_loss_eur": 23031084.02,
+          "p99_loss_eur": 22477900.81,
           "direct_eai_eur": 84921.23,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 23031084.02,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 22477900.81,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_bt_souterrain",
           "class_label": "Basse tension souterrain",
           "eai_eur": 72002.41,
-          "event_max_loss_eur": 324050.3,
+          "p99_loss_eur": 324050.3,
           "direct_eai_eur": 72002.41,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 324050.3,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 324050.3,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_bt_aerien",
           "class_label": "Basse tension aerien",
           "eai_eur": 562377.12,
-          "event_max_loss_eur": 191825760.14,
+          "p99_loss_eur": 187202369.27,
           "direct_eai_eur": 562377.12,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 191825760.14,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 187202369.27,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_hta_souterrain",
           "class_label": "Haute tension souterrain",
           "eai_eur": 246409.51,
-          "event_max_loss_eur": 1108977.86,
+          "p99_loss_eur": 1108977.86,
           "direct_eai_eur": 246409.51,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 1108977.86,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 1108977.86,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "elec_hta_aerien",
           "class_label": "Haute tension aerien",
           "eai_eur": 40996.88,
-          "event_max_loss_eur": 6955021.3,
+          "p99_loss_eur": 6789656.3,
           "direct_eai_eur": 40996.88,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 6955021.3,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 6789656.3,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "eau_aep_ouvrages",
           "class_label": "Ouvrages AEP",
-          "eai_eur": 549242.01,
-          "event_max_loss_eur": 152183984.79,
-          "direct_eai_eur": 549118.12,
-          "indirect_eai_eur": 123.89,
-          "direct_event_max_loss_eur": 152138304.49,
-          "indirect_event_max_loss_eur": 45680.3
+          "eai_eur": 554051.81,
+          "p99_loss_eur": 150258085.79,
+          "direct_eai_eur": 553927.89,
+          "indirect_eai_eur": 123.92,
+          "direct_p99_loss_eur": 150213495.58,
+          "indirect_p99_loss_eur": 44590.21
         },
         {
           "class_key": "eau_eu_pr",
           "class_label": "Postes de refoulement",
           "eai_eur": 210751.32,
-          "event_max_loss_eur": 75994457.19,
+          "p99_loss_eur": 74161512.53,
           "direct_eai_eur": 210751.32,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 75994457.19,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 74161512.53,
+          "indirect_p99_loss_eur": 0.0
         },
         {
           "class_key": "eau_eu_step",
           "class_label": "STEP",
-          "eai_eur": 1489031.8,
-          "event_max_loss_eur": 520716472.6,
-          "direct_eai_eur": 1489031.8,
+          "eai_eur": 1514294.99,
+          "p99_loss_eur": 517252481.41,
+          "direct_eai_eur": 1514294.99,
           "indirect_eai_eur": 0.0,
-          "direct_event_max_loss_eur": 520716472.6,
-          "indirect_event_max_loss_eur": 0.0
+          "direct_p99_loss_eur": 517252481.41,
+          "indirect_p99_loss_eur": 0.0
         }
       ]
     },
@@ -1766,14 +1772,14 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 514375.68,
+            "damage_eur": 514375.71,
             "direct_damage_eur": 514247.82,
-            "indirect_damage_eur": 127.86,
+            "indirect_damage_eur": 127.89,
             "damage_components_eur": {
-              "wind": 340730.86,
-              "rain": 48301.64,
+              "wind": 338172.23,
+              "rain": 51801.52,
               "surge": 0.36,
-              "landslide": 125342.82
+              "landslide": 124401.6
             }
           },
           {
@@ -1784,10 +1790,10 @@
             "direct_damage_eur": 81642.8,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 54081.53,
-              "rain": 7666.54,
+              "wind": 53675.41,
+              "rain": 8222.05,
               "surge": 0.06,
-              "landslide": 19894.67
+              "landslide": 19745.28
             }
           },
           {
@@ -1798,10 +1804,10 @@
             "direct_damage_eur": 72002.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 47695.57,
-              "rain": 6761.27,
+              "wind": 47337.41,
+              "rain": 7251.19,
               "surge": 0.05,
-              "landslide": 17545.52
+              "landslide": 17413.76
             }
           },
           {
@@ -1812,10 +1818,10 @@
             "direct_damage_eur": 527312.59,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 349300.48,
-              "rain": 49516.46,
+              "wind": 346677.48,
+              "rain": 53104.36,
               "surge": 0.37,
-              "landslide": 128495.28
+              "landslide": 127530.38
             }
           },
           {
@@ -1826,10 +1832,10 @@
             "direct_damage_eur": 246409.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 163225.69,
-              "rain": 23138.7,
+              "wind": 161999.98,
+              "rain": 24815.3,
               "surge": 0.17,
-              "landslide": 60044.95
+              "landslide": 59594.06
             }
           },
           {
@@ -1840,24 +1846,24 @@
             "direct_damage_eur": 39359.65,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 26072.48,
-              "rain": 3696.01,
+              "wind": 25876.69,
+              "rain": 3963.81,
               "surge": 0.03,
-              "landslide": 9591.13
+              "landslide": 9519.12
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 557877.28,
-            "direct_damage_eur": 557752.02,
-            "indirect_damage_eur": 125.26,
+            "damage_eur": 562432.72,
+            "direct_damage_eur": 562307.43,
+            "indirect_damage_eur": 125.29,
             "damage_components_eur": {
-              "wind": 369547.03,
-              "rain": 52386.58,
+              "wind": 369766.93,
+              "rain": 56641.23,
               "surge": 0.39,
-              "landslide": 135943.28
+              "landslide": 136024.17
             }
           },
           {
@@ -1868,24 +1874,24 @@
             "direct_damage_eur": 211161.61,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 139876.9,
-              "rain": 19828.8,
+              "wind": 138826.53,
+              "rain": 21265.57,
               "surge": 0.15,
-              "landslide": 51455.76
+              "landslide": 51069.36
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 1515957.03,
-            "direct_damage_eur": 1515957.03,
+            "damage_eur": 1539894.29,
+            "direct_damage_eur": 1539894.29,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1004194.73,
-              "rain": 142353.55,
-              "surge": 1.06,
-              "landslide": 369407.69
+              "wind": 1012391.3,
+              "rain": 155078.99,
+              "surge": 1.07,
+              "landslide": 372422.93
             }
           }
         ],
@@ -1894,14 +1900,14 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 526794.28,
+            "damage_eur": 526794.32,
             "direct_damage_eur": 526658.13,
-            "indirect_damage_eur": 136.15,
+            "indirect_damage_eur": 136.19,
             "damage_components_eur": {
-              "wind": 346993.45,
-              "rain": 51988.82,
+              "wind": 344256.27,
+              "rain": 55734.25,
               "surge": 0.36,
-              "landslide": 127811.65
+              "landslide": 126803.44
             }
           },
           {
@@ -1912,10 +1918,10 @@
             "direct_damage_eur": 84921.23,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 55936.66,
-              "rain": 8380.79,
+              "wind": 55495.41,
+              "rain": 8984.57,
               "surge": 0.06,
-              "landslide": 20603.72
+              "landslide": 20441.19
             }
           },
           {
@@ -1926,10 +1932,10 @@
             "direct_damage_eur": 72002.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 47427.18,
-              "rain": 7105.85,
+              "wind": 47053.05,
+              "rain": 7617.77,
               "surge": 0.05,
-              "landslide": 17469.33
+              "landslide": 17331.54
             }
           },
           {
@@ -1940,10 +1946,10 @@
             "direct_damage_eur": 562377.12,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 370431.46,
-              "rain": 55500.45,
+              "wind": 367509.37,
+              "rain": 59498.87,
               "surge": 0.38,
-              "landslide": 136444.83
+              "landslide": 135368.5
             }
           },
           {
@@ -1954,10 +1960,10 @@
             "direct_damage_eur": 246409.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 162307.16,
-              "rain": 24317.92,
+              "wind": 161026.83,
+              "rain": 26069.85,
               "surge": 0.17,
-              "landslide": 59784.26
+              "landslide": 59312.66
             }
           },
           {
@@ -1968,24 +1974,24 @@
             "direct_damage_eur": 40996.88,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 27004.18,
-              "rain": 4045.94,
+              "wind": 26791.16,
+              "rain": 4337.42,
               "surge": 0.03,
-              "landslide": 9946.73
+              "landslide": 9868.27
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 549242.01,
-            "direct_damage_eur": 549118.12,
-            "indirect_damage_eur": 123.89,
+            "damage_eur": 554051.81,
+            "direct_damage_eur": 553927.89,
+            "indirect_damage_eur": 123.92,
             "damage_components_eur": {
-              "wind": 361779.52,
-              "rain": 54204.16,
+              "wind": 362068.84,
+              "rain": 58618.06,
               "surge": 0.37,
-              "landslide": 133257.96
+              "landslide": 133364.54
             }
           },
           {
@@ -1996,24 +2002,24 @@
             "direct_damage_eur": 210751.32,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 138819.52,
-              "rain": 20798.84,
+              "wind": 137724.46,
+              "rain": 22297.25,
               "surge": 0.14,
-              "landslide": 51132.82
+              "landslide": 50729.47
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 1489031.8,
-            "direct_damage_eur": 1489031.8,
+            "damage_eur": 1514294.99,
+            "direct_damage_eur": 1514294.99,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 980808.45,
-              "rain": 146951.11,
+              "wind": 989580.8,
+              "rain": 160210.71,
               "surge": 1.02,
-              "landslide": 361271.22
+              "landslide": 364502.46
             }
           }
         ]
@@ -2024,28 +2030,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3584215.2,
-            "direct_damage_eur": 3582617.51,
-            "indirect_damage_eur": 1597.69,
+            "damage_eur": 3770475.67,
+            "direct_damage_eur": 3768771.07,
+            "indirect_damage_eur": 1704.6,
             "damage_components_eur": {
-              "wind": 2933661.44,
-              "rain": 415872.64,
-              "surge": 3.09,
-              "landslide": 234678.03
+              "wind": 3069975.81,
+              "rain": 470261.6,
+              "surge": 3.24,
+              "landslide": 230235.02
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 797816.26,
-            "direct_damage_eur": 797816.26,
+            "damage_eur": 846880.33,
+            "direct_damage_eur": 846880.33,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 653008.45,
-              "rain": 92569.76,
-              "surge": 0.69,
-              "landslide": 52237.36
+              "wind": 689542.21,
+              "rain": 105624.68,
+              "surge": 0.73,
+              "landslide": 51712.71
             }
           },
           {
@@ -2056,24 +2062,24 @@
             "direct_damage_eur": 195643.57,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 160133.24,
-              "rain": 22700.31,
+              "wind": 159295.82,
+              "rain": 24401.07,
               "surge": 0.17,
-              "landslide": 12809.85
+              "landslide": 11946.51
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 6171768.97,
-            "direct_damage_eur": 6171768.97,
+            "damage_eur": 6575452.64,
+            "direct_damage_eur": 6575452.64,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5051560.69,
-              "rain": 716103.73,
-              "surge": 5.33,
-              "landslide": 404099.22
+              "wind": 5353828.62,
+              "rain": 820104.19,
+              "surge": 5.64,
+              "landslide": 401514.19
             }
           },
           {
@@ -2084,66 +2090,66 @@
             "direct_damage_eur": 669539.24,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 548014.37,
-              "rain": 77685.92,
-              "surge": 0.58,
-              "landslide": 43838.37
+              "wind": 545148.53,
+              "rain": 83506.33,
+              "surge": 0.57,
+              "landslide": 40883.81
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 272700.32,
-            "direct_damage_eur": 272700.32,
+            "damage_eur": 286819.82,
+            "direct_damage_eur": 286819.82,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 223203.79,
-              "rain": 31641.13,
-              "surge": 0.24,
-              "landslide": 17855.16
+              "wind": 233532.84,
+              "rain": 35772.77,
+              "surge": 0.25,
+              "landslide": 17513.96
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 5619476.91,
-            "direct_damage_eur": 5617911.82,
-            "indirect_damage_eur": 1565.09,
+            "damage_eur": 6029755.3,
+            "direct_damage_eur": 6028085.47,
+            "indirect_damage_eur": 1669.83,
             "damage_components_eur": {
-              "wind": 4599512.52,
-              "rain": 652021.87,
-              "surge": 4.85,
-              "landslide": 367937.67
+              "wind": 4909513.96,
+              "rain": 752043.68,
+              "surge": 5.18,
+              "landslide": 368192.48
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 2592468.25,
-            "direct_damage_eur": 2592468.25,
+            "damage_eur": 2764429.38,
+            "direct_damage_eur": 2764429.38,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2121921.73,
-              "rain": 300801.31,
-              "surge": 2.24,
-              "landslide": 169742.97
+              "wind": 2250838.37,
+              "rain": 344785.41,
+              "surge": 2.37,
+              "landslide": 168803.23
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 18181709.24,
-            "direct_damage_eur": 18181709.24,
+            "damage_eur": 19698654.61,
+            "direct_damage_eur": 19698654.61,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 14881634.12,
-              "rain": 2109604.21,
-              "surge": 15.69,
-              "landslide": 1190455.22
+              "wind": 16038929.43,
+              "rain": 2456857.35,
+              "surge": 16.91,
+              "landslide": 1202850.92
             }
           }
         ],
@@ -2152,28 +2158,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3228028.62,
-            "direct_damage_eur": 3226656.99,
-            "indirect_damage_eur": 1371.63,
+            "damage_eur": 3336671.73,
+            "direct_damage_eur": 3335237.04,
+            "indirect_damage_eur": 1434.69,
             "damage_components_eur": {
-              "wind": 2568588.61,
-              "rain": 384842.67,
-              "surge": 2.66,
-              "landslide": 274594.68
+              "wind": 2639495.14,
+              "rain": 427327.8,
+              "surge": 2.73,
+              "landslide": 269846.06
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 692931.87,
-            "direct_damage_eur": 692931.87,
+            "damage_eur": 721553.51,
+            "direct_damage_eur": 721553.51,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 551375.81,
-              "rain": 82610.71,
-              "surge": 0.57,
-              "landslide": 58944.78
+              "wind": 570789.44,
+              "rain": 92409.41,
+              "surge": 0.59,
+              "landslide": 58354.07
             }
           },
           {
@@ -2184,24 +2190,24 @@
             "direct_damage_eur": 210525.94,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 167518.51,
-              "rain": 25098.71,
+              "wind": 166537.87,
+              "rain": 26962.07,
               "surge": 0.17,
-              "landslide": 17908.55
+              "landslide": 17025.83
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 5360469.72,
-            "direct_damage_eur": 5360469.72,
+            "damage_eur": 5599683.44,
+            "direct_damage_eur": 5599683.44,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4265402.54,
-              "rain": 639070.37,
-              "surge": 4.42,
-              "landslide": 455992.39
+              "wind": 4429664.77,
+              "rain": 717151.89,
+              "surge": 4.59,
+              "landslide": 452862.19
             }
           },
           {
@@ -2212,66 +2218,66 @@
             "direct_damage_eur": 720470.26,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 573288.51,
-              "rain": 85893.82,
+              "wind": 569932.53,
+              "rain": 92270.68,
               "surge": 0.59,
-              "landslide": 61287.34
+              "landslide": 58266.46
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 252785.39,
-            "direct_damage_eur": 252785.39,
+            "damage_eur": 261341.36,
+            "direct_damage_eur": 261341.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 201144.96,
-              "rain": 30136.85,
+              "wind": 206735.73,
+              "rain": 33470.01,
               "surge": 0.21,
-              "landslide": 21503.37
+              "landslide": 21135.41
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 4544995.19,
-            "direct_damage_eur": 4543747.13,
-            "indirect_damage_eur": 1248.06,
+            "damage_eur": 4784856.62,
+            "direct_damage_eur": 4783551.18,
+            "indirect_damage_eur": 1305.44,
             "damage_components_eur": {
-              "wind": 3616517.77,
-              "rain": 541850.23,
-              "surge": 3.75,
-              "landslide": 386623.44
+              "wind": 3785090.9,
+              "rain": 612796.95,
+              "surge": 3.92,
+              "landslide": 386964.85
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 2089479.01,
-            "direct_damage_eur": 2089479.01,
+            "damage_eur": 2184315.36,
+            "direct_damage_eur": 2184315.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1662628.38,
-              "rain": 249105.81,
-              "surge": 1.72,
-              "landslide": 177743.1
+              "wind": 1727916.39,
+              "rain": 279745.43,
+              "surge": 1.79,
+              "landslide": 176651.75
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 14444653.97,
-            "direct_damage_eur": 14444653.97,
+            "damage_eur": 15360354.27,
+            "direct_damage_eur": 15360354.27,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11493818.06,
-              "rain": 1722078.64,
-              "surge": 11.9,
-              "landslide": 1228745.37
+              "wind": 12150904.77,
+              "rain": 1967201.74,
+              "surge": 12.58,
+              "landslide": 1242235.18
             }
           }
         ]
@@ -2282,28 +2288,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3691632.99,
-            "direct_damage_eur": 3690035.3,
-            "indirect_damage_eur": 1597.69,
+            "damage_eur": 3877893.45,
+            "direct_damage_eur": 3876188.85,
+            "indirect_damage_eur": 1704.6,
             "damage_components_eur": {
-              "wind": 2994920.34,
-              "rain": 424556.64,
-              "surge": 3.16,
-              "landslide": 272152.85
+              "wind": 3131438.43,
+              "rain": 479676.5,
+              "surge": 3.3,
+              "landslide": 266775.22
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 806216.5,
-            "direct_damage_eur": 806216.5,
+            "damage_eur": 855280.57,
+            "direct_damage_eur": 855280.57,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 654061.28,
-              "rain": 92719.01,
-              "surge": 0.69,
-              "landslide": 59435.52
+              "wind": 690647.77,
+              "rain": 105794.03,
+              "surge": 0.73,
+              "landslide": 58838.04
             }
           },
           {
@@ -2314,24 +2320,24 @@
             "direct_damage_eur": 222244.36,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 180300.74,
-              "rain": 25559.24,
+              "wind": 179464.58,
+              "rain": 27490.54,
               "surge": 0.19,
-              "landslide": 16384.19
+              "landslide": 15289.05
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 6187529.02,
-            "direct_damage_eur": 6187529.02,
+            "damage_eur": 6591212.7,
+            "direct_damage_eur": 6591212.7,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5019772.17,
-              "rain": 711597.42,
-              "surge": 5.29,
-              "landslide": 456154.14
+              "wind": 5322471.35,
+              "rain": 815300.85,
+              "surge": 5.61,
+              "landslide": 453434.89
             }
           },
           {
@@ -2342,66 +2348,66 @@
             "direct_damage_eur": 760573.52,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 617032.39,
-              "rain": 87469.84,
+              "wind": 614170.86,
+              "rain": 94079.23,
               "surge": 0.65,
-              "landslide": 56070.64
+              "landslide": 52322.78
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 280978.84,
-            "direct_damage_eur": 280978.84,
+            "damage_eur": 295098.34,
+            "direct_damage_eur": 295098.34,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 227950.41,
-              "rain": 32314.0,
-              "surge": 0.24,
-              "landslide": 20714.19
+              "wind": 238294.91,
+              "rain": 36502.22,
+              "surge": 0.25,
+              "landslide": 20300.96
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 5670533.95,
-            "direct_damage_eur": 5668968.85,
-            "indirect_damage_eur": 1565.1,
+            "damage_eur": 6080812.33,
+            "direct_damage_eur": 6079142.5,
+            "indirect_damage_eur": 1669.83,
             "damage_components_eur": {
-              "wind": 4600348.28,
-              "rain": 652140.35,
-              "surge": 4.85,
-              "landslide": 418040.47
+              "wind": 4910317.85,
+              "rain": 752166.82,
+              "surge": 5.18,
+              "landslide": 418322.48
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 2594207.92,
-            "direct_damage_eur": 2594207.92,
+            "damage_eur": 2766169.05,
+            "direct_damage_eur": 2766169.05,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 2104609.56,
-              "rain": 298347.15,
-              "surge": 2.22,
-              "landslide": 191248.99
+              "wind": 2233709.67,
+              "rain": 342161.62,
+              "surge": 2.35,
+              "landslide": 190295.41
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 18210443.78,
-            "direct_damage_eur": 18210443.78,
+            "damage_eur": 19727389.15,
+            "direct_damage_eur": 19727389.15,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 14773632.35,
-              "rain": 2094293.99,
-              "surge": 15.58,
-              "landslide": 1342501.86
+              "wind": 15930067.55,
+              "rain": 2440181.79,
+              "surge": 16.8,
+              "landslide": 1357123.01
             }
           }
         ],
@@ -2410,28 +2416,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 3563781.81,
-            "direct_damage_eur": 3562410.18,
-            "indirect_damage_eur": 1371.63,
+            "damage_eur": 3672424.92,
+            "direct_damage_eur": 3670990.23,
+            "indirect_damage_eur": 1434.69,
             "damage_components_eur": {
-              "wind": 2743578.94,
-              "rain": 411060.86,
-              "surge": 2.84,
-              "landslide": 409139.17
+              "wind": 2815177.91,
+              "rain": 455770.41,
+              "surge": 2.92,
+              "landslide": 401473.68
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 719188.29,
-            "direct_damage_eur": 719188.29,
+            "damage_eur": 747809.92,
+            "direct_damage_eur": 747809.92,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 553667.41,
-              "rain": 82954.06,
-              "surge": 0.57,
-              "landslide": 82566.25
+              "wind": 573250.1,
+              "rain": 92807.79,
+              "surge": 0.59,
+              "landslide": 81751.44
             }
           },
           {
@@ -2442,24 +2448,24 @@
             "direct_damage_eur": 293671.39,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 226083.04,
-              "rain": 33873.23,
+              "wind": 225120.25,
+              "rain": 36446.42,
               "surge": 0.23,
-              "landslide": 33714.89
+              "landslide": 32104.49
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 5409730.54,
-            "direct_damage_eur": 5409730.54,
+            "damage_eur": 5648944.27,
+            "direct_damage_eur": 5648944.27,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4164683.36,
-              "rain": 623979.97,
-              "surge": 4.31,
-              "landslide": 621062.9
+              "wind": 4330322.2,
+              "rain": 701068.56,
+              "surge": 4.48,
+              "landslide": 617549.03
             }
           },
           {
@@ -2470,98 +2476,98 @@
             "direct_damage_eur": 1005013.93,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 773710.4,
-              "rain": 115922.33,
+              "wind": 770415.48,
+              "rain": 124728.38,
               "surge": 0.8,
-              "landslide": 115380.4
+              "landslide": 109869.27
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 278661.35,
-            "direct_damage_eur": 278661.35,
+            "damage_eur": 287217.32,
+            "direct_damage_eur": 287217.32,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 214527.56,
-              "rain": 32141.92,
-              "surge": 0.22,
-              "landslide": 31991.65
+              "wind": 220172.74,
+              "rain": 35645.43,
+              "surge": 0.23,
+              "landslide": 31398.92
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 4704582.92,
-            "direct_damage_eur": 4703334.87,
-            "indirect_damage_eur": 1248.05,
+            "damage_eur": 4944444.35,
+            "direct_damage_eur": 4943138.92,
+            "indirect_damage_eur": 1305.43,
             "damage_components_eur": {
-              "wind": 3621825.16,
-              "rain": 542645.42,
-              "surge": 3.75,
-              "landslide": 540108.59
+              "wind": 3790272.32,
+              "rain": 613635.81,
+              "surge": 3.93,
+              "landslide": 540532.29
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 2094916.65,
-            "direct_damage_eur": 2094916.65,
+            "damage_eur": 2189753.0,
+            "direct_damage_eur": 2189753.0,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1612772.47,
-              "rain": 241636.07,
-              "surge": 1.67,
-              "landslide": 240506.44
+              "wind": 1678603.22,
+              "rain": 271761.75,
+              "surge": 1.74,
+              "landslide": 239386.29
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 14534468.84,
-            "direct_damage_eur": 14534468.84,
+            "damage_eur": 15450169.14,
+            "direct_damage_eur": 15450169.14,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 11189367.02,
-              "rain": 1676463.8,
-              "surge": 11.59,
-              "landslide": 1668626.43
+              "wind": 11843666.21,
+              "rain": 1917460.57,
+              "surge": 12.27,
+              "landslide": 1689030.09
             }
           }
         ]
       },
-      "event_max": {
+      "p99": {
         "storm": [
           {
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 79399635.78,
-            "direct_damage_eur": 79355139.78,
-            "indirect_damage_eur": 44496.0,
+            "damage_eur": 77479925.28,
+            "direct_damage_eur": 77436516.68,
+            "indirect_damage_eur": 43408.6,
             "damage_components_eur": {
-              "wind": 69076328.5,
-              "rain": 9083459.5,
-              "surge": 842046.54,
-              "landslide": 397801.24
+              "wind": 67438766.76,
+              "rain": 8841558.72,
+              "surge": 805570.1,
+              "landslide": 394029.7
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 20622332.54,
-            "direct_damage_eur": 20622332.54,
+            "damage_eur": 20116645.42,
+            "direct_damage_eur": 20116645.42,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 17941077.47,
-              "rain": 2359231.51,
-              "surge": 218703.32,
-              "landslide": 103320.24
+              "wind": 17509590.43,
+              "rain": 2295594.65,
+              "surge": 209155.7,
+              "landslide": 102304.64
             }
           },
           {
@@ -2572,24 +2578,24 @@
             "direct_damage_eur": 391592.76,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 340679.02,
-              "rain": 44798.91,
-              "surge": 4152.91,
-              "landslide": 1961.92
+              "wind": 340843.55,
+              "rain": 44686.29,
+              "surge": 4071.45,
+              "landslide": 1991.47
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 168888607.26,
-            "direct_damage_eur": 168888607.26,
+            "damage_eur": 164727973.24,
+            "direct_damage_eur": 164727973.24,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 146930206.93,
-              "rain": 19321156.94,
-              "surge": 1791092.18,
-              "landslide": 846151.21
+              "wind": 143379737.74,
+              "rain": 18797798.81,
+              "surge": 1712700.79,
+              "landslide": 837735.9
             }
           },
           {
@@ -2600,66 +2606,66 @@
             "direct_damage_eur": 1340124.37,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 1165885.34,
-              "rain": 153312.61,
-              "surge": 14212.25,
-              "landslide": 6714.17
+              "wind": 1166448.4,
+              "rain": 152927.2,
+              "surge": 13933.47,
+              "landslide": 6815.3
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 6020908.06,
-            "direct_damage_eur": 6020908.06,
+            "damage_eur": 5875383.11,
+            "direct_damage_eur": 5875383.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5238087.29,
-              "rain": 688802.59,
-              "surge": 63852.75,
-              "landslide": 30165.43
+              "wind": 5113951.64,
+              "rain": 670464.57,
+              "surge": 61087.22,
+              "landslide": 29879.68
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 146796826.73,
-            "direct_damage_eur": 146753238.46,
-            "indirect_damage_eur": 43588.27,
+            "damage_eur": 144740157.79,
+            "direct_damage_eur": 144697634.74,
+            "indirect_damage_eur": 42523.05,
             "damage_components_eur": {
-              "wind": 127710734.77,
-              "rain": 16793817.97,
-              "surge": 1556805.12,
-              "landslide": 735468.87
+              "wind": 125982281.31,
+              "rain": 16516905.5,
+              "surge": 1504884.55,
+              "landslide": 736086.43
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 71869932.61,
-            "direct_damage_eur": 71869932.61,
+            "damage_eur": 70097586.14,
+            "direct_damage_eur": 70097586.14,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 62525615.21,
-              "rain": 8222048.07,
-              "surge": 762192.76,
-              "landslide": 360076.57
+              "wind": 61013155.93,
+              "rain": 7999129.08,
+              "surge": 728814.84,
+              "landslide": 356486.29
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 500900805.49,
-            "direct_damage_eur": 500900805.49,
+            "damage_eur": 496678916.56,
+            "direct_damage_eur": 496678916.56,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 435775154.97,
-              "rain": 57303942.7,
-              "surge": 5312137.58,
-              "landslide": 2509570.24
+              "wind": 432310866.19,
+              "rain": 56678110.98,
+              "surge": 5164043.21,
+              "landslide": 2525896.18
             }
           }
         ],
@@ -2668,28 +2674,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 88342090.36,
-            "direct_damage_eur": 88291887.07,
-            "indirect_damage_eur": 50203.29,
+            "damage_eur": 86242316.96,
+            "direct_damage_eur": 86193311.69,
+            "indirect_damage_eur": 49005.27,
             "damage_components_eur": {
-              "wind": 77754594.28,
-              "rain": 9425324.31,
-              "surge": 818098.75,
-              "landslide": 344073.02
+              "wind": 77160203.08,
+              "rain": 7933558.15,
+              "surge": 807951.22,
+              "landslide": 340604.51
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 23031084.02,
-            "direct_damage_eur": 23031084.02,
+            "damage_eur": 22477900.81,
+            "direct_damage_eur": 22477900.81,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 20270887.71,
-              "rain": 2457214.17,
-              "surge": 213281.13,
-              "landslide": 89701.01
+              "wind": 20110769.89,
+              "rain": 2067775.31,
+              "surge": 210581.63,
+              "landslide": 88773.98
             }
           },
           {
@@ -2700,24 +2706,24 @@
             "direct_damage_eur": 324050.3,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 285213.98,
-              "rain": 34573.32,
-              "surge": 3000.89,
-              "landslide": 1262.11
+              "wind": 289924.81,
+              "rain": 29809.87,
+              "surge": 3035.83,
+              "landslide": 1279.79
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 191825760.14,
-            "direct_damage_eur": 191825760.14,
+            "damage_eur": 187202369.27,
+            "direct_damage_eur": 187202369.27,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 168836101.69,
-              "rain": 20466122.02,
-              "surge": 1776417.26,
-              "landslide": 747119.17
+              "wind": 167488227.81,
+              "rain": 17221022.53,
+              "surge": 1753783.86,
+              "landslide": 739335.07
             }
           },
           {
@@ -2728,66 +2734,66 @@
             "direct_damage_eur": 1108977.86,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 976070.67,
-              "rain": 118318.19,
-              "surge": 10269.78,
-              "landslide": 4319.22
+              "wind": 992192.23,
+              "rain": 102016.51,
+              "surge": 10389.33,
+              "landslide": 4379.79
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 6955021.3,
-            "direct_damage_eur": 6955021.3,
+            "damage_eur": 6789656.3,
+            "direct_damage_eur": 6789656.3,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 6121485.89,
-              "rain": 742039.62,
-              "surge": 64407.51,
-              "landslide": 27088.28
+              "wind": 6074642.67,
+              "rain": 624590.51,
+              "surge": 63608.11,
+              "landslide": 26815.01
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 152183984.79,
-            "direct_damage_eur": 152138304.49,
-            "indirect_damage_eur": 45680.3,
+            "damage_eur": 150258085.79,
+            "direct_damage_eur": 150213495.58,
+            "indirect_damage_eur": 44590.21,
             "damage_components_eur": {
-              "wind": 133945256.95,
-              "rain": 16236693.13,
-              "surge": 1409311.54,
-              "landslide": 592723.17
+              "wind": 134434519.19,
+              "rain": 13822463.31,
+              "surge": 1407675.59,
+              "landslide": 593427.7
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 75994457.19,
-            "direct_damage_eur": 75994457.19,
+            "damage_eur": 74161512.53,
+            "direct_damage_eur": 74161512.53,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 66886782.53,
-              "rain": 8107940.42,
-              "surge": 703752.54,
-              "landslide": 295981.7
+              "wind": 66351619.13,
+              "rain": 6822227.11,
+              "surge": 694773.6,
+              "landslide": 292892.69
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 520716472.6,
-            "direct_damage_eur": 520716472.6,
+            "damage_eur": 517252481.41,
+            "direct_damage_eur": 517252481.41,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 458310391.96,
-              "rain": 55555869.34,
-              "surge": 4822135.11,
-              "landslide": 2028076.19
+              "wind": 462781009.56,
+              "rain": 47582819.97,
+              "surge": 4845820.36,
+              "landslide": 2042831.52
             }
           }
         ]
@@ -2798,28 +2804,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 67151017.04,
-            "direct_damage_eur": 67112994.08,
-            "indirect_damage_eur": 38022.96,
+            "damage_eur": 66812171.12,
+            "direct_damage_eur": 66774332.95,
+            "indirect_damage_eur": 37838.17,
             "damage_components_eur": {
-              "wind": 58670773.7,
-              "rain": 8317104.84,
-              "surge": 61.86,
-              "landslide": 163076.64
+              "wind": 57797211.05,
+              "rain": 8853427.75,
+              "surge": 60.94,
+              "landslide": 161471.38
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 17567720.75,
-            "direct_damage_eur": 17567720.75,
+            "damage_eur": 17478460.6,
+            "direct_damage_eur": 17478460.6,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 15349160.95,
-              "rain": 2175880.3,
-              "surge": 16.18,
-              "landslide": 42663.32
+              "wind": 15120093.53,
+              "rain": 2316109.26,
+              "surge": 15.94,
+              "landslide": 42241.87
             }
           },
           {
@@ -2830,24 +2836,24 @@
             "direct_damage_eur": 161780.33,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 141349.72,
-              "rain": 20037.58,
+              "wind": 139951.33,
+              "rain": 21437.87,
               "surge": 0.15,
-              "landslide": 392.88
+              "landslide": 390.98
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 144217171.01,
-            "direct_damage_eur": 144217171.01,
+            "damage_eur": 143482766.73,
+            "direct_damage_eur": 143482766.73,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 126004539.88,
-              "rain": 17862266.03,
-              "surge": 132.85,
-              "landslide": 350232.25
+              "wind": 124122650.29,
+              "rain": 19013217.01,
+              "surge": 130.86,
+              "landslide": 346768.57
             }
           },
           {
@@ -2858,66 +2864,66 @@
             "direct_damage_eur": 553651.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 483732.64,
-              "rain": 68573.41,
-              "surge": 0.51,
-              "landslide": 1344.55
+              "wind": 478947.02,
+              "rain": 73365.53,
+              "surge": 0.5,
+              "landslide": 1338.06
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 5091226.02,
-            "direct_damage_eur": 5091226.02,
+            "damage_eur": 5065539.03,
+            "direct_damage_eur": 5065539.03,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4448274.69,
-              "rain": 630582.56,
-              "surge": 4.69,
-              "landslide": 12364.08
+              "wind": 4382046.32,
+              "rain": 671245.72,
+              "surge": 4.62,
+              "landslide": 12242.37
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 125109835.86,
-            "direct_damage_eur": 125072588.59,
-            "indirect_damage_eur": 37247.27,
+            "damage_eur": 125821638.35,
+            "direct_damage_eur": 125784572.09,
+            "indirect_damage_eur": 37066.26,
             "damage_components_eur": {
-              "wind": 109310196.5,
-              "rain": 15495694.13,
-              "surge": 115.25,
-              "landslide": 303829.98
+              "wind": 108844536.33,
+              "rain": 16672902.05,
+              "surge": 114.75,
+              "landslide": 304085.22
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 61403366.78,
-            "direct_damage_eur": 61403366.78,
+            "damage_eur": 61090525.32,
+            "direct_damage_eur": 61090525.32,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 53648972.06,
-              "rain": 7605219.72,
-              "surge": 56.56,
-              "landslide": 149118.44
+              "wind": 52847586.39,
+              "rain": 8095239.88,
+              "surge": 55.72,
+              "landslide": 147643.33
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 427845666.17,
-            "direct_damage_eur": 427845666.17,
+            "damage_eur": 432748311.86,
+            "direct_damage_eur": 432748311.86,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 373814684.67,
-              "rain": 52991561.64,
-              "surge": 394.11,
-              "landslide": 1039025.75
+              "wind": 374357622.19,
+              "rain": 57344430.65,
+              "surge": 394.68,
+              "landslide": 1045864.34
             }
           }
         ],
@@ -2926,28 +2932,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 73728814.89,
-            "direct_damage_eur": 73686734.47,
-            "indirect_damage_eur": 42080.42,
+            "damage_eur": 73361709.53,
+            "direct_damage_eur": 73319829.61,
+            "indirect_damage_eur": 41879.92,
             "damage_components_eur": {
-              "wind": 63944447.2,
-              "rain": 9580573.32,
-              "surge": 66.22,
-              "landslide": 203728.15
+              "wind": 62965980.76,
+              "rain": 10194038.17,
+              "surge": 65.21,
+              "landslide": 201625.39
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 19279672.25,
-            "direct_damage_eur": 19279672.25,
+            "damage_eur": 19182956.35,
+            "direct_damage_eur": 19182956.35,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 16721114.89,
-              "rain": 2505266.28,
-              "surge": 17.32,
-              "landslide": 53273.76
+              "wind": 16464633.5,
+              "rain": 2665583.87,
+              "surge": 17.05,
+              "landslide": 52721.93
             }
           },
           {
@@ -2958,24 +2964,24 @@
             "direct_damage_eur": 192485.49,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 166941.22,
-              "rain": 25012.22,
+              "wind": 165209.31,
+              "rain": 26746.98,
               "surge": 0.17,
-              "landslide": 531.88
+              "landslide": 529.03
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 160741527.68,
-            "direct_damage_eur": 160741527.68,
+            "damage_eur": 159933196.17,
+            "direct_damage_eur": 159933196.17,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 139409919.24,
-              "rain": 20887301.57,
-              "surge": 144.37,
-              "landslide": 444162.5
+              "wind": 137269845.78,
+              "rain": 22223652.05,
+              "surge": 142.16,
+              "landslide": 439556.18
             }
           },
           {
@@ -2986,66 +2992,66 @@
             "direct_damage_eur": 658731.53,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 571312.91,
-              "rain": 85597.82,
+              "wind": 565385.91,
+              "rain": 91534.59,
               "surge": 0.59,
-              "landslide": 1820.21
+              "landslide": 1810.44
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 5805073.6,
-            "direct_damage_eur": 5805073.6,
+            "damage_eur": 5776161.97,
+            "direct_damage_eur": 5776161.97,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5034696.72,
-              "rain": 754331.03,
-              "surge": 5.21,
-              "landslide": 16040.64
+              "wind": 4957650.33,
+              "rain": 802631.45,
+              "surge": 5.13,
+              "landslide": 15875.06
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 127408775.82,
-            "direct_damage_eur": 127370486.57,
-            "indirect_damage_eur": 38289.25,
+            "damage_eur": 128248539.6,
+            "direct_damage_eur": 128210432.79,
+            "indirect_damage_eur": 38106.81,
             "damage_components_eur": {
-              "wind": 110500674.0,
-              "rain": 16555930.27,
-              "surge": 114.43,
-              "landslide": 352057.12
+              "wind": 110075066.8,
+              "rain": 17820883.9,
+              "surge": 113.99,
+              "landslide": 352474.91
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 63693402.3,
-            "direct_damage_eur": 63693402.3,
+            "damage_eur": 63372939.03,
+            "direct_damage_eur": 63372939.03,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 55240809.26,
-              "rain": 8276537.63,
-              "surge": 57.21,
-              "landslide": 175998.2
+              "wind": 54392670.04,
+              "rain": 8806040.15,
+              "surge": 56.33,
+              "landslide": 174172.51
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 436379227.54,
-            "direct_damage_eur": 436379227.54,
+            "damage_eur": 441952980.64,
+            "direct_damage_eur": 441952980.64,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 378468425.36,
-              "rain": 56704603.08,
-              "surge": 391.94,
-              "landslide": 1205807.16
+              "wind": 379325987.01,
+              "rain": 61411948.87,
+              "surge": 392.83,
+              "landslide": 1214651.93
             }
           }
         ]
@@ -3056,28 +3062,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 73275810.94,
-            "direct_damage_eur": 73234361.07,
-            "indirect_damage_eur": 41449.87,
+            "damage_eur": 72883038.04,
+            "direct_damage_eur": 72841802.99,
+            "indirect_damage_eur": 41235.05,
             "damage_components_eur": {
-              "wind": 64006236.28,
-              "rain": 9073454.19,
-              "surge": 67.48,
-              "landslide": 196052.99
+              "wind": 63033343.6,
+              "rain": 9655503.15,
+              "surge": 66.46,
+              "landslide": 194124.83
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 19156736.06,
-            "direct_damage_eur": 19156736.06,
+            "damage_eur": 19053270.42,
+            "direct_damage_eur": 19053270.42,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 16733360.69,
-              "rain": 2372102.95,
-              "surge": 17.64,
-              "landslide": 51254.78
+              "wind": 16478338.08,
+              "rain": 2524166.36,
+              "surge": 17.37,
+              "landslide": 50748.61
             }
           },
           {
@@ -3088,24 +3094,24 @@
             "direct_damage_eur": 194349.87,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 169764.12,
-              "rain": 24065.58,
+              "wind": 168084.68,
+              "rain": 25747.36,
               "surge": 0.18,
-              "landslide": 519.99
+              "landslide": 517.65
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 157225761.26,
-            "direct_damage_eur": 157225761.26,
+            "damage_eur": 156374478.63,
+            "direct_damage_eur": 156374478.63,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 137336306.42,
-              "rain": 19468644.88,
-              "surge": 144.79,
-              "landslide": 420665.17
+              "wind": 135241429.37,
+              "rain": 20716401.4,
+              "surge": 142.58,
+              "landslide": 416505.28
             }
           },
           {
@@ -3116,66 +3122,66 @@
             "direct_damage_eur": 665111.88,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 580973.55,
-              "rain": 82358.18,
+              "wind": 575226.1,
+              "rain": 88113.64,
               "surge": 0.61,
-              "landslide": 1779.54
+              "landslide": 1771.53
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 5555683.79,
-            "direct_damage_eur": 5555683.79,
+            "damage_eur": 5525908.79,
+            "direct_damage_eur": 5525908.79,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 4852875.8,
-              "rain": 687938.38,
-              "surge": 5.12,
-              "landslide": 14864.49
+              "wind": 4779116.2,
+              "rain": 732069.23,
+              "surge": 5.04,
+              "landslide": 14718.32
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 136420199.27,
-            "direct_damage_eur": 136379594.99,
-            "indirect_damage_eur": 40604.28,
+            "damage_eur": 137151785.63,
+            "direct_damage_eur": 137111391.79,
+            "indirect_damage_eur": 40393.84,
             "damage_components_eur": {
-              "wind": 119162700.43,
-              "rain": 16892374.34,
-              "surge": 125.63,
-              "landslide": 364998.87
+              "wind": 118616565.13,
+              "rain": 18169790.03,
+              "surge": 125.06,
+              "landslide": 365305.41
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 66938674.95,
-            "direct_damage_eur": 66938674.95,
+            "damage_eur": 66576045.66,
+            "direct_damage_eur": 66576045.66,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 58470763.96,
-              "rain": 8288751.67,
-              "surge": 61.65,
-              "landslide": 179097.67
+              "wind": 57578702.46,
+              "rain": 8819956.41,
+              "surge": 60.7,
+              "landslide": 177326.09
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 466425756.56,
-            "direct_damage_eur": 466425756.56,
+            "damage_eur": 471617347.52,
+            "direct_damage_eur": 471617347.52,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 407421723.47,
-              "rain": 57755658.78,
-              "surge": 429.54,
-              "landslide": 1247944.77
+              "wind": 407881162.91,
+              "rain": 62479596.17,
+              "surge": 430.03,
+              "landslide": 1256158.41
             }
           }
         ],
@@ -3184,28 +3190,28 @@
             "class_key": "eau_aep",
             "class_label": "Reseau eau AEP",
             "exposure_eur": 2447021842.86,
-            "damage_eur": 82561679.87,
-            "direct_damage_eur": 82514582.7,
-            "indirect_damage_eur": 47097.17,
+            "damage_eur": 82203802.52,
+            "direct_damage_eur": 82156899.16,
+            "indirect_damage_eur": 46903.36,
             "damage_components_eur": {
-              "wind": 71595339.78,
-              "rain": 10726879.85,
-              "surge": 74.14,
-              "landslide": 239386.1
+              "wind": 70545647.05,
+              "rain": 11421167.59,
+              "surge": 73.06,
+              "landslide": 236914.82
             }
           },
           {
             "class_key": "eau_eu",
             "class_label": "Reseau eau EU",
             "exposure_eur": 648518585.64,
-            "damage_eur": 21581530.28,
-            "direct_damage_eur": 21581530.28,
+            "damage_eur": 21487245.11,
+            "direct_damage_eur": 21487245.11,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 18714941.31,
-              "rain": 2803994.33,
-              "surge": 19.38,
-              "landslide": 62575.26
+              "wind": 18439920.82,
+              "rain": 2985378.05,
+              "surge": 19.1,
+              "landslide": 61927.14
             }
           },
           {
@@ -3216,24 +3222,24 @@
             "direct_damage_eur": 226088.7,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 196058.24,
-              "rain": 29374.72,
+              "wind": 194024.77,
+              "rain": 31412.13,
               "surge": 0.2,
-              "landslide": 655.54
+              "landslide": 651.6
             }
           },
           {
             "class_key": "elec_bt_aerien",
             "class_label": "Basse tension aerien",
             "exposure_eur": 507135994.96,
-            "damage_eur": 179911200.83,
-            "direct_damage_eur": 179911200.83,
+            "damage_eur": 179123184.92,
+            "direct_damage_eur": 179123184.92,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 156014310.43,
-              "rain": 23375079.55,
-              "surge": 161.57,
-              "landslide": 521649.28
+              "wind": 153719908.26,
+              "rain": 24886876.91,
+              "surge": 159.19,
+              "landslide": 516240.56
             }
           },
           {
@@ -3244,66 +3250,66 @@
             "direct_damage_eur": 773729.76,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 670958.31,
-              "rain": 100527.34,
+              "wind": 663999.29,
+              "rain": 107499.86,
               "surge": 0.69,
-              "landslide": 2243.42
+              "landslide": 2229.92
             }
           },
           {
             "class_key": "elec_hta_aerien",
             "class_label": "Haute tension aerien",
             "exposure_eur": 130464320.83,
-            "damage_eur": 6500461.73,
-            "direct_damage_eur": 6500461.73,
+            "damage_eur": 6472276.73,
+            "direct_damage_eur": 6472276.73,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 5637031.21,
-              "rain": 844576.71,
-              "surge": 5.84,
-              "landslide": 18847.97
+              "wind": 5554377.48,
+              "rain": 899240.12,
+              "surge": 5.75,
+              "landslide": 18653.38
             }
           },
           {
             "class_key": "eau_aep_ouvrages",
             "class_label": "Ouvrages AEP",
             "exposure_eur": 459400000.0,
-            "damage_eur": 142618707.81,
-            "direct_damage_eur": 142575853.78,
-            "indirect_damage_eur": 42854.03,
+            "damage_eur": 143651951.23,
+            "direct_damage_eur": 143609273.56,
+            "indirect_damage_eur": 42677.67,
             "damage_components_eur": {
-              "wind": 123675231.18,
-              "rain": 18529828.18,
-              "surge": 128.08,
-              "landslide": 413520.37
+              "wind": 123279210.19,
+              "rain": 19958602.39,
+              "surge": 127.67,
+              "landslide": 414010.98
             }
           },
           {
             "class_key": "eau_eu_pr",
             "class_label": "Postes de refoulement",
             "exposure_eur": 182077428.0,
-            "damage_eur": 71287529.6,
-            "direct_damage_eur": 71287529.6,
+            "damage_eur": 70975120.46,
+            "direct_damage_eur": 70975120.46,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 61818690.12,
-              "rain": 9262078.56,
-              "surge": 64.02,
-              "landslide": 206696.9
+              "wind": 60909418.35,
+              "rain": 9861085.75,
+              "surge": 63.08,
+              "landslide": 204553.28
             }
           },
           {
             "class_key": "eau_eu_step",
             "class_label": "STEP",
             "exposure_eur": 1104447600.0,
-            "damage_eur": 488415204.76,
-            "direct_damage_eur": 488415204.76,
+            "damage_eur": 494975969.43,
+            "direct_damage_eur": 494975969.43,
             "indirect_damage_eur": 0.0,
             "damage_components_eur": {
-              "wind": 423540952.56,
-              "rain": 63457662.5,
-              "surge": 438.61,
-              "landslide": 1416151.09
+              "wind": 424778404.0,
+              "rain": 68770583.93,
+              "surge": 439.9,
+              "landslide": 1426541.6
             }
           }
         ]
@@ -3311,10 +3317,10 @@
     },
     "map_defaults": {
       "hazard": "storm",
-      "scenario": "event_max"
+      "scenario": "p99"
     }
   },
   "conclusion": {
-    "text": "Valeur totale du portefeuille d'infrastructures: 10688 M€. Dommages annuels moyens: STORM 4 M€ (0.04 %), STORM_CMCC 4 M€ (0.04 %). Scenario temps de retour 50 ans: STORM 38 M€ (0.36 %), STORM_CMCC 32 M€ (0.30 %). Scenario temps de retour 100 ans: STORM 38 M€ (0.36 %), STORM_CMCC 33 M€ (0.31 %). Evenement le plus extreme: STORM 996 M€ (9.32 %), STORM_CMCC 1060 M€ (9.92 %)."
+    "text": "Valeur totale du portefeuille d'infrastructures: 10688 M€. Dommages annuels moyens: STORM 4 M€ (0.04 %), STORM_CMCC 4 M€ (0.04 %). Scenario temps de retour 50 ans: STORM 41 M€ (0.38 %), STORM_CMCC 33 M€ (0.31 %). Scenario temps de retour 100 ans: STORM 41 M€ (0.39 %), STORM_CMCC 34 M€ (0.32 %). Scenario percentile 99: STORM 981 M€ (9.18 %), STORM_CMCC 1046 M€ (9.79 %)."
   }
 }

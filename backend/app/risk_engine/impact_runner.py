@@ -9,7 +9,6 @@ from typing import Any, Callable
 
 from ..config import Settings, load_settings
 from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
-from .errors import DependencyMissingError
 from .exposure_to_climada import build_climada_exposure
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
@@ -388,15 +387,15 @@ def _build_climada_graphs(
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "percentile_99_loss"],
                 "values": {
                     "annual_eai": [
                         round(float((portfolio_results.get("storm") or {}).get("eai_eur", 0.0)), 2),
                         round(float((portfolio_results.get("storm_cmcc") or {}).get("eai_eur", 0.0)), 2),
                     ],
-                    "max_event_loss": [
-                        round(float((portfolio_results.get("storm") or {}).get("max_event_loss_eur", 0.0)), 2),
-                        round(float((portfolio_results.get("storm_cmcc") or {}).get("max_event_loss_eur", 0.0)), 2),
+                    "percentile_99_loss": [
+                        round(float((portfolio_results.get("storm") or {}).get("percentile_99_loss_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("percentile_99_loss_eur", 0.0)), 2),
                     ],
                 },
             }
@@ -474,7 +473,7 @@ def _compute_impacts_climada(
         storm_years=max(1, int(settings.storm_years)),
         top_n_events=max(1, int(settings.climada_top_events_count)),
         prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
-        fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
+        fallback_to_precomputed_hazards=False,
         storm_parquet_path=settings.storm_parquet_path,
         storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
         wind_unit_in=settings.storm_wind_unit_in,
@@ -495,7 +494,7 @@ def _compute_impacts_climada(
         max_points_per_shard=int(settings.climada_max_points_per_shard),
         min_points_per_shard=int(settings.climada_min_points_per_shard),
         max_shard_retry_depth=int(settings.climada_max_shard_retry_depth),
-        strict_required_components=bool(settings.climada_strict_required_components),
+        strict_required_components=True,
         progress_callback=progress_callback,
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
@@ -575,7 +574,7 @@ def _compute_impacts_climada(
         out["combined_capped"] = round(max(0.0, float(combined_direct)), 2)
         return out
 
-    def _component_direct_max_event_map(component_map: dict[str, Any]) -> dict[str, float]:
+    def _component_direct_percentile_99_map(component_map: dict[str, Any]) -> dict[str, float]:
         ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
         ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
         return {
@@ -585,14 +584,14 @@ def _compute_impacts_climada(
 
     storm_components_direct = _component_direct_eai_map(storm_components_raw, storm_direct)
     cmcc_components_direct = _component_direct_eai_map(cmcc_components_raw, cmcc_direct)
-    storm_components_max = _component_direct_max_event_map(storm_components_raw)
-    cmcc_components_max = _component_direct_max_event_map(cmcc_components_raw)
+    storm_components_p99 = _component_direct_percentile_99_map(storm_components_raw)
+    cmcc_components_p99 = _component_direct_percentile_99_map(cmcc_components_raw)
 
     portfolio_results = {
         "storm": {
             "eai_eur": round(storm_total, 2),
             "aai_agg_eur": round(storm_total, 2),
-            "max_event_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
+            "percentile_99_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
             "eai_direct_eur": round(storm_direct, 2),
             "eai_indirect_eur": round(storm_indirect, 2),
             "pml_10_eur": round(float(storm_direct_metrics.pml_eur.get(10, 0.0)) * storm_scaler, 2),
@@ -606,7 +605,7 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(storm_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(storm_direct_metrics.max_event_loss_eur),
+                            float(storm_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * storm_scaler,
@@ -614,12 +613,12 @@ def _compute_impacts_climada(
             ),
             "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
             "components_direct_eai_eur": storm_components_direct,
-            "components_direct_max_event_loss_eur": storm_components_max,
+            "components_direct_percentile_99_loss_eur": storm_components_p99,
         },
         "storm_cmcc": {
             "eai_eur": round(cmcc_total, 2),
             "aai_agg_eur": round(cmcc_total, 2),
-            "max_event_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
+            "percentile_99_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
             "eai_direct_eur": round(cmcc_direct, 2),
             "eai_indirect_eur": round(cmcc_indirect, 2),
             "pml_10_eur": round(float(cmcc_direct_metrics.pml_eur.get(10, 0.0)) * cmcc_scaler, 2),
@@ -633,7 +632,7 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(cmcc_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(cmcc_direct_metrics.max_event_loss_eur),
+                            float(cmcc_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * cmcc_scaler,
@@ -641,7 +640,7 @@ def _compute_impacts_climada(
             ),
             "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
             "components_direct_eai_eur": cmcc_components_direct,
-            "components_direct_max_event_loss_eur": cmcc_components_max,
+            "components_direct_percentile_99_loss_eur": cmcc_components_p99,
         },
         "delta": {
             "eai_eur": round(cmcc_total - storm_total, 2),
@@ -818,6 +817,10 @@ def compute_impacts_fallback(
                 "asset_label": str(feat.label or feat.feature_id),
                 "geometry_type": str(feat.geometry_type or "Unknown"),
                 "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                "uses_default_value": bool((feat.properties or {}).get("uses_default_value")),
+                "valuation_source": str((feat.properties or {}).get("valuation_source") or ""),
+                "valuation_version": str((feat.properties or {}).get("valuation_version") or ""),
+                "default_value_eur": (feat.properties or {}).get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -935,6 +938,10 @@ def compute_impacts_fallback(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
@@ -966,7 +973,7 @@ def compute_impacts_fallback(
         "storm": {
             "eai_eur": storm_total,
             "aai_agg_eur": storm_total,
-            "max_event_loss_eur": max_event_storm,
+            "percentile_99_loss_eur": max_event_storm,
             "eai_direct_eur": storm_direct,
             "eai_indirect_eur": storm_indirect,
             "pml_10_eur": round(storm_total * 2.3, 2),
@@ -980,7 +987,7 @@ def compute_impacts_fallback(
         "storm_cmcc": {
             "eai_eur": cmcc_total,
             "aai_agg_eur": cmcc_total,
-            "max_event_loss_eur": max_event_cmcc,
+            "percentile_99_loss_eur": max_event_cmcc,
             "eai_direct_eur": cmcc_direct,
             "eai_indirect_eur": cmcc_indirect,
             "pml_10_eur": round(cmcc_total * 2.3, 2),
@@ -1064,35 +1071,30 @@ def compute_impacts(
     resume_enabled: bool = False,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
+    if bool(runtime_settings.allow_climada_fallback):
+        raise ValueError(
+            "SIB_RISK_ALLOW_CLIMADA_FALLBACK is no longer supported: scientific CLIMADA fallback has been removed."
+        )
+    if bool(runtime_settings.hazard_fallback_to_precomputed):
+        raise ValueError(
+            "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED is no longer supported: dynamic hazard failures must stop the scientific run."
+        )
+    if not bool(runtime_settings.climada_strict_required_components):
+        raise ValueError(
+            "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS must remain enabled: incomplete multi-hazard scientific runs now fail explicitly."
+        )
     mode = str(runtime_settings.impact_engine_mode or "climada").strip().lower()
 
     if mode == "fallback":
-        return compute_impacts_fallback(exposure, disagg)
+        raise ValueError("Scientific fallback impact mode has been removed; use 'climada'.")
     if mode not in {"climada", "auto"}:
         raise ValueError(f"Unsupported impact engine mode: {mode}")
 
-    try:
-        return _compute_impacts_climada(
-            exposure,
-            disagg,
-            runtime_settings,
-            progress_callback=progress_callback,
-            checkpoint_dir=checkpoint_dir,
-            resume_enabled=resume_enabled,
-        )
-    except DependencyMissingError as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA dependency missing ({exc}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = str(exc)
-            return res
-        raise
-    except Exception as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA runtime failed ({type(exc).__name__}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = f"{type(exc).__name__}: {exc}"
-            return res
-        raise
+    return _compute_impacts_climada(
+        exposure,
+        disagg,
+        runtime_settings,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        resume_enabled=resume_enabled,
+    )

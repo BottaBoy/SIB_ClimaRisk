@@ -152,7 +152,9 @@ def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, di
             for scenario in ("annual", "rp50", "rp100", "top10", "top5"):
                 out[hazard][scenario] = dict(annual_ratio)
 
-        event_raw = hazard_payload.get("components_direct_max_event_loss_eur")
+        event_raw = hazard_payload.get("components_direct_percentile_99_loss_eur")
+        if not isinstance(event_raw, dict):
+            event_raw = hazard_payload.get("components_direct_max_event_loss_eur")
         if isinstance(event_raw, dict):
             out[hazard]["event_max"] = _normalize_component_ratio_map(event_raw)
         elif isinstance(annual_raw, dict):

@@ -332,6 +332,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": str(rec.get("label") or feature_id),
                 "geometry_type": str(rec.get("geometry_type") or "Unknown"),
                 "asset_type": str(rec.get("asset_type") or ""),
+                "uses_default_value": bool(rec.get("uses_default_value")),
+                "valuation_source": str(rec.get("valuation_source") or ""),
+                "valuation_version": str(rec.get("valuation_version") or ""),
+                "default_value_eur": rec.get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -341,6 +345,13 @@ def aggregate_impacts_with_interdependency(
                 "eai_cmcc_eur": 0.0,
             },
         )
+        asset_row["uses_default_value"] = bool(asset_row.get("uses_default_value")) or bool(rec.get("uses_default_value"))
+        if not asset_row.get("valuation_source") and rec.get("valuation_source"):
+            asset_row["valuation_source"] = str(rec.get("valuation_source") or "")
+        if not asset_row.get("valuation_version") and rec.get("valuation_version"):
+            asset_row["valuation_version"] = str(rec.get("valuation_version") or "")
+        if asset_row.get("default_value_eur") is None and rec.get("default_value_eur") is not None:
+            asset_row["default_value_eur"] = rec.get("default_value_eur")
         asset_row["exposure_eur"] += value
 
         for hazard in hazard_keys:
@@ -459,6 +470,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),

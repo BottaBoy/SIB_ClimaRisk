@@ -221,8 +221,6 @@ def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario
         "--scenario-id",
         scenario.scenario_id,
     ]
-    if args.allow_degraded_components:
-        command.append("--allow-degraded-components")
     return command
 
 
@@ -252,6 +250,8 @@ def main() -> int:
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--list-scenarios", action="store_true")
     args = parser.parse_args()
+    if args.allow_degraded_components:
+        parser.error("--allow-degraded-components has been removed; scientific runs must remain strict multi-hazard")
 
     scenario_ids = _parse_scenario_ids_csv(args.scenario_ids)
     scenarios = list_scenarios_from_pack(args.scenario_pack, scenario_ids=scenario_ids or None)

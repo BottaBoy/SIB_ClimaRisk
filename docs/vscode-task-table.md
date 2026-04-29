@@ -33,6 +33,8 @@ Cas 1. Publication standard du dernier run pour les deux territoires.
 - Utiliser `SIB: Snapshot Latest Run Web Artefacts`.
 - Puis utiliser `SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)`.
 - C'est le chemin recommande: on publie l'archive du dernier run, pas seulement l'etat courant de `web/`.
+- Avant deploy, verifier sur la webapp le badge `Trace:` et le toggle `Afficher le quadrillage des cartes` sur `page1`/`page2`.
+- Apres snapshot, verifier dans `outputs/complete-analysis-runs/<run_id>/manifest.json` le bloc `archived_frontend_validation.publication_trace`.
 
 Cas 2. Publication d'un ancien run archive.
 
@@ -45,6 +47,7 @@ Cas 3. Publication Guadeloupe seule.
 - Utiliser `SIB: Prepare Latest Run Publication (Guadeloupe Only)` pour rebuild + snapshot Guadeloupe.
 - Puis utiliser `SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)`.
 - Ce chemin laisse les artefacts Martinique du live inchanges.
+- Si le profil publication-safe active les fallbacks web, les logs du rebuild doivent contenir `fallback_proxy=true ...` et `fallback_page_analysis=true ...`.
 
 | Label | Groupe | Selection rapide | Role |
 | --- | --- | --- | --- |
@@ -52,8 +55,8 @@ Cas 3. Publication Guadeloupe seule.
 | `SIB: Rebuild Frontend Artefacts (Both Territories)` | `build` | `Ctrl+Shift+B` | Regenerer les artefacts frontend pour Guadeloupe et Martinique |
 | `SIB: Rebuild Frontend + Deploy (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Rebuild frontend Guadeloupe puis deploie sur la racine partagee live |
 | `SIB: Prepare Latest Run Publication (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Rebuild publication-safe puis snapshotte les artefacts du dernier run Guadeloupe |
-| `SIB: Snapshot Latest Run Web Artefacts` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run pour les deux territoires |
-| `SIB: Snapshot Latest Run Web Artefacts (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run uniquement pour la Guadeloupe |
+| `SIB: Snapshot Latest Run Web Artefacts` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run pour les deux territoires et controle `meta.publication_trace` |
+| `SIB: Snapshot Latest Run Web Artefacts (Guadeloupe Only)` | `build` | `Ctrl+Shift+B` | Archive les artefacts web du dernier run uniquement pour la Guadeloupe et controle `meta.publication_trace` |
 | `SIB: Deploy Only (Live shared root)` | `build` | `Ctrl+Shift+B` | Deploie le contenu web actuel sur `sib.shared.elio.dev` |
 | `SIB: Deploy Only (Both labels, deduped)` | `build` | `Ctrl+Shift+B` | Deploie une seule fois vers les deux labels nginx dedoublonnes |
 | `SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)` | `build` | `Ctrl+Shift+B` | Deploie les artefacts archives du dernier run via l'alias `sib.dev` |
@@ -66,6 +69,12 @@ Cas 3. Publication Guadeloupe seule.
 | `SIB: View Run Logs (Markdown)` | `test` | `Ctrl+Shift+P` puis `Tasks: Run Task` | Affiche le journal Markdown des runs |
 | `SIB: View Run Logs (JSONL - Pretty)` | `test` | `Ctrl+Shift+P` puis `Tasks: Run Task` | Affiche le journal JSONL des runs |
 | `SIB: Check Latest Deployment` | `test` | `Ctrl+Shift+P` puis `Tasks: Run Task` | Compare les dates/meta des artefacts locaux et de ceux servis par nginx |
+
+Controle publication recommande:
+
+- `manifest.json`: inspecter `territories.<territory>.archived_frontend_validation.publication_trace` et `publication_fallback_present`.
+- Logs rebuild frontend: rechercher `fallback_proxy=true` et `fallback_page_analysis=true`.
+- Web `page1`/`page2`: verifier le badge `Trace:` et le toggle `Afficher le quadrillage des cartes`.
 
 ## Sensibilite
 

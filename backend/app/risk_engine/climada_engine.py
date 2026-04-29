@@ -28,6 +28,7 @@ from .impact_functions_multi_hazard import (
 
 
 RETURN_PERIODS = (10, 20, 50, 100, 200)
+PUBLIC_EVENT_LOSS_PERCENTILE = 0.99
 _TOPO_RASTER_CACHE: dict[str, Path] = {}
 _SHARD_MEMORY_MULTIPLIER = {
     "wind": 0.95,
@@ -53,6 +54,7 @@ class HazardImpactResult:
     tvar_95_eur: float
     top_events: list[dict[str, Any]]
     matching: dict[str, Any] = field(default_factory=dict)
+    raw_max_event_loss_eur: float = 0.0
 
 
 @dataclass
@@ -122,6 +124,16 @@ def _approx_max_loss_per_point(np: Any, eai_exp: Any, at_event: Any) -> Any:
     eai_sum = float(eai.sum())
     evt_max = float(evt.max()) if evt.size else 0.0
     factor = (evt_max / eai_sum) if eai_sum > 0.0 else 0.0
+    return eai * max(0.0, factor)
+
+
+def _approx_percentile_loss_per_point(np: Any, eai_exp: Any, percentile_loss_eur: float) -> Any:
+    eai = _as_1d_float(np, eai_exp)
+    if eai.size == 0:
+        return np.zeros(0, dtype=float)
+    eai_sum = float(eai.sum())
+    percentile_loss = max(0.0, float(percentile_loss_eur or 0.0))
+    factor = (percentile_loss / eai_sum) if eai_sum > 0.0 else 0.0
     return eai * max(0.0, factor)
 
 
@@ -454,6 +466,35 @@ def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int
     return out
 
 
+def _compute_loss_percentile(np: Any, losses: Any, frequency: Any, percentile: float) -> float:
+    losses_arr = np.clip(_as_1d_float(np, losses), 0.0, None)
+    weights = _as_1d_float(np, frequency)
+    valid = weights > 0.0
+    if not valid.any():
+        return 0.0
+
+    probs = weights[valid]
+    total_w = float(probs.sum())
+    if total_w <= 0.0:
+        return 0.0
+
+    q = float(percentile)
+    if q > 1.0:
+        q = q / 100.0
+    q = min(max(q, 0.0), 1.0)
+
+    sorted_idx = np.argsort(losses_arr[valid])
+    sorted_losses = losses_arr[valid][sorted_idx]
+    sorted_probs = probs[sorted_idx] / total_w
+    cdf = np.cumsum(sorted_probs)
+
+    if q >= 1.0:
+        return float(max(0.0, sorted_losses[-1])) if sorted_losses.size else 0.0
+    idx = int(np.searchsorted(cdf, q, side="left"))
+    idx = max(0, min(idx, sorted_losses.size - 1))
+    return float(max(0.0, sorted_losses[idx]))
+
+
 def _compute_tvar_95(np: Any, losses: Any, frequency: Any) -> float:
     losses_arr = _as_1d_float(np, losses)
     weights = _as_1d_float(np, frequency)
@@ -515,7 +556,13 @@ def _normalize_frequency_on_copy(hazard_obj: Any, storm_years: int) -> Any:
     if getattr(hazard_copy, "_sib_frequency_normalized", False):
         return hazard_copy
     try:
-        hazard_copy.frequency = freq / float(max(1, int(storm_years)))
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            import numpy as np  # type: ignore
+
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
         setattr(hazard_copy, "_sib_frequency_normalized", True)
     except Exception:
         return hazard_obj
@@ -932,6 +979,7 @@ def _save_shard_checkpoint(
     np.savez_compressed(
         result_path,
         eai_direct_by_point=_as_1d_float(np, metrics.eai_direct_by_point),
+        max_loss_by_point=_as_1d_float(np, metrics.max_loss_by_point),
         at_event_loss=_as_1d_float(np, metrics.at_event_loss),
         event_frequency=_as_1d_float(np, metrics.event_frequency),
         event_id=event_ids,
@@ -966,9 +1014,12 @@ def _load_shard_checkpoint(
             stored_point_ids = [str(value) for value in list(payload.get("point_id", []))]
             if stored_point_ids != expected_point_ids:
                 return None
+            if "max_loss_by_point" not in payload.files:
+                return None
             return _rebuild_component_result(
                 np,
                 eai_by_point=payload["eai_direct_by_point"],
+                max_loss_by_point=payload["max_loss_by_point"],
                 at_event_loss=payload["at_event_loss"],
                 event_frequency=payload["event_frequency"],
                 event_id=[str(value) for value in list(payload.get("event_id", []))],
@@ -1229,6 +1280,7 @@ def _plan_hazard_shards(
 def _init_component_result_accumulator(np: Any, *, total_points: int) -> dict[str, Any]:
     return {
         "eai_by_point": np.zeros(total_points, dtype=float),
+        "max_loss_by_point": np.zeros(total_points, dtype=float),
         "at_event_total": None,
         "event_frequency": None,
         "event_id": None,
@@ -1244,10 +1296,15 @@ def _merge_component_result_accumulator(
     metrics: HazardImpactResult,
 ) -> None:
     shard_eai = _as_1d_float(np, metrics.eai_direct_by_point)
+    shard_max_loss = _as_1d_float(np, metrics.max_loss_by_point)
     for offset, point_idx in enumerate(shard.point_indices):
         if offset >= shard_eai.size:
             break
         accumulator["eai_by_point"][int(point_idx)] = float(shard_eai[offset])
+    for offset, point_idx in enumerate(shard.point_indices):
+        if offset >= shard_max_loss.size:
+            break
+        accumulator["max_loss_by_point"][int(point_idx)] = float(shard_max_loss[offset])
 
     shard_at_event = _as_1d_float(np, metrics.at_event_loss)
     if accumulator["at_event_total"] is None:
@@ -1286,6 +1343,7 @@ def _finalize_component_result_accumulator(
     return _rebuild_component_result(
         np,
         eai_by_point=accumulator["eai_by_point"],
+        max_loss_by_point=accumulator["max_loss_by_point"],
         at_event_loss=at_event_total,
         event_frequency=event_frequency,
         event_id=event_id,
@@ -1401,6 +1459,7 @@ def _rebuild_component_result(
     np: Any,
     *,
     eai_by_point: Any,
+    max_loss_by_point: Any | None = None,
     at_event_loss: Any,
     event_frequency: Any,
     event_id: Any,
@@ -1410,20 +1469,25 @@ def _rebuild_component_result(
     eai = _as_1d_float(np, eai_by_point)
     at_event = _as_1d_float(np, at_event_loss)
     frequency = _as_1d_float(np, event_frequency)
-    max_loss_by_point = _approx_max_loss_per_point(np, eai, at_event)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    if max_loss_by_point is None:
+        resolved_max_loss = _approx_percentile_loss_per_point(np, eai, public_event_loss)
+    else:
+        resolved_max_loss = _as_1d_float(np, max_loss_by_point)
     view = _SimpleImpactView(event_id=event_id, event_name=event_name)
     return HazardImpactResult(
         eai_direct_by_point=eai,
-        max_loss_by_point=max_loss_by_point,
+        max_loss_by_point=resolved_max_loss,
         at_event_loss=at_event,
         event_frequency=frequency,
         event_id=event_id,
         event_name=event_name,
         aai_agg_eur=float(eai.sum()),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+        max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -1861,13 +1925,14 @@ def _compute_component_impact(
         overwrite=True,
     )
     impact = ImpactCalc(exposures, impfset, hazard_obj).impact(
-        save_mat=False,
+        save_mat=True,
         assign_centroids=False,
     )
     eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
     at_event = _as_1d_float(np, getattr(impact, "at_event", []))
-    max_loss_point = _approx_max_loss_per_point(np, eai_exp, at_event)
     frequency = _as_1d_float(np, getattr(impact, "frequency", []))
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    max_loss_point = _max_loss_per_point(np, impact, eai_exp.size)
 
     return HazardImpactResult(
         eai_direct_by_point=eai_exp,
@@ -1877,10 +1942,11 @@ def _compute_component_impact(
         event_id=getattr(impact, "event_id", []),
         event_name=getattr(impact, "event_name", []),
         aai_agg_eur=float(getattr(impact, "aai_agg", 0.0) or 0.0),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+        max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -1924,6 +1990,7 @@ def _combine_component_results(
             at_event += comp_at_event
 
     view = _SimpleImpactView(event_id=event_id, event_name=event_name)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
     return HazardImpactResult(
         eai_direct_by_point=capped_eai,
         max_loss_by_point=capped_max,
@@ -1932,10 +1999,11 @@ def _combine_component_results(
         event_id=event_id,
         event_name=event_name,
         aai_agg_eur=float(capped_eai.sum()),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+        max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -2010,25 +2078,33 @@ def _compute_dynamic_hazard_sharded_results(
         }
         return empty, components, component_status, component_sharding, component_notes
 
+    if multi_hazard_ready:
+        if multi_hazard_model is None or impfset_rain is None or TCRain is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain setup is unavailable for hazard-sharded execution."
+            )
+        if impfset_surge is None or TCSurgeBathtub is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge setup is unavailable for hazard-sharded execution."
+            )
+        if tracks is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain component requires dynamic tracks during hazard-sharded execution."
+            )
+        if surge_topo_path is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+            )
+        if not Path(surge_topo_path).exists():
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+            )
+
     component_enabled = {
         "wind": True,
-        "rain": bool(multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None and tracks is not None),
-        "surge": bool(multi_hazard_ready and multi_hazard_model is not None and impfset_surge is not None and TCSurgeBathtub is not None and surge_topo_path is not None and Path(surge_topo_path).exists()),
+        "rain": bool(multi_hazard_ready),
+        "surge": bool(multi_hazard_ready),
     }
-    if multi_hazard_ready and not component_enabled["rain"]:
-        component_status["rain"] = "skipped"
-        component_sharding["rain"] = {"status": "skipped", "reason": "dynamic_tracks_unavailable"}
-        component_notes.append(
-            f"{hazard_key}: rain component skipped because dynamic tracks are unavailable for hazard-sharded execution."
-        )
-    if multi_hazard_ready and surge_topo_path is None:
-        component_status["surge"] = "skipped"
-        component_sharding["surge"] = {"status": "skipped", "reason": "missing_topo_path"}
-        component_notes.append(f"{hazard_key}: surge component skipped (no DEM path configured).")
-    elif multi_hazard_ready and surge_topo_path is not None and not Path(surge_topo_path).exists():
-        component_status["surge"] = "skipped"
-        component_sharding["surge"] = {"status": "skipped", "reason": f"missing_topo:{surge_topo_path}"}
-        component_notes.append(f"{hazard_key}: surge component skipped (DEM not found at {surge_topo_path}).")
 
     component_accumulators: dict[str, dict[str, Any] | None] = {}
     component_completed_shards: dict[str, int] = {}
@@ -2399,6 +2475,15 @@ def run_climada_direct_impacts(
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
 ) -> ClimadaRunResult:
+    if fallback_to_precomputed_hazards:
+        raise ValueError(
+            "Scientific fallback to precomputed hazards has been removed. Disable fallback_to_precomputed_hazards and fix the dynamic hazard input instead."
+        )
+    if not strict_required_components:
+        raise ValueError(
+            "Incomplete multi-hazard CLIMADA execution is no longer supported. Keep strict_required_components enabled."
+        )
+
     runtime = _require_runtime()
     np = runtime["np"]
     ImpactCalc = runtime["ImpactCalc"]
@@ -2520,16 +2605,10 @@ def run_climada_direct_impacts(
                         f"estimated full build={float(dynamic_hazard_estimated_full_memory_bytes) / float(1024**3):.2f} GiB)."
                     )
             except Exception as exc:
-                if not fallback_to_precomputed_hazards:
-                    raise
-                logger.warning(
-                    "Dynamic hazard build failed; falling back to precomputed HDF5 (%s: %s)",
-                    type(exc).__name__,
-                    exc,
-                )
-                notes.append(
-                    f"Dynamic hazard build failed ({type(exc).__name__}): {exc}. Falling back to precomputed HDF5 hazards."
-                )
+                raise RuntimeError(
+                    "Dynamic hazard build failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     if bundle is None:
         bundle = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, storm_years)
@@ -2550,9 +2629,11 @@ def run_climada_direct_impacts(
 
     if bool(multi_hazard_enabled):
         if flood_curve_file is None:
-            notes.append("Multi-hazard disabled: no flood depth curve file configured.")
+            raise RuntimeError("Multi-hazard CLIMADA execution requires a configured flood depth curve file.")
         elif not Path(flood_curve_file).exists():
-            notes.append(f"Multi-hazard disabled: missing flood depth curve file at {flood_curve_file}.")
+            raise FileNotFoundError(
+                f"Multi-hazard CLIMADA execution requires flood depth curves at {flood_curve_file}."
+            )
         else:
             try:
                 from climada_petals.hazard.tc_rainfield import TCRain as _TCRain  # type: ignore
@@ -2574,12 +2655,10 @@ def run_climada_direct_impacts(
                     "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub)."
                 )
             except Exception as exc:
-                logger.warning(
-                    "Multi-hazard setup failed; running wind-only mode (%s: %s)",
-                    type(exc).__name__,
-                    exc,
-                )
-                notes.append(f"Multi-hazard setup failed ({type(exc).__name__}): {exc}. Using wind-only impacts.")
+                raise RuntimeError(
+                    "Multi-hazard setup failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     out: dict[str, HazardImpactResult] = {}
     component_out: dict[str, dict[str, HazardImpactResult]] = {}
@@ -2679,13 +2758,13 @@ def run_climada_direct_impacts(
 
         if multi_hazard_ready and multi_hazard_model is not None and impfset_surge is not None and TCSurgeBathtub is not None:
             if surge_topo_path is None:
-                component_status["surge"] = "skipped"
-                component_sharding["surge"] = {"status": "skipped", "reason": "missing_topo_path"}
-                notes.append(f"{hazard_key}: surge component skipped (no DEM path configured).")
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+                )
             elif not Path(surge_topo_path).exists():
-                component_status["surge"] = "skipped"
-                component_sharding["surge"] = {"status": "skipped", "reason": f"missing_topo:{surge_topo_path}"}
-                notes.append(f"{hazard_key}: surge component skipped (DEM not found at {surge_topo_path}).")
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+                )
             else:
                 try:
                     prepared_topo = _prepare_topo_raster_for_exposure(
@@ -2769,10 +2848,9 @@ def run_climada_direct_impacts(
         if multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None:
             tracks = bundle.tracks_storm if hazard_key == "storm" else bundle.tracks_storm_cmcc
             if tracks is None:
-                component_status["rain"] = "skipped"
-                component_sharding["rain"] = {"status": "skipped", "reason": "dynamic_tracks_unavailable"}
-                notes.append(
-                    f"{hazard_key}: rain component skipped because dynamic tracks are unavailable (precomputed HDF5 source)."
+                raise RuntimeError(
+                    "Incomplete multi-hazard CLIMADA execution is not allowed: "
+                    f"{hazard_key} rain component requires dynamic tracks; precomputed hazards are insufficient."
                 )
             else:
                 try:

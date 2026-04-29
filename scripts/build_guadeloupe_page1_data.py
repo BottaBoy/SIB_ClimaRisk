@@ -126,8 +126,9 @@ NETWORK_LAYER_PREFIX = {
 }
 
 GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
-TABLE_SCENARIOS = ("annual", "rp50", "rp100", "event_max")
+TABLE_SCENARIOS = ("annual", "rp50", "rp100", "p99")
 MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
+PUBLIC_MAP_SCENARIOS = ("annual", "rp50", "rp100", "p99", "top10", "top5")
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 WIND_BIN_STEP_MPS = 1.0
 DEFAULT_COMPONENT_LIGHT_SPACING_M = 800.0
@@ -143,6 +144,10 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
 }
+
+
+def _public_loss_scenario_source(scenario: str) -> str:
+    return "event_max" if str(scenario) == "p99" else str(scenario)
 
 
 def _stable_seed(*parts: object) -> int:
@@ -905,6 +910,43 @@ def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[
     }
 
 
+def _build_publication_trace(
+    *,
+    source_mode: str,
+    fallback_reason: str | None,
+    complete_analysis_source: dict[str, Any] | None,
+    wind_map_meta: dict[str, Any] | None,
+    proxy_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    complete_meta = complete_analysis_source if isinstance(complete_analysis_source, dict) else {}
+    wind_meta = wind_map_meta if isinstance(wind_map_meta, dict) else {}
+    proxy_meta_dict = proxy_meta if isinstance(proxy_meta, dict) else {}
+    proxy_trace = (
+        proxy_meta_dict.get("publication_trace")
+        if isinstance(proxy_meta_dict.get("publication_trace"), dict)
+        else {}
+    )
+    proxy_modeling = proxy_meta_dict.get("modeling") if isinstance(proxy_meta_dict.get("modeling"), dict) else {}
+    return {
+        "artifact_kind": "case_study_page_analysis",
+        "source_mode": str(source_mode),
+        "fallback_active": bool(fallback_reason),
+        "fallback_reason": str(fallback_reason or "") or None,
+        "complete_analysis_run_id": str(complete_meta.get("run_id") or "") or None,
+        "complete_analysis_generated_at": str(complete_meta.get("generated_at") or "") or None,
+        "wind_map_run_id": str(wind_meta.get("case_study_run_id") or "") or None,
+        "wind_map_generated_at": str(wind_meta.get("generated_at") or "") or None,
+        "multi_hazard_proxy_run_id": str(proxy_meta_dict.get("case_study_run_id") or "") or None,
+        "multi_hazard_proxy_fallback_active": bool(
+            proxy_trace.get("fallback_active") if proxy_trace else proxy_modeling.get("fallback")
+        ),
+        "multi_hazard_proxy_source_mode": str(
+            proxy_trace.get("source_mode") if proxy_trace else proxy_modeling.get("source") or ""
+        ) or None,
+        "multi_hazard_proxy_fallback_reason": str(proxy_trace.get("fallback_reason") or "") or None,
+    }
+
+
 def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, dict[str, float]]]:
     out = _default_component_ratios()
     if path is None or not path.exists():
@@ -931,7 +973,9 @@ def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, di
             for scenario in ("annual", "rp50", "rp100", "top10", "top5"):
                 out[hazard][scenario] = dict(annual_ratio)
 
-        event_raw = hazard_payload.get('components_direct_max_event_loss_eur')
+        event_raw = hazard_payload.get('components_direct_percentile_99_loss_eur')
+        if not isinstance(event_raw, dict):
+            event_raw = hazard_payload.get('components_direct_max_event_loss_eur')
         if isinstance(event_raw, dict):
             event_ratio = _normalize_component_ratio_map(event_raw)
             out[hazard]['event_max'] = dict(event_ratio)
@@ -1807,6 +1851,7 @@ def _compute_impact_metrics(
 
         rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
         for scenario in TABLE_SCENARIOS:
+            source_scenario = _public_loss_scenario_source(scenario)
             rows: list[dict[str, Any]] = []
             for network_class_key, label in NETWORK_CLASS_LABELS.items():
                 mask = np.array([ck == network_class_key for ck in class_keys], dtype=bool)
@@ -1818,26 +1863,26 @@ def _compute_impact_metrics(
                 else:
                     state_pct = {
                         s: round(
-                            float(weights_km[mask & (scenario_results[scenario]["final_state"] == s)].sum())
+                            float(weights_km[mask & (scenario_results[source_scenario]["final_state"] == s)].sum())
                             / total_w
                             * 100.0,
                             3,
                         )
                         for s in ("S0", "S1", "S2", "S3")
                     }
-                    damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                    damage_val = round(float(scenario_results[source_scenario]["total_loss"][mask].sum()), 2)
                 direct_val = round(
                     float(
                         np.minimum(
-                            scenario_results[scenario]["direct_loss"],
-                            scenario_results[scenario]["total_loss"],
+                            scenario_results[source_scenario]["direct_loss"],
+                            scenario_results[source_scenario]["total_loss"],
                         )[mask].sum()
                     ),
                     2,
                 )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
-                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                    scenario_component_ratios.get(source_scenario) if isinstance(scenario_component_ratios, dict) else None
                 )
                 damage_components = _allocate_damage_components(damage_val, component_ratios)
                 rows.append(
@@ -1900,20 +1945,23 @@ def _compute_impact_metrics(
             "breakdown_by_scenario": breakdown_by_scenario,
             "summary": {
                 "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "direct_hs_pct_p99": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "indirect_hs_pct_p99": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "eai_total_eur": round(float(scenario_results["annual"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp50_total_loss_eur": round(float(scenario_results["rp50"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp100_total_loss_eur": round(float(scenario_results["rp100"]["total_loss"][all_infra_mask].sum()), 2),
-                "event_max_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
+                "p99_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
                 "top10_total_loss_eur": round(float(scenario_results["top10"]["total_loss"][all_infra_mask].sum()), 2),
                 "top5_total_loss_eur": round(float(scenario_results["top5"]["total_loss"][all_infra_mask].sum()), 2),
                 "event_id_max": event_id_max,
             },
             "feature_states": {
-                scenario: _aggregate_feature_states(feature_ids, scenario_results[scenario]["final_state"])
-                for scenario in MAP_SCENARIOS
+                scenario: _aggregate_feature_states(
+                    feature_ids,
+                    scenario_results[_public_loss_scenario_source(scenario)]["final_state"],
+                )
+                for scenario in PUBLIC_MAP_SCENARIOS
             },
         }
 
@@ -1932,25 +1980,25 @@ def _compute_impact_metrics(
                 "class_label": NETWORK_CLASS_LABELS[class_key],
                 "storm": {
                     "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_storm_event.get("state_pct", {})),
                     "exposure_eur": float(row_storm_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_storm_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_storm_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
                 },
                 "storm_cmcc": {
                     "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_cmcc_event.get("state_pct", {})),
                     "exposure_eur": float(row_cmcc_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_cmcc_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_cmcc_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
                 },
             }
         )
@@ -1967,14 +2015,15 @@ def _compute_impact_metrics(
         },
         "damage_breakdown_by_scenario": {
             scenario: {
-                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][scenario],
-                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][scenario],
+                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
+                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
             }
-            for scenario in MAP_SCENARIOS
-        },
+            for scenario in PUBLIC_MAP_SCENARIOS
+        }
+        ,
         "map_defaults": {
             "hazard": "storm",
-            "scenario": "event_max",
+            "scenario": "p99",
         },
     }
     aux = {
@@ -2018,7 +2067,9 @@ def _row_for_class(
     scenario: str,
     class_key: str,
 ) -> dict[str, Any]:
-    for row in hazard_outputs[hazard_key]["rows_by_scenario"][scenario]:
+    rows_by_scenario = hazard_outputs[hazard_key]["rows_by_scenario"]
+    public_scenario = "p99" if scenario == "event_max" else scenario
+    for row in rows_by_scenario.get(public_scenario, rows_by_scenario.get(scenario, [])):
         if str(row.get("class_key")) == class_key:
             return row
     return {
@@ -2082,11 +2133,11 @@ def _legacy_breakdown_rows(hazard_outputs: dict[str, Any], hazard_key: str) -> l
                 "class_key": class_key,
                 "class_label": label,
                 "eai_eur": round(float(annual.get(class_key, {}).get("damage_eur", 0.0)), 2),
-                "event_max_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
+                "p99_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
                 "direct_eai_eur": round(float(annual.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
                 "indirect_eai_eur": round(float(annual.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
-                "direct_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
-                "indirect_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
+                "direct_p99_loss_eur": round(float(event_max.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
+                "indirect_p99_loss_eur": round(float(event_max.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
             }
         )
     return rows
@@ -2097,9 +2148,9 @@ def _build_impact_summary_text(hazard_outputs: dict[str, Any]) -> str:
     c = hazard_outputs["storm_cmcc"]["summary"]
     return (
         f"STORM: EAI {s['eai_total_eur']:.0f} €, RP50 {s['rp50_total_loss_eur']:.0f} €, "
-        f"RP100 {s['rp100_total_loss_eur']:.0f} €, evt max {s['event_max_total_loss_eur']:.0f} €. "
+        f"RP100 {s['rp100_total_loss_eur']:.0f} €, p99 {s['p99_total_loss_eur']:.0f} €. "
         f"STORM_CMCC: EAI {c['eai_total_eur']:.0f} €, RP50 {c['rp50_total_loss_eur']:.0f} €, "
-        f"RP100 {c['rp100_total_loss_eur']:.0f} €, evt max {c['event_max_total_loss_eur']:.0f} €."
+        f"RP100 {c['rp100_total_loss_eur']:.0f} €, p99 {c['p99_total_loss_eur']:.0f} €."
     )
 
 
@@ -2122,8 +2173,8 @@ def _build_conclusion_text(exposure_metrics: dict[str, Any], impact_metrics: dic
         f"STORM_CMCC {m_eur_rounded(cmcc['rp50_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp50_total_loss_eur'])} %). "
         f"Scenario temps de retour 100 ans: STORM {m_eur_rounded(storm['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp100_total_loss_eur'])} %), "
         f"STORM_CMCC {m_eur_rounded(cmcc['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp100_total_loss_eur'])} %). "
-        f"Evenement le plus extreme: STORM {m_eur_rounded(storm['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(storm['event_max_total_loss_eur'])} %), "
-        f"STORM_CMCC {m_eur_rounded(cmcc['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['event_max_total_loss_eur'])} %)."
+        f"Scenario percentile 99: STORM {m_eur_rounded(storm['p99_total_loss_eur'])} M€ ({pct_of_portfolio(storm['p99_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['p99_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['p99_total_loss_eur'])} %)."
     )
 
 
@@ -2182,7 +2233,10 @@ def _scenario_targets_from_complete_analysis(payload: dict[str, Any]) -> dict[st
         annual = _safe_float(hazard_payload.get("eai_eur"), 0.0)
         rp50 = _safe_float(hazard_payload.get("pml_50_eur"), 0.0)
         rp100 = _safe_float(hazard_payload.get("pml_100_eur"), 0.0)
-        event_max = _safe_float(hazard_payload.get("max_event_loss_eur"), 0.0)
+        event_max = _safe_float(
+            hazard_payload.get("percentile_99_loss_eur", hazard_payload.get("max_event_loss_eur")),
+            0.0,
+        )
         top_events = event_summary.get(top_events_key) if isinstance(event_summary.get(top_events_key), list) else []
         top10 = _mean_top_event_loss(top_events, 10)
         top5 = _mean_top_event_loss(top_events, 5)
@@ -2466,6 +2520,7 @@ def _compute_impact_metrics_from_complete_analysis(
 
         rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
         for scenario in TABLE_SCENARIOS:
+            source_scenario = _public_loss_scenario_source(scenario)
             rows: list[dict[str, Any]] = []
             for network_class_key, label in NETWORK_CLASS_LABELS.items():
                 mask = np.asarray([ck == network_class_key for ck in class_keys], dtype=bool)
@@ -2477,28 +2532,28 @@ def _compute_impact_metrics_from_complete_analysis(
                 else:
                     state_pct = {
                         s: round(
-                            float(weights_km[mask & (scenario_results[scenario]["final_state"] == s)].sum())
+                            float(weights_km[mask & (scenario_results[source_scenario]["final_state"] == s)].sum())
                             / total_w
                             * 100.0,
                             3,
                         )
                         for s in ("S0", "S1", "S2", "S3")
                     }
-                    damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
+                    damage_val = round(float(scenario_results[source_scenario]["total_loss"][mask].sum()), 2)
                 direct_val = round(
                     float(
                         np.minimum(
-                            direct_losses_by_scenario[scenario],
-                            scenario_results[scenario]["total_loss"],
+                            direct_losses_by_scenario[source_scenario],
+                            scenario_results[source_scenario]["total_loss"],
                         )[mask].sum()
                     ),
                     2,
                 )
                 indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
                 component_ratios = effective_component_ratios_by_scenario.get(
-                    scenario,
+                    source_scenario,
                     _normalize_component_ratio_map(
-                        scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                        scenario_component_ratios.get(source_scenario) if isinstance(scenario_component_ratios, dict) else None
                     ),
                 )
                 rows.append(
@@ -2561,20 +2616,23 @@ def _compute_impact_metrics_from_complete_analysis(
             "breakdown_by_scenario": breakdown_by_scenario,
             "summary": {
                 "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "direct_hs_pct_p99": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "indirect_hs_pct_p99": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "eai_total_eur": round(float(scenario_results["annual"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp50_total_loss_eur": round(float(scenario_results["rp50"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp100_total_loss_eur": round(float(scenario_results["rp100"]["total_loss"][all_infra_mask].sum()), 2),
-                "event_max_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
+                "p99_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
                 "top10_total_loss_eur": round(float(scenario_results["top10"]["total_loss"][all_infra_mask].sum()), 2),
                 "top5_total_loss_eur": round(float(scenario_results["top5"]["total_loss"][all_infra_mask].sum()), 2),
                 "event_id_max": _event_id_max_from_complete_analysis(complete_analysis_payload, hazard_key),
             },
             "feature_states": {
-                scenario: _aggregate_feature_states(feature_ids, scenario_results[scenario]["final_state"])
-                for scenario in MAP_SCENARIOS
+                scenario: _aggregate_feature_states(
+                    feature_ids,
+                    scenario_results[_public_loss_scenario_source(scenario)]["final_state"],
+                )
+                for scenario in PUBLIC_MAP_SCENARIOS
             },
         }
 
@@ -2593,25 +2651,25 @@ def _compute_impact_metrics_from_complete_analysis(
                 "class_label": NETWORK_CLASS_LABELS[class_key],
                 "storm": {
                     "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_storm_event.get("state_pct", {})),
                     "exposure_eur": float(row_storm_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_storm_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_storm_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
                 },
                 "storm_cmcc": {
                     "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_cmcc_event.get("state_pct", {})),
                     "exposure_eur": float(row_cmcc_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_cmcc_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_cmcc_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
                 },
             }
         )
@@ -2628,14 +2686,15 @@ def _compute_impact_metrics_from_complete_analysis(
         },
         "damage_breakdown_by_scenario": {
             scenario: {
-                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][scenario],
-                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][scenario],
+                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
+                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
             }
-            for scenario in MAP_SCENARIOS
-        },
+            for scenario in PUBLIC_MAP_SCENARIOS
+        }
+        ,
         "map_defaults": {
             "hazard": "storm",
-            "scenario": "event_max",
+            "scenario": "p99",
         },
     }
     exposure_summary = complete_analysis_payload.get("exposure_summary") if isinstance(complete_analysis_payload, dict) else None
@@ -2714,7 +2773,7 @@ def _build_state_geojson(
             "layer_label": feat["class_label"],
         }
         for hazard_key in ("storm", "storm_cmcc"):
-            for scenario in MAP_SCENARIOS:
+            for scenario in PUBLIC_MAP_SCENARIOS:
                 row[f"state_{scenario}_{hazard_key}"] = hazard_feature_states[hazard_key][scenario].get(fid, "S0")
         rows.append(row)
         geoms.append(feat["geometry"])
@@ -3016,6 +3075,15 @@ def main() -> None:
                 "fallback": bool(fallback_reason),
                 "fallback_landslide_component_supported": bool(aux.get("fallback_landslide_supported")) if fallback_reason else True,
             },
+            "publication_trace": _build_publication_trace(
+                source_mode="complete_analysis_asset_fallback" if fallback_reason else "case_study_page_analysis",
+                fallback_reason=fallback_reason,
+                complete_analysis_source=(
+                    aux.get("complete_analysis_source") if isinstance(aux.get("complete_analysis_source"), dict) else None
+                ),
+                wind_map_meta=wind_map_meta if isinstance(wind_map_meta, dict) else None,
+                proxy_meta=proxy_meta if isinstance(proxy_meta, dict) else None,
+            ),
         },
         "exposition": exposure_metrics,
         "hazard": {

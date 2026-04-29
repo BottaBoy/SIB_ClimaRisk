@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import pytest
 from scipy import sparse
@@ -178,6 +179,22 @@ def test_dynamic_hazard_sharded_rain_uses_configured_inland_distance(monkeypatch
         ),
     )
     monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._build_surge_hazard",
+        lambda *args, **kwargs: (
+            SimpleNamespace(
+                centroids="dummy-centroids",
+                frequency=np.array([1.0], dtype=float),
+                event_id=np.array([101]),
+                event_name=np.array(["evt-101"]),
+            ),
+            {},
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._prepare_topo_raster_for_exposure",
+        lambda path, point_records: path,
+    )
+    monkeypatch.setattr(
         "backend.app.risk_engine.climada_engine._compute_component_impact_sharded",
         lambda *args, **kwargs: (
             _dummy_metrics(),
@@ -222,12 +239,12 @@ def test_dynamic_hazard_sharded_rain_uses_configured_inland_distance(monkeypatch
         requested_rain_model="R-CLIPER",
         rain_max_dist_inland_km=321.0,
         multi_hazard_ready=True,
-        multi_hazard_model=SimpleNamespace(rain_haz_type="TR"),
+        multi_hazard_model=SimpleNamespace(rain_haz_type="TR", surge_haz_type="TCSurgeBathtub"),
         impfset_rain=object(),
-        impfset_surge=None,
+        impfset_surge=object(),
         TCRain=DummyRain,
-        TCSurgeBathtub=None,
-        surge_topo_path=None,
+        TCSurgeBathtub=object(),
+        surge_topo_path=Path(__file__),
         memory_budget_gb=1.0,
         max_points_per_shard=1,
         min_points_per_shard=1,
@@ -236,11 +253,14 @@ def test_dynamic_hazard_sharded_rain_uses_configured_inland_distance(monkeypatch
     )
 
     assert rain_calls == [{"model": "R-CLIPER", "max_dist_inland_km": 321.0}]
-    assert total_metrics.aai_agg_eur == 20.0
+    assert total_metrics.aai_agg_eur == 30.0
     assert components["rain"].aai_agg_eur == 10.0
+    assert components["surge"].aai_agg_eur == 10.0
     assert component_status["rain"] == "complete"
+    assert component_status["surge"] == "complete"
     assert component_sharding["rain"]["status"] == "complete"
-    assert any("surge component skipped" in note for note in component_notes)
+    assert component_sharding["surge"]["status"] == "complete"
+    assert not any("component skipped" in note for note in component_notes)
 
 
 def test_rebuild_component_result_recomputes_metrics_from_arrays():
@@ -260,6 +280,21 @@ def test_rebuild_component_result_recomputes_metrics_from_arrays():
     assert result.pml_eur[10] == 3.0
     assert result.top_events[0]["event_id"] == 202
     assert result.top_events[0]["event_name"] == "evt-2"
+
+
+def test_rebuild_component_result_preserves_explicit_asset_maxima():
+    result = _rebuild_component_result(
+        np,
+        eai_by_point=np.array([10.0, 5.0], dtype=float),
+        max_loss_by_point=np.array([12.0, 4.0], dtype=float),
+        at_event_loss=np.array([3.0, 12.0, 0.0], dtype=float),
+        event_frequency=np.array([0.1, 0.02, 0.0], dtype=float),
+        event_id=np.array([101, 202, 303]),
+        event_name=np.array(["evt-1", "evt-2", "evt-3"]),
+        top_n_events=2,
+    )
+
+    assert result.max_loss_by_point.tolist() == [12.0, 4.0]
 
 
 def test_dynamic_hazard_accumulator_reassembles_full_point_order_and_event_totals():
@@ -315,6 +350,7 @@ def test_dynamic_hazard_accumulator_reassembles_full_point_order_and_event_total
     )
 
     assert rebuilt.eai_direct_by_point.tolist() == [10.0, 11.0, 20.0, 22.0, 30.0]
+    assert rebuilt.max_loss_by_point.tolist() == [10.0, 11.0, 20.0, 22.0, 30.0]
     assert rebuilt.at_event_loss.tolist() == [4.0, 6.0]
     assert rebuilt.event_frequency.tolist() == [0.1, 0.05]
     assert list(rebuilt.event_id) == [101, 202]

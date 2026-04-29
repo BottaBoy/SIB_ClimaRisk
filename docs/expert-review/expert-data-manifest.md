@@ -1,6 +1,6 @@
 # Expert Data Manifest (GUA+MQ)
 
-Last updated: **2026-04-22**
+Last updated: **2026-04-29**
 
 This manifest defines the minimum data transfer package for an autonomous expert rerun on Guadeloupe + Martinique.
 
@@ -17,14 +17,14 @@ This manifest defines the minimum data transfer package for an autonomous expert
 | `/home/ubuntu/uploads/Infra_Eau_Guadeloupe/` | 20 MB | Guadeloupe water exposure sources. |
 | `/home/ubuntu/uploads/Infra_Eau_Martinique/` | 296 MB | Martinique water exposure sources. |
 
-## 2) Optional but Recommended (Robustness / Maximum Reproducibility)
+## 2) Optional - Historical Audit or Extended Reproducibility
 
 | Path | Approx size (reference env) | Value for expert review |
 |---|---:|---|
-| `/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe.h5` | 424 MB | Fallback hazard for Guadeloupe STORM (when dynamic path is unavailable). |
-| `/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe_CMCC.h5` | 458 MB | Fallback hazard for Guadeloupe STORM_CMCC. |
-| `/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique.h5` | 105 MB | Fallback hazard for Martinique STORM. |
-| `/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique_CMCC.h5` | 113 MB | Fallback hazard for Martinique STORM_CMCC. |
+| `/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe.h5` | 424 MB | Historical audit only. Current production compute rejects scientific fallback to precomputed hazards. |
+| `/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe_CMCC.h5` | 458 MB | Historical audit only. Current production compute rejects scientific fallback to precomputed hazards. |
+| `/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique.h5` | 105 MB | Historical audit only. Current production compute rejects scientific fallback to precomputed hazards. |
+| `/home/ubuntu/sib-work/data/hazards/tc_hazard_martinique_CMCC.h5` | 113 MB | Historical audit only. Current production compute rejects scientific fallback to precomputed hazards. |
 | `/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif` | <1 MB | Enables social metrics for Guadeloupe. |
 | `/home/ubuntu/uploads/Population/mtq_pop_2020_CN_100m_R2025A_v1.tif` | <1 MB | Enables social metrics for Martinique. |
 | `/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif` | ~9 MB | Landslide/rainfall scenario support for extended analysis. |
@@ -57,10 +57,15 @@ Selected scope and sharing policy:
 - scope: **GUA + MQ complete rerun**,
 - policy: **full infrastructure data sharing**.
 
+Reference evidence policy:
+- frozen comparison baseline: `20260427_113740`
+- targeted post-integration validation evidence: `20260429_075050` (optional, Guadeloupe only)
+
 This means all required directories above should be transferred as-is to preserve geometry and attribute fidelity.
 
 ## 5) Practical Packaging Notes
 - Preserve relative filenames and directory names exactly.
-- Preserve symlinks if you transfer fallback HDF5 files from repository paths.
+- Preserve symlinks if you transfer the historical HDF5 files from repository paths.
 - After extraction on expert machine, set environment variables via `docs/expert-review/package/expert-env-template.sh`.
 - Run `check_expert_inputs.py` before any heavy run.
+- For the full reviewer handoff checklist, use `docs/expert-review/expert-return-package-2026-04-29.md`.

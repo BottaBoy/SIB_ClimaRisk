@@ -79,13 +79,13 @@ def test_complete_analysis_fallback_reinjects_landslide_with_asset_id_alignment(
                 "eai_eur": 30.0,
                 "pml_50_eur": 30.0,
                 "pml_100_eur": 30.0,
-                "max_event_loss_eur": 30.0,
+                "percentile_99_loss_eur": 30.0,
             },
             "storm_cmcc": {
                 "eai_eur": 0.0,
                 "pml_50_eur": 0.0,
                 "pml_100_eur": 0.0,
-                "max_event_loss_eur": 0.0,
+                "percentile_99_loss_eur": 0.0,
             },
             "event_summary": {
                 "storm_top_events": [{"event_id": 1, "loss_eur": 30.0}],

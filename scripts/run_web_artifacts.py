@@ -187,6 +187,36 @@ def _payload_case_study_run_id(payload: dict[str, Any] | None) -> str:
     return str(meta.get("case_study_run_id") or "").strip()
 
 
+def _payload_publication_trace(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    trace = meta.get("publication_trace") if isinstance(meta.get("publication_trace"), dict) else None
+    modeling = meta.get("modeling") if isinstance(meta.get("modeling"), dict) else {}
+    if trace is None and not modeling:
+        return None
+    source = trace if isinstance(trace, dict) else {}
+    return {
+        "artifact_kind": str(source.get("artifact_kind") or "") or None,
+        "source_mode": str(source.get("source_mode") or modeling.get("source") or "") or None,
+        "fallback_active": bool(source.get("fallback_active") if trace is not None else modeling.get("fallback")),
+        "fallback_reason": str(source.get("fallback_reason") or "") or None,
+        "complete_analysis_run_id": str(source.get("complete_analysis_run_id") or "") or None,
+        "complete_analysis_generated_at": str(source.get("complete_analysis_generated_at") or "") or None,
+        "wind_map_run_id": str(source.get("wind_map_run_id") or source.get("hazard_map_run_id") or "") or None,
+        "wind_map_generated_at": str(source.get("wind_map_generated_at") or source.get("hazard_map_generated_at") or "") or None,
+        "multi_hazard_proxy_run_id": str(source.get("multi_hazard_proxy_run_id") or "") or None,
+        "multi_hazard_proxy_fallback_active": bool(source.get("multi_hazard_proxy_fallback_active")),
+        "multi_hazard_proxy_source_mode": str(source.get("multi_hazard_proxy_source_mode") or "") or None,
+        "multi_hazard_proxy_fallback_reason": str(source.get("multi_hazard_proxy_fallback_reason") or "") or None,
+    }
+
+
+def _requires_publication_trace(relative_path: str) -> bool:
+    path = str(relative_path or "").strip().lower()
+    return path.endswith("-multi-hazard-proxy.json") or path.endswith("-analysis.json")
+
+
 def _path_timestamp(path: Path) -> datetime | None:
     if not path.exists():
         return None
@@ -267,11 +297,13 @@ def validate_territory_web_snapshot(
         "manifest_complete_updated_at": manifest_complete_timestamp.isoformat() if manifest_complete_timestamp else None,
         "case_study_run_id": None,
         "frontend_timestamps": {},
+        "publication_trace": {},
     }
 
     case_study_run_ids: dict[str, str] = {}
     for relative_path in required_frontend:
         path = source_web_dir / relative_path
+        payload = _load_json_payload(path)
         timestamp = _path_timestamp(path)
         if timestamp is None:
             raise RuntimeError(f"Unable to determine timestamp for {path}")
@@ -282,12 +314,17 @@ def validate_territory_web_snapshot(
                 f"{timestamp.isoformat()} < {complete_timestamp.isoformat()}"
             )
         if path.suffix.lower() == ".json":
-            case_study_run_id = _payload_case_study_run_id(_load_json_payload(path))
+            case_study_run_id = _payload_case_study_run_id(payload)
             if relative_path.endswith("network-states.geojson"):
                 continue
             if not case_study_run_id:
                 raise RuntimeError(f"{relative_path} is missing meta.case_study_run_id")
             case_study_run_ids[relative_path] = case_study_run_id
+            publication_trace = _payload_publication_trace(payload)
+            if _requires_publication_trace(relative_path) and publication_trace is None:
+                raise RuntimeError(f"{relative_path} is missing meta.publication_trace")
+            if publication_trace is not None:
+                validation["publication_trace"][relative_path] = publication_trace
 
     distinct_case_study_run_ids = sorted({value for value in case_study_run_ids.values() if value})
     if len(distinct_case_study_run_ids) != 1:
@@ -296,6 +333,32 @@ def validate_territory_web_snapshot(
         )
 
     validation["case_study_run_id"] = distinct_case_study_run_ids[0]
+    proxy_key = next(
+        (path for path in validation["publication_trace"].keys() if str(path).endswith("-multi-hazard-proxy.json")),
+        None,
+    )
+    page_key = next(
+        (path for path in validation["publication_trace"].keys() if str(path).endswith("-analysis.json")),
+        None,
+    )
+    if proxy_key and page_key:
+        proxy_trace = validation["publication_trace"].get(proxy_key) or {}
+        page_trace = validation["publication_trace"].get(page_key) or {}
+        if bool(proxy_trace.get("fallback_active")) != bool(page_trace.get("multi_hazard_proxy_fallback_active")):
+            raise RuntimeError(
+                f"Incoherent publication trace for {normalized_territory}: proxy fallback state does not match page-analysis upstream proxy state"
+            )
+        proxy_source_mode = str(proxy_trace.get("source_mode") or "")
+        page_proxy_source_mode = str(page_trace.get("multi_hazard_proxy_source_mode") or "")
+        if proxy_source_mode and page_proxy_source_mode and proxy_source_mode != page_proxy_source_mode:
+            raise RuntimeError(
+                f"Incoherent publication trace for {normalized_territory}: proxy source mode {proxy_source_mode} != page-analysis upstream proxy source mode {page_proxy_source_mode}"
+            )
+    validation["publication_fallback_present"] = any(
+        bool(trace.get("fallback_active")) or bool(trace.get("multi_hazard_proxy_fallback_active"))
+        for trace in validation["publication_trace"].values()
+        if isinstance(trace, dict)
+    )
     optional_paths: dict[str, str | None] = {}
     for relative_path in territory_optional_snapshot_relative_paths(normalized_territory):
         optional_path = source_web_dir / relative_path

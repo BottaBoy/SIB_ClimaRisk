@@ -44,6 +44,7 @@
           <span class="badge" id="badge-source">Source: chargement…</span>
           <span class="badge" id="badge-updated">Mis a jour: —</span>
           <span class="badge" id="badge-engine">Moteur: —</span>
+          <span class="badge" id="badge-trace" data-trace-state="unavailable">Trace: chargement...</span>
         </div>
       </header>
 
@@ -178,6 +179,10 @@
               <label class="layer-item"><input type="radio" name="hazard-layer" id="hazard-layer-landslide" /><span class="layer-dot" style="background:#8C5A3C"></span><span>Mouvements de terrain</span></label>
             </div>
           </div>
+          <div class="wind-mode-box wind-grid-toggle-box">
+            <label for="wind-grid-toggle">Visualisation de la maille</label>
+            <label class="layer-item wind-grid-toggle-row"><input id="wind-grid-toggle" type="checkbox" /><span>Afficher le quadrillage des cartes</span></label>
+          </div>
         </div>
         <div class="wind-grid">
           <article class="subpanel wind-map-card">
@@ -248,7 +253,7 @@
                   <option value="annual">Moyenne annuelle</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="p99">Percentile 99</option>
                 </select>
               </div>
             </div>
@@ -357,7 +362,7 @@
                 <option value="annual">Moyenne annuelle</option>
                 <option value="rp50">Temps de retour 50 ans</option>
                 <option value="rp100">Temps de retour 100 ans</option>
-                <option value="event_max">Evenement le plus fort</option>
+                <option value="p99">Percentile 99</option>
               </select>
             </div>
           </div>
@@ -673,7 +678,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
             <div id="user-impact-rp1000-chart" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Dommages - evenement maximum</h3>
+            <h3>Dommages - percentile 99</h3>
             <div id="user-impact-eventmax-chart" class="chart"></div>
           </div>
         </div>
@@ -777,7 +782,7 @@ scripts/build_guadeloupe_water_infra_map.py
                 en conservant les details STORM et STORM_CMCC pour comparaison.
               </li>
               <li>
-                <strong>Indicateurs de sortie:</strong> EAI, pertes RP50/RP100, perte evenement maximum,
+                <strong>Indicateurs de sortie:</strong> EAI, pertes RP50/RP100, perte percentile 99,
                 courbes de depassement (FEC), TVaR95 et liste des evenements dominants.
               </li>
             </ol>

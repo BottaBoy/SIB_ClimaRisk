@@ -214,7 +214,7 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
     portfolio_eai = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_direct = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_indirect = np.full(portfolio_shape, np.nan, dtype=float)
-    portfolio_max_event = np.full(portfolio_shape, np.nan, dtype=float)
+    portfolio_percentile_99 = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_tvar = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_pml_10 = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_pml_20 = np.full(portfolio_shape, np.nan, dtype=float)
@@ -223,7 +223,7 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
     portfolio_pml_200 = np.full(portfolio_shape, np.nan, dtype=float)
     portfolio_pml_1000 = np.full(portfolio_shape, np.nan, dtype=float)
     component_direct_eai = np.full(component_shape, np.nan, dtype=float)
-    component_direct_max_event = np.full(component_shape, np.nan, dtype=float)
+    component_direct_percentile_99 = np.full(component_shape, np.nan, dtype=float)
 
     territory_eai = np.full(territory_shape, np.nan, dtype=float)
     territory_direct = np.full(territory_shape, np.nan, dtype=float)
@@ -271,7 +271,9 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
             portfolio_eai[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("eai_eur"))
             portfolio_direct[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("eai_direct_eur"))
             portfolio_indirect[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("eai_indirect_eur"))
-            portfolio_max_event[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("max_event_loss_eur"))
+            portfolio_percentile_99[scenario_idx, hazard_idx] = _coerce_float(
+                hazard_portfolio.get("percentile_99_loss_eur", hazard_portfolio.get("max_event_loss_eur"))
+            )
             portfolio_tvar[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("tvar_95_eur"))
             portfolio_pml_10[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("pml_10_eur"))
             portfolio_pml_20[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("pml_20_eur"))
@@ -281,10 +283,12 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
             portfolio_pml_1000[scenario_idx, hazard_idx] = _coerce_float(hazard_portfolio.get("pml_1000_eur"))
 
             component_direct_map = hazard_portfolio.get("components_direct_eai_eur") if isinstance(hazard_portfolio.get("components_direct_eai_eur"), dict) else {}
-            component_max_map = hazard_portfolio.get("components_direct_max_event_loss_eur") if isinstance(hazard_portfolio.get("components_direct_max_event_loss_eur"), dict) else {}
+            component_max_map = hazard_portfolio.get("components_direct_percentile_99_loss_eur") if isinstance(hazard_portfolio.get("components_direct_percentile_99_loss_eur"), dict) else {}
+            if not component_max_map:
+                component_max_map = hazard_portfolio.get("components_direct_max_event_loss_eur") if isinstance(hazard_portfolio.get("components_direct_max_event_loss_eur"), dict) else {}
             for component_name, component_idx in component_index.items():
                 component_direct_eai[scenario_idx, hazard_idx, component_idx] = _coerce_float(component_direct_map.get(component_name))
-                component_direct_max_event[scenario_idx, hazard_idx, component_idx] = _coerce_float(component_max_map.get(component_name))
+                component_direct_percentile_99[scenario_idx, hazard_idx, component_idx] = _coerce_float(component_max_map.get(component_name))
 
             combined_matching = _matching_combined(payload, hazard_key)
             matching_assigned_fraction[scenario_idx, hazard_idx] = _coerce_float(combined_matching.get("assigned_point_fraction"))
@@ -339,7 +343,7 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
             "portfolio_eai_eur": (("scenario", "hazard"), portfolio_eai),
             "portfolio_eai_direct_eur": (("scenario", "hazard"), portfolio_direct),
             "portfolio_eai_indirect_eur": (("scenario", "hazard"), portfolio_indirect),
-            "portfolio_max_event_loss_eur": (("scenario", "hazard"), portfolio_max_event),
+            "portfolio_percentile_99_loss_eur": (("scenario", "hazard"), portfolio_percentile_99),
             "portfolio_tvar_95_eur": (("scenario", "hazard"), portfolio_tvar),
             "portfolio_pml_10_eur": (("scenario", "hazard"), portfolio_pml_10),
             "portfolio_pml_20_eur": (("scenario", "hazard"), portfolio_pml_20),
@@ -348,7 +352,7 @@ def _build_dataset(records: list[dict[str, Any]]) -> xr.Dataset:
             "portfolio_pml_200_eur": (("scenario", "hazard"), portfolio_pml_200),
             "portfolio_pml_1000_eur": (("scenario", "hazard"), portfolio_pml_1000),
             "portfolio_component_direct_eai_eur": (("scenario", "hazard", "component"), component_direct_eai),
-            "portfolio_component_direct_max_event_loss_eur": (("scenario", "hazard", "component"), component_direct_max_event),
+            "portfolio_component_direct_percentile_99_loss_eur": (("scenario", "hazard", "component"), component_direct_percentile_99),
             "territory_eai_eur": (("scenario", "territory", "hazard"), territory_eai),
             "territory_eai_direct_eur": (("scenario", "territory", "hazard"), territory_direct),
             "territory_eai_indirect_eur": (("scenario", "territory", "hazard"), territory_indirect),
@@ -416,7 +420,7 @@ def export_sensitivity_run(*, run_id: str, scenario_pack: Path | None = None) ->
                     "eai_eur": hazard_portfolio.get("eai_eur"),
                     "eai_direct_eur": hazard_portfolio.get("eai_direct_eur"),
                     "eai_indirect_eur": hazard_portfolio.get("eai_indirect_eur"),
-                    "max_event_loss_eur": hazard_portfolio.get("max_event_loss_eur"),
+                    "percentile_99_loss_eur": hazard_portfolio.get("percentile_99_loss_eur", hazard_portfolio.get("max_event_loss_eur")),
                     "pml_10_eur": hazard_portfolio.get("pml_10_eur"),
                     "pml_20_eur": hazard_portfolio.get("pml_20_eur"),
                     "pml_50_eur": hazard_portfolio.get("pml_50_eur"),

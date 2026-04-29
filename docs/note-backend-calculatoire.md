@@ -1,5 +1,7 @@
 # Note detaillee - Backend calculatoire des risques cycloniques (CLIMADA)
 
+Derniere mise a jour: 2026-04-29
+
 ## 1) Objectif
 Cette note explique:
 - comment le backend calcule les impacts STORM et STORM_CMCC avec CLIMADA,
@@ -8,7 +10,12 @@ Cette note explique:
 - comment les fichiers Python interagissent.
 
 Le moteur par defaut est maintenant **CLIMADA complet** (`engine=climada_with_interdependency_v1`).
-Le fallback deterministic existe encore, mais uniquement en mode explicitement active (`SIB_RISK_IMPACT_ENGINE_MODE=fallback`) ou si `SIB_RISK_ALLOW_CLIMADA_FALLBACK=true`.
+La voie scientifique de production est maintenant **fail-closed**:
+- `compute_impacts(...)` rejette `impact_engine_mode=fallback`
+- `compute_impacts(...)` rejette `SIB_RISK_ALLOW_CLIMADA_FALLBACK=true`
+- `compute_impacts(...)` rejette le fallback HDF5 pre-calcule
+
+Des helpers legacy de fallback peuvent encore exister dans le repo pour audit / historique, mais ils ne constituent plus un mode de production autorise.
 
 ---
 
@@ -139,14 +146,15 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
    - courbes D2 (vulnerabilite uniquement) chargees depuis `data/tc_vulnerability_curves_sib_v1.json`,
    - mapping explicite `asset_type -> impf_TC` applique dans `exposure_to_climada.py`.
 4. calcul CLIMADA:
-   - `ImpactCalc(exposures, impfset, hazard).impact(...)`
+   - `ImpactCalc(exposures, impfset, hazard).impact(save_mat=True, assign_centroids=False)`
 
 ### 4.2 Sorties directes par alea
 - `eai_direct_by_point` (EAI direct par point d’exposition),
-- `max_loss_by_point` (perte max evenementielle par point),
+- `max_loss_by_point` (perte max evenementielle par point, extraite de `imp_mat.max(axis=0)`),
 - `at_event_loss` (perte portfolio par evenement),
 - `aai_agg_eur`,
-- `max_event_loss_eur`,
+- `max_event_loss_eur` (champ public historique, desormais interprete comme une perte de queue de type percentile 99),
+- `raw_max_event_loss_eur` (max evenement brut conserve pour QA / audit),
 - `pml_eur` pour RP 10/20/50/100/200,
 - `tvar_95_eur`,
 - `top_events` (top N, defaut 20).
@@ -240,10 +248,10 @@ Donc, dans l'API backend:
 - `L_*` est une masse de valeur exposee par etat (pas un km).
 - si `value = longueur_km * cout_km` pour une classe lineaire, `L_*` reste proportionnel a la longueur, mais l'unite reste un poids de valeur.
 
-Note mode fallback (`impact_runner.py`):
-- cette logique existe et peut etre executee (`SIB_RISK_IMPACT_ENGINE_MODE=fallback` ou fallback autorise apres echec CLIMADA);
-- elle n'est pas le chemin nominal de production;
-- dans ce mode, `_feature_weight` peut utiliser une longueur km pour les lignes, avec poids conventionnels `1` (points) et `3` (polygones).
+Note historique sur le fallback (`impact_runner.py`):
+- des helpers legacy existent encore pour audit / historique;
+- ils ne sont plus un mode de calcul scientifique autorise par l'entree de production `compute_impacts(...)`;
+- la documentation ci-dessus decrit donc la voie CLIMADA de production et non un mode degrade executable.
 
 ### 5.1.4 Annexe - longueur impactee apres desagregation (hors moteur API principal)
 
@@ -365,7 +373,7 @@ Interpretation:
 
 #### 5.3.2 Portfolio
 Pour chaque alea:
-- `eai_eur`, `aai_agg_eur`, `max_event_loss_eur`
+- `eai_eur`, `aai_agg_eur`, `percentile_99_loss_eur`
 - `eai_direct_eur`, `eai_indirect_eur`
 - `pml_10_eur`, `pml_20_eur`, `pml_50_eur`, `pml_100_eur`, `pml_200_eur`
 - `tvar_95_eur`
@@ -380,7 +388,7 @@ Signification detaillee des variables portfolio:
 - `aai_agg_eur`: meme ordre de grandeur que `eai_eur` dans le payload de sortie actuel (champ garde pour compatibilite).
 - `eai_direct_eur`: part directe calculee par alea.
 - `eai_indirect_eur`: part additionnelle due a la dependance elec -> eau.
-- `max_event_loss_eur`: perte du pire evenement estime pour l'alea.
+- `percentile_99_loss_eur`: headline public de perte evenementielle de queue pour l'alea.
 - `pml_10/20/50/100/200/1000_eur`: pertes de reference par periode de retour.
 - `tvar_95_eur`: moyenne des pertes dans la queue de distribution au-dela du quantile 95%.
 - `delta.eai_eur`: ecart absolu STORM_CMCC - STORM.
@@ -388,6 +396,10 @@ Signification detaillee des variables portfolio:
 - `component_health`: sante par composant (inclut `health`, `L_total`, `L_S1`, `L_S2`, `L_S3`, `asset_count`).
 - `interdependency`: hypothese de dependance, seuils d'etat, uplift, metriques de resolution de sante elec.
 - `event_summary`: liste des evenements les plus dommageables par alea.
+
+Note compatibilite:
+- certains helpers d'audit ou archives historiques peuvent encore exposer `max_event_loss_eur` comme alias du meme headline public
+- le max brut monotone par evenement est conserve separement dans les metriques directes internes via `raw_max_event_loss_eur`
 
 ---
 
@@ -397,7 +409,7 @@ Le payload conserve la structure historique pour le front:
 - `meta`, `exposure_summary`, `territory_results`, `portfolio_results`, `graphs`, `notes`.
 
 Extensions actuelles (additives):
-- `meta.engine` identifie le moteur effectif (`climada_with_interdependency_v1` ou fallback).
+- `meta.engine` identifie le moteur effectif (attendu en production: `climada_with_interdependency_v1`).
 - `meta.modeling` explicite les choix de modelisation (storm_years, hazard_source, dependency_mode, scenario_mode, sampling, etc.).
 - `asset_results` fournit le detail par actif en plus de `territory_results`.
 - `portfolio_results` expose les composantes direct/indirect et les blocs `component_health`, `interdependency`, `event_summary`.
@@ -430,17 +442,16 @@ Les valeurs sont maintenant derivees des pertes CLIMADA (distribution evenementi
 ### 5.6 Parametrage runtime important
 
 Variables d’environnement:
-- `SIB_RISK_IMPACT_ENGINE_MODE`: `climada` (defaut) ou `fallback`
-- `SIB_RISK_ALLOW_CLIMADA_FALLBACK`: `true/false`
+- `SIB_RISK_IMPACT_ENGINE_MODE`: `climada` (defaut) ou `auto`; `fallback` est rejete par l'entree de production
+- `SIB_RISK_ALLOW_CLIMADA_FALLBACK`: doit rester `false` en production
+- `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED`: doit rester `false` en production scientifique
 - `SIB_RISK_CLIMADA_METRIC_CRS`: ex. `EPSG:3857`
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`: cap sampling
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`: top evenements exportes
 
 Endpoint sante:
-- `GET /api/v1/health` retourne notamment:
-  - `climada_runtime_ready`
-  - `impact_engine_mode`
-  - `fallback_allowed`
+- `GET /api/v1/health` retourne un etat minimal de service (`status`, `app`, `now_utc`, `version`)
+- les choix de modelisation et de garde-fous sont visibles dans les payloads de run (`meta`, `meta.modeling`), pas dans l'endpoint sante
 
 ---
 
@@ -583,7 +594,7 @@ Implementation:
 
 Important:
 - la composante pluie necessite les tracks dynamiques;
-- en fallback HDF5 pre-calcule, le backend conserve le calcul vent et peut ignorer la pluie si les tracks ne sont pas disponibles;
+- la production scientifique n'autorise plus de fallback HDF5 pre-calcule pour contourner cette contrainte;
 - la submersion bathtub peut rester calculable via l'aléa vent + DEM.
 
 En langage naturel, la chaine backend est la suivante:
@@ -651,8 +662,9 @@ Lecture metier plus detaillee:
 - `TCRain.from_tracks(...)` ne fait pas un modele hydraulique complet de ruissellement ou d'accumulation sur le terrain;
 - il estime une intensite de pluie locale directement a partir du cyclone synthetique, de sa trajectoire et de ses caracteristiques;
 - cette intensite est ensuite comparee a une courbe de vulnerabilite profondeur-dommage, mais sur un axe pluie-equivalent;
-- le passage profondeur -> pluie proxy est realise une seule fois via un coefficient de base `0.25` dans la construction des courbes;
-- la table `RUNOFF_COEFF_BY_INFRA_CLASS` est conservee dans les metadonnees pour la traçabilite et les futures analyses de sensibilite, mais elle ne re-multiplie pas la pluie pendant le calcul courant des dommages;
+- l'intensite `TCRain` manipulee pour les cartes et la vulnerabilite correspond a un **cumul evenementiel en mm**, pas a un debit `mm/h`;
+- le passage profondeur -> pluie proxy est realise via un **profil par classe d'infrastructure** (`RUNOFF_COEFF_BY_INFRA_CLASS`) mis a l'echelle par le facteur global `multi_hazard_rain_base_runoff_coeff` autour de la reference `0.25`;
+- la table `RUNOFF_COEFF_BY_INFRA_CLASS` n'est plus seulement documentaire: elle est maintenant utilisee pour construire des courbes pluie distinctes selon la classe d'actif;
 - il n'y a donc pas de "descente de crue" dynamique ni de routage hydrologique dans cette V1.
 
 ##### 6.7.2.2 Comment la submersion cotiere est calculee
@@ -685,7 +697,7 @@ Pour Guadeloupe/Martinique, les cartes page 1 / page 2 restent des couches de vi
 
 Le script dedie `scripts/build_guadeloupe_wind_maps.py` applique des choix distincts selon la composante:
 - **vent**: generation native CLIMADA `tracks -> TropCyclone.from_tracks(...)` sur la grille reguliere de la bbox du territoire;
-- **pluie**: generation native CLIMADA `tracks -> TCRain.from_tracks(...)` sur la meme grille reguliere;
+- **pluie**: generation native CLIMADA `tracks -> TCRain.from_tracks(...)` sur la meme grille reguliere, avec frequences renormalisees avant extraction des niveaux de retour et sortie en `mm` cumules par evenement;
 - **submersion**: generation native CLIMADA `tracks -> TropCyclone -> TCSurgeBathtub` sur une **sous-grille reguliere plus fine** (`0.01°` en V1 finale), puis reaggregation vers la grille cartographique `0.02°`.
 
 Extrait du script cartographique:
@@ -826,28 +838,28 @@ Source depth:
 
 Dans le code courant, la pluie-proxy est construite en deux etapes:
 1. on part de la courbe profondeur-dommage `Fxx.x` de la table D2;
-2. on projette son axe profondeur `depth_m` vers un axe pluie equivalente `mm_proxy` avec un coefficient de base `0.25`.
+2. on projette son axe profondeur `depth_m` vers un axe pluie equivalente `mm_proxy` avec un coefficient de ruissellement dependant de la classe d'infrastructure.
 
 Concretement, dans `backend/app/risk_engine/impact_functions_multi_hazard.py`:
 
 ```python
-base_coeff = 0.25
-rain_intensity_mm = (curve["depth_m"] * 1000.0) / base_coeff
+runoff_coeff = class_coeff * (base_coeff / 0.25)
+rain_intensity_mm = (curve["depth_m"] * 1000.0) / runoff_coeff
 ```
 
 Lecture naturelle:
 - la courbe d'origine dit "si l'eau atteint telle profondeur, le dommage est tel";
-- le backend reconstruit une courbe equivalente "si la pluie proxy atteint telle intensite, le dommage est tel";
+- le backend reconstruit une courbe equivalente "si la pluie proxy cumulee par evenement atteint telle intensite, le dommage est tel";
 - on ne repasse donc pas une deuxieme fois la meme conversion pendant le calcul des dommages.
 
-La table `RUNOFF_COEFF_BY_INFRA_CLASS` est conservee dans les metadonnees du modele comme resume des hypotheses d'analyse et pour de futures sensibilites, mais le calcul courant de la pluie-proxy utilise le coefficient de base unique `0.25` pour la construction de la courbe.
+Le parametre de sensibilite `multi_hazard_rain_base_runoff_coeff` reste actif, mais il agit maintenant comme **facteur global de mise a l'echelle** du profil par classe autour de la baseline `0.25`. A la baseline, on retrouve donc les coefficients experts (`0.10`, `0.30`, `0.25`, `0.35`, `0.20` selon la classe), et les scenarios de sensibilite `0.1` / `0.5` dilatent ou contractent ce profil complet.
 
 Cette conversion permet d'utiliser le meme socle `F_Vuln_Depth` pour:
 - la submersion cotiere (`m`),
 - la pluie proxy (`mm_proxy`).
 
 Important:
-- `TCRain.from_tracks(...)` fournit l'intensite de pluie cyclonique;
+- `TCRain.from_tracks(...)` fournit ici un **cumul de pluie par evenement en mm** au niveau du centroid;
 - la conversion `depth -> pluie proxy` sert seulement a brancher cette intensite sur les courbes de vulnerabilite;
 - il ne s'agit pas d'un modele hydrologique de crue, de stockage ou de redescente du niveau d'eau.
 
@@ -901,7 +913,7 @@ Puis la propagation elec -> eau (indirect) s'applique sur ce direct total, sans 
 #### 6.7.7 Sorties JSON ajoutees (additives)
 Dans `portfolio_results.storm` et `portfolio_results.storm_cmcc`:
 - `components_direct_eai_eur`
-- `components_direct_max_event_loss_eur`
+- `components_direct_percentile_99_loss_eur`
 
 Dans `meta`:
 - `hazard_components` (liste des composantes actives)
@@ -1025,6 +1037,36 @@ Principe:
 Effet:
 - les tableaux/cartes/graphs affiches proviennent obligatoirement du meme lot de calcul.
 - on evite les incoherences de type \"cartes d'un run + tableaux d'un run precedent\".
+
+#### 6.7.12 bis Traceabilite de publication (`meta.publication_trace`)
+Les deux artefacts web les plus sensibles aux fallbacks de publication exposent maintenant un bloc structure `meta.publication_trace`:
+- `web/data/{territory}-multi-hazard-proxy.json`
+- `web/data/{territory}-page1-analysis.json` / `page2-analysis.json`
+
+Ce bloc ne change pas la physique du calcul. Il sert a documenter la provenance de publication et contient au minimum:
+- `artifact_kind`
+- `source_mode`
+- `fallback_active`
+- `fallback_reason`
+- les run ids / timestamps amont utiles (`complete_analysis_*`, `wind_map_*`, `multi_hazard_proxy_*` selon l'artefact)
+
+Interpretation:
+- `source_mode=lightweight_sampled_climada_proxy` signifie que le proxy multi-aleas provient du rerun leger natif.
+- `source_mode=complete_analysis_component_ratios` signifie que le proxy multi-aleas a ete synthetise depuis le `complete-analysis.json`.
+- `source_mode=case_study_page_analysis` signifie que la page-analysis provient du rerun leger natif.
+- `source_mode=complete_analysis_asset_fallback` signifie que la page-analysis / les etats reseaux ont ete reconstruits depuis les `asset_results` du `complete-analysis.json`.
+
+Controle associe:
+- `scripts/run_web_artifacts.py` exige maintenant ce bloc sur `multi-hazard-proxy` et `page-analysis` au moment du snapshot archive.
+- le snapshot verifie aussi la coherence proxy <-> page-analysis (etat fallback et `source_mode` amont), puis resume le resultat sous `archived_frontend_validation.publication_trace` dans le manifest du run.
+- le frontend web surfacera ce resume dans le badge `Trace:` de l'en-tete, pour ne pas obliger l'operateur a relire les JSON bruts.
+
+#### 6.7.12 ter Visualisation de la maille web
+Les cartes d'aleas `page1` / `page2` utilisent deja `meta.grid_cell_deg` et la bbox de publication pour reconstruire la grille Leaflet.
+Le toggle `Afficher le quadrillage des cartes` ne modifie pas les valeurs des cellules:
+- il ajoute seulement une couche vectorielle de quadrillage au-dessus des rectangles d'alea,
+- il reutilise la meme maille que les cellules publiees (`0.02 deg` pour Guadeloupe/Martinique dans le profil courant),
+- il sert a auditer visuellement la resolution de publication et a expliciter que la carte est une restitution par mailles, pas un champ continu.
 
 #### 6.7.13 Contraintes operationnelles memoire/ressources et recommandations
 Constats operationnels (runs Guadeloupe/Martinique):

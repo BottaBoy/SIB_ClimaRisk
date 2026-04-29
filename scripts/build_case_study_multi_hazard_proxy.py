@@ -8,6 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -271,6 +272,44 @@ def _load_hazard_map_payload(path: Path | None) -> dict[str, Any]:
         logger.warning("Unable to parse hazard map payload from %s: %s", path, exc)
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    meta = meta if isinstance(meta, dict) else {}
+    modeling = meta.get("modeling") if isinstance(meta.get("modeling"), dict) else {}
+    checkpoint_dir = str(modeling.get("sharding_checkpoint_dir") or "")
+    match = re.search(r"/complete-analysis-runs/([^/]+)/", checkpoint_dir)
+    run_id = match.group(1) if match else ""
+    return {
+        "run_id": run_id or None,
+        "generated_at": str(meta.get("updated_at") or meta.get("generated_at") or "") or None,
+        "source": str(meta.get("source") or "") or None,
+    }
+
+
+def _build_publication_trace(
+    *,
+    artifact_kind: str,
+    source_mode: str,
+    fallback_active: bool,
+    fallback_reason: str | None,
+    complete_analysis_source: dict[str, Any] | None,
+    hazard_map_run_id: str | None,
+    hazard_map_generated_at: str | None,
+) -> dict[str, Any]:
+    source_meta = complete_analysis_source if isinstance(complete_analysis_source, dict) else {}
+    return {
+        "artifact_kind": str(artifact_kind),
+        "source_mode": str(source_mode),
+        "fallback_active": bool(fallback_active),
+        "fallback_reason": str(fallback_reason or "") or None,
+        "complete_analysis_run_id": str(source_meta.get("run_id") or "") or None,
+        "complete_analysis_generated_at": str(source_meta.get("generated_at") or "") or None,
+        "complete_analysis_source": str(source_meta.get("source") or "") or None,
+        "wind_map_run_id": str(hazard_map_run_id or "") or None,
+        "wind_map_generated_at": str(hazard_map_generated_at or "") or None,
+    }
 
 
 def _surge_depth_from_map_cell(cell: dict[str, Any], scenario: str) -> float:
@@ -639,6 +678,9 @@ def _build_fallback_proxy_payload(
     args: argparse.Namespace,
     component_ratios: dict[str, dict[str, dict[str, float]]],
     fallback_reason: str,
+    complete_analysis_source: dict[str, Any] | None,
+    hazard_map_run_id: str | None,
+    hazard_map_generated_at: str | None,
 ) -> dict[str, Any]:
     default_proxy = _default_multi_hazard_proxy(component_ratios)
     notes = [
@@ -690,6 +732,15 @@ def _build_fallback_proxy_payload(
                 "fallback": True,
                 "landslide_component_supported": False,
             },
+            "publication_trace": _build_publication_trace(
+                artifact_kind="multi_hazard_proxy",
+                source_mode="complete_analysis_component_ratios",
+                fallback_active=True,
+                fallback_reason=fallback_reason,
+                complete_analysis_source=complete_analysis_source,
+                hazard_map_run_id=hazard_map_run_id,
+                hazard_map_generated_at=hazard_map_generated_at,
+            ),
         },
         "hazards": hazards_payload,
     }
@@ -736,6 +787,8 @@ def main() -> None:
         else (REPO_ROOT / "web" / "data" / f"{territory}-complete-analysis.json")
     )
     component_ratio_reference = _load_component_ratio_reference(complete_analysis_json)
+    complete_analysis_payload = _load_hazard_map_payload(complete_analysis_json)
+    complete_analysis_source = _extract_complete_analysis_source_metadata(complete_analysis_payload)
 
     out_json = (
         Path(args.out_json)
@@ -751,6 +804,11 @@ def main() -> None:
     hazard_map_meta = hazard_map_payload.get("meta") if isinstance(hazard_map_payload, dict) else None
     hazard_map_run_id = (
         str(hazard_map_meta.get("case_study_run_id") or "").strip()
+        if isinstance(hazard_map_meta, dict)
+        else ""
+    )
+    hazard_map_generated_at = (
+        str(hazard_map_meta.get("generated_at") or "").strip()
         if isinstance(hazard_map_meta, dict)
         else ""
     )
@@ -854,6 +912,17 @@ def main() -> None:
             args=args,
             component_ratio_reference=component_ratio_reference,
         )
+        payload_meta = payload.get("meta") if isinstance(payload, dict) else None
+        if isinstance(payload_meta, dict):
+            payload_meta["publication_trace"] = _build_publication_trace(
+                artifact_kind="multi_hazard_proxy",
+                source_mode="lightweight_sampled_climada_proxy",
+                fallback_active=False,
+                fallback_reason=None,
+                complete_analysis_source=complete_analysis_source,
+                hazard_map_run_id=hazard_map_run_id,
+                hazard_map_generated_at=hazard_map_generated_at,
+            )
     else:
         payload = _build_fallback_proxy_payload(
             territory=territory,
@@ -861,6 +930,9 @@ def main() -> None:
             args=args,
             component_ratios=component_ratio_reference,
             fallback_reason=proxy_fallback_reason or "unknown_error",
+            complete_analysis_source=complete_analysis_source,
+            hazard_map_run_id=hazard_map_run_id,
+            hazard_map_generated_at=hazard_map_generated_at,
         )
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

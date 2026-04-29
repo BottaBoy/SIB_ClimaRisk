@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-04-27T11:58:36+00:00",
-    "case_study_run_id": "guadeloupe_case_20260427T115549Z",
+    "generated_at": "2026-04-29T08:04:52+00:00",
+    "case_study_run_id": "guadeloupe_case_20260429T080020Z",
     "territory": "guadeloupe",
     "territory_label": "Guadeloupe",
     "sample_point_count": 0,
@@ -34,6 +34,17 @@
       "source": "complete_analysis_component_ratios",
       "fallback": true,
       "landslide_component_supported": false
+    },
+    "publication_trace": {
+      "artifact_kind": "multi_hazard_proxy",
+      "source_mode": "complete_analysis_component_ratios",
+      "fallback_active": true,
+      "fallback_reason": "forced_complete_analysis_fallback",
+      "complete_analysis_run_id": "20260429_075050",
+      "complete_analysis_generated_at": "2026-04-29T08:00:18+00:00",
+      "complete_analysis_source": "guadeloupe_complete_reference",
+      "wind_map_run_id": "guadeloupe_case_20260429T080020Z",
+      "wind_map_generated_at": "2026-04-29T08:04:21+00:00"
     }
   },
   "hazards": {
@@ -42,9 +53,9 @@
         "annual": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8758408357864638,
-            "rain": 0.1241582408181247,
-            "surge": 9.233954115800864e-07,
+            "wind": 0.8671658554221061,
+            "rain": 0.1328332303284786,
+            "surge": 9.142494152566765e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -52,9 +63,9 @@
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8758408357864638,
-            "rain": 0.1241582408181247,
-            "surge": 9.233954115800864e-07,
+            "wind": 0.8671658554221061,
+            "rain": 0.1328332303284786,
+            "surge": 9.142494152566765e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -62,9 +73,9 @@
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8758408357864638,
-            "rain": 0.1241582408181247,
-            "surge": 9.233954115800864e-07,
+            "wind": 0.8671658554221061,
+            "rain": 0.1328332303284786,
+            "surge": 9.142494152566765e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -72,9 +83,9 @@
         "event_max": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8743636006245897,
-            "rain": 0.1149778299600014,
-            "surge": 0.010658569415408848,
+            "wind": 0.874852218565182,
+            "rain": 0.11469748972828578,
+            "surge": 0.010450291706532264,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -82,9 +93,9 @@
         "top10": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8758408357864638,
-            "rain": 0.1241582408181247,
-            "surge": 9.233954115800864e-07,
+            "wind": 0.8671658554221061,
+            "rain": 0.1328332303284786,
+            "surge": 9.142494152566765e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -92,9 +103,9 @@
         "top5": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8758408357864638,
-            "rain": 0.1241582408181247,
-            "surge": 9.233954115800864e-07,
+            "wind": 0.8671658554221061,
+            "rain": 0.1328332303284786,
+            "surge": 9.142494152566765e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -106,9 +117,9 @@
         "annual": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8696956377253131,
-            "rain": 0.13030346162768305,
-            "surge": 9.006470038622955e-07,
+            "wind": 0.8606603109044493,
+            "rain": 0.13933879780542954,
+            "surge": 8.912901212045744e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -116,9 +127,9 @@
         "rp50": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8696956377253131,
-            "rain": 0.13030346162768305,
-            "surge": 9.006470038622955e-07,
+            "wind": 0.8606603109044493,
+            "rain": 0.13933879780542954,
+            "surge": 8.912901212045744e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -126,9 +137,9 @@
         "rp100": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8696956377253131,
-            "rain": 0.13030346162768305,
-            "surge": 9.006470038622955e-07,
+            "wind": 0.8606603109044493,
+            "rain": 0.13933879780542954,
+            "surge": 8.912901212045744e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -136,9 +147,9 @@
         "event_max": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8835948425617434,
-            "rain": 0.10710837127790149,
-            "surge": 0.009296786160355239,
+            "wind": 0.8982382407983501,
+            "rain": 0.09235622815467137,
+            "surge": 0.00940553104697855,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -146,9 +157,9 @@
         "top10": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8696956377253131,
-            "rain": 0.13030346162768305,
-            "surge": 9.006470038622955e-07,
+            "wind": 0.8606603109044493,
+            "rain": 0.13933879780542954,
+            "surge": 8.912901212045744e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}
@@ -156,9 +167,9 @@
         "top5": {
           "global_multiplier": 1.0,
           "component_ratios": {
-            "wind": 0.8696956377253131,
-            "rain": 0.13030346162768305,
-            "surge": 9.006470038622955e-07,
+            "wind": 0.8606603109044493,
+            "rain": 0.13933879780542954,
+            "surge": 8.912901212045744e-07,
             "landslide": 0.0
           },
           "breakdown_shares": {}

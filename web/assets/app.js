@@ -26,8 +26,10 @@ const state = {
   mapReady: false,
   windMaps: null,
   landslideMaps: null,
+  multiHazardProxy: null,
   windLayerOpacity: 0.82,
   windMapMode: 'mean',
+  hazardGridVisible: false,
   selectedHazardComponents: {
     wind: true,
     rain: false,
@@ -78,7 +80,7 @@ const state = {
     drawn: []
   },
   impactMapHazard: 'storm',
-  impactMapScenario: 'event_max',
+  impactMapScenario: 'p99',
   impactTableScenario: 'annual',
   impactTableDisplayMode: 'money',
   conclusionDisplayMode: 'money',
@@ -103,6 +105,8 @@ const windMapRef = {
     instance: null,
     hasFitted: false,
     legendControl: null,
+    gridLayer: null,
+    gridPaneName: 'hazard-grid-storm',
     layersByComponent: {
       wind: null,
       rain: null,
@@ -120,6 +124,8 @@ const windMapRef = {
     instance: null,
     hasFitted: false,
     legendControl: null,
+    gridLayer: null,
+    gridPaneName: 'hazard-grid-cmcc',
     layersByComponent: {
       wind: null,
       rain: null,
@@ -252,7 +258,7 @@ const STATE_COLORS = {
 
 const WIND_PADDING_CELLS = 6;
 const WIND_SCALE_STEP_MPS = 5;
-const RAIN_SCALE_STEP_MMPH = 25;
+const RAIN_SCALE_STEP_MM = 25;
 const SURGE_SCALE_STEP_M = 0.25;
 const HAZARD_COMPONENT_ORDER = ['wind', 'rain', 'surge', 'landslide'];
 const IMPACT_COMPONENT_ORDER = ['wind', 'rain', 'surge', 'landslide'];
@@ -320,6 +326,7 @@ const els = {
   badgeSource: document.getElementById('badge-source'),
   badgeUpdated: document.getElementById('badge-updated'),
   badgeEngine: document.getElementById('badge-engine'),
+  badgeTrace: document.getElementById('badge-trace'),
   hazardSelect: document.getElementById('hazard-select'),
   datasetSelect: document.getElementById('dataset-select'),
   pollJobId: document.getElementById('poll-job-id'),
@@ -359,6 +366,7 @@ const els = {
   windOpacitySlider: document.getElementById('wind-opacity-slider'),
   windOpacityValue: document.getElementById('wind-opacity-value'),
   windMapMode: document.getElementById('wind-map-mode'),
+  windGridToggle: document.getElementById('wind-grid-toggle'),
   hazardLayerControls: document.getElementById('hazard-layer-controls'),
   hazardLayerWind: document.getElementById('hazard-layer-wind'),
   hazardLayerRain: document.getElementById('hazard-layer-rain'),
@@ -1041,6 +1049,62 @@ function currentCaseStudyBadgeMeta() {
   };
 }
 
+function setTraceBadge(text, traceState = 'unavailable', title = '') {
+  if (!els.badgeTrace) return;
+  els.badgeTrace.textContent = text;
+  els.badgeTrace.dataset.traceState = traceState;
+  if (title) {
+    els.badgeTrace.title = title;
+  } else {
+    els.badgeTrace.removeAttribute('title');
+  }
+}
+
+function currentCaseStudyTraceMeta() {
+  const pageMeta = state.page1Analysis?.meta || null;
+  const proxyMeta = state.multiHazardProxy?.meta || null;
+  const pageTrace = pageMeta?.publication_trace || null;
+  const proxyTrace = proxyMeta?.publication_trace || null;
+  const pageModeling = pageMeta?.modeling || null;
+  const proxyModeling = proxyMeta?.modeling || null;
+  const pageAvailable = Boolean(pageTrace || pageModeling);
+  const proxyAvailable = Boolean(proxyTrace || proxyModeling);
+  const available = pageAvailable || proxyAvailable;
+  if (!available) {
+    return {
+      available: false,
+      traceState: 'unavailable',
+      text: 'Trace: —',
+      title: ''
+    };
+  }
+
+  const pageFallback = Boolean(pageTrace?.fallback_active ?? pageModeling?.fallback);
+  const proxyFallback = Boolean(proxyTrace?.fallback_active ?? proxyModeling?.fallback);
+  const fallbackCount = Number(pageAvailable && pageFallback) + Number(proxyAvailable && proxyFallback);
+  const availableCount = Number(pageAvailable) + Number(proxyAvailable);
+  const traceState = fallbackCount <= 0 ? 'native' : (fallbackCount === availableCount ? 'fallback' : 'mixed');
+  const parts = [];
+  if (pageAvailable) parts.push(`page ${pageFallback ? 'fallback' : 'native'}`);
+  if (proxyAvailable) parts.push(`proxy ${proxyFallback ? 'fallback' : 'natif'}`);
+  const summary = traceState === 'fallback'
+    ? 'fallback publication'
+    : (traceState === 'mixed' ? 'trace mixte' : 'calcul natif');
+  const title = dedupeNonEmptyStrings([
+    pageTrace?.source_mode ? `page=${pageTrace.source_mode}` : '',
+    proxyTrace?.source_mode ? `proxy=${proxyTrace.source_mode}` : '',
+    pageTrace?.fallback_reason ? `reason_page=${pageTrace.fallback_reason}` : '',
+    proxyTrace?.fallback_reason ? `reason_proxy=${proxyTrace.fallback_reason}` : '',
+    pageTrace?.multi_hazard_proxy_fallback_reason ? `reason_proxy=${pageTrace.multi_hazard_proxy_fallback_reason}` : ''
+  ]).join(' | ');
+  return {
+    available: true,
+    traceState,
+    text: `Trace: ${summary}${parts.length ? ` (${parts.join(' / ')})` : ''}`,
+    title
+  };
+}
+
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
@@ -1370,7 +1434,7 @@ function getActiveResult() {
 }
 
 function getHazardPortfolio(result, hazardKey) {
-  return result?.portfolio_results?.[hazardKey] || { eai_eur: 0, aai_agg_eur: 0, max_event_loss_eur: 0 };
+  return result?.portfolio_results?.[hazardKey] || { eai_eur: 0, aai_agg_eur: 0, percentile_99_loss_eur: 0 };
 }
 
 function getHazardLabel(hazardKey) {
@@ -1379,6 +1443,8 @@ function getHazardLabel(hazardKey) {
 
 function updateMetaBadges() {
   if (state.currentPage === 'page1' || state.currentPage === 'page2') {
+    const traceMeta = currentCaseStudyTraceMeta();
+    setTraceBadge(traceMeta.text, traceMeta.traceState, traceMeta.title);
     const badgeMeta = currentCaseStudyBadgeMeta();
     if (badgeMeta.caseMeta || badgeMeta.completeMeta) {
       const engine = badgeMeta.completeMeta?.engine || 'climada_with_interdependency_v1';
@@ -1411,11 +1477,13 @@ function updateMetaBadges() {
     els.badgeSource.textContent = 'Source: —';
     els.badgeUpdated.textContent = 'Mis a jour: —';
     els.badgeEngine.textContent = 'Moteur: —';
+    setTraceBadge('Trace: —', 'unavailable');
     return;
   }
   els.badgeSource.textContent = `Source: ${result.meta?.source || 'inconnue'}`;
   els.badgeUpdated.textContent = `Mis a jour: ${formatDate(result.meta?.updated_at)}`;
   els.badgeEngine.textContent = `Moteur: ${result.meta?.engine || 'n/a'}`;
+  setTraceBadge('Trace: calcul interactif', 'native');
 }
 
 function renderKpis() {
@@ -1435,7 +1503,7 @@ function renderKpis() {
   const pointCountForScope = Number(summary.asset_count_points || 0);
   const lossRp50 = scenarioLossFromPortfolio(p, 'rp50');
   const lossRp100 = scenarioLossFromPortfolio(p, 'rp100');
-  const lossEventMax = scenarioLossFromPortfolio(p, 'event_max');
+  const lossP99 = scenarioLossFromPortfolio(p, 'p99');
 
   const cards = [
     {
@@ -1459,9 +1527,9 @@ function renderKpis() {
       sub: `${percentFmt.format(pctExposure(lossRp100))}% de l'exposition totale · ${getHazardLabel(hazardKey)}`
     },
     {
-      label: "Pertes de l'evenement max",
-      value: formatMoneyMEUR(lossEventMax),
-      sub: `${percentFmt.format(pctExposure(lossEventMax))}% de l'exposition totale · Estimation portefeuille`
+      label: 'Pertes percentile 99',
+      value: formatMoneyMEUR(lossP99),
+      sub: `${percentFmt.format(pctExposure(lossP99))}% de l'exposition totale · Estimation portefeuille`
     },
     {
       label: 'Écart CMCC vs STORM',
@@ -1713,7 +1781,7 @@ function selectedHazardChartConfig(componentRaw) {
       yearTitle: 'Intensité pluie proxy par annee (STORM vs STORM_CMCC)',
       eventTitle: 'Intensité pluie proxy par evenement cyclonique (STORM vs STORM_CMCC)',
       xAxisLabel: 'Intensité pluie proxy',
-      unitDisplay: 'mm/h',
+      unitDisplay: 'mm',
       yAxisName: 'Part des mailles (%)'
     };
   }
@@ -1771,7 +1839,7 @@ function buildAdditionalHazardComparisonRows(componentRaw) {
     : (component === 'rain' ? 'Pluie proxy' : 'Inondation côtière');
   const unit = component === 'wind'
     ? 'm/s'
-    : (component === 'rain' ? 'mm/h' : 'm');
+    : (component === 'rain' ? 'mm' : 'm');
   const rows = [];
 
   scenarios.forEach((scenario) => {
@@ -1998,6 +2066,17 @@ function withRp50ImpactScenario(impactPayload) {
   const summary = impact?.summary_metrics || {};
   const stormSummary = summary?.storm || {};
   const cmccSummary = summary?.storm_cmcc || {};
+  const byScenario = impact?.damage_breakdown_by_scenario || {};
+  const p99Rows = Array.isArray(tables.p99) && tables.p99.length
+    ? tables.p99
+    : (Array.isArray(tables.event_max) ? tables.event_max : []);
+  const p99Breakdown = byScenario?.p99 || byScenario?.event_max || null;
+  const stormP99 = Number.isFinite(Number(stormSummary.p99_total_loss_eur))
+    ? Number(stormSummary.p99_total_loss_eur)
+    : Number(stormSummary.event_max_total_loss_eur || 0);
+  const cmccP99 = Number.isFinite(Number(cmccSummary.p99_total_loss_eur))
+    ? Number(cmccSummary.p99_total_loss_eur)
+    : Number(cmccSummary.event_max_total_loss_eur || 0);
 
   const stormRp50 = Number.isFinite(Number(stormSummary.rp50_total_loss_eur))
     ? Number(stormSummary.rp50_total_loss_eur)
@@ -2038,7 +2117,6 @@ function withRp50ImpactScenario(impactPayload) {
       };
     });
 
-  const byScenario = impact?.damage_breakdown_by_scenario || {};
   let rp50Breakdown = byScenario?.rp50;
   if (!rp50Breakdown && byScenario?.rp100) {
     const rp100Breakdown = byScenario.rp100 || {};
@@ -2068,15 +2146,25 @@ function withRp50ImpactScenario(impactPayload) {
     ...impact,
     summary_metrics: {
       ...summary,
-      storm: { ...stormSummary, rp50_total_loss_eur: stormRp50 },
-      storm_cmcc: { ...cmccSummary, rp50_total_loss_eur: cmccRp50 },
+      storm: {
+        ...stormSummary,
+        rp50_total_loss_eur: stormRp50,
+        p99_total_loss_eur: stormP99,
+      },
+      storm_cmcc: {
+        ...cmccSummary,
+        rp50_total_loss_eur: cmccRp50,
+        p99_total_loss_eur: cmccP99,
+      },
     },
     state_damage_tables: {
       ...tables,
+      ...(p99Rows.length ? { p99: p99Rows } : {}),
       rp50: rp50Rows,
     },
     damage_breakdown_by_scenario: {
       ...byScenario,
+      ...(p99Breakdown ? { p99: p99Breakdown } : {}),
       ...(rp50Breakdown ? { rp50: rp50Breakdown } : {}),
     },
   };
@@ -2086,7 +2174,7 @@ function normalizeImpactTableScenario(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (value === 'rp50') return 'rp50';
   if (value === 'rp100') return 'rp100';
-  if (value === 'event_max') return 'event_max';
+  if (value === 'p99' || value === 'event_max') return 'p99';
   return 'annual';
 }
 
@@ -2098,8 +2186,8 @@ function impactTableScenarioMeta(scenarioRaw) {
   if (scenario === 'rp100') {
     return { key: 'rp100', title: 'Tableau des impacts causes par les evenements a temps de retour 100 ans' };
   }
-  if (scenario === 'event_max') {
-    return { key: 'event_max', title: "Tableau des impacts causes par l'evenement le plus fort" };
+  if (scenario === 'p99') {
+    return { key: 'p99', title: 'Tableau des impacts causes par le percentile 99 des pertes evenementielles' };
   }
   return { key: 'annual', title: 'Tableau des impacts annuels (moyenne)' };
 }
@@ -2226,7 +2314,7 @@ function stateSeverity(stateRaw) {
 function aggregateScenarioSocialSummary(analysis, networkStates) {
   const populationByCell = territoryPopulationByCell(analysis);
   const features = Array.isArray(networkStates?.features) ? networkStates.features : [];
-  const scenarios = ['annual', 'rp50', 'rp100', 'event_max'];
+  const scenarios = ['annual', 'rp50', 'rp100', 'p99'];
   const hazards = ['storm', 'storm_cmcc'];
   const worstStates = {};
 
@@ -2405,7 +2493,12 @@ function renderPage1Conclusion(analysis) {
     { label: 'Moyenne annuelle', key: 'annual', stormLoss: Number(storm.eai_total_eur || 0), cmccLoss: Number(cmcc.eai_total_eur || 0) },
     { label: 'Temps de retour 50 ans', key: 'rp50', stormLoss: Number(storm.rp50_total_loss_eur || 0), cmccLoss: Number(cmcc.rp50_total_loss_eur || 0) },
     { label: 'Temps de retour 100 ans', key: 'rp100', stormLoss: Number(storm.rp100_total_loss_eur || 0), cmccLoss: Number(cmcc.rp100_total_loss_eur || 0) },
-    { label: 'Evenement le plus fort', key: 'event_max', stormLoss: Number(storm.event_max_total_loss_eur || 0), cmccLoss: Number(cmcc.event_max_total_loss_eur || 0) }
+    {
+      label: 'Percentile 99',
+      key: 'p99',
+      stormLoss: Number(((storm.p99_total_loss_eur ?? storm.event_max_total_loss_eur) || 0)),
+      cmccLoss: Number(((cmcc.p99_total_loss_eur ?? cmcc.event_max_total_loss_eur) || 0))
+    }
   ];
 
   if (els.conclusionTableBody) {
@@ -2988,15 +3081,18 @@ function hazardMetricConfig(componentRaw, modeRaw) {
       return {
         component,
         mode,
-        valueKey: 'rp50_rain_mmph',
-        minKey: 'rp50_rain_min_mmph',
-        maxKey: 'rp50_rain_max_mmph',
+        valueKey: 'rp50_rain_mm',
+        minKey: 'rp50_rain_min_mm',
+        maxKey: 'rp50_rain_max_mm',
+        fallbackValueKey: 'rp50_rain_mmph',
+        fallbackMinKey: 'rp50_rain_min_mmph',
+        fallbackMaxKey: 'rp50_rain_max_mmph',
         legendTitle: 'Pluie proxy (retour 50 ans)',
         captionLabel: 'pluie proxy (temps de retour 50 ans)',
         mapLabel: 'temps de retour 50 ans',
         tooltipLabel: 'Pluie proxy (retour 50 ans)',
-        unitDisplay: 'mm/h proxy',
-        scaleStep: RAIN_SCALE_STEP_MMPH,
+        unitDisplay: 'mm proxy',
+        scaleStep: RAIN_SCALE_STEP_MM,
         estimateFrom: null
       };
     }
@@ -3004,15 +3100,18 @@ function hazardMetricConfig(componentRaw, modeRaw) {
       return {
         component,
         mode,
-        valueKey: 'rp100_rain_mmph',
-        minKey: 'rp100_rain_min_mmph',
-        maxKey: 'rp100_rain_max_mmph',
+        valueKey: 'rp100_rain_mm',
+        minKey: 'rp100_rain_min_mm',
+        maxKey: 'rp100_rain_max_mm',
+        fallbackValueKey: 'rp100_rain_mmph',
+        fallbackMinKey: 'rp100_rain_min_mmph',
+        fallbackMaxKey: 'rp100_rain_max_mmph',
         legendTitle: 'Pluie proxy (retour 100 ans)',
         captionLabel: 'pluie proxy (temps de retour 100 ans)',
         mapLabel: 'temps de retour 100 ans',
         tooltipLabel: 'Pluie proxy (retour 100 ans)',
-        unitDisplay: 'mm/h proxy',
-        scaleStep: RAIN_SCALE_STEP_MMPH,
+        unitDisplay: 'mm proxy',
+        scaleStep: RAIN_SCALE_STEP_MM,
         estimateFrom: null
       };
     }
@@ -3020,30 +3119,36 @@ function hazardMetricConfig(componentRaw, modeRaw) {
       return {
         component,
         mode,
-        valueKey: 'event_max_rain_mmph',
-        minKey: 'event_max_rain_min_mmph',
-        maxKey: 'event_max_rain_max_mmph',
+        valueKey: 'event_max_rain_mm',
+        minKey: 'event_max_rain_min_mm',
+        maxKey: 'event_max_rain_max_mm',
+        fallbackValueKey: 'event_max_rain_mmph',
+        fallbackMinKey: 'event_max_rain_min_mmph',
+        fallbackMaxKey: 'event_max_rain_max_mmph',
         legendTitle: 'Pluie proxy (evenement le plus fort)',
         captionLabel: 'pluie proxy (evenement le plus fort)',
         mapLabel: 'evenement le plus fort',
         tooltipLabel: 'Pluie proxy (evenement le plus fort)',
-        unitDisplay: 'mm/h proxy',
-        scaleStep: RAIN_SCALE_STEP_MMPH,
+        unitDisplay: 'mm proxy',
+        scaleStep: RAIN_SCALE_STEP_MM,
         estimateFrom: null
       };
     }
     return {
       component,
       mode: 'mean',
-      valueKey: 'mean_rain_mmph',
-      minKey: 'mean_rain_min_mmph',
-      maxKey: 'mean_rain_max_mmph',
+      valueKey: 'mean_rain_mm',
+      minKey: 'mean_rain_min_mm',
+      maxKey: 'mean_rain_max_mm',
+      fallbackValueKey: 'mean_rain_mmph',
+      fallbackMinKey: 'mean_rain_min_mmph',
+      fallbackMaxKey: 'mean_rain_max_mmph',
       legendTitle: 'Pluie proxy moyenne',
       captionLabel: 'pluie proxy moyenne',
       mapLabel: 'moyenne annuelle',
       tooltipLabel: 'Pluie proxy moyenne',
-      unitDisplay: 'mm/h proxy',
-      scaleStep: RAIN_SCALE_STEP_MMPH,
+      unitDisplay: 'mm proxy',
+      scaleStep: RAIN_SCALE_STEP_MM,
       estimateFrom: null
     };
   }
@@ -3317,6 +3422,12 @@ function updateHazardLayerUi() {
   if (els.hazardLayerLandslide && selected === 'landslide') els.hazardLayerLandslide.checked = true;
 }
 
+function updateWindGridToggleUi(gridAvailable = true) {
+  if (!els.windGridToggle) return;
+  els.windGridToggle.checked = Boolean(state.hazardGridVisible);
+  els.windGridToggle.disabled = !gridAvailable;
+}
+
 function currentHazardLayerPaneOpacity() {
   return clamp01(currentWindOpacityFactor());
 }
@@ -3397,6 +3508,12 @@ function ensureWindMap(hazardKey) {
     }
     ref.layersByComponent[component] = L.layerGroup().addTo(ref.instance);
   });
+  if (ref.gridPaneName && !ref.instance.getPane(ref.gridPaneName)) {
+    const pane = ref.instance.createPane(ref.gridPaneName);
+    pane.style.zIndex = '439';
+    pane.style.pointerEvents = 'none';
+  }
+  ref.gridLayer = L.layerGroup().addTo(ref.instance);
   return ref;
 }
 
@@ -3509,6 +3626,8 @@ function buildSharedWindGridSpec(payload, meta) {
 function resolveHazardMetricValue(cell, metric, fallbackValue) {
   const direct = Number(cell?.[metric?.valueKey]);
   if (Number.isFinite(direct)) return direct;
+  const legacy = Number(cell?.[metric?.fallbackValueKey]);
+  if (Number.isFinite(legacy)) return legacy;
   if (metric?.estimateFrom) {
     return estimateRp50FromRp100AndRp1000(cell?.[metric.estimateFrom.valueAKey], cell?.[metric.estimateFrom.valueBKey]);
   }
@@ -3520,6 +3639,11 @@ function resolveHazardMetricRange(payload, metric) {
   const directMax = Number(payload?.[metric?.maxKey]);
   if (Number.isFinite(directMin) && Number.isFinite(directMax)) {
     return { min: directMin, max: directMax };
+  }
+  const legacyMin = Number(payload?.[metric?.fallbackMinKey]);
+  const legacyMax = Number(payload?.[metric?.fallbackMaxKey]);
+  if (Number.isFinite(legacyMin) && Number.isFinite(legacyMax)) {
+    return { min: legacyMin, max: legacyMax };
   }
   if (metric?.estimateFrom) {
     const minEst = estimateRp50FromRp100AndRp1000(payload?.[metric.estimateFrom.minAKey], payload?.[metric.estimateFrom.minBKey]);
@@ -3593,6 +3717,12 @@ function clearHazardMapLayers(hazardKey) {
   HAZARD_COMPONENT_ORDER.forEach((component) => {
     if (ref.layersByComponent?.[component]) ref.layersByComponent[component].clearLayers();
   });
+}
+
+function clearHazardGridOverlay(hazardKey) {
+  const ref = windMapRef[hazardKey];
+  if (!ref?.gridLayer) return;
+  ref.gridLayer.clearLayers();
 }
 
 function resetHazardMapFitState() {
@@ -3743,10 +3873,55 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
 
+function renderHazardGridOverlay(hazardKey, grid) {
+  const ref = ensureWindMap(hazardKey);
+  if (!ref || !ref.gridLayer) return;
+  ref.gridLayer.clearLayers();
+  if (!state.hazardGridVisible || !grid) return;
+
+  const south = Number(grid.south);
+  const north = Number(grid.north);
+  const west = Number(grid.west);
+  const east = Number(grid.east);
+  const nLat = Number(grid.nLat);
+  const nLon = Number(grid.nLon);
+  const cellDeg = Number(grid.cellDeg);
+  if (
+    ![south, north, west, east, nLat, nLon, cellDeg].every((value) => Number.isFinite(value))
+    || !(nLat > 0)
+    || !(nLon > 0)
+    || !(cellDeg > 0)
+  ) {
+    return;
+  }
+
+  const lineStyle = {
+    pane: ref.gridPaneName,
+    color: '#f5fbff',
+    weight: 0.7,
+    opacity: 0.68,
+    interactive: false,
+    dashArray: '3 3'
+  };
+  for (let i = 0; i <= nLat; i += 1) {
+    const lat = south + Math.min(i, nLat) * cellDeg;
+    L.polyline([[lat, west], [lat, east]], lineStyle).addTo(ref.gridLayer);
+  }
+  for (let j = 0; j <= nLon; j += 1) {
+    const lon = west + Math.min(j, nLon) * cellDeg;
+    L.polyline([[south, lon], [north, lon]], lineStyle).addTo(ref.gridLayer);
+  }
+}
+
 function renderWindMaps() {
   const selectedComponent = getSelectedHazardComponent();
   const payload = selectedComponent === 'landslide' ? state.landslideMaps : state.windMaps;
-  if (!payload) return;
+  if (!payload) {
+    updateWindGridToggleUi(false);
+    clearHazardGridOverlay('storm');
+    clearHazardGridOverlay('storm_cmcc');
+    return;
+  }
   const meta = payload.meta || {};
   const storm = payload.storm;
   const cmcc = payload.storm_cmcc;
@@ -3759,6 +3934,8 @@ function renderWindMaps() {
   const sharedGrid = buildSharedWindGridSpec({ cells: sharedCells }, meta);
   const metricsByComponent = {};
   const scalesByComponent = {};
+
+  updateWindGridToggleUi(Boolean(sharedGrid));
 
   activeComponents.forEach((component) => {
     const metric = component === 'wind' ? windMetricConfig(mode) : hazardMetricConfig(component, mode);
@@ -3802,6 +3979,8 @@ function renderWindMaps() {
     }
     ensureWindLegend('storm', [], {}, {});
     ensureWindLegend('storm_cmcc', [], {}, {});
+    renderHazardGridOverlay('storm', sharedGrid);
+    renderHazardGridOverlay('storm_cmcc', sharedGrid);
     applyWindLayerOpacity();
     return;
   }
@@ -3846,6 +4025,8 @@ function renderWindMaps() {
     });
     ensureWindLegend('storm_cmcc', activeComponents, scalesByComponent, metricsByComponent);
   }
+  renderHazardGridOverlay('storm', sharedGrid);
+  renderHazardGridOverlay('storm_cmcc', sharedGrid);
   applyWindLayerOpacity();
 }
 
@@ -5153,8 +5334,8 @@ function renderCaseStudyPopulationOverlay() {
 
 function networkStatePropertyKey() {
   const hazard = state.impactMapHazard === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
-  const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max']);
-  const scenario = allowedScenarios.has(state.impactMapScenario) ? state.impactMapScenario : 'event_max';
+  const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'p99']);
+  const scenario = allowedScenarios.has(state.impactMapScenario) ? state.impactMapScenario : 'p99';
   return `state_${scenario}_${hazard}`;
 }
 
@@ -5309,9 +5490,9 @@ function renderNetworkStateMap() {
       annual: 'moyenne annuelle',
       rp50: 'temps de retour 50 ans',
       rp100: 'temps de retour 100 ans',
-      event_max: 'evenement le plus fort'
+      p99: 'percentile 99'
     };
-    const sc = scenarioLabel[state.impactMapScenario] || scenarioLabel.event_max;
+    const sc = scenarioLabel[state.impactMapScenario] || scenarioLabel.p99;
     if (!visibleTypes) {
       els.networkStateCaption.textContent = 'Aucune couche selectionnee.';
     } else {
@@ -5542,7 +5723,7 @@ function renderComparisonChart() {
   if (!chart || !comparison) return;
   const hazards = comparison.hazards || ['STORM', 'STORM_CMCC'];
   const annual = comparison.values?.annual_eai || [];
-  const maxEvent = comparison.values?.max_event_loss || [];
+  const p99Loss = comparison.values?.percentile_99_loss || comparison.values?.max_event_loss || [];
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -5551,7 +5732,7 @@ function renderComparisonChart() {
     yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: 'EUR' },
     series: [
       { name: 'Annual EAI', type: 'bar', data: annual, itemStyle: { color: '#4bb1cb' }, barMaxWidth: 30 },
-      { name: 'Max Event Loss', type: 'bar', data: maxEvent, itemStyle: { color: '#dfb85a' }, barMaxWidth: 30 }
+      { name: 'Percentile 99 Loss', type: 'bar', data: p99Loss, itemStyle: { color: '#dfb85a' }, barMaxWidth: 30 }
     ]
   }, true);
 }
@@ -5652,7 +5833,7 @@ function renderImpactBreakdownCharts(impactPayload) {
   const fallbackBreakdown = impactPayload?.damage_breakdown || {};
 
   const rowsForScenario = (scenario) => {
-    const scenarioPayload = scenarioRows?.[scenario];
+    const scenarioPayload = scenarioRows?.[scenario] || (scenario === 'p99' ? scenarioRows?.event_max : null);
     if (scenarioPayload?.storm && scenarioPayload?.storm_cmcc) {
       const byStorm = new Map((scenarioPayload.storm || []).map((r) => [String(r.class_key), r]));
       const byCmcc = new Map((scenarioPayload.storm_cmcc || []).map((r) => [String(r.class_key), r]));
@@ -5689,7 +5870,7 @@ function renderImpactBreakdownCharts(impactPayload) {
       });
     }
 
-    if (scenario === 'event_max' && fallbackBreakdown?.storm && fallbackBreakdown?.storm_cmcc) {
+    if (scenario === 'p99' && fallbackBreakdown?.storm && fallbackBreakdown?.storm_cmcc) {
       const byStorm = new Map((fallbackBreakdown.storm || []).map((r) => [String(r.class_key), r]));
       const byCmcc = new Map((fallbackBreakdown.storm_cmcc || []).map((r) => [String(r.class_key), r]));
       const ordered = Array.from(new Set([...byStorm.keys(), ...byCmcc.keys()]));
@@ -5699,10 +5880,10 @@ function renderImpactBreakdownCharts(impactPayload) {
         return {
           key,
           label: String(s.class_label || c.class_label || key),
-          storm: Number(s.event_max_loss_eur || 0),
-          cmcc: Number(c.event_max_loss_eur || 0),
-          stormComponents: normalizeDamageComponentMap(s.damage_components_eur, s.event_max_loss_eur),
-          cmccComponents: normalizeDamageComponentMap(c.damage_components_eur, c.event_max_loss_eur)
+          storm: Number(((s.p99_loss_eur ?? s.event_max_loss_eur) || 0)),
+          cmcc: Number(((c.p99_loss_eur ?? c.event_max_loss_eur) || 0)),
+          stormComponents: normalizeDamageComponentMap(s.damage_components_eur, s.p99_loss_eur ?? s.event_max_loss_eur),
+          cmccComponents: normalizeDamageComponentMap(c.damage_components_eur, c.p99_loss_eur ?? c.event_max_loss_eur)
         };
       });
     }
@@ -5714,7 +5895,7 @@ function renderImpactBreakdownCharts(impactPayload) {
     { key: 'annual', label: 'Annuel' },
     { key: 'rp50', label: 'RP50' },
     { key: 'rp100', label: 'RP100' },
-    { key: 'event_max', label: 'Evt max' }
+    { key: 'p99', label: 'P99' }
   ];
   const totalByScenarioAndPrefix = (scenarioKey, prefix) => {
     const rows = rowsForScenario(scenarioKey).filter((row) => String(row.key || '').startsWith(prefix));
@@ -5755,6 +5936,9 @@ function scenarioLossFromPortfolio(hazardData, scenario) {
     return estimateRp50FromRp100AndRp1000(h.pml_100_eur, h.pml_1000_eur);
   }
   if (scenario === 'rp100') return Number(h.pml_100_eur || 0);
+  if (h.percentile_99_loss_eur !== undefined && h.percentile_99_loss_eur !== null) {
+    return Number(h.percentile_99_loss_eur || 0);
+  }
   return Number(h.max_event_loss_eur || 0);
 }
 
@@ -5774,7 +5958,7 @@ function renderUserImpactChartsFromResult(result) {
   scenarioChart('user_impact_eai', 'user-impact-eai-chart', 'annual', '#0083CB', '#5BC5F2');
   scenarioChart('user_impact_rp100', 'user-impact-rp100-chart', 'rp50', '#00A6E2', '#99D7F7');
   scenarioChart('user_impact_rp1000', 'user-impact-rp1000-chart', 'rp100', '#A4A64B', '#FFD744');
-  scenarioChart('user_impact_eventmax', 'user-impact-eventmax-chart', 'event_max', '#F39655', '#FFD744');
+  scenarioChart('user_impact_eventmax', 'user-impact-eventmax-chart', 'p99', '#F39655', '#FFD744');
 }
 
 function renderUserConclusionText(result) {
@@ -5789,7 +5973,7 @@ function renderUserConclusionText(result) {
     `Dommages annuels moyens: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'annual')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'annual'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'annual')))} %).`,
     `Temps de retour 50 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp50'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp50')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp50'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp50')))} %).`,
     `Temps de retour 100 ans: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'rp100')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'rp100'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'rp100')))} %).`,
-    `Événement maximum: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'event_max')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'event_max'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'event_max')))} %).`
+    `Percentile 99: STORM ${formatMoneyEUR(scenarioLossFromPortfolio(storm, 'p99'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(storm, 'p99')))} %), STORM_CMCC ${formatMoneyEUR(scenarioLossFromPortfolio(cmcc, 'p99'))} (${percentFmt.format(pct(scenarioLossFromPortfolio(cmcc, 'p99')))} %).`
   ];
   els.userConclusionText.textContent = text.join(' ');
 }
@@ -6035,6 +6219,25 @@ function validateCaseStudyArtifactsCoherence(territory, windMaps, landslideMaps,
   }
   if (Number.isFinite(proxyAt) && Number.isFinite(analysisAt) && analysisAt < proxyAt) {
     console.warn(`Artefacts incoherents pour ${key}: page-analysis plus ancien que proxy.`);
+  }
+
+  const proxyTrace = multiHazardProxy?.meta?.publication_trace || null;
+  const analysisTrace = analysis?.meta?.publication_trace || null;
+  const hasModelingTrace = Boolean(multiHazardProxy?.meta?.modeling || analysis?.meta?.modeling);
+  if (hasModelingTrace && (!proxyTrace || !analysisTrace)) {
+    console.warn(`Artefacts incoherents pour ${key}: meta.publication_trace absent sur proxy ou page-analysis.`);
+    return;
+  }
+  if (proxyTrace && analysisTrace) {
+    if (Boolean(proxyTrace.fallback_active) !== Boolean(analysisTrace.multi_hazard_proxy_fallback_active)) {
+      console.warn(`Artefacts incoherents pour ${key}: etat fallback proxy != upstream proxy state dans la page-analysis.`);
+      return;
+    }
+    const proxySourceMode = String(proxyTrace.source_mode || '').trim();
+    const analysisProxySourceMode = String(analysisTrace.multi_hazard_proxy_source_mode || '').trim();
+    if (proxySourceMode && analysisProxySourceMode && proxySourceMode !== analysisProxySourceMode) {
+      console.warn(`Artefacts incoherents pour ${key}: source_mode proxy != multi_hazard_proxy_source_mode page-analysis.`);
+    }
   }
 }
 
@@ -6485,6 +6688,8 @@ function resetCaseStudyMapLayers() {
   windMapRef.storm_cmcc.hasFitted = false;
   clearHazardMapLayers('storm');
   clearHazardMapLayers('storm_cmcc');
+  clearHazardGridOverlay('storm');
+  clearHazardGridOverlay('storm_cmcc');
   if (waterMapRef.instance) {
     waterMapRef.layersByType.forEach((entry) => {
       if (entry?.layer && waterMapRef.instance.hasLayer(entry.layer)) waterMapRef.instance.removeLayer(entry.layer);
@@ -6555,6 +6760,7 @@ function applyCaseStudyState(territory, payload) {
   }
   state.windMaps = payload?.windMaps || null;
   state.landslideMaps = payload?.landslideMaps || null;
+  state.multiHazardProxy = payload?.multiHazardProxy || null;
   state.waterInfra = payload?.waterInfra || null;
   state.completeAnalysis = payload?.completeAnalysis || state.caseStudyCache[key]?.completeAnalysis || null;
   state.page1Analysis = payload?.analysis || null;
@@ -6934,6 +7140,13 @@ function bindEvents() {
       renderWindMaps();
     });
   }
+  if (els.windGridToggle) {
+    updateWindGridToggleUi(false);
+    els.windGridToggle.addEventListener('change', () => {
+      state.hazardGridVisible = Boolean(els.windGridToggle.checked);
+      renderWindMaps();
+    });
+  }
   if (els.hazardLayerWind) {
     els.hazardLayerWind.addEventListener('change', () => {
       if (!els.hazardLayerWind.checked) return;
@@ -7086,10 +7299,10 @@ function bindEvents() {
   if (els.impactMapScenarioSelect) {
     els.impactMapScenarioSelect.value = state.impactMapScenario;
     els.impactMapScenarioSelect.addEventListener('change', () => {
-      const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'event_max']);
+      const allowedScenarios = new Set(['annual', 'rp50', 'rp100', 'p99']);
       state.impactMapScenario = allowedScenarios.has(els.impactMapScenarioSelect.value)
         ? els.impactMapScenarioSelect.value
-        : 'event_max';
+        : 'p99';
       renderNetworkStateMap();
     });
   }

@@ -114,7 +114,13 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
         return hazard_copy
 
     try:
-        hazard_copy.frequency = freq / float(storm_years)
+        import numpy as np  # type: ignore
+
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
         setattr(hazard_copy, "_sib_frequency_normalized", True)
     except Exception as exc:
         logger.warning(

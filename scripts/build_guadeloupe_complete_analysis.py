@@ -124,6 +124,16 @@ def _clip_to_bbox(gdf: gpd.GeoDataFrame, bbox_polygon) -> gpd.GeoDataFrame:
     return gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
 
+def _valuation_properties(asset_type: str, *, valuation_method: str) -> dict[str, Any]:
+    return {
+        "asset_type": str(asset_type),
+        "uses_default_value": False,
+        "valuation_source": SOURCE_LABEL,
+        "valuation_version": VALUATION_VERSION,
+        "valuation_method": str(valuation_method),
+    }
+
+
 def _line_features(
     gdf: gpd.GeoDataFrame,
     *,
@@ -152,7 +162,7 @@ def _line_features(
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="length_times_eur_per_km"),
             )
         )
     return out
@@ -184,7 +194,7 @@ def _point_features_fixed_value(
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="fixed_unit_value"),
             )
         )
     return out
@@ -217,7 +227,7 @@ def _point_features_aep_ouvrages_from_field(
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="ouvrage_type_lookup"),
             )
         )
     return out
@@ -248,7 +258,7 @@ def _point_features_aep_ouvrages_fixed_type(
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
                 geometry_geojson=None,
-                properties={"asset_type": f"eau_aep_ouvrage_{code}"},
+                properties=_valuation_properties(f"eau_aep_ouvrage_{code}", valuation_method="ouvrage_type_lookup"),
             )
         )
     return out

@@ -48,9 +48,9 @@ Le vent repose donc sur les tracks synthetiques STORM/STORM_CMCC, les choix d'un
 
 La pluie est construite via `TCRain.from_tracks(..., model="R-CLIPER", ignore_distance_to_coast=True, max_dist_inland_km=2000)`. Voir `backend/app/risk_engine/climada_engine.py:544`.
 
-La pluie est calculee sur les memes centroides que le vent, mais elle n'est pas convertie en un champ explicite de profondeur d'eau. Le dommage pluie passe par une courbe "pluie proxy" derivee des courbes profondeur-dommage. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:213`.
+La pluie est calculee sur les memes centroides que le vent, mais elle n'est pas convertie en un champ explicite de profondeur d'eau. L'intensite `TCRain.intensity` exploitee par le backend correspond a un **cumul evenementiel en mm**. Le dommage pluie passe ensuite par une courbe "pluie proxy" derivee des courbes profondeur-dommage. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py`.
 
-Le coefficient `runoff_coeff` actuellement retenu pour cette conversion est `0.25`, choisi comme coefficient unique lie au terrain et au ruissellement, et non aux infrastructures. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:217`.
+Le coefficient `runoff_coeff` n'est plus un scalaire unique: le backend applique maintenant un **profil par classe d'infrastructure** (`RUNOFF_COEFF_BY_INFRA_CLASS`) mis a l'echelle par le facteur global `multi_hazard_rain_base_runoff_coeff`. A la baseline, ce facteur global vaut `0.25` et restitue le profil expert par classe.
 
 ## 5. Alea submersion cotiere
 
@@ -81,6 +81,8 @@ Le code implemente l'ecriture inverse:
 `rain_mm = depth_m * 1000 / runoff_coeff`
 
 afin de reconstruire des courbes `pluie proxy -> MDD`. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:213`.
+
+Depuis le lot D, cette reconstruction se fait **par classe d'infrastructure**, et non plus avec un coefficient unique. La sensibilite `runoff_coeff` continue donc d'exister, mais comme facteur global qui dilate ou contracte tout le profil par classe.
 
 Le mapping `asset_type -> flood curve` est defini ici: `backend/app/risk_engine/impact_functions_multi_hazard.py:16`.
 

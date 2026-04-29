@@ -287,15 +287,25 @@ def _table_impact_summary(impact: dict[str, Any]) -> str:
     ]
     rows = [
         ("EAI total (€)", "eai_total_eur"),
-        ("Perte evenement max (€)", "event_max_total_loss_eur"),
+        ("Perte percentile 99 (€)", "p99_total_loss_eur"),
         ("HS direct S3 annuel (%)", "direct_hs_pct_annual"),
         ("HS indirect S3 annuel (%)", "indirect_hs_pct_annual"),
-        ("HS direct S3 evt max (%)", "direct_hs_pct_event_max"),
-        ("HS indirect S3 evt max (%)", "indirect_hs_pct_event_max"),
+        ("HS direct S3 p99 (%)", "direct_hs_pct_p99"),
+        ("HS indirect S3 p99 (%)", "indirect_hs_pct_p99"),
     ]
     for label, key in rows:
-        s = _safe_num(storm.get(key, 0.0))
-        c = _safe_num(cmcc.get(key, 0.0))
+        if key == "p99_total_loss_eur":
+            s = _safe_num(storm.get("p99_total_loss_eur", storm.get("event_max_total_loss_eur", 0.0)))
+            c = _safe_num(cmcc.get("p99_total_loss_eur", cmcc.get("event_max_total_loss_eur", 0.0)))
+        elif key == "direct_hs_pct_p99":
+            s = _safe_num(storm.get("direct_hs_pct_p99", storm.get("direct_hs_pct_event_max", 0.0)))
+            c = _safe_num(cmcc.get("direct_hs_pct_p99", cmcc.get("direct_hs_pct_event_max", 0.0)))
+        elif key == "indirect_hs_pct_p99":
+            s = _safe_num(storm.get("indirect_hs_pct_p99", storm.get("indirect_hs_pct_event_max", 0.0)))
+            c = _safe_num(cmcc.get("indirect_hs_pct_p99", cmcc.get("indirect_hs_pct_event_max", 0.0)))
+        else:
+            s = _safe_num(storm.get(key, 0.0))
+            c = _safe_num(cmcc.get(key, 0.0))
         lines.append(f"| {label} | {_fmt(s, 2)} | {_fmt(c, 2)} | {_fmt(c - s, 2)} |")
     return "\n".join(lines)
 
@@ -303,7 +313,7 @@ def _table_impact_summary(impact: dict[str, Any]) -> str:
 def _table_impact_by_network(impact: dict[str, Any]) -> str:
     rows = impact.get("state_damage_table", [])
     lines = [
-        "| Reseau | STORM EAI (€) | STORM evt max (€) | STORM_CMCC EAI (€) | STORM_CMCC evt max (€) |",
+        "| Reseau | STORM EAI (€) | STORM p99 (€) | STORM_CMCC EAI (€) | STORM_CMCC p99 (€) |",
         "|---|---:|---:|---:|---:|",
     ]
     for row in rows:
@@ -314,9 +324,9 @@ def _table_impact_by_network(impact: dict[str, Any]) -> str:
             "| "
             f"{label} | "
             f"{_fmt(_safe_num(storm.get('eai_eur', 0.0)), 2)} | "
-            f"{_fmt(_safe_num(storm.get('event_max_loss_eur', 0.0)), 2)} | "
+            f"{_fmt(_safe_num(storm.get('p99_loss_eur', storm.get('event_max_loss_eur', 0.0))), 2)} | "
             f"{_fmt(_safe_num(cmcc.get('eai_eur', 0.0)), 2)} | "
-            f"{_fmt(_safe_num(cmcc.get('event_max_loss_eur', 0.0)), 2)} |"
+            f"{_fmt(_safe_num(cmcc.get('p99_loss_eur', cmcc.get('event_max_loss_eur', 0.0))), 2)} |"
         )
     return "\n".join(lines)
 
@@ -468,11 +478,11 @@ def main() -> None:
     lines.append("")
     lines.append(_table_impact_by_scenario(impact_payload, "rp1000", "RP1000"))
     lines.append("")
-    lines.append("### Tableau des impacts causes par l'evenement le plus fort")
+    lines.append("### Tableau des impacts causes par le percentile 99")
     lines.append("")
-    lines.append(_table_impact_by_scenario(impact_payload, "event_max", "evt max"))
+    lines.append(_table_impact_by_scenario(impact_payload, "p99", "p99"))
     lines.append("")
-    lines.append("### Tableau legacy (EAI / evenement max)")
+    lines.append("### Tableau legacy (EAI / p99)")
     lines.append("")
     lines.append(_table_impact_by_network(impact_payload))
     lines.append("")

@@ -78,6 +78,7 @@ from run_web_artifacts import (
     territory_complete_analysis_relative_path,
     territory_frontend_rebuild_relative_paths,
     territory_optional_snapshot_relative_paths,
+    validate_territory_web_snapshot,
 )
 
 # Logging setup
@@ -157,6 +158,10 @@ def _build_complete_analysis_settings(
     allow_degraded_components: bool,
     scenario: SensitivityScenario | None,
 ) -> Settings:
+    if bool(allow_degraded_components):
+        raise ValueError(
+            "--allow-degraded-components has been removed: scientific runs now fail explicitly on incomplete multi-hazard execution."
+        )
     settings = load_settings()
     settings_dict = dataclasses.asdict(settings)
     settings_dict["hazard_dynamic_max_tracks"] = int(dynamic_max_tracks)
@@ -164,7 +169,10 @@ def _build_complete_analysis_settings(
     settings_dict["climada_memory_budget_gb"] = max(0.0, float(memory_budget_gb))
     settings_dict["climada_max_points_per_shard"] = max(0, int(max_points_per_shard))
     settings_dict["climada_min_points_per_shard"] = max(1, int(min_points_per_shard))
-    settings_dict["climada_strict_required_components"] = not bool(allow_degraded_components)
+    settings_dict["impact_engine_mode"] = "climada"
+    settings_dict["allow_climada_fallback"] = False
+    settings_dict["hazard_fallback_to_precomputed"] = False
+    settings_dict["climada_strict_required_components"] = True
     settings = Settings(**settings_dict)
     return apply_settings_overrides(settings, scenario)
 
@@ -574,6 +582,16 @@ def _as_wgs84_and_metric(gdf: gpd.GeoDataFrame) -> tuple:
     return gdf_wgs, gdf_metric
 
 
+def _valuation_properties(asset_type: str, *, valuation_method: str) -> dict[str, Any]:
+    return {
+        "asset_type": str(asset_type),
+        "uses_default_value": False,
+        "valuation_source": SOURCE_LABEL,
+        "valuation_version": VALUATION_VERSION,
+        "valuation_method": str(valuation_method),
+    }
+
+
 def _line_features(
     gdf: gpd.GeoDataFrame,
     *,
@@ -602,7 +620,7 @@ def _line_features(
                 lon=float(centroid.x),
                 lat=float(centroid.y),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="length_times_eur_per_km"),
             )
         )
     return out
@@ -634,7 +652,7 @@ def _point_features_fixed_value(
                 lon=float(centroid.x),
                 lat=float(centroid.y),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="fixed_unit_value"),
             )
         )
     return out
@@ -667,7 +685,7 @@ def _point_features_aep_ouvrages_from_field(
                 lon=float(centroid.x),
                 lat=float(centroid.y),
                 geometry_geojson=None,
-                properties={"asset_type": asset_type},
+                properties=_valuation_properties(asset_type, valuation_method="ouvrage_type_lookup"),
             )
         )
     return out
@@ -698,7 +716,7 @@ def _point_features_aep_ouvrages_fixed_type(
                 lon=float(centroid.x),
                 lat=float(centroid.y),
                 geometry_geojson=None,
-                properties={"asset_type": f"eau_aep_ouvrage_{code}"},
+                properties=_valuation_properties(f"eau_aep_ouvrage_{code}", valuation_method="ouvrage_type_lookup"),
             )
         )
     return out
@@ -1154,10 +1172,9 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
     if not script_path.exists():
         raise FileNotFoundError(f"Missing frontend build script: {script_path}")
 
-    frontend_map_dynamic_max_tracks = min(
-        int(dynamic_max_tracks),
-        int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP),
-    )
+    # Keep public wind-map rebuilds on a stable track budget so RP50 is resolvable
+    # even when the parent analysis was run in a lower-track fast mode.
+    frontend_map_dynamic_max_tracks = int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP)
 
     result = subprocess.run(
         [
@@ -1207,6 +1224,7 @@ def snapshot_frontend_artifacts_for_run(
     min_mtime_epoch: float,
 ) -> dict[str, dict[str, str]]:
     archived_by_territory: dict[str, dict[str, str]] = {}
+    validation_by_territory: dict[str, dict[str, Any]] = {}
     problems: list[str] = []
     for territory in territories:
         required_archived, missing, stale = copy_territory_web_relative_paths(
@@ -1228,6 +1246,10 @@ def snapshot_frontend_artifacts_for_run(
             problems.append(f"{territory}: missing {', '.join(missing)}")
         if stale:
             problems.append(f"{territory}: not rewritten during rebuild {', '.join(stale)}")
+        try:
+            validation_by_territory[territory] = validate_territory_web_snapshot(run_manifest.run_id, territory)
+        except Exception as exc:
+            problems.append(f"{territory}: validation {exc}")
     if problems:
         raise RuntimeError("frontend artefact snapshot validation failed: " + "; ".join(problems))
     for territory, archived_files in archived_by_territory.items():
@@ -1235,6 +1257,7 @@ def snapshot_frontend_artifacts_for_run(
             territory,
             run_manifest.get_territory_status(territory) or "complete",
             archived_frontend_artifacts=archived_files,
+            archived_frontend_validation=validation_by_territory.get(territory),
         )
     return archived_by_territory
 
@@ -1282,7 +1305,7 @@ def main():
     parser.add_argument(
         "--allow-degraded-components",
         action="store_true",
-        help="Allow eligible rain/surge component failures without failing the territory run",
+        help="Removed in Lot F; scientific runs now fail explicitly on incomplete multi-hazard execution",
     )
     parser.add_argument(
         "--resume-run-id",
@@ -1304,6 +1327,8 @@ def main():
     )
     
     args = parser.parse_args()
+    if args.allow_degraded_components:
+        parser.error("--allow-degraded-components has been removed; scientific runs must remain strict multi-hazard")
     if bool(args.scenario_pack) != bool(args.scenario_id):
         parser.error("--scenario-pack and --scenario-id must be provided together")
 

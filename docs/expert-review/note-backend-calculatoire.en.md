@@ -1,6 +1,6 @@
 # Detailed Note - SIB Physical Risk Backend (CLIMADA + Interdependency)
 
-Last updated: **2026-04-22**
+Last updated: **2026-04-29**
 
 ## 1) Objective
 This note documents the current computational backend used for SIB physical-risk runs on Guadeloupe and Martinique.
@@ -11,11 +11,13 @@ It explains:
 - multi-hazard components (`wind`, `rain`, `surge`) in the CLIMADA path,
 - conservative electricity -> water interdependency,
 - social impact enrichment from population rasters,
-- explicit fallback behavior and known limits.
+- strict failure policy and known limits.
 
 Default engine:
 - `engine=climada_with_interdependency_v1`
-- fallback exists (`engine=fallback_with_interdependency`) and is controlled by runtime settings.
+- Lots A to G are integrated in the current repository state.
+- production scientific runs are fail-closed: `compute_impacts(...)` rejects fallback mode and scientific fallback toggles.
+- legacy fallback helpers may still exist in the repository for audit/history purposes, but they are not an allowed production execution path.
 
 ## 2) Architecture and Flow
 
@@ -75,18 +77,18 @@ Sampling/disaggregation controls are passed through run parameters and settings.
 
 ## 5) Hazard Sources and Selection
 Primary source policy:
-- dynamic STORM/STORM_CMCC from parquet datasets when available,
-- optional fallback to precomputed HDF5 hazards.
+- dynamic STORM/STORM_CMCC from parquet datasets,
+- legacy precomputed HDF5 loaders remain in helper code, but production compute rejects `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED=true`.
 
 Core controls (via settings/env):
 - `SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET`
-- `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED`
+- `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED` (must remain `false` in production scientific runs)
 - `SIB_RISK_STORM_PARQUET_PATH`
 - `SIB_RISK_STORM_CMCC_PARQUET_PATH`
 - `SIB_RISK_HAZARD_STORM_PATH`
 - `SIB_RISK_HAZARD_STORM_CMCC_PATH`
 
-Frequency normalization is applied with `storm_years` (default `10000`).
+Frequency normalization is applied on copied hazards with `storm_years` (default `10000`). In the current implementation, the existing CLIMADA frequency vector is divided by `storm_years` and the copied object is marked as normalized.
 
 ## 6) Vulnerability and Multi-Hazard Components
 ### 6.1 Wind
@@ -100,7 +102,7 @@ Operational component set in CLIMADA path:
 - `rain` (TCRain proxy)
 - `surge` (TCSurgeBathtub)
 
-Component status is tracked in modeling metadata; strict/degraded behavior depends on `climada_strict_required_components`.
+Component status is tracked in modeling metadata; production runs require all configured `wind` / `rain` / `surge` components to succeed.
 
 ### 6.3 Landslide
 `impact_functions_landslide.py` and `landslide_engine.py` provide a dedicated landslide path used by specialized scripts/analyses.
@@ -110,7 +112,10 @@ This is not the default production path of `/api/v1/runs`.
 ### 7.1 Direct impacts
 `climada_engine.py` computes direct losses and metrics per hazard:
 - `aai_agg_eur` / direct EAI
-- `max_event_loss_eur`
+- per-asset direct worst-case losses are now extracted from `imp_mat.max(axis=0)` via `save_mat=True` and preserved through shard checkpoints / accumulators
+- public tail-loss headline via `percentile_99_loss_eur` in aggregated payloads
+- backward-compatibility bridges may still expose `max_event_loss_eur` as an alias to that public percentile-99 headline in expert-review helpers or archived comparisons
+- raw single-event maximum retained separately for diagnostics
 - `pml_*`
 - `tvar_95_eur`
 - top events
@@ -168,8 +173,10 @@ Artifact exports include:
 
 ## 10) Runtime Configuration Controls
 Main toggles:
-- `SIB_RISK_IMPACT_ENGINE_MODE=climada|fallback`
-- `SIB_RISK_ALLOW_CLIMADA_FALLBACK=true|false`
+- `SIB_RISK_IMPACT_ENGINE_MODE=climada|auto` (`fallback` is rejected by production compute)
+- `SIB_RISK_ALLOW_CLIMADA_FALLBACK=false` (must remain `false`)
+- `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED=false` (must remain `false` for scientific runs)
+- `SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS=true`
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`
 - `SIB_RISK_MULTI_HAZARD_ENABLED`
@@ -178,18 +185,26 @@ Main toggles:
 - `SIB_RISK_D2_FLOOD_CURVE_FILE`
 - `SIB_RISK_POPULATION_DATA_DIR`
 
-## 11) Fallback Behavior (Explicit)
-There are two fallback layers:
+## 11) Strict Failure Policy (Current Production Behavior)
+Production scientific runs are now fail-closed.
 
-1. Hazard-source fallback:
-- dynamic parquet preferred,
-- optional fallback to precomputed HDF5 hazards.
+1. Hazard-source policy:
+- dynamic parquet loading is the supported scientific path
+- attempts to enable precomputed-hazard fallback are rejected by `compute_impacts(...)`
 
-2. Engine fallback:
-- CLIMADA path attempted by default,
-- deterministic fallback engine only if explicitly requested (`impact_engine_mode=fallback`) or if CLIMADA fails and `allow_climada_fallback=true`.
+2. Engine policy:
+- `impact_engine_mode=fallback` is rejected
+- `allow_climada_fallback=true` is rejected
 
-This behavior is explicit in `impact_runner.py` and reflected in `meta.engine` + `meta.modeling`.
+3. Component policy:
+- `climada_strict_required_components` must stay enabled
+- incomplete `wind` / `rain` / `surge` runs fail explicitly instead of silently degrading the output
+
+Clarification:
+- the local -> nearest -> global lookup used for electricity-health resolution is an interdependency rule, not a scientific engine fallback
+
+Historical note:
+- some archived expert-review artefacts created before Lots A to G still mention older fallback surfaces; use the live backend source files as implementation truth
 
 ## 12) Scripted End-to-End Runs
 For full Guadeloupe+Martinique rerun without deployment:
@@ -199,15 +214,17 @@ python3 scripts/run_complete_analysis.py --territories both --no-deploy
 
 This runner integrates scenario support (`sensitivity_scenarios.py`) and rebuilds case-study frontend artifacts.
 
-## 13) Known Limits and Current Debt
+## 13) Known Limits and Validation Snapshot
 Methodological limits:
 - dependency is conservative and grid-based (not full electrical topology graph),
 - indirect coupling is multiplier-based (not dynamic event-by-event propagation),
 - sampling caps are a deliberate compute tradeoff.
 
-Code-quality caveat as of **2026-04-22**:
-- `scripts/audit_quick_checks.sh` currently fails due to `ruff` findings (33 issues).
-- This does not invalidate the computational rerun path but must be treated as technical debt in expert review.
+Validation snapshot as of **2026-04-29**:
+- `pytest tests/risk_engine -q` passed during the Lots A to G close-out.
+- `pytest tests/scripts -q` passed during the Lots A to G close-out.
+- targeted no-deploy runtime validation passed on run `20260429_075050`.
+- a full repo-wide lint / style sweep was not rerun as part of this documentation refresh and remains a separate engineering task.
 
 ## 14) Data References
 STORM source references:

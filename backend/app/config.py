@@ -97,7 +97,7 @@ class Settings:
     storm_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     storm_cmcc_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     hazard_prefer_dynamic_from_parquet: bool = True
-    hazard_fallback_to_precomputed: bool = True
+    hazard_fallback_to_precomputed: bool = False
     storm_wind_unit_in: str = "m/s"
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
@@ -129,7 +129,7 @@ class Settings:
     climada_max_points_per_shard: int = 0
     climada_min_points_per_shard: int = 512
     climada_max_shard_retry_depth: int = 4
-    climada_strict_required_components: bool = False
+    climada_strict_required_components: bool = True
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
     interdependency_state_threshold_s0_to_s1: float = 0.05
@@ -273,7 +273,7 @@ def load_settings() -> Settings:
         storm_parquet_path=storm_parquet_path,
         storm_cmcc_parquet_path=storm_cmcc_parquet_path,
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
-        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", True),
+        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
@@ -303,7 +303,7 @@ def load_settings() -> Settings:
         climada_max_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_SHARD", "0")),
         climada_min_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MIN_POINTS_PER_SHARD", "512")),
         climada_max_shard_retry_depth=int(env.get("SIB_RISK_CLIMADA_MAX_SHARD_RETRY_DEPTH", "4")),
-        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", False),
+        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", True),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
         interdependency_state_threshold_s0_to_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S0_TO_S1", "0.05")),
