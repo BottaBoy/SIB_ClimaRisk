@@ -1524,16 +1524,17 @@ def main():
         total_assets=sum(r.get("assets", 0) for r in results.values()),
         deployed=deploy_success,
     )
+    finished_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     run_manifest.set_status(
         final_status,
         territories_completed=len(results),
         total_assets=sum(r.get("assets", 0) for r in results.values()),
         deployed=bool(deploy_success),
         frontend_artifacts_success=bool(frontend_artifacts_success),
+        finished_at=finished_at,
     )
     termination_guard.mark_complete()
 
-    finished_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     logger.info(
         "Run finished: run_id=%s status=%s finished_at=%s territories_completed=%s deployed=%s",
         run_manifest.run_id,
