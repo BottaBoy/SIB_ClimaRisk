@@ -24,6 +24,10 @@ Out of scope:
 Core audit files:
 - `docs/expert-review/review-guide.md`
 - `docs/expert-review/note-backend-calculatoire.en.md`
+- `docs/expert-review/expert-review-delta-2026-05-05.md`
+- `docs/expert-review/expert-followup-plan-2026-05-05.md`
+- `docs/expert-review/expert-last-review-focus-2026-05-05.md`
+- `docs/expert-review/climate-signal-check-2026-05-05.md`
 - `docs/expert-review/methodology-code-crosswalk.md`
 - `docs/expert-review/expert-feedback-status-2026-04-29.md`
 - `docs/expert-review/expert-return-package-2026-04-29.md`
@@ -149,6 +153,11 @@ If source files do not change, rerunning should produce the same hash.
 
 ## 9) Data Package Reference
 Use `docs/expert-review/expert-data-manifest.md` as the authoritative transfer checklist for data prerequisites and `docs/expert-review/expert-return-package-2026-04-29.md` as the authoritative document/file handoff checklist.
+
+Important practical rule:
+- the docs package is not enough by itself for an autonomous rerun
+- if a required runtime input changed since the previous transfer, that updated input must be re-transferred alongside the docs
+- for the current package state, the active surge DEM inputs are `/home/ubuntu/uploads/DEM_Topo/Topo/Guadeloupe.tif` and `/home/ubuntu/uploads/DEM_Topo/Topo/Martinique.tif`
 
 ## 10) Environment Snapshot (Pinned)
 The expert package now includes a pinned environment snapshot:

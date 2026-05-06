@@ -3359,6 +3359,20 @@ function hazardScenarioLabel(modeRaw) {
   return 'moyenne annuelle';
 }
 
+function windAggregationLabel(modeRaw) {
+  const mode = normalizeWindMapMode(modeRaw);
+  if (mode === 'rp50') {
+    return 'vent: niveau de retour 50 ans par maille (pas de mediane territoriale)';
+  }
+  if (mode === 'rp100') {
+    return 'vent: niveau de retour 100 ans par maille (pas de mediane territoriale)';
+  }
+  if (mode === 'event_max') {
+    return 'vent: maximum par maille sur le catalogue STORM (pas de mediane territoriale)';
+  }
+  return 'vent: moyenne par maille ponderee par frequence (pas de mediane territoriale)';
+}
+
 function hazardMetricConfig(componentRaw, modeRaw) {
   const component = normalizeHazardComponent(componentRaw);
   const mode = normalizeWindMapMode(modeRaw);
@@ -3527,10 +3541,10 @@ function hazardMetricConfig(componentRaw, modeRaw) {
     valueKey: 'mean_wind_mps',
     minKey: 'mean_wind_min_mps',
     maxKey: 'mean_wind_max_mps',
-    legendTitle: 'Vents moyens',
-    captionLabel: 'vitesse moyenne du vent',
-    mapLabel: 'vents moyens',
-    tooltipLabel: 'Vents moyens',
+    legendTitle: 'Vents moyens par maille',
+    captionLabel: 'vitesse moyenne du vent par maille',
+    mapLabel: 'moyenne par maille',
+    tooltipLabel: 'Vents moyens par maille',
     unitDisplay: WIND_SPEED_UNIT_DISPLAY,
     scaleStep: WIND_SCALE_STEP_MPS,
     estimateFrom: null
@@ -3546,10 +3560,10 @@ function windMetricConfig(modeRaw) {
       valueKey: 'rp50_wind_mps',
       minKey: 'rp50_wind_min_mps',
       maxKey: 'rp50_wind_max_mps',
-      legendTitle: 'Vents (retour 50 ans)',
-      captionLabel: 'vitesse du vent (temps de retour 50 ans)',
-      mapLabel: 'temps de retour 50 ans',
-      tooltipLabel: 'Vents (retour 50 ans)',
+      legendTitle: 'Vents par maille (retour 50 ans)',
+      captionLabel: 'vitesse du vent par maille (temps de retour 50 ans)',
+      mapLabel: 'retour 50 ans par maille',
+      tooltipLabel: 'Vents par maille (retour 50 ans)',
       unitDisplay: WIND_SPEED_UNIT_DISPLAY,
       scaleStep: WIND_SCALE_STEP_MPS,
       estimateFrom: null
@@ -3562,10 +3576,10 @@ function windMetricConfig(modeRaw) {
       valueKey: 'rp100_wind_mps',
       minKey: 'rp100_wind_min_mps',
       maxKey: 'rp100_wind_max_mps',
-      legendTitle: 'Vents (retour 100 ans)',
-      captionLabel: 'vitesse du vent (temps de retour 100 ans)',
-      mapLabel: 'temps de retour 100 ans',
-      tooltipLabel: 'Vents (retour 100 ans)',
+      legendTitle: 'Vents par maille (retour 100 ans)',
+      captionLabel: 'vitesse du vent par maille (temps de retour 100 ans)',
+      mapLabel: 'retour 100 ans par maille',
+      tooltipLabel: 'Vents par maille (retour 100 ans)',
       unitDisplay: WIND_SPEED_UNIT_DISPLAY,
       scaleStep: WIND_SCALE_STEP_MPS,
       estimateFrom: null
@@ -3578,10 +3592,10 @@ function windMetricConfig(modeRaw) {
       valueKey: 'event_max_wind_mps',
       minKey: 'event_max_wind_min_mps',
       maxKey: 'event_max_wind_max_mps',
-      legendTitle: 'Vents (evenement le plus fort)',
-      captionLabel: 'vitesse du vent (evenement le plus fort)',
-      mapLabel: 'evenement le plus fort',
-      tooltipLabel: 'Vents (evenement le plus fort)',
+      legendTitle: 'Vents par maille (evenement le plus fort)',
+      captionLabel: 'vitesse du vent par maille (evenement le plus fort)',
+      mapLabel: 'maximum par maille',
+      tooltipLabel: 'Vents par maille (evenement le plus fort)',
       unitDisplay: WIND_SPEED_UNIT_DISPLAY,
       scaleStep: WIND_SCALE_STEP_MPS,
       estimateFrom: null
@@ -4346,6 +4360,7 @@ function renderWindMaps() {
   const coverageText = allowExtrapolation
     ? 'extrapolation spatiale active autour de la zone etudiee'
     : 'clipping territorial natif (mailles hors territoire masquees)';
+  const windAggregationText = activeComponents.includes('wind') ? windAggregationLabel(mode) : '';
 
   if (storm && els.windStormCaption) {
     if (selectedComponent === 'landslide') {
@@ -4353,7 +4368,7 @@ function renderWindMaps() {
       els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${componentText} · climat actuel · score moyen ${Number.isFinite(meanScore) ? numberFmt.format(meanScore) : 'n/a'} (risque score)`;
     } else {
       const scenarioText = hazardScenarioLabel(mode);
-      els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(storm.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+      els.windStormCaption.textContent = `${numberFmt.format(storm.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(storm.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}${windAggregationText ? ` · ${windAggregationText}` : ''}`;
     }
     activeComponents.forEach((component) => {
       renderHazardComponentMapLayer('storm', component, storm, meta, {
@@ -4370,7 +4385,7 @@ function renderWindMaps() {
       els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${componentText} · SSP585 · score moyen ${Number.isFinite(meanScore) ? numberFmt.format(meanScore) : 'n/a'} (risque score)`;
     } else {
       const scenarioText = hazardScenarioLabel(mode);
-      els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(cmcc.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}`;
+      els.windCmccCaption.textContent = `${numberFmt.format(cmcc.cell_count || 0)} mailles observees · ${coverageText} · ${numberFmt.format(cmcc.years_covered || 0)} ans · couches actives: ${componentText} · scenario: ${scenarioText}${windAggregationText ? ` · ${windAggregationText}` : ''}`;
     }
     activeComponents.forEach((component) => {
       renderHazardComponentMapLayer('storm_cmcc', component, cmcc, meta, {
@@ -6441,7 +6456,16 @@ function renderComparisonChart() {
   if (!chart || !comparison) return;
   const hazards = comparison.hazards || ['STORM', 'STORM_CMCC'];
   const annual = comparison.values?.annual_eai || [];
-  const p99Loss = comparison.values?.percentile_99_loss || comparison.values?.max_event_loss || [];
+  let tailLoss = comparison.values?.pml_1000 || [];
+  let tailLossLabel = 'PML 1000y';
+  if (!tailLoss.length && (comparison.values?.percentile_99_loss || []).length) {
+    tailLoss = comparison.values.percentile_99_loss;
+    tailLossLabel = 'Percentile 99 Loss';
+  }
+  if (!tailLoss.length && (comparison.values?.max_event_loss || []).length) {
+    tailLoss = comparison.values.max_event_loss;
+    tailLossLabel = 'Max Event Loss';
+  }
   chart.setOption({
     ...chartThemeCommon(),
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -6450,7 +6474,7 @@ function renderComparisonChart() {
     yAxis: { ...chartThemeCommon().yAxis, type: 'value', name: 'EUR' },
     series: [
       { name: 'Annual EAI', type: 'bar', data: annual, itemStyle: { color: '#4bb1cb' }, barMaxWidth: 30 },
-      { name: 'Percentile 99 Loss', type: 'bar', data: p99Loss, itemStyle: { color: '#dfb85a' }, barMaxWidth: 30 }
+      { name: tailLossLabel, type: 'bar', data: tailLoss, itemStyle: { color: '#dfb85a' }, barMaxWidth: 30 }
     ]
   }, true);
 }

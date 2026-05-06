@@ -375,7 +375,7 @@ Interpretation:
 Pour chaque alea:
 - `eai_eur`, `aai_agg_eur`, `percentile_99_loss_eur`
 - `eai_direct_eur`, `eai_indirect_eur`
-- `pml_10_eur`, `pml_20_eur`, `pml_50_eur`, `pml_100_eur`, `pml_200_eur`
+- `pml_10_eur`, `pml_20_eur`, `pml_50_eur`, `pml_100_eur`, `pml_200_eur`, `pml_1000_eur`
 - `tvar_95_eur`
 
 Autres blocs:
@@ -390,6 +390,7 @@ Signification detaillee des variables portfolio:
 - `eai_indirect_eur`: part additionnelle due a la dependance elec -> eau.
 - `percentile_99_loss_eur`: headline public de perte evenementielle de queue pour l'alea.
 - `pml_10/20/50/100/200/1000_eur`: pertes de reference par periode de retour.
+- pour les graphes de comparaison backend/front, la comparaison synthétique privilegie desormais `annual_eai` + `pml_1000`; `percentile_99_loss_eur` reste expose pour compatibilite, audit et diagnostics.
 - `tvar_95_eur`: moyenne des pertes dans la queue de distribution au-dela du quantile 95%.
 - `delta.eai_eur`: ecart absolu STORM_CMCC - STORM.
 - `delta.eai_pct`: ecart relatif STORM_CMCC vs STORM en pourcentage.
@@ -437,6 +438,11 @@ Le backend conserve les memes cles pour le front:
 
 Les valeurs sont maintenant derivees des pertes CLIMADA (distribution evenementielle + PML), puis ajustees par le facteur indirect elec->eau.
 
+Conventions actuelles de publication:
+- `annual_fec` s'aligne sur la base de periodes de retour `10/20/50/100/200/1000` ans,
+- `graphs.comparison.side_by_side` compare `annual_eai` et `pml_1000`,
+- `percentile_99_loss_eur` reste disponible dans le payload portefeuille mais n'est plus la metrique privilegiee pour la vue de comparaison synthétique.
+
 ---
 
 ### 5.6 Parametrage runtime important
@@ -448,6 +454,7 @@ Variables d’environnement:
 - `SIB_RISK_CLIMADA_METRIC_CRS`: ex. `EPSG:3857`
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`: cap sampling
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`: top evenements exportes
+- `SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN`: conversion des vents soutenus STORM de la convention moyenne 10 minutes vers l'equivalent 1 minute (defaut: `true`)
 
 Endpoint sante:
 - `GET /api/v1/health` retourne un etat minimal de service (`status`, `app`, `now_utc`, `version`)
@@ -596,6 +603,7 @@ Important:
 - la composante pluie necessite les tracks dynamiques;
 - la production scientifique n'autorise plus de fallback HDF5 pre-calcule pour contourner cette contrainte;
 - la submersion bathtub peut rester calculable via l'aléa vent + DEM.
+- dans la chaine dynamique STORM/STORM_CMCC, les vents soutenus sont convertis de la convention moyenne 10 minutes vers l'equivalent 1 minute via le facteur `1 / 0.88`, afin d'aligner l'aléa vent sur la convention attendue par CLIMADA et par la courbe Eberenz.
 
 En langage naturel, la chaine backend est la suivante:
 - on part des points d'exposition effectivement echantillonnes par CLIMADA;
@@ -652,6 +660,12 @@ Interpretation:
 - `model="R-CLIPER"`: on utilise le modele pluie retenu en V1;
 - `ignore_distance_to_coast=True`: on ne coupe pas artificiellement la pluie au trait de cote;
 - `max_dist_inland_km=2000`: on autorise une propagation inland suffisamment large pour les petites iles.
+
+Limite acceptee pour le climat futur en V1:
+- dans l'etat actuel, cette composante pluie futur derive surtout du signal porte par les tracks et par `R-CLIPER`;
+- elle ne represente pas explicitement l'amplification thermodynamique de l'humidite atmospherique sous rechauffement;
+- on conserve donc cette estimation comme **premiere approche de screening**, mais elle ne doit pas etre interpretee comme une modelisation pluie-climat futur de reference;
+- pour une version ulterieure, il est recommande d'utiliser une modelisation pluie dediee au climat futur, distincte de cette approximation pilotee par les tracks.
 
 Important pour l'interpretation:
 - voir de la pluie sur la carte ne signifie pas automatiquement qu'il y aura des degats importants;

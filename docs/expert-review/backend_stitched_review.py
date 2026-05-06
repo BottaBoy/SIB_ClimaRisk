@@ -477,8 +477,8 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
 # MODULE 04/27
 # Source file: backend/app/risk_engine/exposure_ingest.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/exposure_ingest.py
-# Original line span: 1-601
-# Source SHA256: b49f04225d1b33c6cb9744cfa60dfdc9a821bdb3c55eb1db391aa83d77613619
+# Original line span: 1-645
+# Source SHA256: 7a000fc594503ffc44b66841ec398003c3c3702394c5e2d419893ff300a9aceb
 # Purpose: Input normalization for CSV/XLSX/GeoJSON/GPKG and drawn GeoJSON.
 # Key Inputs: Raw exposure files or drawn FeatureCollection + field mapping options.
 # Key Outputs: Normalized exposure model consumed by the risk engine.
@@ -551,6 +551,34 @@ ASSET_TYPE_ALIASES = {
 }
 VALID_ASSET_TYPES = sorted(set(ASSET_TYPE_ALIASES.values()))
 VALID_EXPOSURE_CATEGORIES = sorted(set(EXPOSURE_CATEGORY_ALIASES.values()))
+
+
+def _apply_valuation_metadata(
+    props: dict[str, Any],
+    *,
+    uses_default_value: bool,
+    valuation_source: str,
+    default_value_eur: float | None = None,
+) -> None:
+    props["uses_default_value"] = bool(uses_default_value)
+    props["valuation_source"] = str(valuation_source)
+    if default_value_eur is not None:
+        props["default_value_eur"] = float(default_value_eur)
+
+
+def _append_default_value_summary_warning(warnings: list[str], features: list[NormalizedFeature]) -> None:
+    default_features = [feat for feat in features if bool((feat.properties or {}).get("uses_default_value"))]
+    if not default_features:
+        return
+    first_default = default_features[0]
+    default_value_eur = float((first_default.properties or {}).get("default_value_eur") or 0.0)
+    preview = ", ".join(str(feat.feature_id) for feat in default_features[:10])
+    suffix = ""
+    if len(default_features) > 10:
+        suffix = f", ... +{len(default_features) - 10} more"
+    warnings.append(
+        f"Default valuation assumption of {default_value_eur:.0f} EUR applied to {len(default_features)} feature(s): {preview}{suffix}."
+    )
 
 
 def _to_float(value: Any, field_name: str) -> float:
@@ -678,6 +706,7 @@ def _feature_from_geojson_feature(
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
         extra["asset_type"] = _normalize_asset_type(props[asset_type_field], strict=True)
+    _apply_valuation_metadata(extra, uses_default_value=False, valuation_source=f"input:{value_field}")
     if exposure_category_field and exposure_category_field in props:
         category_raw = props[exposure_category_field]
     else:
@@ -736,12 +765,19 @@ def ingest_drawn_geojson(
         lon = centroid[0] if centroid else None
         lat = centroid[1] if centroid else None
         value_raw = props.get("value_eur", props.get("value"))
-        value_eur = float(default_value_eur) if value_raw in (None, "") else _to_float(value_raw, "value_eur")
+        uses_default_value = value_raw in (None, "")
+        value_eur = float(default_value_eur) if uses_default_value else _to_float(value_raw, "value_eur")
         label = str(props.get("label") or props.get("name") or f"Drawn {gtype} {idx + 1}")
         feature_id = str(props.get("asset_id") or idx + 1)
         extra_props: dict[str, Any] = {}
         if props.get("asset_type") is not None:
             extra_props["asset_type"] = props.get("asset_type")
+        _apply_valuation_metadata(
+            extra_props,
+            uses_default_value=uses_default_value,
+            valuation_source=("drawn_geojson:default_1000000_eur" if uses_default_value else "drawn_geojson:value_eur"),
+            default_value_eur=(float(default_value_eur) if uses_default_value else None),
+        )
         features.append(
             NormalizedFeature(
                 feature_id=feature_id,
@@ -758,6 +794,8 @@ def ingest_drawn_geojson(
                 properties=extra_props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name="drawn_geojson",
@@ -911,6 +949,7 @@ def _ingest_csv(
         except InputValidationError as exc:
             _append_row_error(row_errors, feature_id=feature_id, column=asset_type_field, detail=str(exc))
             continue
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         category_raw = row.get(exposure_category_field) if exposure_category_field else None
         try:
             exposure_category = _normalize_exposure_category(
@@ -945,6 +984,7 @@ def _ingest_csv(
 
     if wkt_key:
         warnings.append("CSV WKT parsing uses Shapely when available; install geospatial dependencies for full fidelity.")
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,
@@ -1062,6 +1102,8 @@ def _ingest_gpkg(
     for pos, (idx, row) in enumerate(gdf_wgs84.iterrows()):
         geom = row.geometry
         raw_asset_type = row.get(asset_type_field) if asset_type_field and asset_type_field in row else None
+        props = {"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {}
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         features.append(
             NormalizedFeature(
                 feature_id=str(row.get(id_field) if id_field and id_field in row else idx),
@@ -1076,9 +1118,11 @@ def _ingest_gpkg(
                 lon=float(geom.centroid.x) if geom is not None else None,
                 lat=float(geom.centroid.y) if geom is not None else None,
                 geometry_geojson=(json.loads(gdf_wgs84.iloc[[pos]].to_json())["features"][0]["geometry"] if geom is not None else None),
-                properties={"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {},
+                properties=props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,
@@ -1198,8 +1242,8 @@ def summarize_disaggregation(
 # MODULE 06/27
 # Source file: backend/app/risk_engine/impact_runner.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_runner.py
-# Original line span: 1-1098
-# Source SHA256: 0d6635d1cef3790c65fc2655b470d585456514ed1e0f3962798d9eea016b5efb
+# Original line span: 1-1101
+# Source SHA256: c2a1c6514060532208253e20df03c4e96913791547335be8d4d875e397c4046f
 # Purpose: Main impact orchestration (CLIMADA path + deterministic fallback path).
 # Key Inputs: Normalized exposure, disaggregation summary, runtime settings.
 # Key Outputs: Territory/asset/portfolio results, graphs, notes, modeling metadata.
@@ -1217,8 +1261,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..config import Settings, load_settings
-from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
-from .errors import DependencyMissingError
+from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
 from .exposure_to_climada import build_climada_exposure
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
@@ -1465,7 +1508,7 @@ def _summarize_component_health(
 
 
 def _build_fec_curve(total_exposure_eur: float, ratio: float, lifetime_years: int | None = None) -> dict[str, Any]:
-    return_periods = [1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200]
+    return_periods = [int(rp) for rp in RETURN_PERIODS]
     curve_y: list[float] = []
     for rp in return_periods:
         damp = 1.0 / math.sqrt(max(1.0, rp))
@@ -1517,10 +1560,10 @@ def _build_fallback_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [round(total_exposure * storm_ratio, 2), round(total_exposure * cmcc_ratio, 2)],
-                    "max_event_loss": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
+                    "pml_1000": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
                 },
             }
         },
@@ -1560,7 +1603,7 @@ def _build_climada_graphs(
         bins1, perc1 = _build_hist_percent(losses, bins_count=7)
         bins2, perc2 = _build_hist_percent([math.sqrt(v) if v > 0.0 else 0.0 for v in losses], bins_count=7)
 
-        annual_rp = [10, 20, 50, 100, 200]
+        annual_rp = [int(rp) for rp in RETURN_PERIODS]
         annual_dmg = [round(float(raw.pml_eur.get(rp, 0.0)) * scaler, 2) for rp in annual_rp]
         fec30 = [round(v * 1.105, 2) for v in annual_dmg]
         fec50 = [round(v * 1.175, 2) for v in annual_dmg]
@@ -1597,15 +1640,15 @@ def _build_climada_graphs(
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [
                         round(float((portfolio_results.get("storm") or {}).get("eai_eur", 0.0)), 2),
                         round(float((portfolio_results.get("storm_cmcc") or {}).get("eai_eur", 0.0)), 2),
                     ],
-                    "max_event_loss": [
-                        round(float((portfolio_results.get("storm") or {}).get("max_event_loss_eur", 0.0)), 2),
-                        round(float((portfolio_results.get("storm_cmcc") or {}).get("max_event_loss_eur", 0.0)), 2),
+                    "pml_1000": [
+                        round(float((portfolio_results.get("storm") or {}).get("pml_1000_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("pml_1000_eur", 0.0)), 2),
                     ],
                 },
             }
@@ -1683,10 +1726,11 @@ def _compute_impacts_climada(
         storm_years=max(1, int(settings.storm_years)),
         top_n_events=max(1, int(settings.climada_top_events_count)),
         prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
-        fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
+        fallback_to_precomputed_hazards=False,
         storm_parquet_path=settings.storm_parquet_path,
         storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
         wind_unit_in=settings.storm_wind_unit_in,
+        convert_10min_to_1min=bool(settings.storm_convert_10min_to_1min),
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
@@ -1704,7 +1748,7 @@ def _compute_impacts_climada(
         max_points_per_shard=int(settings.climada_max_points_per_shard),
         min_points_per_shard=int(settings.climada_min_points_per_shard),
         max_shard_retry_depth=int(settings.climada_max_shard_retry_depth),
-        strict_required_components=bool(settings.climada_strict_required_components),
+        strict_required_components=True,
         progress_callback=progress_callback,
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
@@ -1784,7 +1828,7 @@ def _compute_impacts_climada(
         out["combined_capped"] = round(max(0.0, float(combined_direct)), 2)
         return out
 
-    def _component_direct_max_event_map(component_map: dict[str, Any]) -> dict[str, float]:
+    def _component_direct_percentile_99_map(component_map: dict[str, Any]) -> dict[str, float]:
         ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
         ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
         return {
@@ -1794,14 +1838,14 @@ def _compute_impacts_climada(
 
     storm_components_direct = _component_direct_eai_map(storm_components_raw, storm_direct)
     cmcc_components_direct = _component_direct_eai_map(cmcc_components_raw, cmcc_direct)
-    storm_components_max = _component_direct_max_event_map(storm_components_raw)
-    cmcc_components_max = _component_direct_max_event_map(cmcc_components_raw)
+    storm_components_p99 = _component_direct_percentile_99_map(storm_components_raw)
+    cmcc_components_p99 = _component_direct_percentile_99_map(cmcc_components_raw)
 
     portfolio_results = {
         "storm": {
             "eai_eur": round(storm_total, 2),
             "aai_agg_eur": round(storm_total, 2),
-            "max_event_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
+            "percentile_99_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
             "eai_direct_eur": round(storm_direct, 2),
             "eai_indirect_eur": round(storm_indirect, 2),
             "pml_10_eur": round(float(storm_direct_metrics.pml_eur.get(10, 0.0)) * storm_scaler, 2),
@@ -1815,7 +1859,7 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(storm_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(storm_direct_metrics.max_event_loss_eur),
+                            float(storm_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * storm_scaler,
@@ -1823,12 +1867,12 @@ def _compute_impacts_climada(
             ),
             "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
             "components_direct_eai_eur": storm_components_direct,
-            "components_direct_max_event_loss_eur": storm_components_max,
+            "components_direct_percentile_99_loss_eur": storm_components_p99,
         },
         "storm_cmcc": {
             "eai_eur": round(cmcc_total, 2),
             "aai_agg_eur": round(cmcc_total, 2),
-            "max_event_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
+            "percentile_99_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
             "eai_direct_eur": round(cmcc_direct, 2),
             "eai_indirect_eur": round(cmcc_indirect, 2),
             "pml_10_eur": round(float(cmcc_direct_metrics.pml_eur.get(10, 0.0)) * cmcc_scaler, 2),
@@ -1842,7 +1886,7 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(cmcc_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(cmcc_direct_metrics.max_event_loss_eur),
+                            float(cmcc_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * cmcc_scaler,
@@ -1850,7 +1894,7 @@ def _compute_impacts_climada(
             ),
             "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
             "components_direct_eai_eur": cmcc_components_direct,
-            "components_direct_max_event_loss_eur": cmcc_components_max,
+            "components_direct_percentile_99_loss_eur": cmcc_components_p99,
         },
         "delta": {
             "eai_eur": round(cmcc_total - storm_total, 2),
@@ -2027,6 +2071,10 @@ def compute_impacts_fallback(
                 "asset_label": str(feat.label or feat.feature_id),
                 "geometry_type": str(feat.geometry_type or "Unknown"),
                 "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                "uses_default_value": bool((feat.properties or {}).get("uses_default_value")),
+                "valuation_source": str((feat.properties or {}).get("valuation_source") or ""),
+                "valuation_version": str((feat.properties or {}).get("valuation_version") or ""),
+                "default_value_eur": (feat.properties or {}).get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -2144,6 +2192,10 @@ def compute_impacts_fallback(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
@@ -2175,7 +2227,7 @@ def compute_impacts_fallback(
         "storm": {
             "eai_eur": storm_total,
             "aai_agg_eur": storm_total,
-            "max_event_loss_eur": max_event_storm,
+            "percentile_99_loss_eur": max_event_storm,
             "eai_direct_eur": storm_direct,
             "eai_indirect_eur": storm_indirect,
             "pml_10_eur": round(storm_total * 2.3, 2),
@@ -2189,7 +2241,7 @@ def compute_impacts_fallback(
         "storm_cmcc": {
             "eai_eur": cmcc_total,
             "aai_agg_eur": cmcc_total,
-            "max_event_loss_eur": max_event_cmcc,
+            "percentile_99_loss_eur": max_event_cmcc,
             "eai_direct_eur": cmcc_direct,
             "eai_indirect_eur": cmcc_indirect,
             "pml_10_eur": round(cmcc_total * 2.3, 2),
@@ -2273,46 +2325,41 @@ def compute_impacts(
     resume_enabled: bool = False,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
+    if bool(runtime_settings.allow_climada_fallback):
+        raise ValueError(
+            "SIB_RISK_ALLOW_CLIMADA_FALLBACK is no longer supported: scientific CLIMADA fallback has been removed."
+        )
+    if bool(runtime_settings.hazard_fallback_to_precomputed):
+        raise ValueError(
+            "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED is no longer supported: dynamic hazard failures must stop the scientific run."
+        )
+    if not bool(runtime_settings.climada_strict_required_components):
+        raise ValueError(
+            "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS must remain enabled: incomplete multi-hazard scientific runs now fail explicitly."
+        )
     mode = str(runtime_settings.impact_engine_mode or "climada").strip().lower()
 
     if mode == "fallback":
-        return compute_impacts_fallback(exposure, disagg)
+        raise ValueError("Scientific fallback impact mode has been removed; use 'climada'.")
     if mode not in {"climada", "auto"}:
         raise ValueError(f"Unsupported impact engine mode: {mode}")
 
-    try:
-        return _compute_impacts_climada(
-            exposure,
-            disagg,
-            runtime_settings,
-            progress_callback=progress_callback,
-            checkpoint_dir=checkpoint_dir,
-            resume_enabled=resume_enabled,
-        )
-    except DependencyMissingError as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA dependency missing ({exc}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = str(exc)
-            return res
-        raise
-    except Exception as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA runtime failed ({type(exc).__name__}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = f"{type(exc).__name__}: {exc}"
-            return res
-        raise
+    return _compute_impacts_climada(
+        exposure,
+        disagg,
+        runtime_settings,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        resume_enabled=resume_enabled,
+    )
 # END SOURCE: backend/app/risk_engine/impact_runner.py
 
 # ============================================================================
 # MODULE 07/27
 # Source file: backend/app/risk_engine/exposure_to_climada.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/exposure_to_climada.py
-# Original line span: 1-371
-# Source SHA256: 1b9ce0f08efdb0603a41f9501340fa860d50d92456501ec10af661624a55ca9b
+# Original line span: 1-379
+# Source SHA256: f64394b4b02eac3bfc4411420193581c2c305b1e881a7b7cdd5465ee0bafb48f
 # Purpose: Converts exposure geometries to CLIMADA-compatible sampled points.
 # Key Inputs: Normalized features, spacing, metric CRS, max points per feature.
 # Key Outputs: CLIMADA Exposures object + point-level records with business mapping.
@@ -2597,6 +2644,10 @@ def build_climada_exposure(
         split_value = max(0.0, float(feat.value_eur)) / float(len(sampled))
         infra_class = _infer_infra_class(feat)
         asset_type = str((feat.properties or {}).get("asset_type") or "")
+        uses_default_value = bool((feat.properties or {}).get("uses_default_value"))
+        valuation_source = str((feat.properties or {}).get("valuation_source") or "")
+        valuation_version = str((feat.properties or {}).get("valuation_version") or "")
+        default_value_eur = (feat.properties or {}).get("default_value_eur")
         point_impact_func_id = int(impact_func_id)
         if impact_func_id_resolver is not None:
             try:
@@ -2635,6 +2686,10 @@ def build_climada_exposure(
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
+                    "uses_default_value": uses_default_value,
+                    "valuation_source": valuation_source,
+                    "valuation_version": valuation_version,
+                    "default_value_eur": float(default_value_eur) if default_value_eur is not None else None,
                     "impf_tc": int(point_impact_func_id),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "territory_id": territory_id,
@@ -2697,8 +2752,8 @@ def subset_climada_exposure_bundle(
 # MODULE 08/27
 # Source file: backend/app/risk_engine/climada_engine.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/climada_engine.py
-# Original line span: 1-2942
-# Source SHA256: 281578f71f84d4d38896b14621c9cc0b9088e79a36925bdcfc9a5b8ca23744db
+# Original line span: 1-3058
+# Source SHA256: 1ef0e9713e4b36d10b3471285b3ee9d5c1fa92f17086796839d22544cd098238
 # Purpose: Computes direct impacts with CLIMADA and extracts risk metrics.
 # Key Inputs: Point exposures + STORM/STORM_CMCC hazards + runtime options.
 # Key Outputs: Per-hazard direct metrics (EAI, event losses, PML, TVaR, top events).
@@ -2735,7 +2790,8 @@ from .impact_functions_multi_hazard import (
 )
 
 
-RETURN_PERIODS = (10, 20, 50, 100, 200)
+RETURN_PERIODS = (10, 20, 50, 100, 200, 1000)
+PUBLIC_EVENT_LOSS_PERCENTILE = 0.99
 _TOPO_RASTER_CACHE: dict[str, Path] = {}
 _SHARD_MEMORY_MULTIPLIER = {
     "wind": 0.95,
@@ -2761,6 +2817,7 @@ class HazardImpactResult:
     tvar_95_eur: float
     top_events: list[dict[str, Any]]
     matching: dict[str, Any] = field(default_factory=dict)
+    raw_max_event_loss_eur: float = 0.0
 
 
 @dataclass
@@ -2830,6 +2887,16 @@ def _approx_max_loss_per_point(np: Any, eai_exp: Any, at_event: Any) -> Any:
     eai_sum = float(eai.sum())
     evt_max = float(evt.max()) if evt.size else 0.0
     factor = (evt_max / eai_sum) if eai_sum > 0.0 else 0.0
+    return eai * max(0.0, factor)
+
+
+def _approx_percentile_loss_per_point(np: Any, eai_exp: Any, percentile_loss_eur: float) -> Any:
+    eai = _as_1d_float(np, eai_exp)
+    if eai.size == 0:
+        return np.zeros(0, dtype=float)
+    eai_sum = float(eai.sum())
+    percentile_loss = max(0.0, float(percentile_loss_eur or 0.0))
+    factor = (percentile_loss / eai_sum) if eai_sum > 0.0 else 0.0
     return eai * max(0.0, factor)
 
 
@@ -3147,19 +3214,79 @@ def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int
     if not valid.any():
         return {rp: 0.0 for rp in return_periods}
 
-    losses_sorted = losses_arr[valid][np.argsort(-losses_arr[valid])]
-    freq_sorted = freq_arr[valid][np.argsort(-losses_arr[valid])]
-    cum_rate = np.cumsum(freq_sorted)
+    losses_valid = losses_arr[valid]
+    freq_valid = freq_arr[valid]
+    sort_idxs = np.argsort(losses_valid)[::-1]
+    exceed_freq = np.cumsum(freq_valid[sort_idxs])
+    impact_curve = losses_valid[sort_idxs][::-1]
+    return_curve = np.divide(
+        1.0,
+        exceed_freq[::-1],
+        out=np.full(exceed_freq.size, np.inf, dtype=float),
+        where=exceed_freq[::-1] > 0.0,
+    )
+    finite = np.isfinite(return_curve) & (return_curve > 0.0)
+    if not finite.any():
+        return {rp: 0.0 for rp in return_periods}
 
-    out: dict[int, float] = {}
-    for rp in return_periods:
-        target_rate = 1.0 / float(rp)
-        idx = int(np.searchsorted(cum_rate, target_rate, side="left"))
-        if idx >= losses_sorted.size:
-            out[rp] = 0.0
-        else:
-            out[rp] = float(max(0.0, losses_sorted[idx]))
-    return out
+    interpolated = np.interp(
+        np.asarray(return_periods, dtype=float),
+        return_curve[finite],
+        impact_curve[finite],
+    )
+    return {
+        int(rp): float(max(0.0, interpolated[idx]))
+        for idx, rp in enumerate(return_periods)
+    }
+
+
+def _compute_pml_from_impact(np: Any, impact_obj: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
+    target = np.asarray(return_periods, dtype=float)
+    try:
+        freq_curve = impact_obj.calc_freq_curve(target)
+        impacts = _as_1d_float(np, getattr(freq_curve, "impact", []))
+        if impacts.size == target.size:
+            return {
+                int(rp): float(max(0.0, impacts[idx]))
+                for idx, rp in enumerate(return_periods)
+            }
+    except Exception:
+        pass
+    return _compute_pml(
+        np,
+        getattr(impact_obj, "at_event", []),
+        getattr(impact_obj, "frequency", []),
+        return_periods,
+    )
+
+
+def _compute_loss_percentile(np: Any, losses: Any, frequency: Any, percentile: float) -> float:
+    losses_arr = np.clip(_as_1d_float(np, losses), 0.0, None)
+    weights = _as_1d_float(np, frequency)
+    valid = weights > 0.0
+    if not valid.any():
+        return 0.0
+
+    probs = weights[valid]
+    total_w = float(probs.sum())
+    if total_w <= 0.0:
+        return 0.0
+
+    q = float(percentile)
+    if q > 1.0:
+        q = q / 100.0
+    q = min(max(q, 0.0), 1.0)
+
+    sorted_idx = np.argsort(losses_arr[valid])
+    sorted_losses = losses_arr[valid][sorted_idx]
+    sorted_probs = probs[sorted_idx] / total_w
+    cdf = np.cumsum(sorted_probs)
+
+    if q >= 1.0:
+        return float(max(0.0, sorted_losses[-1])) if sorted_losses.size else 0.0
+    idx = int(np.searchsorted(cdf, q, side="left"))
+    idx = max(0, min(idx, sorted_losses.size - 1))
+    return float(max(0.0, sorted_losses[idx]))
 
 
 def _compute_tvar_95(np: Any, losses: Any, frequency: Any) -> float:
@@ -3223,7 +3350,13 @@ def _normalize_frequency_on_copy(hazard_obj: Any, storm_years: int) -> Any:
     if getattr(hazard_copy, "_sib_frequency_normalized", False):
         return hazard_copy
     try:
-        hazard_copy.frequency = freq / float(max(1, int(storm_years)))
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            import numpy as np  # type: ignore
+
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
         setattr(hazard_copy, "_sib_frequency_normalized", True)
     except Exception:
         return hazard_obj
@@ -3640,6 +3773,7 @@ def _save_shard_checkpoint(
     np.savez_compressed(
         result_path,
         eai_direct_by_point=_as_1d_float(np, metrics.eai_direct_by_point),
+        max_loss_by_point=_as_1d_float(np, metrics.max_loss_by_point),
         at_event_loss=_as_1d_float(np, metrics.at_event_loss),
         event_frequency=_as_1d_float(np, metrics.event_frequency),
         event_id=event_ids,
@@ -3674,9 +3808,12 @@ def _load_shard_checkpoint(
             stored_point_ids = [str(value) for value in list(payload.get("point_id", []))]
             if stored_point_ids != expected_point_ids:
                 return None
+            if "max_loss_by_point" not in payload.files:
+                return None
             return _rebuild_component_result(
                 np,
                 eai_by_point=payload["eai_direct_by_point"],
+                max_loss_by_point=payload["max_loss_by_point"],
                 at_event_loss=payload["at_event_loss"],
                 event_frequency=payload["event_frequency"],
                 event_id=[str(value) for value in list(payload.get("event_id", []))],
@@ -3937,6 +4074,7 @@ def _plan_hazard_shards(
 def _init_component_result_accumulator(np: Any, *, total_points: int) -> dict[str, Any]:
     return {
         "eai_by_point": np.zeros(total_points, dtype=float),
+        "max_loss_by_point": np.zeros(total_points, dtype=float),
         "at_event_total": None,
         "event_frequency": None,
         "event_id": None,
@@ -3952,10 +4090,15 @@ def _merge_component_result_accumulator(
     metrics: HazardImpactResult,
 ) -> None:
     shard_eai = _as_1d_float(np, metrics.eai_direct_by_point)
+    shard_max_loss = _as_1d_float(np, metrics.max_loss_by_point)
     for offset, point_idx in enumerate(shard.point_indices):
         if offset >= shard_eai.size:
             break
         accumulator["eai_by_point"][int(point_idx)] = float(shard_eai[offset])
+    for offset, point_idx in enumerate(shard.point_indices):
+        if offset >= shard_max_loss.size:
+            break
+        accumulator["max_loss_by_point"][int(point_idx)] = float(shard_max_loss[offset])
 
     shard_at_event = _as_1d_float(np, metrics.at_event_loss)
     if accumulator["at_event_total"] is None:
@@ -3994,6 +4137,7 @@ def _finalize_component_result_accumulator(
     return _rebuild_component_result(
         np,
         eai_by_point=accumulator["eai_by_point"],
+        max_loss_by_point=accumulator["max_loss_by_point"],
         at_event_loss=at_event_total,
         event_frequency=event_frequency,
         event_id=event_id,
@@ -4109,6 +4253,7 @@ def _rebuild_component_result(
     np: Any,
     *,
     eai_by_point: Any,
+    max_loss_by_point: Any | None = None,
     at_event_loss: Any,
     event_frequency: Any,
     event_id: Any,
@@ -4118,20 +4263,25 @@ def _rebuild_component_result(
     eai = _as_1d_float(np, eai_by_point)
     at_event = _as_1d_float(np, at_event_loss)
     frequency = _as_1d_float(np, event_frequency)
-    max_loss_by_point = _approx_max_loss_per_point(np, eai, at_event)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    if max_loss_by_point is None:
+        resolved_max_loss = _approx_percentile_loss_per_point(np, eai, public_event_loss)
+    else:
+        resolved_max_loss = _as_1d_float(np, max_loss_by_point)
     view = _SimpleImpactView(event_id=event_id, event_name=event_name)
     return HazardImpactResult(
         eai_direct_by_point=eai,
-        max_loss_by_point=max_loss_by_point,
+        max_loss_by_point=resolved_max_loss,
         at_event_loss=at_event,
         event_frequency=frequency,
         event_id=event_id,
         event_name=event_name,
         aai_agg_eur=float(eai.sum()),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+        max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -4569,13 +4719,14 @@ def _compute_component_impact(
         overwrite=True,
     )
     impact = ImpactCalc(exposures, impfset, hazard_obj).impact(
-        save_mat=False,
+        save_mat=True,
         assign_centroids=False,
     )
     eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
     at_event = _as_1d_float(np, getattr(impact, "at_event", []))
-    max_loss_point = _approx_max_loss_per_point(np, eai_exp, at_event)
     frequency = _as_1d_float(np, getattr(impact, "frequency", []))
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    max_loss_point = _max_loss_per_point(np, impact, eai_exp.size)
 
     return HazardImpactResult(
         eai_direct_by_point=eai_exp,
@@ -4585,10 +4736,11 @@ def _compute_component_impact(
         event_id=getattr(impact, "event_id", []),
         event_name=getattr(impact, "event_name", []),
         aai_agg_eur=float(getattr(impact, "aai_agg", 0.0) or 0.0),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
-        pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
+        max_event_loss_eur=public_event_loss,
+        pml_eur=_compute_pml_from_impact(np, impact, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -4632,6 +4784,7 @@ def _combine_component_results(
             at_event += comp_at_event
 
     view = _SimpleImpactView(event_id=event_id, event_name=event_name)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
     return HazardImpactResult(
         eai_direct_by_point=capped_eai,
         max_loss_by_point=capped_max,
@@ -4640,10 +4793,11 @@ def _combine_component_results(
         event_id=event_id,
         event_name=event_name,
         aai_agg_eur=float(capped_eai.sum()),
-        max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+        max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
 
@@ -4718,25 +4872,33 @@ def _compute_dynamic_hazard_sharded_results(
         }
         return empty, components, component_status, component_sharding, component_notes
 
+    if multi_hazard_ready:
+        if multi_hazard_model is None or impfset_rain is None or TCRain is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain setup is unavailable for hazard-sharded execution."
+            )
+        if impfset_surge is None or TCSurgeBathtub is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge setup is unavailable for hazard-sharded execution."
+            )
+        if tracks is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain component requires dynamic tracks during hazard-sharded execution."
+            )
+        if surge_topo_path is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+            )
+        if not Path(surge_topo_path).exists():
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+            )
+
     component_enabled = {
         "wind": True,
-        "rain": bool(multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None and tracks is not None),
-        "surge": bool(multi_hazard_ready and multi_hazard_model is not None and impfset_surge is not None and TCSurgeBathtub is not None and surge_topo_path is not None and Path(surge_topo_path).exists()),
+        "rain": bool(multi_hazard_ready),
+        "surge": bool(multi_hazard_ready),
     }
-    if multi_hazard_ready and not component_enabled["rain"]:
-        component_status["rain"] = "skipped"
-        component_sharding["rain"] = {"status": "skipped", "reason": "dynamic_tracks_unavailable"}
-        component_notes.append(
-            f"{hazard_key}: rain component skipped because dynamic tracks are unavailable for hazard-sharded execution."
-        )
-    if multi_hazard_ready and surge_topo_path is None:
-        component_status["surge"] = "skipped"
-        component_sharding["surge"] = {"status": "skipped", "reason": "missing_topo_path"}
-        component_notes.append(f"{hazard_key}: surge component skipped (no DEM path configured).")
-    elif multi_hazard_ready and surge_topo_path is not None and not Path(surge_topo_path).exists():
-        component_status["surge"] = "skipped"
-        component_sharding["surge"] = {"status": "skipped", "reason": f"missing_topo:{surge_topo_path}"}
-        component_notes.append(f"{hazard_key}: surge component skipped (DEM not found at {surge_topo_path}).")
 
     component_accumulators: dict[str, dict[str, Any] | None] = {}
     component_completed_shards: dict[str, int] = {}
@@ -5085,6 +5247,7 @@ def run_climada_direct_impacts(
     storm_cmcc_parquet_path: Path | None = None,
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     dynamic_max_tracks: int = 1200,
@@ -5107,6 +5270,15 @@ def run_climada_direct_impacts(
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
 ) -> ClimadaRunResult:
+    if fallback_to_precomputed_hazards:
+        raise ValueError(
+            "Scientific fallback to precomputed hazards has been removed. Disable fallback_to_precomputed_hazards and fix the dynamic hazard input instead."
+        )
+    if not strict_required_components:
+        raise ValueError(
+            "Incomplete multi-hazard CLIMADA execution is no longer supported. Keep strict_required_components enabled."
+        )
+
     runtime = _require_runtime()
     np = runtime["np"]
     ImpactCalc = runtime["ImpactCalc"]
@@ -5123,6 +5295,11 @@ def run_climada_direct_impacts(
     notes = [
         "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
         "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+        (
+            "STORM track winds are converted from 10-minute to 1-minute sustained winds before CLIMADA hazard generation."
+            if convert_10min_to_1min
+            else "STORM track winds are kept in their input sustained-wind averaging convention."
+        ),
         f"Impact functions: profile={vulnerability_payload.get('profile')} with {len(impact_funcs)} TC curves.",
     ]
     execution_profile_name = str(execution_profile or "default").strip().lower()
@@ -5164,6 +5341,7 @@ def run_climada_direct_impacts(
                     storm_years=storm_years,
                     basin_coverages=basin_coverages,
                     wind_unit_in=wind_unit_in,
+                    convert_10min_to_1min=convert_10min_to_1min,
                     radius_unit_in=radius_unit_in,
                     env_pressure_hpa=env_pressure_hpa,
                     max_tracks=max(100, int(dynamic_max_tracks)),
@@ -5228,16 +5406,10 @@ def run_climada_direct_impacts(
                         f"estimated full build={float(dynamic_hazard_estimated_full_memory_bytes) / float(1024**3):.2f} GiB)."
                     )
             except Exception as exc:
-                if not fallback_to_precomputed_hazards:
-                    raise
-                logger.warning(
-                    "Dynamic hazard build failed; falling back to precomputed HDF5 (%s: %s)",
-                    type(exc).__name__,
-                    exc,
-                )
-                notes.append(
-                    f"Dynamic hazard build failed ({type(exc).__name__}): {exc}. Falling back to precomputed HDF5 hazards."
-                )
+                raise RuntimeError(
+                    "Dynamic hazard build failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     if bundle is None:
         bundle = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, storm_years)
@@ -5258,9 +5430,11 @@ def run_climada_direct_impacts(
 
     if bool(multi_hazard_enabled):
         if flood_curve_file is None:
-            notes.append("Multi-hazard disabled: no flood depth curve file configured.")
+            raise RuntimeError("Multi-hazard CLIMADA execution requires a configured flood depth curve file.")
         elif not Path(flood_curve_file).exists():
-            notes.append(f"Multi-hazard disabled: missing flood depth curve file at {flood_curve_file}.")
+            raise FileNotFoundError(
+                f"Multi-hazard CLIMADA execution requires flood depth curves at {flood_curve_file}."
+            )
         else:
             try:
                 from climada_petals.hazard.tc_rainfield import TCRain as _TCRain  # type: ignore
@@ -5282,12 +5456,10 @@ def run_climada_direct_impacts(
                     "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub)."
                 )
             except Exception as exc:
-                logger.warning(
-                    "Multi-hazard setup failed; running wind-only mode (%s: %s)",
-                    type(exc).__name__,
-                    exc,
-                )
-                notes.append(f"Multi-hazard setup failed ({type(exc).__name__}): {exc}. Using wind-only impacts.")
+                raise RuntimeError(
+                    "Multi-hazard setup failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     out: dict[str, HazardImpactResult] = {}
     component_out: dict[str, dict[str, HazardImpactResult]] = {}
@@ -5387,13 +5559,13 @@ def run_climada_direct_impacts(
 
         if multi_hazard_ready and multi_hazard_model is not None and impfset_surge is not None and TCSurgeBathtub is not None:
             if surge_topo_path is None:
-                component_status["surge"] = "skipped"
-                component_sharding["surge"] = {"status": "skipped", "reason": "missing_topo_path"}
-                notes.append(f"{hazard_key}: surge component skipped (no DEM path configured).")
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+                )
             elif not Path(surge_topo_path).exists():
-                component_status["surge"] = "skipped"
-                component_sharding["surge"] = {"status": "skipped", "reason": f"missing_topo:{surge_topo_path}"}
-                notes.append(f"{hazard_key}: surge component skipped (DEM not found at {surge_topo_path}).")
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+                )
             else:
                 try:
                     prepared_topo = _prepare_topo_raster_for_exposure(
@@ -5477,10 +5649,9 @@ def run_climada_direct_impacts(
         if multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None:
             tracks = bundle.tracks_storm if hazard_key == "storm" else bundle.tracks_storm_cmcc
             if tracks is None:
-                component_status["rain"] = "skipped"
-                component_sharding["rain"] = {"status": "skipped", "reason": "dynamic_tracks_unavailable"}
-                notes.append(
-                    f"{hazard_key}: rain component skipped because dynamic tracks are unavailable (precomputed HDF5 source)."
+                raise RuntimeError(
+                    "Incomplete multi-hazard CLIMADA execution is not allowed: "
+                    f"{hazard_key} rain component requires dynamic tracks; precomputed hazards are insufficient."
                 )
             else:
                 try:
@@ -5654,8 +5825,8 @@ def run_climada_direct_impacts(
 # MODULE 09/27
 # Source file: backend/app/risk_engine/hazard_loader.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/hazard_loader.py
-# Original line span: 1-688
-# Source SHA256: 11aaa8cd7f057a232230371ffc10ba120a2e4de4b94ed086b7a8436c55f5f397
+# Original line span: 1-719
+# Source SHA256: bec389f77814f492dc99a1453ca25aa7b95c07d6f0d155b8f1daed2505312321
 # Purpose: Loads precomputed hazards and optionally builds dynamic hazards from parquet.
 # Key Inputs: Hazard files/datasets, basin coverage, point coordinates, unit settings.
 # Key Outputs: HazardBundle with normalized frequencies and source metadata.
@@ -5741,6 +5912,7 @@ DEFAULT_MAX_TRACKS = 4000
 DEFAULT_TRACK_CACHE_MAX_ENTRIES = 8
 DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
 DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
+STORM_10MIN_TO_1MIN_WIND_FACTOR = 1.0 / 0.88
 
 
 def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
@@ -5779,7 +5951,13 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
         return hazard_copy
 
     try:
-        hazard_copy.frequency = freq / float(storm_years)
+        import numpy as np  # type: ignore
+
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
         setattr(hazard_copy, "_sib_frequency_normalized", True)
     except Exception as exc:
         logger.warning(
@@ -5940,6 +6118,18 @@ def _convert_wind_to_mps(values: Any, unit_in: str) -> Any:
     return wind / 3.6  # km/h -> m/s
 
 
+def _convert_storm_wind_to_climada_mps(
+    values: Any,
+    unit_in: str,
+    *,
+    convert_10min_to_1min: bool,
+) -> Any:
+    wind = _convert_wind_to_mps(values, unit_in)
+    if not convert_10min_to_1min:
+        return wind
+    return wind * STORM_10MIN_TO_1MIN_WIND_FACTOR
+
+
 def _normalize_distance_unit(raw: str) -> str:
     unit = str(raw or "km").strip().lower()
     aliases = {
@@ -6003,6 +6193,7 @@ def _build_tracks_from_parquet(
     max_tracks: int = DEFAULT_MAX_TRACKS,
     timestep_hours: int = 3,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
 ) -> Any:
@@ -6089,7 +6280,11 @@ def _build_tracks_from_parquet(
             keep_track_ids = set(ranked_tracks.index.tolist())
             df = df[df["track_id"].isin(keep_track_ids)].copy()
 
-    df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
+    df["wind_max"] = _convert_storm_wind_to_climada_mps(
+        df["wind_max"],
+        wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
+    )
     df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
 
     df = df.sort_values(["track_id", "time_step"]).reset_index(drop=True)
@@ -6136,6 +6331,7 @@ def _build_tracks_from_parquet(
             },
             attrs={
                 "max_sustained_wind_unit": "m/s",
+                "max_sustained_wind_averaging_period_minutes": 1 if convert_10min_to_1min else 10,
                 "radius_max_wind_unit": "nm",
                 "central_pressure_unit": "hPa",
                 "sid": f"{provider_name}_{year}_{track_id}",
@@ -6161,6 +6357,7 @@ def _get_or_build_tracks(
     spatial_window: SpatialWindow | None,
     max_tracks: int,
     wind_unit_in: str,
+    convert_10min_to_1min: bool,
     radius_unit_in: str,
     env_pressure_hpa: float,
     track_cache_max_entries: int | None = None,
@@ -6178,6 +6375,7 @@ def _get_or_build_tracks(
         str(provider_name),
         tuple(sorted(int(b) for b in basin_ids)),
         str(wind_unit_in),
+        bool(convert_10min_to_1min),
         str(radius_unit_in),
         float(env_pressure_hpa),
         window_key,
@@ -6198,6 +6396,7 @@ def _get_or_build_tracks(
         spatial_window=spatial_window,
         max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -6278,6 +6477,7 @@ def load_storm_hazards_from_parquet_for_points(
     max_tracks: int = DEFAULT_MAX_TRACKS,
     track_cache_max_entries: int | None = None,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     build_hazards: bool = True,
@@ -6296,6 +6496,7 @@ def load_storm_hazards_from_parquet_for_points(
         max_tracks=max_tracks,
         track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -6307,6 +6508,7 @@ def load_storm_hazards_from_parquet_for_points(
         max_tracks=max_tracks,
         track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -6679,8 +6881,8 @@ def try_build_climada_impact_funcs() -> list[object] | None:
 # MODULE 11/27
 # Source file: backend/app/risk_engine/impact_functions_multi_hazard.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_functions_multi_hazard.py
-# Original line span: 1-420
-# Source SHA256: 0fd756d7dbb1cdf998b6f3f456b5fe44bab2f10a5f722b272409effc5ab4c07f
+# Original line span: 1-558
+# Source SHA256: 78d810ba0ad7726b20e7d70c8ddcaaa37b4910cfc276f347bc760f753804e482
 # Purpose: Builds rain/surge impact-function sets and asset-type mapping from D2 flood curves.
 # Key Inputs: Flood curve workbook, hazard type identifiers, per-asset mapping overrides.
 # Key Outputs: Multi-hazard impact-function model with rain+surge CLIMADA functions.
@@ -6778,6 +6980,23 @@ def _infer_infra_class_from_asset_type(asset_type: str | None) -> str:
             return "eau_reseau"
         return "eau_ouvrage"
     return "habitation"
+
+
+def _effective_runoff_coeff(infra_class: str | None, base_coeff: float) -> float:
+    infra_key = str(infra_class or "").strip().lower()
+    reference = float(DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+    scale = float(base_coeff) / reference if reference > 0.0 else 1.0
+    if scale <= 0.0:
+        scale = 1.0
+    class_coeff = float(RUNOFF_COEFF_BY_INFRA_CLASS.get(infra_key, reference))
+    effective = class_coeff * scale
+    if effective <= 0.0:
+        return reference
+    return effective
+
+
+def _rain_curve_key(code: str, infra_class: str) -> str:
+    return f"{str(code)}::{str(infra_class)}"
 
 
 def _safe_text(value: Any, default: str = "") -> str:
@@ -6906,14 +7125,14 @@ def build_multi_hazard_impact_model(
     surge_funcs: list[Any] = []
     rain_funcs: list[Any] = []
     surge_impf_id_by_code: dict[str, int] = {}
-    rain_impf_id_by_code: dict[str, int] = {}
+    rain_impf_id_by_key: dict[str, int] = {}
+    rain_curve_specs: list[dict[str, Any]] = []
+    infra_classes = sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
 
     for idx, code in enumerate(used_codes, start=1):
         curve = curves[code]
         surge_impf_id = SURGE_IMPF_ID_BASE + idx
-        rain_impf_id = RAIN_IMPF_ID_BASE + idx
         surge_impf_id_by_code[code] = surge_impf_id
-        rain_impf_id_by_code[code] = rain_impf_id
 
         surge_funcs.append(
             _build_climada_impact_func(
@@ -6926,21 +7145,38 @@ def build_multi_hazard_impact_model(
             )
         )
 
-        # Rain proxy curves are derived from depth curves:
-        # equivalent_depth_m = runoff_coeff * rain_mm / 1000
-        # rain_mm = depth_m * 1000 / runoff_coeff
-        # We encode one baseline curve (coeff=0.25) and per-asset scaling via ID resolver below.
-        rain_intensity_mm = (curve["depth_m"] * 1000.0) / base_coeff
-        rain_funcs.append(
-            _build_climada_impact_func(
-                impf_id=rain_impf_id,
-                haz_type=rain_haz_type,
-                name=f"SIB Rain Proxy Curve {code}",
-                intensity=rain_intensity_mm,
-                mdd=curve["mdd"],
-                intensity_unit="mm_proxy",
+    rain_idx = 0
+    for code in used_codes:
+        curve = curves[code]
+        for infra_class in infra_classes:
+            rain_idx += 1
+            rain_impf_id = RAIN_IMPF_ID_BASE + rain_idx
+            runoff_coeff = _effective_runoff_coeff(infra_class, base_coeff)
+            rain_key = _rain_curve_key(code, infra_class)
+            rain_impf_id_by_key[rain_key] = rain_impf_id
+
+            # Rain proxy curves are derived from depth curves:
+            # equivalent_depth_m = runoff_coeff * rain_mm / 1000
+            # rain_mm = depth_m * 1000 / runoff_coeff
+            rain_intensity_mm = [float(value) * 1000.0 / runoff_coeff for value in list(curve["depth_m"])]
+            rain_funcs.append(
+                _build_climada_impact_func(
+                    impf_id=rain_impf_id,
+                    haz_type=rain_haz_type,
+                    name=f"SIB Rain Proxy Curve {code} ({infra_class})",
+                    intensity=rain_intensity_mm,
+                    mdd=curve["mdd"],
+                    intensity_unit="mm_proxy",
+                )
             )
-        )
+            rain_curve_specs.append(
+                {
+                    "impf_id": int(rain_impf_id),
+                    "code": str(code),
+                    "infra_class": str(infra_class),
+                    "runoff_coeff": float(runoff_coeff),
+                }
+            )
 
     def code_for_asset(asset_type: str | None) -> str:
         asset = _normalize_asset_type(asset_type)
@@ -6953,8 +7189,20 @@ def build_multi_hazard_impact_model(
         if asset == DEFAULT_FLOOD_CURVE_CODE:
             continue
         c = code_for_asset(asset)
+        infra_class = _infer_infra_class_from_asset_type(asset)
+        rain_key = _rain_curve_key(c, infra_class)
         surge_impf_by_asset_type[str(asset)] = int(surge_impf_id_by_code[c])
-        rain_impf_by_asset_type[str(asset)] = int(rain_impf_id_by_code[c])
+        rain_impf_by_asset_type[str(asset)] = int(
+            rain_impf_id_by_key.get(
+                rain_key,
+                rain_impf_id_by_key[_rain_curve_key(DEFAULT_FLOOD_CURVE_CODE, "habitation")],
+            )
+        )
+
+    effective_runoff_coeffs = {
+        infra_class: float(_effective_runoff_coeff(infra_class, base_coeff))
+        for infra_class in infra_classes
+    }
 
     model = MultiHazardImpactModel(
         surge_funcs=surge_funcs,
@@ -6969,7 +7217,10 @@ def build_multi_hazard_impact_model(
             "curve_codes_used": used_codes,
             "asset_type_to_curve_code": dict(effective_mapping),
             "runoff_coeff_by_infra_class": dict(RUNOFF_COEFF_BY_INFRA_CLASS),
+            "effective_runoff_coeff_by_infra_class": effective_runoff_coeffs,
             "base_rain_coeff_for_curve_construction": base_coeff,
+            "rain_impf_id_by_curve_and_infra_class": dict(rain_impf_id_by_key),
+            "rain_curve_specs": rain_curve_specs,
         },
     )
     _MODEL_CACHE[key] = model
@@ -6994,6 +7245,13 @@ def resolve_rain_impf_id(asset_type: str | None, model: MultiHazardImpactModel) 
     asset = _normalize_asset_type(asset_type)
     if asset in model.rain_impf_by_asset_type:
         return int(model.rain_impf_by_asset_type[asset])
+    mapping_info = dict(model.mapping_info or {})
+    default_code = str(mapping_info.get("default_curve_code") or DEFAULT_FLOOD_CURVE_CODE)
+    infra_class = _infer_infra_class_from_asset_type(asset)
+    rain_impf_id_by_key = dict(mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {})
+    fallback_id = rain_impf_id_by_key.get(_rain_curve_key(default_code, infra_class))
+    if fallback_id is not None:
+        return int(fallback_id)
     return int(_default_impf_id(model.rain_funcs))
 
 
@@ -7016,10 +7274,6 @@ def get_multi_hazard_vulnerability_payload(
         rain_proxy_base_runoff_coeff=rain_proxy_base_runoff_coeff,
     )
     curves_raw = _load_flood_depth_curves(Path(flood_curve_file))
-    used_codes = [str(code) for code in list(model.mapping_info.get("curve_codes_used") or [])]
-    if not used_codes:
-        used_codes = [DEFAULT_FLOOD_CURVE_CODE]
-
     base_coeff = float(
         model.mapping_info.get(
             "base_rain_coeff_for_curve_construction",
@@ -7039,44 +7293,83 @@ def get_multi_hazard_vulnerability_payload(
         profile = "sib_tc_rain_proxy_multicurve_v1"
         haz_type = str(model.rain_haz_type)
         intensity_unit = "mm_proxy"
-        impf_base = RAIN_IMPF_ID_BASE
 
-    impf_id_by_code: dict[str, int] = {}
     curves: list[dict[str, Any]] = []
-    for idx, code in enumerate(used_codes, start=1):
-        curve = dict(curves_raw.get(code) or {})
-        depth_raw = curve.get("depth_m")
-        mdd_raw = curve.get("mdd")
-        depth = [float(v) for v in list(depth_raw) if v is not None]
-        mdd = [float(v) for v in list(mdd_raw) if v is not None]
-        if not depth or not mdd:
-            continue
-        if component == "surge":
+    if component == "surge":
+        used_codes = [str(code) for code in list(model.mapping_info.get("curve_codes_used") or [])]
+        if not used_codes:
+            used_codes = [DEFAULT_FLOOD_CURVE_CODE]
+        impf_id_by_code: dict[str, int] = {}
+        for idx, code in enumerate(used_codes, start=1):
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
             intensity = [float(v) for v in depth]
-        else:
-            intensity = [float(v) * 1000.0 / base_coeff for v in depth]
-        impf_id = int(impf_base + idx)
-        impf_id_by_code[code] = impf_id
-        curves.append(
-            {
-                "impf_id": impf_id,
-                "code": code,
-                "name": f"SIB {'Surge depth' if component == 'surge' else 'Rain proxy'} curve {code}",
-                "source": "D2 flood vulnerability table (F_Vuln_Depth)",
-                "geography": "Global / transferability assumptions",
-                "haz_type": haz_type,
-                "intensity_unit": intensity_unit,
-                "intensity": intensity,
-                "mdd": [float(v) for v in mdd],
-                "paa": [1.0 for _ in intensity],
-                "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
-                "modeled_infrastructure_characteristics": str(
-                    curve.get("modeled_infrastructure_characteristics") or "N/A"
-                ),
-                "uncertainty_lower": None,
-                "uncertainty_upper": None,
-            }
-        )
+            impf_id = int(impf_base + idx)
+            impf_id_by_code[code] = impf_id
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "name": f"SIB Surge depth curve {code}",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
+    else:
+        rain_curve_specs = list(model.mapping_info.get("rain_curve_specs") or [])
+        impf_id_by_code: dict[str, int] = {}
+        for spec in rain_curve_specs:
+            code = str(spec.get("code") or DEFAULT_FLOOD_CURVE_CODE)
+            infra_class = str(spec.get("infra_class") or "habitation")
+            runoff_coeff = float(spec.get("runoff_coeff") or base_coeff or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
+            intensity = [float(v) * 1000.0 / runoff_coeff for v in depth]
+            impf_id = int(spec.get("impf_id") or 0)
+            impf_id_by_code.setdefault(code, impf_id)
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "infra_class": infra_class,
+                    "runoff_coeff": runoff_coeff,
+                    "name": f"SIB Rain proxy curve {code} ({infra_class})",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
 
     if not curves:
         raise ValueError("No usable curves were found for multi-hazard vulnerability payload")
@@ -7086,20 +7379,53 @@ def get_multi_hazard_vulnerability_payload(
 
     asset_type_to_code = dict(model.mapping_info.get("asset_type_to_curve_code") or FLOOD_ASSET_TYPE_TO_CURVE_CODE)
     explicit_mapping: dict[str, dict[str, Any]] = {}
-    by_code_assets: dict[str, list[str]] = {}
+    by_curve_assets: dict[str, list[str]] = {}
     for asset_type, code in asset_type_to_code.items():
         resolved_code = str(code if code in impf_id_by_code else default_code)
-        explicit_mapping[str(asset_type)] = {
-            "code": resolved_code,
-            "impf_id": int(impf_id_by_code.get(resolved_code, default_impf_id)),
-        }
-        by_code_assets.setdefault(resolved_code, []).append(str(asset_type))
+        if component == "surge":
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": int(impf_id_by_code.get(resolved_code, default_impf_id)),
+            }
+            by_curve_assets.setdefault(resolved_code, []).append(str(asset_type))
+        else:
+            infra_class = _infer_infra_class_from_asset_type(asset_type)
+            curve_key = _rain_curve_key(resolved_code, infra_class)
+            matching_curve = next(
+                (
+                    curve_entry
+                    for curve_entry in curves
+                    if _rain_curve_key(str(curve_entry.get("code") or ""), str(curve_entry.get("infra_class") or ""))
+                    == curve_key
+                ),
+                None,
+            )
+            impf_id = int(matching_curve.get("impf_id")) if isinstance(matching_curve, dict) else default_impf_id
+            runoff_coeff = (
+                float(matching_curve.get("runoff_coeff"))
+                if isinstance(matching_curve, dict) and matching_curve.get("runoff_coeff") is not None
+                else _effective_runoff_coeff(infra_class, base_coeff)
+            )
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": impf_id,
+                "infra_class": infra_class,
+                "runoff_coeff": runoff_coeff,
+            }
+            by_curve_assets.setdefault(curve_key, []).append(str(asset_type))
 
     for curve in curves:
-        code = str(curve.get("code") or "")
-        curve["sib_asset_types"] = sorted(by_code_assets.get(code, []))
+        if component == "surge":
+            code = str(curve.get("code") or "")
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(code, []))
+        else:
+            curve_key = _rain_curve_key(
+                str(curve.get("code") or ""),
+                str(curve.get("infra_class") or "habitation"),
+            )
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(curve_key, []))
 
-    return {
+    payload = {
         "profile": profile,
         "haz_type": haz_type,
         "hazard_component": component,
@@ -7108,6 +7434,20 @@ def get_multi_hazard_vulnerability_payload(
         "default_curve": {"code": default_code, "impf_id": default_impf_id},
         "curves": curves,
     }
+    if component == "rain":
+        payload["default_curve_by_infra_class"] = {
+            infra_class: {
+                "code": default_code,
+                "impf_id": int(
+                    (
+                        model.mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {}
+                    ).get(_rain_curve_key(default_code, infra_class), default_impf_id)
+                ),
+                "runoff_coeff": float(_effective_runoff_coeff(infra_class, base_coeff)),
+            }
+            for infra_class in sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
+        }
+    return payload
 # END SOURCE: backend/app/risk_engine/impact_functions_multi_hazard.py
 
 # ============================================================================
@@ -7570,8 +7910,8 @@ def scenario_loss_factors(result: HazardImpactResult) -> dict[str, float]:
 # MODULE 14/27
 # Source file: backend/app/risk_engine/interdependency.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/interdependency.py
-# Original line span: 1-528
-# Source SHA256: 8d3965921956f67be37a3c4287f09096d99fea303f51baac77dd8d48337782a7
+# Original line span: 1-543
+# Source SHA256: 4c59c985288a76ea12ce489607e2bb64257f38eb116c0b6643dade8464dd5533
 # Purpose: Applies conservative electricity->water dependency post-processing.
 # Key Inputs: Point-level direct EAI/max-loss arrays per hazard.
 # Key Outputs: Adjusted direct/indirect totals, health metrics, dependency diagnostics.
@@ -7913,6 +8253,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": str(rec.get("label") or feature_id),
                 "geometry_type": str(rec.get("geometry_type") or "Unknown"),
                 "asset_type": str(rec.get("asset_type") or ""),
+                "uses_default_value": bool(rec.get("uses_default_value")),
+                "valuation_source": str(rec.get("valuation_source") or ""),
+                "valuation_version": str(rec.get("valuation_version") or ""),
+                "default_value_eur": rec.get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -7922,6 +8266,13 @@ def aggregate_impacts_with_interdependency(
                 "eai_cmcc_eur": 0.0,
             },
         )
+        asset_row["uses_default_value"] = bool(asset_row.get("uses_default_value")) or bool(rec.get("uses_default_value"))
+        if not asset_row.get("valuation_source") and rec.get("valuation_source"):
+            asset_row["valuation_source"] = str(rec.get("valuation_source") or "")
+        if not asset_row.get("valuation_version") and rec.get("valuation_version"):
+            asset_row["valuation_version"] = str(rec.get("valuation_version") or "")
+        if asset_row.get("default_value_eur") is None and rec.get("default_value_eur") is not None:
+            asset_row["default_value_eur"] = rec.get("default_value_eur")
         asset_row["exposure_eur"] += value
 
         for hazard in hazard_keys:
@@ -8040,6 +8391,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
@@ -8819,8 +9174,8 @@ def scenario_manifest_fields(scenario: SensitivityScenario | None) -> dict[str, 
 # MODULE 18/27
 # Source file: backend/app/risk_engine/analysis_export.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/analysis_export.py
-# Original line span: 1-227
-# Source SHA256: 535866a0789abf696bf87dd2aa6a5e13253e46395de63c24f672204e822f6b9b
+# Original line span: 1-294
+# Source SHA256: 21a5b4ef23950384a5e97860111bd0753b6dcb32099053325538ab30bb44ac39
 # Purpose: Final payload and artefact serialization helpers.
 # Key Inputs: Computation result + exposure/disaggregation context.
 # Key Outputs: API JSON payload, territory CSV, event CSV, graph JSON.
@@ -8855,9 +9210,18 @@ def build_result_payload(
     notes.extend(disagg.warnings)
     notes.extend(exposure.warnings)
     category_counts = Counter((f.exposure_category or "habitation") for f in exposure.features)
+    valuation_audit = _build_valuation_audit(exposure)
     input_features_geojson, was_truncated = _build_input_features_geojson(exposure, max_features=5000)
     if was_truncated:
         notes.append("Input geometry preview was truncated to 5000 features for map rendering.")
+    if int(valuation_audit.get("default_value_asset_count") or 0) > 0:
+        notes.append(
+            f"Default valuation assumption applied to {int(valuation_audit['default_value_asset_count'])} input feature(s)."
+        )
+    if int(valuation_audit.get("untracked_asset_count") or 0) > 0:
+        notes.append(
+            f"Valuation provenance metadata is missing for {int(valuation_audit['untracked_asset_count'])} input feature(s)."
+        )
     clean_run_label = str(run_label or "").strip()
     impact_function_label = "Eberenz_2021_TC"
     hazard_components = ["wind"]
@@ -8900,7 +9264,11 @@ def build_result_payload(
             "geometry_type_counts": disagg.by_geometry_type,
             "exposure_category_counts": dict(category_counts),
             "metric_crs": disagg.metric_crs,
+            "default_value_asset_count": int(valuation_audit.get("default_value_asset_count") or 0),
+            "explicit_value_asset_count": int(valuation_audit.get("explicit_value_asset_count") or 0),
+            "untracked_valuation_asset_count": int(valuation_audit.get("untracked_asset_count") or 0),
         },
+        "valuation_audit": valuation_audit,
         "territory_results": comp.territory_results,
         "asset_results": comp.asset_results,
         "portfolio_results": comp.portfolio_results,
@@ -9045,6 +9413,10 @@ def _build_input_features_geojson(
                     "label": str(feat.label),
                     "value_eur": float(feat.value_eur),
                     "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                    "uses_default_value": bool((feat.properties or {}).get("uses_default_value")),
+                    "valuation_source": str((feat.properties or {}).get("valuation_source") or ""),
+                    "valuation_version": str((feat.properties or {}).get("valuation_version") or ""),
+                    "default_value_eur": (feat.properties or {}).get("default_value_eur"),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "geometry_type": str(feat.geometry_type or ""),
                     "row_index": idx + 1,
@@ -9055,14 +9427,64 @@ def _build_input_features_geojson(
     if not features:
         return None, truncated
     return {"type": "FeatureCollection", "features": features}, truncated
+
+
+def _build_valuation_audit(
+    exposure: NormalizedExposure,
+    *,
+    preview_limit: int = 20,
+) -> dict[str, Any]:
+    valuation_source_counts: Counter[str] = Counter()
+    default_preview: list[dict[str, Any]] = []
+    tracked_asset_count = 0
+    default_value_asset_count = 0
+    default_value_total_eur = 0.0
+
+    for feat in exposure.features:
+        props = feat.properties or {}
+        uses_default_key_present = "uses_default_value" in props
+        valuation_source = str(props.get("valuation_source") or "")
+        if uses_default_key_present or valuation_source:
+            tracked_asset_count += 1
+        if valuation_source:
+            valuation_source_counts[valuation_source] += 1
+        if bool(props.get("uses_default_value")):
+            default_value_asset_count += 1
+            default_value_total_eur += float(feat.value_eur)
+            if len(default_preview) < max(1, int(preview_limit)):
+                default_preview.append(
+                    {
+                        "asset_id": str(feat.feature_id),
+                        "label": str(feat.label),
+                        "geometry_type": str(feat.geometry_type or ""),
+                        "value_eur": round(float(feat.value_eur), 2),
+                        "default_value_eur": props.get("default_value_eur"),
+                        "valuation_source": valuation_source,
+                    }
+                )
+
+    total_assets = exposure.asset_count_original
+    explicit_value_asset_count = max(0, tracked_asset_count - default_value_asset_count)
+    untracked_asset_count = max(0, total_assets - tracked_asset_count)
+
+    return {
+        "tracked_asset_count": int(tracked_asset_count),
+        "untracked_asset_count": int(untracked_asset_count),
+        "default_value_asset_count": int(default_value_asset_count),
+        "explicit_value_asset_count": int(explicit_value_asset_count),
+        "default_value_total_eur": round(default_value_total_eur, 2),
+        "valuation_source_counts": dict(sorted(valuation_source_counts.items())),
+        "default_value_asset_preview": default_preview,
+        "default_value_asset_preview_truncated": bool(default_value_asset_count > len(default_preview)),
+    }
 # END SOURCE: backend/app/risk_engine/analysis_export.py
 
 # ============================================================================
 # MODULE 19/27
 # Source file: backend/app/config.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/config.py
-# Original line span: 1-282
-# Source SHA256: 7d45a82ff520333644fa416f891eda5df8b056095ca536ee785af66f4a324c4b
+# Original line span: 1-332
+# Source SHA256: af820fa2e6490caa315110cffa6258fb2f92a72891ba852331866e8969568ac6
 # Purpose: Runtime settings model and environment-variable loader.
 # Key Inputs: Environment variables and default project paths.
 # Key Outputs: Immutable settings object used across API and engine modules.
@@ -9102,6 +9524,54 @@ def _prefer_existing_path(*candidates: Path) -> Path:
     return candidates[0]
 
 
+_DEFAULT_SURGE_TOPO_ROOT = Path("/home/ubuntu/uploads/DEM_Topo/Topo")
+_DEFAULT_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
+    "martinique": _DEFAULT_SURGE_TOPO_ROOT / "Martinique.tif",
+}
+
+
+def _normalize_territory_key(raw: str | None) -> str | None:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "gua": "guadeloupe",
+        "guadeloupe": "guadeloupe",
+        "mar": "martinique",
+        "martinique": "martinique",
+        "mtq": "martinique",
+    }
+    return aliases.get(key)
+
+
+def resolve_surge_topo_path_for_territory(
+    territory: str | None,
+    *,
+    settings: Settings | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    runtime_env = os.environ if env is None else env
+    territory_key = _normalize_territory_key(territory)
+    fallback_path = Path(
+        getattr(
+            settings,
+            "hazard_surge_topo_path",
+            Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+        )
+    )
+    if territory_key is None:
+        return fallback_path
+
+    env_override = runtime_env.get(f"SIB_RISK_HAZARD_SURGE_TOPO_PATH_{territory_key.upper()}")
+    territory_default = _DEFAULT_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    candidates: list[Path] = []
+    if env_override:
+        candidates.append(Path(env_override))
+    if territory_default is not None:
+        candidates.append(territory_default)
+    candidates.append(fallback_path)
+    return _prefer_existing_path(*candidates)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SIB Cyclone Risk API"
@@ -9121,8 +9591,9 @@ class Settings:
     storm_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     storm_cmcc_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     hazard_prefer_dynamic_from_parquet: bool = True
-    hazard_fallback_to_precomputed: bool = True
+    hazard_fallback_to_precomputed: bool = False
     storm_wind_unit_in: str = "m/s"
+    storm_convert_10min_to_1min: bool = True
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
     hazard_dynamic_max_tracks: int = 1200
@@ -9153,7 +9624,7 @@ class Settings:
     climada_max_points_per_shard: int = 0
     climada_min_points_per_shard: int = 512
     climada_max_shard_retry_depth: int = 4
-    climada_strict_required_components: bool = False
+    climada_strict_required_components: bool = True
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
     interdependency_state_threshold_s0_to_s1: float = 0.05
@@ -9297,8 +9768,9 @@ def load_settings() -> Settings:
         storm_parquet_path=storm_parquet_path,
         storm_cmcc_parquet_path=storm_cmcc_parquet_path,
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
-        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", True),
+        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
+        storm_convert_10min_to_1min=_env_bool(env, "SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN", True),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
         hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),
@@ -9327,7 +9799,7 @@ def load_settings() -> Settings:
         climada_max_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_SHARD", "0")),
         climada_min_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MIN_POINTS_PER_SHARD", "512")),
         climada_max_shard_retry_depth=int(env.get("SIB_RISK_CLIMADA_MAX_SHARD_RETRY_DEPTH", "4")),
-        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", False),
+        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", True),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
         interdependency_state_threshold_s0_to_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S0_TO_S1", "0.05")),

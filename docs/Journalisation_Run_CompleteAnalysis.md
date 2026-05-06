@@ -17,6 +17,49 @@ Historique migré: 11 run(s).
 
 
 
+
+
+
+
+## Run [2026-05-06 10:43:47]
+**Run ID**: `20260506_065034`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 27,981,937 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 36,015,921 EUR
+- Status: ✓ Complete
+**Total Duration**: 13993s (233.2m)
+
+## Run [2026-05-05 16:21:58]
+**Run ID**: `20260505_142337`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 16,162,297 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 19,177,806 EUR
+- Status: ✓ Complete
+**Total Duration**: 7101s (118.3m)
+
+## Run [2026-05-05 12:53:17]
+**Run ID**: `20260505_120642`
+### Guadeloupe
+### Martinique
+**Total Duration**: 367s (6.1m)
+
+## Run [2026-05-05 12:43:01]
+**Run ID**: `20260505_120642`
+### Guadeloupe
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,083 EUR
+- Status: ✓ Complete
+**Total Duration**: 565s (9.4m)
+
 ## Run [2026-04-29 08:05:44]
 **Run ID**: `20260429_075050`
 ### Guadeloupe

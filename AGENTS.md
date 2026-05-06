@@ -3,8 +3,9 @@
 ## Lecture obligatoire a chaque tache
 
 Avant toute analyse, modification ou deploiement dans ce projet:
-1. lire `/home/ubuntu/sib-work/DEPLOIEMENT.md`
-2. appliquer cette procedure comme reference operationnelle
+1. lire `/home/ubuntu/sib-work/docs/note-contexte-projet.md`
+2. lire `/home/ubuntu/sib-work/DEPLOIEMENT.md`
+3. appliquer cette procedure comme reference operationnelle
 
 ## Regle obligatoire apres modification du site
 

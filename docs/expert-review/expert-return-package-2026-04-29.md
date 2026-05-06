@@ -2,6 +2,8 @@
 
 This checklist enumerates the files to send back to the expert for the next review cycle after Lots A to G.
 
+The narrative files below are not sufficient on their own for an autonomous rerun. They must be paired with the required runtime data listed in `docs/expert-review/expert-data-manifest.md`.
+
 ## 1) Mandatory Narrative Docs
 
 - `docs/expert-review/review-guide.md`
@@ -21,6 +23,16 @@ Optional companion note:
 - `docs/expert-review/package/expert-env-template.sh`
 - `docs/expert-review/package/check_expert_inputs.py`
 - `docs/expert-review/package/run_expert_smoke.sh`
+
+## 2b) Required Runtime Data Delta
+
+If the expert already received an older data transfer, resend every required input that changed since that transfer.
+
+Current example:
+- resend `/home/ubuntu/uploads/DEM_Topo/Topo/Guadeloupe.tif`
+- resend `/home/ubuntu/uploads/DEM_Topo/Topo/Martinique.tif`
+
+Do not assume that unchanged docs imply unchanged runtime inputs.
 
 ## 3) Frozen Reference Baseline To Compare Against
 
@@ -68,3 +80,4 @@ When sending the package externally:
 - keep paths and filenames unchanged
 - keep the frozen baseline (`20260427_113740`) and the raw archived payloads together
 - do not replace the frozen baseline with the targeted Guadeloupe-only validation run (`20260429_075050`); that second run is supporting evidence, not the main comparison baseline
+- re-send any updated required data inputs from `expert-data-manifest.md`, even if the expert already received an earlier package revision

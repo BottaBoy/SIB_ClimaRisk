@@ -116,10 +116,20 @@ This is not the default production path of `/api/v1/runs`.
 - public tail-loss headline via `percentile_99_loss_eur` in aggregated payloads
 - backward-compatibility bridges may still expose `max_event_loss_eur` as an alias to that public percentile-99 headline in expert-review helpers or archived comparisons
 - raw single-event maximum retained separately for diagnostics
-- `pml_*`
+- `pml_*` including the `1000y` point now used in comparison views
 - `tvar_95_eur`
 - top events
 - optional component-level (`wind/rain/surge`) breakdown
+
+Current publication conventions:
+- comparison views now prioritize `annual_eai` + `pml_1000` rather than a percentile-99 bar,
+- `percentile_99_loss_eur` remains in the payload for compatibility and diagnostics,
+- dynamic STORM/STORM_CMCC winds are converted from 10-minute sustained winds to their 1-minute equivalent before CLIMADA hazard generation.
+
+Current future-rainfall limitation:
+- the present V1 keeps the `R-CLIPER` track-driven rainfall path for future-climate screening,
+- this does not explicitly capture the thermodynamic moisture amplification expected under warming,
+- therefore future rainfall outputs should be read as a first-approach screening signal, not as a final dedicated climate-rain model.
 
 ### 7.2 State model and health
 State buckets use damage-ratio thresholds:

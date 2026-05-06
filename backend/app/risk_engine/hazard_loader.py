@@ -51,6 +51,8 @@ class HazardBundle:
     track_count_storm_cmcc: int = 0
     centroids: Any | None = None
     global_hazards_built: bool = True
+    storm_track_load_spec: _DynamicTrackLoadSpec | None = None
+    storm_cmcc_track_load_spec: _DynamicTrackLoadSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,20 @@ class SpatialWindow:
     lon_max: float
     center_lat: float
     center_lon: float
+
+
+@dataclass(frozen=True)
+class _DynamicTrackLoadSpec:
+    parquet_path: Path
+    provider_name: str
+    basin_ids: tuple[int, ...]
+    spatial_window: SpatialWindow | None
+    max_tracks: int
+    wind_unit_in: str
+    convert_10min_to_1min: bool
+    radius_unit_in: str
+    env_pressure_hpa: float
+    track_cache_max_entries: int | None = None
 
 
 _TRACK_CACHE_LOCK = threading.Lock()
@@ -76,6 +92,7 @@ DEFAULT_MAX_TRACKS = 4000
 DEFAULT_TRACK_CACHE_MAX_ENTRIES = 8
 DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
 DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
+STORM_10MIN_TO_1MIN_WIND_FACTOR = 1.0 / 0.88
 
 
 def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
@@ -103,8 +120,23 @@ def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
         return DEFAULT_TRACK_CACHE_MAX_ENTRIES
 
 
+def _resolve_max_tracks(max_tracks: int) -> int:
+    try:
+        return int(max_tracks)
+    except Exception as exc:
+        logger.warning(
+            "Invalid max_tracks=%r (%s: %s); using default=%d",
+            max_tracks,
+            type(exc).__name__,
+            exc,
+            DEFAULT_MAX_TRACKS,
+        )
+        return DEFAULT_MAX_TRACKS
+
+
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
-    hazard_copy = copy.deepcopy(hazard_obj)
+    # Keep large hazard matrices shared and only replace the frequency vector.
+    hazard_copy = copy.copy(hazard_obj)
     freq = getattr(hazard_copy, "frequency", None)
     if freq is None:
         return hazard_copy
@@ -281,6 +313,18 @@ def _convert_wind_to_mps(values: Any, unit_in: str) -> Any:
     return wind / 3.6  # km/h -> m/s
 
 
+def _convert_storm_wind_to_climada_mps(
+    values: Any,
+    unit_in: str,
+    *,
+    convert_10min_to_1min: bool,
+) -> Any:
+    wind = _convert_wind_to_mps(values, unit_in)
+    if not convert_10min_to_1min:
+        return wind
+    return wind * STORM_10MIN_TO_1MIN_WIND_FACTOR
+
+
 def _normalize_distance_unit(raw: str) -> str:
     unit = str(raw or "km").strip().lower()
     aliases = {
@@ -335,59 +379,71 @@ def _normalize_columns(df: Any) -> Any:
     return df
 
 
-def _build_tracks_from_parquet(
+def _resolve_requested_parquet_columns(parquet_path: Path, columns: list[str] | None) -> list[str] | None:
+    if not columns:
+        return None
+
+    requested = list(dict.fromkeys(str(value) for value in columns))
+    try:
+        import pyarrow.parquet as pq  # type: ignore
+
+        available = {str(name) for name in pq.read_schema(parquet_path).names}
+    except Exception:
+        return requested
+
+    resolved = [name for name in requested if name in available]
+    return resolved or None
+
+
+def _read_filtered_track_dataframe(
     parquet_path: Path,
     *,
-    provider_name: str,
     basin_ids: tuple[int, ...],
     spatial_window: SpatialWindow | None = None,
-    max_tracks: int = DEFAULT_MAX_TRACKS,
-    timestep_hours: int = 3,
-    wind_unit_in: str = "m/s",
-    radius_unit_in: str = "km",
-    env_pressure_hpa: float = 1010.0,
+    columns: list[str] | None = None,
 ) -> Any:
     try:
-        import numpy as np  # type: ignore
         import pandas as pd  # type: ignore
-        import xarray as xr  # type: ignore
-        from climada.hazard import TCTracks  # type: ignore
     except Exception as exc:  # pragma: no cover
-        raise DependencyMissingError("CLIMADA runtime dependencies are required to build hazards from parquet") from exc
+        raise DependencyMissingError("Pandas is required to read STORM parquet catalogs") from exc
 
     if not parquet_path.exists():
         raise FileNotFoundError(f"Missing parquet dataset: {parquet_path}")
 
     read_kwargs: dict[str, Any] = {}
+    resolved_columns = _resolve_requested_parquet_columns(parquet_path, columns)
+    if resolved_columns:
+        read_kwargs["columns"] = resolved_columns
     if basin_ids:
         read_kwargs["filters"] = [("Basin ID", "in", [int(b) for b in basin_ids])]
     try:
         df = pd.read_parquet(parquet_path, **read_kwargs)
     except Exception as exc:
         logger.warning(
-            "Parquet predicate read failed for %s (filters=%s, %s: %s); retrying full read",
+            "Parquet predicate read failed for %s (filters=%s, columns=%s, %s: %s); retrying full read",
             parquet_path,
             read_kwargs.get("filters"),
+            read_kwargs.get("columns"),
             type(exc).__name__,
             exc,
         )
         df = pd.read_parquet(parquet_path)
-    df = _normalize_columns(df)
 
+    df = _normalize_columns(df)
     if "Basin ID" in df.columns and basin_ids:
         df = df[df["Basin ID"].astype(int).isin([int(b) for b in basin_ids])].copy()
     if df.empty:
         raise ValueError(f"No rows remain after basin filter {list(basin_ids)} on {parquet_path}")
 
-    required = {"Year", "track_id", "time_step", "lat", "lon", "p_c", "wind_max", "rmax"}
-    missing = sorted(required - set(df.columns))
-    if missing:
-        raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
-
-    df["lon"] = df["lon"].astype(float)
-    df.loc[df["lon"] > 180.0, "lon"] = df.loc[df["lon"] > 180.0, "lon"] - 360.0
+    if "lon" in df.columns:
+        df["lon"] = df["lon"].astype(float)
+        df.loc[df["lon"] > 180.0, "lon"] = df.loc[df["lon"] > 180.0, "lon"] - 360.0
 
     if spatial_window is not None:
+        if "lat" not in df.columns or "lon" not in df.columns:
+            raise ValueError(
+                f"Missing spatial filter columns in {parquet_path}: {sorted({'lat', 'lon'} - set(df.columns))}"
+            )
         lat_mask = df["lat"].astype(float).between(float(spatial_window.lat_min), float(spatial_window.lat_max))
         if spatial_window.lon_min <= spatial_window.lon_max:
             lon_mask = df["lon"].astype(float).between(float(spatial_window.lon_min), float(spatial_window.lon_max))
@@ -400,18 +456,83 @@ def _build_tracks_from_parquet(
                 f"lat=[{spatial_window.lat_min:.3f},{spatial_window.lat_max:.3f}] "
                 f"lon=[{spatial_window.lon_min:.3f},{spatial_window.lon_max:.3f}] on {parquet_path}"
             )
+    return df
 
+
+def _count_tracks_from_parquet(
+    parquet_path: Path,
+    *,
+    basin_ids: tuple[int, ...],
+    spatial_window: SpatialWindow | None = None,
+    max_tracks: int = DEFAULT_MAX_TRACKS,
+) -> int:
+    df = _read_filtered_track_dataframe(
+        parquet_path,
+        basin_ids=basin_ids,
+        spatial_window=spatial_window,
+        columns=["Basin ID", "track_id", "lat", "Latitude", "lon", "Longitude"],
+    )
+    if "track_id" not in df.columns:
+        raise ValueError(f"Missing required columns in {parquet_path}: ['track_id']")
+
+    track_count = int(df["track_id"].nunique(dropna=True))
+    max_tracks_int = _resolve_max_tracks(max_tracks)
+    if max_tracks_int > 0:
+        return min(track_count, max_tracks_int)
+    return track_count
+
+
+def _build_tracks_from_parquet(
+    parquet_path: Path,
+    *,
+    provider_name: str,
+    basin_ids: tuple[int, ...],
+    spatial_window: SpatialWindow | None = None,
+    max_tracks: int = DEFAULT_MAX_TRACKS,
+    timestep_hours: int = 3,
+    wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
+    radius_unit_in: str = "km",
+    env_pressure_hpa: float = 1010.0,
+) -> Any:
     try:
-        max_tracks_int = int(max_tracks)
-    except Exception as exc:
-        logger.warning(
-            "Invalid max_tracks=%r (%s: %s); using default=%d",
-            max_tracks,
-            type(exc).__name__,
-            exc,
-            DEFAULT_MAX_TRACKS,
-        )
-        max_tracks_int = DEFAULT_MAX_TRACKS
+        import numpy as np  # type: ignore
+        import pandas as pd  # type: ignore
+        import xarray as xr  # type: ignore
+        from climada.hazard import TCTracks  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("CLIMADA runtime dependencies are required to build hazards from parquet") from exc
+
+    df = _read_filtered_track_dataframe(
+        parquet_path,
+        basin_ids=basin_ids,
+        spatial_window=spatial_window,
+        columns=[
+            "Basin ID",
+            "Category",
+            "Year",
+            "track_id",
+            "time_step",
+            "Time step",
+            "lat",
+            "Latitude",
+            "lon",
+            "Longitude",
+            "p_c",
+            "Minimum pressure",
+            "wind_max",
+            "Maximum wind speed",
+            "rmax",
+            "Radius to maximum winds",
+        ],
+    )
+
+    required = {"Year", "track_id", "time_step", "lat", "lon", "p_c", "wind_max", "rmax"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
+
+    max_tracks_int = _resolve_max_tracks(max_tracks)
     if max_tracks_int > 0:
         track_count = int(df["track_id"].nunique(dropna=True))
         if track_count > max_tracks_int:
@@ -430,7 +551,11 @@ def _build_tracks_from_parquet(
             keep_track_ids = set(ranked_tracks.index.tolist())
             df = df[df["track_id"].isin(keep_track_ids)].copy()
 
-    df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
+    df["wind_max"] = _convert_storm_wind_to_climada_mps(
+        df["wind_max"],
+        wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
+    )
     df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
 
     df = df.sort_values(["track_id", "time_step"]).reset_index(drop=True)
@@ -477,6 +602,7 @@ def _build_tracks_from_parquet(
             },
             attrs={
                 "max_sustained_wind_unit": "m/s",
+                "max_sustained_wind_averaging_period_minutes": 1 if convert_10min_to_1min else 10,
                 "radius_max_wind_unit": "nm",
                 "central_pressure_unit": "hPa",
                 "sid": f"{provider_name}_{year}_{track_id}",
@@ -502,6 +628,7 @@ def _get_or_build_tracks(
     spatial_window: SpatialWindow | None,
     max_tracks: int,
     wind_unit_in: str,
+    convert_10min_to_1min: bool,
     radius_unit_in: str,
     env_pressure_hpa: float,
     track_cache_max_entries: int | None = None,
@@ -519,6 +646,7 @@ def _get_or_build_tracks(
         str(provider_name),
         tuple(sorted(int(b) for b in basin_ids)),
         str(wind_unit_in),
+        bool(convert_10min_to_1min),
         str(radius_unit_in),
         float(env_pressure_hpa),
         window_key,
@@ -539,6 +667,7 @@ def _get_or_build_tracks(
         spatial_window=spatial_window,
         max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -619,6 +748,7 @@ def load_storm_hazards_from_parquet_for_points(
     max_tracks: int = DEFAULT_MAX_TRACKS,
     track_cache_max_entries: int | None = None,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     build_hazards: bool = True,
@@ -629,6 +759,56 @@ def load_storm_hazards_from_parquet_for_points(
 
     basin_ids = _basin_ids_for_points(coords, basin_coverages)
     spatial_window = _build_spatial_window(coords, padding_deg=spatial_padding_deg)
+    if not build_hazards:
+        track_count_storm = _count_tracks_from_parquet(
+            storm_parquet_path,
+            basin_ids=basin_ids,
+            spatial_window=spatial_window,
+            max_tracks=max_tracks,
+        )
+        track_count_cmcc = _count_tracks_from_parquet(
+            cmcc_parquet_path,
+            basin_ids=basin_ids,
+            spatial_window=spatial_window,
+            max_tracks=max_tracks,
+        )
+        return HazardBundle(
+            storm=None,
+            storm_cmcc=None,
+            storm_years=storm_years,
+            normalized_on_copy=True,
+            source="dynamic_parquet",
+            basin_ids=tuple(sorted(int(v) for v in basin_ids)),
+            point_count=int(len(coords)),
+            track_count_storm=track_count_storm,
+            track_count_storm_cmcc=track_count_cmcc,
+            global_hazards_built=False,
+            storm_track_load_spec=_DynamicTrackLoadSpec(
+                parquet_path=storm_parquet_path,
+                provider_name="STORM",
+                basin_ids=tuple(sorted(int(v) for v in basin_ids)),
+                spatial_window=spatial_window,
+                max_tracks=int(max_tracks),
+                wind_unit_in=wind_unit_in,
+                convert_10min_to_1min=convert_10min_to_1min,
+                radius_unit_in=radius_unit_in,
+                env_pressure_hpa=float(env_pressure_hpa),
+                track_cache_max_entries=0,
+            ),
+            storm_cmcc_track_load_spec=_DynamicTrackLoadSpec(
+                parquet_path=cmcc_parquet_path,
+                provider_name="STORM_CMCC",
+                basin_ids=tuple(sorted(int(v) for v in basin_ids)),
+                spatial_window=spatial_window,
+                max_tracks=int(max_tracks),
+                wind_unit_in=wind_unit_in,
+                convert_10min_to_1min=convert_10min_to_1min,
+                radius_unit_in=radius_unit_in,
+                env_pressure_hpa=float(env_pressure_hpa),
+                track_cache_max_entries=0,
+            ),
+        )
+
     tracks_storm = _get_or_build_tracks(
         storm_parquet_path,
         provider_name="STORM",
@@ -637,6 +817,7 @@ def load_storm_hazards_from_parquet_for_points(
         max_tracks=max_tracks,
         track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -648,6 +829,7 @@ def load_storm_hazards_from_parquet_for_points(
         max_tracks=max_tracks,
         track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -672,6 +854,46 @@ def load_storm_hazards_from_parquet_for_points(
         centroids=centroids,
         global_hazards_built=bool(centroids is not None),
     )
+
+
+def _bundle_track_attrs(hazard_key: str) -> tuple[str, str]:
+    if hazard_key == "storm":
+        return "tracks_storm", "storm_track_load_spec"
+    if hazard_key == "storm_cmcc":
+        return "tracks_storm_cmcc", "storm_cmcc_track_load_spec"
+    raise ValueError(f"Unsupported hazard key for dynamic tracks: {hazard_key}")
+
+
+def resolve_hazard_bundle_tracks(bundle: Any, hazard_key: str) -> Any | None:
+    tracks_attr, spec_attr = _bundle_track_attrs(hazard_key)
+    tracks = getattr(bundle, tracks_attr, None)
+    if tracks is not None:
+        return tracks
+
+    spec = getattr(bundle, spec_attr, None)
+    if spec is None:
+        return None
+
+    tracks = _get_or_build_tracks(
+        Path(spec.parquet_path),
+        provider_name=str(spec.provider_name),
+        basin_ids=tuple(int(value) for value in spec.basin_ids),
+        spatial_window=spec.spatial_window,
+        max_tracks=int(spec.max_tracks),
+        wind_unit_in=str(spec.wind_unit_in),
+        convert_10min_to_1min=bool(spec.convert_10min_to_1min),
+        radius_unit_in=str(spec.radius_unit_in),
+        env_pressure_hpa=float(spec.env_pressure_hpa),
+        track_cache_max_entries=spec.track_cache_max_entries,
+    )
+    setattr(bundle, tracks_attr, tracks)
+    return tracks
+
+
+def release_hazard_bundle_tracks(bundle: Any, hazard_key: str) -> None:
+    tracks_attr, _ = _bundle_track_attrs(hazard_key)
+    if getattr(bundle, tracks_attr, None) is not None:
+        setattr(bundle, tracks_attr, None)
 
 
 def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> HazardBundle:

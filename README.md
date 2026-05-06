@@ -36,6 +36,42 @@ Website + backend scaffold for presenting cyclone risk results over water infras
 The backend now runs the CLIMADA production path by default (`SIB_RISK_IMPACT_ENGINE_MODE=climada`).
 Fallback remains available only when explicitly enabled.
 
+## Run graph export
+
+The single-file graph exporter for archived complete-analysis runs is:
+
+```bash
+/home/ubuntu/sib-work/backend/.venv/bin/python scripts/generate_run_graphs.py
+```
+
+Common usage:
+
+- List archived runs:
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/generate_run_graphs.py --list-runs
+  ```
+- Generate the HTML graph pack for the latest successful run:
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/generate_run_graphs.py --latest-success --formats html
+  ```
+- Export PNG graphs for a specific run:
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/generate_run_graphs.py --run-id 20260505_142337 --formats png
+  ```
+- Restrict the export to one territory and one scenario:
+  ```bash
+  /home/ubuntu/sib-work/backend/.venv/bin/python scripts/generate_run_graphs.py --latest-success --territories guadeloupe --hazards storm_cmcc --formats html,png
+  ```
+
+Outputs are written under `outputs/Graphs/<run_id>/` with:
+- `index.html`
+- `png/`
+- `graphs-manifest.json`
+
+In VS Code, the workspace also exposes two ready-to-run tasks:
+- `SIB: Generate Run Graphs (Latest Success - HTML)`
+- `SIB: Export Run Graphs (Latest Success - PNG)`
+
 ## Guadeloupe reference build scripts
 
 - Build complete Guadeloupe reference result (water + electricity):

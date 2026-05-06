@@ -1172,9 +1172,16 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
     if not script_path.exists():
         raise FileNotFoundError(f"Missing frontend build script: {script_path}")
 
-    # Keep public wind-map rebuilds on a stable track budget so RP50 is resolvable
-    # even when the parent analysis was run in a lower-track fast mode.
-    frontend_map_dynamic_max_tracks = int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP)
+    # Normal runs keep the stable public cap, but fast validation runs must not
+    # request a heavier map rebuild than the parent analysis itself.
+    requested_dynamic_max_tracks = int(dynamic_max_tracks)
+    if requested_dynamic_max_tracks > 0:
+        frontend_map_dynamic_max_tracks = min(
+            int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP),
+            requested_dynamic_max_tracks,
+        )
+    else:
+        frontend_map_dynamic_max_tracks = int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP)
 
     result = subprocess.run(
         [

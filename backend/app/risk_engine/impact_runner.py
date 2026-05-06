@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..config import Settings, load_settings
-from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
+from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
 from .exposure_to_climada import build_climada_exposure
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
@@ -255,7 +255,7 @@ def _summarize_component_health(
 
 
 def _build_fec_curve(total_exposure_eur: float, ratio: float, lifetime_years: int | None = None) -> dict[str, Any]:
-    return_periods = [1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200]
+    return_periods = [int(rp) for rp in RETURN_PERIODS]
     curve_y: list[float] = []
     for rp in return_periods:
         damp = 1.0 / math.sqrt(max(1.0, rp))
@@ -307,10 +307,10 @@ def _build_fallback_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [round(total_exposure * storm_ratio, 2), round(total_exposure * cmcc_ratio, 2)],
-                    "max_event_loss": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
+                    "pml_1000": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
                 },
             }
         },
@@ -350,7 +350,7 @@ def _build_climada_graphs(
         bins1, perc1 = _build_hist_percent(losses, bins_count=7)
         bins2, perc2 = _build_hist_percent([math.sqrt(v) if v > 0.0 else 0.0 for v in losses], bins_count=7)
 
-        annual_rp = [10, 20, 50, 100, 200]
+        annual_rp = [int(rp) for rp in RETURN_PERIODS]
         annual_dmg = [round(float(raw.pml_eur.get(rp, 0.0)) * scaler, 2) for rp in annual_rp]
         fec30 = [round(v * 1.105, 2) for v in annual_dmg]
         fec50 = [round(v * 1.175, 2) for v in annual_dmg]
@@ -387,15 +387,15 @@ def _build_climada_graphs(
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "percentile_99_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [
                         round(float((portfolio_results.get("storm") or {}).get("eai_eur", 0.0)), 2),
                         round(float((portfolio_results.get("storm_cmcc") or {}).get("eai_eur", 0.0)), 2),
                     ],
-                    "percentile_99_loss": [
-                        round(float((portfolio_results.get("storm") or {}).get("percentile_99_loss_eur", 0.0)), 2),
-                        round(float((portfolio_results.get("storm_cmcc") or {}).get("percentile_99_loss_eur", 0.0)), 2),
+                    "pml_1000": [
+                        round(float((portfolio_results.get("storm") or {}).get("pml_1000_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("pml_1000_eur", 0.0)), 2),
                     ],
                 },
             }
@@ -477,6 +477,7 @@ def _compute_impacts_climada(
         storm_parquet_path=settings.storm_parquet_path,
         storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
         wind_unit_in=settings.storm_wind_unit_in,
+        convert_10min_to_1min=bool(settings.storm_convert_10min_to_1min),
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
         dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),

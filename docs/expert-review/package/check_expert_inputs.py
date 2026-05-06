@@ -107,22 +107,28 @@ def _build_checks(repo_root: Path, uploads_root: Path) -> tuple[list[CheckItem],
             "Default dynamic STORM_CMCC source",
         ),
         CheckItem(
-            "Surge DEM (Antilles)",
+            "Surge DEM Guadeloupe",
             Path(
                 env.get(
-                    "SIB_RISK_HAZARD_SURGE_TOPO_PATH",
-                    str(
-                        uploads_root
-                        / "DEM_Topo"
-                        / "MNT_FACADE_ANTS_HOMONIM_PBMA"
-                        / "DONNEES"
-                        / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
-                    ),
+                    "SIB_RISK_HAZARD_SURGE_TOPO_PATH_GUADELOUPE",
+                    str(uploads_root / "DEM_Topo" / "Topo" / "Guadeloupe.tif"),
                 )
             ),
             "file",
             True,
-            "Required by surge component",
+            "Required by the Guadeloupe surge component",
+        ),
+        CheckItem(
+            "Surge DEM Martinique",
+            Path(
+                env.get(
+                    "SIB_RISK_HAZARD_SURGE_TOPO_PATH_MARTINIQUE",
+                    str(uploads_root / "DEM_Topo" / "Topo" / "Martinique.tif"),
+                )
+            ),
+            "file",
+            True,
+            "Required by the Martinique surge component",
         ),
         CheckItem(
             "D2 vulnerability workbook",

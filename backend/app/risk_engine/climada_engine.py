@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import gc
 import json
 import logging
 import math
@@ -18,6 +19,8 @@ from .hazard_loader import (
     _build_hazard_from_tracks,
     load_storm_hazards,
     load_storm_hazards_from_parquet_for_points,
+    release_hazard_bundle_tracks,
+    resolve_hazard_bundle_tracks,
 )
 from .impact_functions import get_tc_vulnerability_payload, try_build_climada_impact_funcs
 from .impact_functions_multi_hazard import (
@@ -27,7 +30,7 @@ from .impact_functions_multi_hazard import (
 )
 
 
-RETURN_PERIODS = (10, 20, 50, 100, 200)
+RETURN_PERIODS = (10, 20, 50, 100, 200, 1000)
 PUBLIC_EVENT_LOSS_PERCENTILE = 0.99
 _TOPO_RASTER_CACHE: dict[str, Path] = {}
 _SHARD_MEMORY_MULTIPLIER = {
@@ -36,6 +39,12 @@ _SHARD_MEMORY_MULTIPLIER = {
     "surge": 1.75,
 }
 _DYNAMIC_HAZARD_MEMORY_MULTIPLIER = 6.0
+# `from_tracks(...)` allocates additional scratch arrays beyond the final hazard matrix,
+# so only a conservative slice of the configured budget is safe to spend on the
+# dynamic hazard build itself.
+_DYNAMIC_HAZARD_EFFECTIVE_BUDGET_FRACTION = 0.30
+_HOST_AVAILABLE_MEMORY_BUDGET_FRACTION = 0.75
+_MIN_EFFECTIVE_MEMORY_BUDGET_GB = 0.25
 CENTROID_ASSIGNMENT_THRESHOLD_DEG = 5.0
 logger = logging.getLogger(__name__)
 
@@ -97,6 +106,47 @@ def _require_runtime() -> dict[str, Any]:
 def _as_1d_float(np: Any, values: Any) -> Any:
     arr = np.asarray(values, dtype=float).reshape(-1)
     return np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _read_meminfo_kib(field_name: str) -> int | None:
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if not line.startswith(f"{field_name}:"):
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                return int(parts[1])
+    except Exception:
+        return None
+    return None
+
+
+def _detect_available_memory_gb() -> float | None:
+    available_kib = _read_meminfo_kib("MemAvailable")
+    if available_kib is None:
+        available_kib = _read_meminfo_kib("MemFree")
+    if available_kib is None or available_kib <= 0:
+        return None
+    return float(available_kib) / float(1024**2)
+
+
+def _resolve_effective_memory_budget_gb(memory_budget_gb: float) -> float:
+    requested_budget_gb = float(memory_budget_gb)
+    if requested_budget_gb <= 0.0:
+        return requested_budget_gb
+
+    available_memory_gb = _detect_available_memory_gb()
+    if available_memory_gb is None:
+        return requested_budget_gb
+
+    host_budget_cap_gb = max(
+        float(_MIN_EFFECTIVE_MEMORY_BUDGET_GB),
+        float(available_memory_gb) * float(_HOST_AVAILABLE_MEMORY_BUDGET_FRACTION),
+    )
+    return max(
+        float(_MIN_EFFECTIVE_MEMORY_BUDGET_GB),
+        min(requested_budget_gb, host_budget_cap_gb),
+    )
 
 
 def _max_loss_per_point(np: Any, impact_obj: Any, expected_len: int) -> Any:
@@ -451,19 +501,50 @@ def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int
     if not valid.any():
         return {rp: 0.0 for rp in return_periods}
 
-    losses_sorted = losses_arr[valid][np.argsort(-losses_arr[valid])]
-    freq_sorted = freq_arr[valid][np.argsort(-losses_arr[valid])]
-    cum_rate = np.cumsum(freq_sorted)
+    losses_valid = losses_arr[valid]
+    freq_valid = freq_arr[valid]
+    sort_idxs = np.argsort(losses_valid)[::-1]
+    exceed_freq = np.cumsum(freq_valid[sort_idxs])
+    impact_curve = losses_valid[sort_idxs][::-1]
+    return_curve = np.divide(
+        1.0,
+        exceed_freq[::-1],
+        out=np.full(exceed_freq.size, np.inf, dtype=float),
+        where=exceed_freq[::-1] > 0.0,
+    )
+    finite = np.isfinite(return_curve) & (return_curve > 0.0)
+    if not finite.any():
+        return {rp: 0.0 for rp in return_periods}
 
-    out: dict[int, float] = {}
-    for rp in return_periods:
-        target_rate = 1.0 / float(rp)
-        idx = int(np.searchsorted(cum_rate, target_rate, side="left"))
-        if idx >= losses_sorted.size:
-            out[rp] = 0.0
-        else:
-            out[rp] = float(max(0.0, losses_sorted[idx]))
-    return out
+    interpolated = np.interp(
+        np.asarray(return_periods, dtype=float),
+        return_curve[finite],
+        impact_curve[finite],
+    )
+    return {
+        int(rp): float(max(0.0, interpolated[idx]))
+        for idx, rp in enumerate(return_periods)
+    }
+
+
+def _compute_pml_from_impact(np: Any, impact_obj: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
+    target = np.asarray(return_periods, dtype=float)
+    try:
+        freq_curve = impact_obj.calc_freq_curve(target)
+        impacts = _as_1d_float(np, getattr(freq_curve, "impact", []))
+        if impacts.size == target.size:
+            return {
+                int(rp): float(max(0.0, impacts[idx]))
+                for idx, rp in enumerate(return_periods)
+            }
+    except Exception:
+        pass
+    return _compute_pml(
+        np,
+        getattr(impact_obj, "at_event", []),
+        getattr(impact_obj, "frequency", []),
+        return_periods,
+    )
 
 
 def _compute_loss_percentile(np: Any, losses: Any, frequency: Any, percentile: float) -> float:
@@ -549,7 +630,9 @@ def _extract_top_events(np: Any, impact_obj: Any, losses: Any, frequency: Any, t
 
 
 def _normalize_frequency_on_copy(hazard_obj: Any, storm_years: int) -> Any:
-    hazard_copy = copy.deepcopy(hazard_obj)
+    # Keep large hazard matrices shared and only replace the frequency vector.
+    # deepcopy here can briefly double resident memory during wind/surge/rain chaining.
+    hazard_copy = copy.copy(hazard_obj)
     freq = getattr(hazard_copy, "frequency", None)
     if freq is None:
         return hazard_copy
@@ -584,7 +667,14 @@ def _build_exposure_with_impf_column(
     haz_type: str,
     impf_ids: list[int],
 ) -> Any:
-    exposure_copy = copy.deepcopy(base_exposure)
+    exposure_copy = copy.copy(base_exposure)
+    base_gdf = getattr(base_exposure, "gdf", None)
+    if base_gdf is not None:
+        gdf_copy = base_gdf.copy(deep=True)
+        if hasattr(exposure_copy, "set_gdf"):
+            exposure_copy.set_gdf(gdf_copy, crs=getattr(gdf_copy, "crs", None))
+        else:
+            setattr(exposure_copy, "gdf", gdf_copy)
     column = f"impf_{str(haz_type)}"
     gdf = getattr(exposure_copy, "gdf", None)
     if gdf is None:
@@ -1155,11 +1245,12 @@ def _resolve_component_point_cap(
         return 0
     if max_points_per_shard > 0:
         return max(1, min(total_points, int(max_points_per_shard)))
-    if memory_budget_gb <= 0.0 or event_count <= 0:
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(memory_budget_gb)
+    if effective_memory_budget_gb <= 0.0 or event_count <= 0:
         return total_points
 
     min_points = max(1, int(min_points_per_shard))
-    budget_bytes = float(memory_budget_gb) * float(1024**3)
+    budget_bytes = float(effective_memory_budget_gb) * float(1024**3)
     per_point_bytes = max(
         1.0,
         float(
@@ -1198,11 +1289,12 @@ def _resolve_dynamic_hazard_point_cap(
         return 0
     if max_points_per_shard > 0:
         return max(1, min(total_points, int(max_points_per_shard)))
-    if memory_budget_gb <= 0.0 or event_count <= 0:
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(memory_budget_gb)
+    if effective_memory_budget_gb <= 0.0 or event_count <= 0:
         return total_points
 
     min_points = max(1, int(min_points_per_shard))
-    budget_bytes = float(memory_budget_gb) * float(1024**3)
+    budget_bytes = float(effective_memory_budget_gb) * float(1024**3) * float(_DYNAMIC_HAZARD_EFFECTIVE_BUDGET_FRACTION)
     per_point_bytes = max(
         1.0,
         float(
@@ -1223,14 +1315,17 @@ def _dynamic_hazard_budget_exceeded_at_min_shard(
     memory_budget_gb: float,
     min_points_per_shard: int,
 ) -> bool:
-    if memory_budget_gb <= 0.0 or event_count <= 0:
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(memory_budget_gb)
+    if effective_memory_budget_gb <= 0.0 or event_count <= 0:
         return False
     min_points = max(1, int(min_points_per_shard))
     shard_bytes = _estimate_dynamic_hazard_memory_bytes(
         event_count=event_count,
         point_count=min_points,
     )
-    return float(shard_bytes) > float(memory_budget_gb) * float(1024**3)
+    return float(shard_bytes) > (
+        float(effective_memory_budget_gb) * float(1024**3) * float(_DYNAMIC_HAZARD_EFFECTIVE_BUDGET_FRACTION)
+    )
 
 
 def _plan_hazard_shards(
@@ -1513,6 +1608,7 @@ def _compute_component_impact_sharded(
     point_records = list(exposure_bundle.point_records or [])
     total_points = len(point_records)
     event_count = int(_as_1d_float(np, getattr(hazard_obj, "frequency", [])).size)
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(float(memory_budget_gb))
     full_estimated_bytes = _estimate_component_memory_bytes(
         event_count=event_count,
         point_count=total_points,
@@ -1522,7 +1618,7 @@ def _compute_component_impact_sharded(
         total_points=total_points,
         event_count=event_count,
         component_name=component_name,
-        memory_budget_gb=memory_budget_gb,
+        memory_budget_gb=effective_memory_budget_gb,
         max_points_per_shard=max_points_per_shard,
         min_points_per_shard=min_points_per_shard,
     )
@@ -1532,6 +1628,7 @@ def _compute_component_impact_sharded(
         "total_points": int(total_points),
         "event_count": int(event_count),
         "memory_budget_gb": round(float(memory_budget_gb), 3),
+        "effective_memory_budget_gb": round(float(effective_memory_budget_gb), 3),
         "estimated_full_memory_gb": round(float(full_estimated_bytes) / float(1024**3), 3),
         "max_points_per_shard": int(point_cap),
         "planned_shards": 1,
@@ -1943,7 +2040,7 @@ def _compute_component_impact(
         event_name=getattr(impact, "event_name", []),
         aai_agg_eur=float(getattr(impact, "aai_agg", 0.0) or 0.0),
         max_event_loss_eur=public_event_loss,
-        pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
+        pml_eur=_compute_pml_from_impact(np, impact, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
         top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
         raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
@@ -2042,6 +2139,7 @@ def _compute_dynamic_hazard_sharded_results(
     point_values_eur = [max(0.0, float(rec.get("value_eur", 0.0))) for rec in point_records]
     event_count = int(len(getattr(tracks, "data", []))) if tracks is not None else 0
     planned_shards = max(1, len(hazard_shards))
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(float(memory_budget_gb))
     full_hazard_bytes = _estimate_dynamic_hazard_memory_bytes(
         event_count=event_count,
         point_count=total_points,
@@ -2050,6 +2148,10 @@ def _compute_dynamic_hazard_sharded_results(
     component_notes: list[str] = [
         f"{hazard_key}: dynamic hazard construction sharded across {planned_shards} centroid shard(s) with a cap of {int(max(1, hazard_point_cap))} points per shard.",
     ]
+    if effective_memory_budget_gb > 0.0 and effective_memory_budget_gb < float(memory_budget_gb):
+        component_notes.append(
+            f"{hazard_key}: effective memory budget clamped from {float(memory_budget_gb):.2f} GiB to {float(effective_memory_budget_gb):.2f} GiB based on host availability."
+        )
     components: dict[str, HazardImpactResult] = {}
     component_status: dict[str, str] = {}
     component_sharding: dict[str, dict[str, Any]] = {}
@@ -2128,6 +2230,7 @@ def _compute_dynamic_hazard_sharded_results(
             "total_points": int(total_points),
             "event_count": int(event_count),
             "memory_budget_gb": round(float(memory_budget_gb), 3),
+            "effective_memory_budget_gb": round(float(effective_memory_budget_gb), 3),
             "estimated_full_memory_gb": round(
                 float(
                     max(
@@ -2185,6 +2288,10 @@ def _compute_dynamic_hazard_sharded_results(
                 continue
             if component_accumulators.get(component_name) is None:
                 continue
+
+            prepared_topo = None
+            surge_hazard = None
+            rain_hazard = None
 
             inner_checkpoint_dir = (
                 Path(checkpoint_dir) / "dynamic-hazard-shards" / hazard_key / component_name / hazard_shard.shard_id
@@ -2280,9 +2387,13 @@ def _compute_dynamic_hazard_sharded_results(
                         resume_enabled=resume_enabled,
                     )
                 else:
+                    # Rain only needs centroid geometry, so drop the wind hazard first to cap peak RSS.
+                    rain_centroids = getattr(wind_hazard, "centroids", None) or centroids
+                    wind_hazard = None
+                    gc.collect()
                     rain_hazard = TCRain.from_tracks(
                         tracks,
-                        centroids=wind_hazard.centroids,
+                        centroids=rain_centroids,
                         model=requested_rain_model,
                         ignore_distance_to_coast=True,
                         max_dist_inland_km=float(rain_max_dist_inland_km),
@@ -2351,6 +2462,10 @@ def _compute_dynamic_hazard_sharded_results(
                     f"{hazard_key}: {component_name} component failed during hazard-sharded execution ({type(exc).__name__}): {exc}"
                 )
                 continue
+            finally:
+                prepared_topo = None
+                surge_hazard = None
+                rain_hazard = None
 
             _merge_component_result_accumulator(
                 np,
@@ -2381,6 +2496,18 @@ def _compute_dynamic_hazard_sharded_results(
                     ),
                 },
             )
+
+            shard_metrics = None
+            inner_sharding = None
+            if component_name in {"surge", "rain"}:
+                gc.collect()
+
+        shard_bundle = None
+        shard_point_records = None
+        shard_coords = None
+        centroids = None
+        wind_hazard = None
+        gc.collect()
 
     for component_name in ("wind", "rain", "surge"):
         accumulator = component_accumulators.get(component_name)
@@ -2453,6 +2580,7 @@ def run_climada_direct_impacts(
     storm_cmcc_parquet_path: Path | None = None,
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     dynamic_max_tracks: int = 1200,
@@ -2500,10 +2628,16 @@ def run_climada_direct_impacts(
     notes = [
         "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
         "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+        (
+            "STORM track winds are converted from 10-minute to 1-minute sustained winds before CLIMADA hazard generation."
+            if convert_10min_to_1min
+            else "STORM track winds are kept in their input sustained-wind averaging convention."
+        ),
         f"Impact functions: profile={vulnerability_payload.get('profile')} with {len(impact_funcs)} TC curves.",
     ]
     execution_profile_name = str(execution_profile or "default").strip().lower()
     sharding_enabled = bool(max_points_per_shard > 0 or memory_budget_gb > 0.0)
+    effective_memory_budget_gb = _resolve_effective_memory_budget_gb(float(memory_budget_gb))
     if execution_profile_name != "default":
         notes.append(f"Execution profile: {execution_profile_name}.")
     if sharding_enabled:
@@ -2511,6 +2645,10 @@ def run_climada_direct_impacts(
             notes.append(f"Impact execution uses exposure shards capped at {int(max_points_per_shard)} points per shard.")
         else:
             notes.append(f"Impact execution uses exposure shards derived from an approximate memory budget of {float(memory_budget_gb):.2f} GiB per component.")
+        if effective_memory_budget_gb > 0.0 and effective_memory_budget_gb < float(memory_budget_gb):
+            notes.append(
+                f"Host-aware sharding clamp reduced the effective planning budget to {float(effective_memory_budget_gb):.2f} GiB based on currently available RAM."
+            )
     if strict_required_components:
         notes.append("Eligible multi-hazard components run in strict mode: failures stop the complete-analysis territory run.")
     if checkpoint_dir is not None:
@@ -2541,6 +2679,7 @@ def run_climada_direct_impacts(
                     storm_years=storm_years,
                     basin_coverages=basin_coverages,
                     wind_unit_in=wind_unit_in,
+                    convert_10min_to_1min=convert_10min_to_1min,
                     radius_unit_in=radius_unit_in,
                     env_pressure_hpa=env_pressure_hpa,
                     max_tracks=max(100, int(dynamic_max_tracks)),
@@ -2581,26 +2720,14 @@ def run_climada_direct_impacts(
                     list(exposure_bundle.point_records or []),
                     max_points_per_shard=max(1, int(dynamic_hazard_point_cap)),
                 )
-                if len(dynamic_hazard_shards) <= 1:
-                    centroids = _build_centroids_from_points(point_coords)
-                    bundle.centroids = centroids
-                    bundle.storm = _normalize_frequency_on_copy(
-                        _build_hazard_from_tracks(bundle.tracks_storm, centroids),
-                        storm_years,
-                    )
-                    bundle.storm_cmcc = _normalize_frequency_on_copy(
-                        _build_hazard_from_tracks(bundle.tracks_storm_cmcc, centroids),
-                        storm_years,
-                    )
-                    bundle.global_hazards_built = True
                 notes.append(
                     "Hazard source: dynamic STORM/STORM_CMCC parquet "
                     f"(basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count}, "
                     f"tracks={int(bundle.track_count_storm or 0)}/{int(bundle.track_count_storm_cmcc or 0)})."
                 )
-                if len(dynamic_hazard_shards) > 1:
+                if dynamic_hazard_shards:
                     notes.append(
-                        "Dynamic hazard construction uses centroid sharding before ImpactCalc "
+                        "Dynamic hazard construction stays on the centroid-scoped execution path before ImpactCalc "
                         f"({len(dynamic_hazard_shards)} shards, cap={int(max(1, dynamic_hazard_point_cap))} points per shard, "
                         f"estimated full build={float(dynamic_hazard_estimated_full_memory_bytes) / float(1024**3):.2f} GiB)."
                     )
@@ -2674,36 +2801,45 @@ def run_climada_direct_impacts(
 
     for hazard_key in ("storm", "storm_cmcc"):
         if dynamic_hazard_sharding_active:
-            tracks = bundle.tracks_storm if hazard_key == "storm" else bundle.tracks_storm_cmcc
-            total_metrics, components, component_status, component_sharding, hazard_notes = _compute_dynamic_hazard_sharded_results(
-                np,
-                ImpactCalc,
-                exposure_bundle=exposure_bundle,
-                tracks=tracks,
-                hazard_key=hazard_key,
-                storm_years=storm_years,
-                top_n_events=top_n_events,
-                hazard_shards=dynamic_hazard_shards,
-                hazard_point_cap=max(1, int(dynamic_hazard_point_cap or len(exposure_bundle.point_records or []))),
-                impfset_wind=impfset_wind,
-                requested_rain_model=requested_rain_model,
-                rain_max_dist_inland_km=float(rain_max_dist_inland_km),
-                multi_hazard_ready=multi_hazard_ready,
-                multi_hazard_model=multi_hazard_model,
-                impfset_rain=impfset_rain,
-                impfset_surge=impfset_surge,
-                TCRain=TCRain,
-                TCSurgeBathtub=TCSurgeBathtub,
-                surge_topo_path=surge_topo_path,
-                memory_budget_gb=float(memory_budget_gb),
-                max_points_per_shard=int(max_points_per_shard),
-                min_points_per_shard=int(min_points_per_shard),
-                max_shard_retry_depth=int(max_shard_retry_depth),
-                strict_required_components=bool(strict_required_components),
-                progress_callback=progress_callback,
-                checkpoint_dir=checkpoint_dir,
-                resume_enabled=resume_enabled,
-            )
+            tracks = resolve_hazard_bundle_tracks(bundle, hazard_key)
+            if tracks is None:
+                raise RuntimeError(
+                    "Incomplete dynamic hazard bundle: "
+                    f"missing tracks for hazard '{hazard_key}' before sharded execution."
+                )
+            try:
+                total_metrics, components, component_status, component_sharding, hazard_notes = _compute_dynamic_hazard_sharded_results(
+                    np,
+                    ImpactCalc,
+                    exposure_bundle=exposure_bundle,
+                    tracks=tracks,
+                    hazard_key=hazard_key,
+                    storm_years=storm_years,
+                    top_n_events=top_n_events,
+                    hazard_shards=dynamic_hazard_shards,
+                    hazard_point_cap=max(1, int(dynamic_hazard_point_cap or len(exposure_bundle.point_records or []))),
+                    impfset_wind=impfset_wind,
+                    requested_rain_model=requested_rain_model,
+                    rain_max_dist_inland_km=float(rain_max_dist_inland_km),
+                    multi_hazard_ready=multi_hazard_ready,
+                    multi_hazard_model=multi_hazard_model,
+                    impfset_rain=impfset_rain,
+                    impfset_surge=impfset_surge,
+                    TCRain=TCRain,
+                    TCSurgeBathtub=TCSurgeBathtub,
+                    surge_topo_path=surge_topo_path,
+                    memory_budget_gb=float(memory_budget_gb),
+                    max_points_per_shard=int(max_points_per_shard),
+                    min_points_per_shard=int(min_points_per_shard),
+                    max_shard_retry_depth=int(max_shard_retry_depth),
+                    strict_required_components=bool(strict_required_components),
+                    progress_callback=progress_callback,
+                    checkpoint_dir=checkpoint_dir,
+                    resume_enabled=resume_enabled,
+                )
+            finally:
+                release_hazard_bundle_tracks(bundle, hazard_key)
+                gc.collect()
             notes.extend(hazard_notes)
             out[hazard_key] = total_metrics
             component_out[hazard_key] = components

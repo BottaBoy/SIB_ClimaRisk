@@ -62,6 +62,15 @@ Cas 3. Publication Guadeloupe seule.
 | `SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)` | `build` | `Ctrl+Shift+B` | Deploie les artefacts archives du dernier run via l'alias `sib.dev` |
 | `SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)` | `build` | `Ctrl+Shift+B` | Deploie seulement les artefacts archives Guadeloupe du dernier run |
 
+## Graphs
+
+Les taches ci-dessous ciblent automatiquement le dernier run complet avec succes et ecrivent les sorties dans `outputs/Graphs/<run_id>/`.
+
+| Label | Groupe | Selection rapide | Role |
+| --- | --- | --- | --- |
+| `SIB: Generate Run Graphs (Latest Success - HTML)` | `build` | `Ctrl+Shift+B` | Genere l'index HTML interactif des graphes du dernier run complet avec succes |
+| `SIB: Export Run Graphs (Latest Success - PNG)` | `build` | `Ctrl+Shift+B` | Exporte en PNG le pack de graphes du dernier run complet avec succes |
+
 ## Verification et journaux
 
 | Label | Groupe | Selection rapide | Role |

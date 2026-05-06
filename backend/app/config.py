@@ -99,6 +99,7 @@ class Settings:
     hazard_prefer_dynamic_from_parquet: bool = True
     hazard_fallback_to_precomputed: bool = False
     storm_wind_unit_in: str = "m/s"
+    storm_convert_10min_to_1min: bool = True
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
     hazard_dynamic_max_tracks: int = 1200
@@ -275,6 +276,7 @@ def load_settings() -> Settings:
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
         hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
+        storm_convert_10min_to_1min=_env_bool(env, "SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN", True),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
         hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),

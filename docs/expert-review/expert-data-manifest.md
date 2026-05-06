@@ -10,7 +10,8 @@ This manifest defines the minimum data transfer package for an autonomous expert
 |---|---:|---|
 | `/home/ubuntu/uploads/STORM/storm_ds` | 58 MB | Dynamic STORM present-climate track dataset used by default hazard path. |
 | `/home/ubuntu/uploads/STORM/storm_ds_CMCC` | 71 MB | Dynamic STORM_CMCC dataset for climate-change scenario comparison. |
-| `/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc` | 47 MB | DEM/topography for surge component computation. |
+| `/home/ubuntu/uploads/DEM_Topo/Topo/Guadeloupe.tif` | ~37 MB | Current Guadeloupe DEM/topography used by the live surge component path. |
+| `/home/ubuntu/uploads/DEM_Topo/Topo/Martinique.tif` | ~21 MB | Current Martinique DEM/topography used by the live surge component path. |
 | `/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx` | 1.6 MB | Vulnerability curves for rain/surge mapping and landslide proxy payload. |
 | `/home/ubuntu/uploads/Infra_Elec_Guadeloupe/` | 53 MB | Guadeloupe electricity exposure sources. |
 | `/home/ubuntu/uploads/Infra_Elec_Martinique/` | 41 MB | Martinique electricity exposure sources. |
@@ -62,6 +63,11 @@ Reference evidence policy:
 - targeted post-integration validation evidence: `20260429_075050` (optional, Guadeloupe only)
 
 This means all required directories above should be transferred as-is to preserve geometry and attribute fidelity.
+
+Important:
+- the documents in `docs/expert-review/` describe the package, but they do not replace the required runtime data
+- if any required input changed since the previous transfer, that updated input must be sent again even if the docs themselves did not change
+- this currently applies to the surge DEM inputs under `/home/ubuntu/uploads/DEM_Topo/Topo/`
 
 ## 5) Practical Packaging Notes
 - Preserve relative filenames and directory names exactly.
