@@ -20,9 +20,11 @@ Ce document resume les taches actuellement definies dans `/home/ubuntu/.vscode/t
 | `SIB: Run Complete Analysis (No Deploy)` | `build` | `Ctrl+Shift+B` | Lance l'analyse complete sans phase de deploiement |
 | `SIB: Resume Latest Complete Analysis (No Deploy)` | `build` | `Ctrl+Shift+B` | Reprend le dernier run complet archive sans deploy |
 | `SIB: Run Complete Analysis (Fast: 800 tracks)` | `build` | `Ctrl+Shift+B` | Variante plus rapide avec `dynamic_max_tracks=800` |
-| `SIB: Run Complete Analysis (Very Fast: 150 tracks)` | `build` | `Ctrl+Shift+B` | Variante tres rapide avec `dynamic_max_tracks=150` |
+| `SIB: Run Complete Analysis (Very Fast: 150 tracks)` | `build` | `Ctrl+Shift+B` | Variante tres rapide de validation avec `dynamic_max_tracks=150` et `--no-deploy` |
 | `SIB: Run Complete Analysis (Rich: 1500 tracks)` | `build` | `Ctrl+Shift+B` | Variante plus riche avec `dynamic_max_tracks=1500` |
 | `SIB: Monitor Complete Analysis Run` | `build` | `Ctrl+Shift+B` | Suit l'etat du manifest du run complet en cours |
+
+Les runs avec `dynamic_max_tracks < 300` ne sont pas publication-safe: le runner saute le deploy automatique et le chemin `deploy_only.py --run-id ...` les refuse.
 
 ## Frontend, publication et deploy
 

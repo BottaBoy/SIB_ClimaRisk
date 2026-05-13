@@ -494,19 +494,19 @@
                 </select>
               </div>
             </div>
-            <p class="muted small">Camembert de gauche : climat actuel. Camembert de droite : climat 2050.</p>
+            <p class="muted small">En haut: part totale des réseaux en état supérieur à S0. En bas: zoom sur les états S1, S2 et S3 pour rendre visibles les faibles proportions.</p>
             <div class="chart-grid case-study-pie-grid" id="impact-state-pie-grid">
               <div class="chart-card">
                 <h4>Répartition des états des réseaux AEP</h4>
-                <div id="impact-state-pie-aep" class="chart pie-chart"></div>
+                <div id="impact-state-pie-aep" class="chart pie-chart state-focus-chart"></div>
               </div>
               <div class="chart-card">
                 <h4>Répartition des états des réseaux EU</h4>
-                <div id="impact-state-pie-eu" class="chart pie-chart"></div>
+                <div id="impact-state-pie-eu" class="chart pie-chart state-focus-chart"></div>
               </div>
               <div class="chart-card">
                 <h4>Répartition des états des réseaux élec</h4>
-                <div id="impact-state-pie-elec" class="chart pie-chart"></div>
+                <div id="impact-state-pie-elec" class="chart pie-chart state-focus-chart"></div>
               </div>
             </div>
             <div class="impact-table-duo">
@@ -616,7 +616,7 @@
               <h3>Carte d'etat des reseaux</h3>
               <p class="muted small">S0 Operationnel, S1 Degrade, S2 Critique, S3 Hors service</p>
             </div>
-            <div class="inline-row tight">
+            <div class="inline-row tight network-map-toolbar">
               <select id="impact-map-hazard-select">
                 <option value="storm">Climat actuel</option>
                 <option value="storm_cmcc">Climat 2050</option>
@@ -673,13 +673,23 @@
                 <th class="num">Climat actuel</th>
                 <th class="num">Climat 2050</th>
                 <th class="num">Différence Climat actuel VS Climat 2050</th>
+              </tr>
+            </thead>
+            <tbody id="conclusion-table-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap compact conclusion-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scénario</th>
                 <th class="num">Sans électricité Climat actuel</th>
                 <th class="num">Sans électricité Climat 2050</th>
                 <th class="num">Sans eau Climat actuel</th>
                 <th class="num">Sans eau Climat 2050</th>
               </tr>
             </thead>
-            <tbody id="conclusion-table-body"></tbody>
+            <tbody id="conclusion-population-table-body"></tbody>
           </table>
         </div>
         <p class="muted" id="conclusion-text">

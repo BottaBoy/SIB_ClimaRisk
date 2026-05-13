@@ -62,8 +62,6 @@
         "4",
         "--page-component-light-dynamic-max-tracks",
         "50",
-        "--prefer-complete-analysis-proxy-fallback",
-        "--prefer-complete-analysis-page-fallback",
         "--map-dynamic-max-tracks",
         "300"
       ],
@@ -99,8 +97,6 @@
         "4",
         "--page-component-light-dynamic-max-tracks",
         "50",
-        "--prefer-complete-analysis-proxy-fallback",
-        "--prefer-complete-analysis-page-fallback",
         "--map-dynamic-max-tracks",
         "300"
       ],
@@ -156,7 +152,7 @@
       "args": [
         "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
         "--run-id",
-        "latest"
+        "latest-published"
       ],
       "presentation": {
         "reveal": "always",
@@ -174,7 +170,7 @@
       "args": [
         "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
         "--run-id",
-        "latest",
+        "latest-published",
         "--territories",
         "guadeloupe"
       ],
@@ -194,7 +190,7 @@
       "args": [
         "${workspaceFolder}/scripts/deploy_only.py",
         "--run-id",
-        "latest",
+        "latest-published",
         "--vhost",
         "sib.dev.elio.bottagisio.com"
       ],
@@ -214,7 +210,7 @@
       "args": [
         "${workspaceFolder}/scripts/deploy_only.py",
         "--run-id",
-        "latest",
+        "latest-published",
         "--territories",
         "guadeloupe",
         "--vhost",

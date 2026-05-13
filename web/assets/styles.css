@@ -444,6 +444,19 @@ button:disabled {
 .inline-row.tight > * { flex: initial; }
 .inline-row.tight input { min-width: 180px; }
 
+.network-map-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.network-map-toolbar .layer-item {
+  gap: 4px;
+}
+
+.network-map-toolbar .layer-item span:last-child {
+  white-space: nowrap;
+}
+
 .run-lab {
   padding: 14px;
   display: grid;
@@ -1425,6 +1438,10 @@ button:disabled {
 
 .pie-chart {
   height: 260px;
+}
+
+.state-focus-chart {
+  height: 310px;
 }
 
 .chart.wide { height: 320px; }

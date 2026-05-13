@@ -5,11 +5,18 @@ Tests for social impact metrics calculation module.
 import pytest
 
 from backend.app.risk_engine.social_impact import (
+    aggregate_population_state_distribution_by_territory,
+    aggregate_population_state_distribution_summary,
     calculate_social_impact_metrics,
+    calculate_population_state_distribution,
     aggregate_social_metrics_by_territory,
     aggregate_social_summary,
+    build_social_impact_summary_payload,
+    SOCIAL_IMPACT_POPULATION_STATE_DISTRIBUTION_KEY,
+    SOCIAL_IMPACT_SUMMARY_BASIS,
+    SOCIAL_IMPACT_SUMMARY_KEY,
 )
-from backend.app.risk_engine.types import SocialImpactMetrics
+from backend.app.risk_engine.types import PopulationStateDistribution, SocialImpactMetrics
 
 
 class TestCalculateSocialImpactMetrics:
@@ -148,6 +155,19 @@ class TestCalculateSocialImpactMetrics:
         assert metrics.population_with_degraded_water_aep == 0.0
         assert metrics.population_with_degraded_water_eu == 0.0
 
+    def test_uncovered_service_is_excluded_from_legacy_aggregates(self):
+        metrics = calculate_social_impact_metrics(
+            hazard="storm",
+            territory_id="cell-+16.20_-061.40",
+            population_total=1000.0,
+            infra_states={"elec": "S3", "water_aep": "S3", "water_eu": "S0"},
+            infra_coverage={"elec": False, "water_aep": True, "water_eu": True},
+        )
+
+        assert metrics.population_without_elec == 0.0
+        assert metrics.population_without_water_aep == 1000.0
+        assert metrics.total_population_affected == 1000.0
+
     def test_metrics_to_dict(self):
         """Test SocialImpactMetrics.to_dict() conversion."""
         metrics = calculate_social_impact_metrics(
@@ -233,6 +253,67 @@ class TestAggregateSocialMetricsByTerritory:
         metrics = result["storm"]["cell-unknown"]
         assert metrics.total_population_affected == 0.0
 
+    def test_coverage_by_territory_controls_legacy_metrics(self):
+        result = aggregate_social_metrics_by_territory(
+            population_by_territory={"cell-1": 800.0},
+            detailed_states={
+                "storm": {
+                    "cell-1": {"elec": "S3", "water_aep": "S1", "water_eu": "S0"},
+                }
+            },
+            coverage_by_territory={
+                "storm": {
+                    "cell-1": {"elec": False, "water_aep": True, "water_eu": True},
+                }
+            },
+        )
+
+        metrics = result["storm"]["cell-1"]
+        assert metrics.population_without_elec == 0.0
+        assert metrics.population_with_degraded_water_aep == 800.0
+        assert metrics.total_population_affected == 800.0
+
+
+class TestPopulationStateDistributions:
+    def test_calculate_population_state_distribution_assigns_uncovered_bucket(self):
+        result = calculate_population_state_distribution(
+            hazard="storm",
+            territory_id="cell-1",
+            population_total=1000.0,
+            infra_states={"elec": "S2", "water_aep": "S3", "water_eu": "S0"},
+            infra_coverage={"elec": True, "water_aep": False, "water_eu": True},
+        )
+
+        assert isinstance(result["elec"], PopulationStateDistribution)
+        assert result["elec"].S2 == 1000.0
+        assert result["water_aep"].uncovered == 1000.0
+        assert result["water_eu"].S0 == 1000.0
+
+    def test_aggregate_population_state_distribution_summary(self):
+        per_territory = aggregate_population_state_distribution_by_territory(
+            population_by_territory={"cell-1": 1000.0, "cell-2": 500.0},
+            detailed_states={
+                "storm": {
+                    "cell-1": {"elec": "S1", "water_aep": "S0", "water_eu": "S0"},
+                    "cell-2": {"elec": "S0", "water_aep": "S3", "water_eu": "S0"},
+                }
+            },
+            coverage_by_territory={
+                "storm": {
+                    "cell-1": {"elec": True, "water_aep": True, "water_eu": True},
+                    "cell-2": {"elec": False, "water_aep": True, "water_eu": True},
+                }
+            },
+        )
+
+        summary = aggregate_population_state_distribution_summary(per_territory)
+
+        assert summary["storm"]["elec"]["S1"] == 1000.0
+        assert summary["storm"]["elec"]["uncovered"] == 500.0
+        assert summary["storm"]["elec"]["coverage_rate"] == 0.666667
+        assert summary["storm"]["water_aep"]["S3"] == 500.0
+        assert summary["storm"]["water_aep"]["covered_population"] == 1500.0
+
 
 class TestAggregateSocialSummary:
     """Test aggregate_social_summary function."""
@@ -299,6 +380,25 @@ class TestAggregateSocialSummary:
         
         assert result["storm"]["total_population_affected_any_network"] == 500.0
         assert result["storm_cmcc"]["total_population_affected_any_network"] == 600.0
+
+
+class TestSocialImpactSummaryPayload:
+    def test_payload_marks_canonical_basis_and_legacy_alias(self):
+        summary = {"storm": {"total_population_affected_any_network": 42.0}}
+        distribution = {
+            "storm": {
+                "elec": {"S0": 10.0, "S1": 32.0, "S2": 0.0, "S3": 0.0, "uncovered": 0.0},
+            }
+        }
+
+        payload = build_social_impact_summary_payload(summary, distribution)
+
+        assert payload[SOCIAL_IMPACT_SUMMARY_KEY] == summary
+        assert payload["social_impact_worst_case_summary"] == summary
+        assert payload["social_impact_summary_basis"] == SOCIAL_IMPACT_SUMMARY_BASIS
+        assert payload["social_impact_summary_key"] == SOCIAL_IMPACT_SUMMARY_KEY
+        assert payload["social_impact_summary_legacy_aliases"] == ["social_impact_worst_case_summary"]
+        assert payload[SOCIAL_IMPACT_POPULATION_STATE_DISTRIBUTION_KEY] == distribution
 
 
 if __name__ == "__main__":

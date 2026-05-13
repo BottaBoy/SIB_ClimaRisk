@@ -5,6 +5,7 @@ import gc
 import json
 import logging
 import math
+import ctypes
 from pathlib import Path
 from typing import Any, Callable
 import copy
@@ -47,6 +48,40 @@ _HOST_AVAILABLE_MEMORY_BUDGET_FRACTION = 0.75
 _MIN_EFFECTIVE_MEMORY_BUDGET_GB = 0.25
 CENTROID_ASSIGNMENT_THRESHOLD_DEG = 5.0
 logger = logging.getLogger(__name__)
+_MALLOC_TRIM_FUNC: Any | bool | None = None
+
+
+def _trim_process_memory() -> None:
+    global _MALLOC_TRIM_FUNC
+    if _MALLOC_TRIM_FUNC is None:
+        try:
+            libc = ctypes.CDLL("libc.so.6")
+            trim_func = getattr(libc, "malloc_trim", None)
+            if trim_func is None:
+                _MALLOC_TRIM_FUNC = False
+                return
+            trim_func.argtypes = [ctypes.c_size_t]
+            trim_func.restype = ctypes.c_int
+            _MALLOC_TRIM_FUNC = trim_func
+        except Exception:
+            _MALLOC_TRIM_FUNC = False
+            return
+    if not _MALLOC_TRIM_FUNC:
+        return
+    try:
+        _MALLOC_TRIM_FUNC(0)
+    except Exception:
+        return
+
+
+def _compact_hazard_impact_result(np: Any, metrics: HazardImpactResult) -> HazardImpactResult:
+    metrics.at_event_loss = np.zeros(0, dtype=float)
+    metrics.event_frequency = np.zeros(0, dtype=float)
+    metrics.event_id = []
+    metrics.event_name = []
+    metrics.top_events = []
+    metrics.matching = {}
+    return metrics
 
 
 @dataclass
@@ -1426,6 +1461,7 @@ def _finalize_component_result_accumulator(
     accumulator: dict[str, Any],
     event_count: int,
     top_n_events: int,
+    include_top_events: bool = True,
 ) -> HazardImpactResult:
     at_event_total = accumulator["at_event_total"]
     if at_event_total is None:
@@ -1444,6 +1480,7 @@ def _finalize_component_result_accumulator(
         event_id=event_id,
         event_name=event_name,
         top_n_events=top_n_events,
+        include_top_events=include_top_events,
     )
 
 
@@ -1560,6 +1597,7 @@ def _rebuild_component_result(
     event_id: Any,
     event_name: Any,
     top_n_events: int,
+    include_top_events: bool = True,
 ) -> HazardImpactResult:
     eai = _as_1d_float(np, eai_by_point)
     at_event = _as_1d_float(np, at_event_loss)
@@ -1581,7 +1619,7 @@ def _rebuild_component_result(
         max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
-        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events) if include_top_events else [],
         raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
@@ -1604,6 +1642,8 @@ def _compute_component_impact_sharded(
     hazard_key: str | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    include_top_events: bool = True,
+    include_matching: bool = True,
 ) -> tuple[HazardImpactResult, dict[str, Any]]:
     point_records = list(exposure_bundle.point_records or [])
     total_points = len(point_records)
@@ -1648,22 +1688,24 @@ def _compute_component_impact_sharded(
             event_id=getattr(hazard_obj, "event_id", []),
             event_name=getattr(hazard_obj, "event_name", []),
             top_n_events=top_n_events,
+            include_top_events=include_top_events,
         )
-        result.matching = {
-            "status": "complete",
-            "hazard": str(hazard_key or "unknown"),
-            "component": str(component_name),
-            "point_count": 0,
-            "point_value_total_eur": 0.0,
-            "centroid_count": int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0),
-            "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
-            "assigned_point_count": 0,
-            "assigned_point_fraction": 0.0,
-            "positive_hazard_point_count": 0,
-            "positive_hazard_point_fraction": 0.0,
-            "positive_direct_loss_point_count": 0,
-            "positive_direct_loss_point_fraction": 0.0,
-        }
+        if include_matching:
+            result.matching = {
+                "status": "complete",
+                "hazard": str(hazard_key or "unknown"),
+                "component": str(component_name),
+                "point_count": 0,
+                "point_value_total_eur": 0.0,
+                "centroid_count": int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0),
+                "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+                "assigned_point_count": 0,
+                "assigned_point_fraction": 0.0,
+                "positive_hazard_point_count": 0,
+                "positive_hazard_point_fraction": 0.0,
+                "positive_direct_loss_point_count": 0,
+                "positive_direct_loss_point_fraction": 0.0,
+            }
         sharding_info["status"] = "complete"
         return result, sharding_info
 
@@ -1731,16 +1773,18 @@ def _compute_component_impact_sharded(
             impfset=impfset,
             hazard_obj=hazard_obj,
             top_n_events=top_n_events,
+            include_top_events=include_top_events,
         )
-        metrics.matching = _compute_matching_summary(
-            np,
-            exposures=component_exposures,
-            point_records=point_records,
-            hazard_obj=hazard_obj,
-            direct_eai_by_point=metrics.eai_direct_by_point,
-            component_name=component_name,
-            hazard_key=hazard_key,
-        )
+        if include_matching:
+            metrics.matching = _compute_matching_summary(
+                np,
+                exposures=component_exposures,
+                point_records=point_records,
+                hazard_obj=hazard_obj,
+                direct_eai_by_point=metrics.eai_direct_by_point,
+                component_name=component_name,
+                hazard_key=hazard_key,
+            )
         _save_shard_checkpoint(
             np,
             checkpoint_dir=checkpoint_dir,
@@ -1982,17 +2026,19 @@ def _compute_component_impact_sharded(
         event_id=event_id,
         event_name=event_name,
         top_n_events=top_n_events,
+        include_top_events=include_top_events,
     )
-    matching_exposures = exposure_builder(exposure_bundle)
-    result.matching = _compute_matching_summary(
-        np,
-        exposures=matching_exposures,
-        point_records=point_records,
-        hazard_obj=hazard_obj,
-        direct_eai_by_point=result.eai_direct_by_point,
-        component_name=component_name,
-        hazard_key=hazard_key,
-    )
+    if include_matching:
+        matching_exposures = exposure_builder(exposure_bundle)
+        result.matching = _compute_matching_summary(
+            np,
+            exposures=matching_exposures,
+            point_records=point_records,
+            hazard_obj=hazard_obj,
+            direct_eai_by_point=result.eai_direct_by_point,
+            component_name=component_name,
+            hazard_key=hazard_key,
+        )
     sharding_info["status"] = "complete"
     _emit_progress(
         progress_callback,
@@ -2014,6 +2060,7 @@ def _compute_component_impact(
     impfset: Any,
     hazard_obj: Any,
     top_n_events: int,
+    include_top_events: bool = True,
 ) -> HazardImpactResult:
     exposures.assign_centroids(
         hazard_obj,
@@ -2042,7 +2089,7 @@ def _compute_component_impact(
         max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml_from_impact(np, impact, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
-        top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
+        top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events) if include_top_events else [],
         raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
@@ -2053,6 +2100,7 @@ def _combine_component_results(
     components: list[HazardImpactResult],
     point_values_eur: list[float],
     top_n_events: int,
+    include_top_events: bool = True,
 ) -> HazardImpactResult:
     if len(components) == 1:
         return components[0]
@@ -2099,7 +2147,7 @@ def _combine_component_results(
         max_event_loss_eur=public_event_loss,
         pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
         tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
-        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events) if include_top_events else [],
         raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
     )
 
@@ -2133,6 +2181,7 @@ def _compute_dynamic_hazard_sharded_results(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    return_full_impact_data: bool = True,
 ) -> tuple[HazardImpactResult, dict[str, HazardImpactResult], dict[str, str], dict[str, dict[str, Any]], list[str]]:
     point_records = list(exposure_bundle.point_records or [])
     total_points = len(point_records)
@@ -2334,6 +2383,8 @@ def _compute_dynamic_hazard_sharded_results(
                         hazard_key=hazard_key,
                         checkpoint_dir=inner_checkpoint_dir,
                         resume_enabled=resume_enabled,
+                        include_top_events=bool(return_full_impact_data),
+                        include_matching=bool(return_full_impact_data),
                     )
                 elif component_name == "surge":
                     prepared_topo = _prepare_topo_raster_for_exposure(
@@ -2361,6 +2412,10 @@ def _compute_dynamic_hazard_sharded_results(
                         )
                         surge_fraction_note_added = True
                     surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+                    # Surge no longer needs the source wind hazard once the surge field exists.
+                    # Releasing it here avoids keeping both hazard matrices resident during ImpactCalc.
+                    wind_hazard = None
+                    gc.collect()
                     shard_metrics, inner_sharding = _compute_component_impact_sharded(
                         np,
                         ImpactCalc,
@@ -2385,6 +2440,8 @@ def _compute_dynamic_hazard_sharded_results(
                         hazard_key=hazard_key,
                         checkpoint_dir=inner_checkpoint_dir,
                         resume_enabled=resume_enabled,
+                        include_top_events=bool(return_full_impact_data),
+                        include_matching=bool(return_full_impact_data),
                     )
                 else:
                     # Rain only needs centroid geometry, so drop the wind hazard first to cap peak RSS.
@@ -2423,6 +2480,8 @@ def _compute_dynamic_hazard_sharded_results(
                         hazard_key=hazard_key,
                         checkpoint_dir=inner_checkpoint_dir,
                         resume_enabled=resume_enabled,
+                        include_top_events=bool(return_full_impact_data),
+                        include_matching=bool(return_full_impact_data),
                     )
             except Exception as exc:
                 component_status[component_name] = "failed"
@@ -2499,8 +2558,8 @@ def _compute_dynamic_hazard_sharded_results(
 
             shard_metrics = None
             inner_sharding = None
-            if component_name in {"surge", "rain"}:
-                gc.collect()
+            gc.collect()
+            _trim_process_memory()
 
         shard_bundle = None
         shard_point_records = None
@@ -2508,6 +2567,14 @@ def _compute_dynamic_hazard_sharded_results(
         centroids = None
         wind_hazard = None
         gc.collect()
+        _trim_process_memory()
+
+    # The dynamic track bundle is no longer needed once all hazard shards have finished.
+    # Drop it before component finalization to avoid carrying the full track catalog into
+    # the end-of-run aggregation and serialization path.
+    tracks = None
+    gc.collect()
+    _trim_process_memory()
 
     for component_name in ("wind", "rain", "surge"):
         accumulator = component_accumulators.get(component_name)
@@ -2518,6 +2585,7 @@ def _compute_dynamic_hazard_sharded_results(
             accumulator=accumulator,
             event_count=event_count,
             top_n_events=top_n_events,
+            include_top_events=bool(return_full_impact_data),
         )
         components[component_name] = metrics
         component_status[component_name] = "complete"
@@ -2553,17 +2621,25 @@ def _compute_dynamic_hazard_sharded_results(
         components=[components[name] for name in ("wind", "rain", "surge") if name in components],
         point_values_eur=point_values_eur,
         top_n_events=top_n_events,
+        include_top_events=bool(return_full_impact_data),
     )
-    total_metrics.matching = _build_combined_matching_summary(
-        np,
-        hazard_key=hazard_key,
-        point_records=point_records,
-        total_metrics=total_metrics,
-        component_metrics=components,
-        hazard_zero_intensity=bool(
-            float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
-        ),
-    )
+    if return_full_impact_data:
+        total_metrics.matching = _build_combined_matching_summary(
+            np,
+            hazard_key=hazard_key,
+            point_records=point_records,
+            total_metrics=total_metrics,
+            component_metrics=components,
+            hazard_zero_intensity=bool(
+                float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+            ),
+        )
+    else:
+        total_metrics = _compact_hazard_impact_result(np, total_metrics)
+        for component_metrics in components.values():
+            _compact_hazard_impact_result(np, component_metrics)
+        gc.collect()
+        _trim_process_memory()
     return total_metrics, components, component_status, component_sharding, component_notes
 
 
@@ -2602,6 +2678,8 @@ def run_climada_direct_impacts(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    return_full_impact_data: bool = True,
+    hazard_keys: tuple[str, ...] | None = None,
 ) -> ClimadaRunResult:
     if fallback_to_precomputed_hazards:
         raise ValueError(
@@ -2616,6 +2694,14 @@ def run_climada_direct_impacts(
     np = runtime["np"]
     ImpactCalc = runtime["ImpactCalc"]
     ImpactFuncSet = runtime["ImpactFuncSet"]
+
+    requested_hazard_keys = tuple(str(value) for value in (hazard_keys or ("storm", "storm_cmcc")))
+    unsupported_hazard_keys = sorted({value for value in requested_hazard_keys if value not in {"storm", "storm_cmcc"}})
+    if unsupported_hazard_keys:
+        raise ValueError(f"Unsupported CLIMADA hazard key selection: {unsupported_hazard_keys}")
+    selected_hazard_keys = tuple(hazard_key for hazard_key in ("storm", "storm_cmcc") if hazard_key in requested_hazard_keys)
+    if not selected_hazard_keys:
+        raise ValueError("run_climada_direct_impacts requires at least one supported hazard key.")
 
     vulnerability_payload = get_tc_vulnerability_payload(
         asset_type_to_curve_code=wind_asset_type_to_curve_code,
@@ -2655,6 +2741,10 @@ def run_climada_direct_impacts(
         notes.append(f"Shard checkpoints directory: {Path(checkpoint_dir)}.")
     if resume_enabled:
         notes.append("Resume mode enabled: completed shards are reused from on-disk checkpoints when available.")
+    if not return_full_impact_data:
+        notes.append("Lean result mode enabled: top-events, matching QA, and per-event payloads are compacted before return.")
+    if selected_hazard_keys != ("storm", "storm_cmcc"):
+        notes.append(f"Hazard selection override enabled: {list(selected_hazard_keys)}.")
 
     bundle = None
     dynamic_hazard_shards: list[_ExposureShard] = []
@@ -2799,7 +2889,7 @@ def run_climada_direct_impacts(
         and bool(dynamic_hazard_shards)
     )
 
-    for hazard_key in ("storm", "storm_cmcc"):
+    for hazard_key in selected_hazard_keys:
         if dynamic_hazard_sharding_active:
             tracks = resolve_hazard_bundle_tracks(bundle, hazard_key)
             if tracks is None:
@@ -2836,10 +2926,12 @@ def run_climada_direct_impacts(
                     progress_callback=progress_callback,
                     checkpoint_dir=checkpoint_dir,
                     resume_enabled=resume_enabled,
+                    return_full_impact_data=bool(return_full_impact_data),
                 )
             finally:
                 release_hazard_bundle_tracks(bundle, hazard_key)
                 gc.collect()
+                _trim_process_memory()
             notes.extend(hazard_notes)
             out[hazard_key] = total_metrics
             component_out[hazard_key] = components
@@ -2876,6 +2968,8 @@ def run_climada_direct_impacts(
                 hazard_key=hazard_key,
                 checkpoint_dir=checkpoint_dir,
                 resume_enabled=resume_enabled,
+                include_top_events=bool(return_full_impact_data),
+                include_matching=bool(return_full_impact_data),
             )
             components["wind"] = wind_metrics
             component_status["wind"] = "complete"
@@ -2950,6 +3044,8 @@ def run_climada_direct_impacts(
                         hazard_key=hazard_key,
                         checkpoint_dir=checkpoint_dir,
                         resume_enabled=resume_enabled,
+                        include_top_events=bool(return_full_impact_data),
+                        include_matching=bool(return_full_impact_data),
                     )
                     components["surge"] = surge_metrics
                     component_status["surge"] = "complete"
@@ -3022,6 +3118,8 @@ def run_climada_direct_impacts(
                         hazard_key=hazard_key,
                         checkpoint_dir=checkpoint_dir,
                         resume_enabled=resume_enabled,
+                        include_top_events=bool(return_full_impact_data),
+                        include_matching=bool(return_full_impact_data),
                     )
                     components["rain"] = rain_metrics
                     component_status["rain"] = "complete"
@@ -3059,17 +3157,25 @@ def run_climada_direct_impacts(
             components=component_list,
             point_values_eur=point_values_eur,
             top_n_events=top_n_events,
+            include_top_events=bool(return_full_impact_data),
         )
-        total_metrics.matching = _build_combined_matching_summary(
-            np,
-            hazard_key=hazard_key,
-            point_records=list(exposure_bundle.point_records or []),
-            total_metrics=total_metrics,
-            component_metrics=components,
-            hazard_zero_intensity=bool(
-                float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
-            ),
-        )
+        if return_full_impact_data:
+            total_metrics.matching = _build_combined_matching_summary(
+                np,
+                hazard_key=hazard_key,
+                point_records=list(exposure_bundle.point_records or []),
+                total_metrics=total_metrics,
+                component_metrics=components,
+                hazard_zero_intensity=bool(
+                    float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+                ),
+            )
+        else:
+            total_metrics = _compact_hazard_impact_result(np, total_metrics)
+            for component_metrics in components.values():
+                _compact_hazard_impact_result(np, component_metrics)
+            gc.collect()
+            _trim_process_memory()
 
         out[hazard_key] = total_metrics
         component_out[hazard_key] = components
@@ -3094,16 +3200,17 @@ def run_climada_direct_impacts(
         "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
         "hazards": {},
     }
-    for hazard_key in ("storm", "storm_cmcc"):
-        if hazard_key not in out:
-            continue
-        matching_qa["hazards"][hazard_key] = {
-            "combined": dict(getattr(out[hazard_key], "matching", {}) or {}),
-            "components": {
-                component_name: dict(getattr(component_metrics, "matching", {}) or {})
-                for component_name, component_metrics in (component_out.get(hazard_key) or {}).items()
-            },
-        }
+    if return_full_impact_data:
+        for hazard_key in selected_hazard_keys:
+            if hazard_key not in out:
+                continue
+            matching_qa["hazards"][hazard_key] = {
+                "combined": dict(getattr(out[hazard_key], "matching", {}) or {}),
+                "components": {
+                    component_name: dict(getattr(component_metrics, "matching", {}) or {})
+                    for component_name, component_metrics in (component_out.get(hazard_key) or {}).items()
+                },
+            }
 
     modeling = {
         "storm_years": int(storm_years),
@@ -3117,7 +3224,9 @@ def run_climada_direct_impacts(
         "sharding_checkpoint_dir": str(checkpoint_dir) if checkpoint_dir else None,
         "resume_enabled": bool(resume_enabled),
         "frequency_normalized": bool(bundle.normalized_on_copy),
-        "top_events_count": int(top_n_events),
+        "top_events_count": int(top_n_events if return_full_impact_data else 0),
+        "return_full_impact_data": bool(return_full_impact_data),
+        "requested_hazard_keys": list(selected_hazard_keys),
         "hazard_zero_intensity": hazard_zero_intensity,
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
@@ -3143,7 +3252,7 @@ def run_climada_direct_impacts(
         "multi_hazard_rain_model": requested_rain_model,
         "multi_hazard_surge_topo_path": str(surge_topo_path) if surge_topo_path else None,
         "multi_hazard_flood_curve_file": str(flood_curve_file) if flood_curve_file else None,
-        "hazard_exposure_matching_qa": matching_qa,
+        "hazard_exposure_matching_qa": matching_qa if return_full_impact_data else {},
     }
     if multi_hazard_model is not None:
         modeling["multi_hazard_impact_mapping"] = multi_hazard_model.mapping_info

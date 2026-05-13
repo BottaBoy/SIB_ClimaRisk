@@ -13,13 +13,152 @@ RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
 WEB_DIR = REPO_ROOT / "web"
 UTC = timezone.utc
 MAX_COMPLETE_ANALYSIS_TIMESTAMP_SKEW_SECONDS = 900
+MIN_PUBLICATION_DYNAMIC_MAX_TRACKS = 300
+LATEST_PUBLISHED_RUN_ALIASES = frozenset({"latest-published", "latest_published", "published"})
+FORBIDDEN_PUBLICATION_SOURCE_MODES = {
+    "complete_analysis_component_ratios",
+    "complete_analysis_asset_fallback",
+}
+PUBLIC_COMPLETE_ANALYSIS_FIELD_MAP = {
+    "annual": "eai_eur",
+    "rp50": "pml_50_eur",
+    "rp100": "pml_100_eur",
+    "event_max": "percentile_99_loss_eur",
+}
+PAGE_ANALYSIS_SUMMARY_FIELD_MAP = {
+    "annual": "eai_total_eur",
+    "rp50": "rp50_total_loss_eur",
+    "rp100": "rp100_total_loss_eur",
+    "event_max": "p99_total_loss_eur",
+}
+PROXY_BREAKDOWN_SHARE_SCENARIOS = ("annual", "rp50", "rp100")
+PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR = 0.5
+PUBLIC_LOSS_ALIGNMENT_REL_TOLERANCE = 1e-8
+
+
+def _coerce_int(raw_value: object, *, default: int = 0) -> int:
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _coerce_float(raw_value: object, *, default: float = 0.0) -> float:
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def publication_policy_for_requested_tracks(raw_value: object) -> dict[str, Any]:
+    requested_dynamic_max_tracks = _coerce_int(raw_value)
+    minimum_dynamic_max_tracks = int(MIN_PUBLICATION_DYNAMIC_MAX_TRACKS)
+    eligible = requested_dynamic_max_tracks >= minimum_dynamic_max_tracks
+    reason = None
+    if not eligible:
+        reason = (
+            f"requested_dynamic_max_tracks={requested_dynamic_max_tracks} is below "
+            f"the publication-safe minimum {minimum_dynamic_max_tracks}"
+        )
+    return {
+        "eligible": bool(eligible),
+        "requested_dynamic_max_tracks": requested_dynamic_max_tracks,
+        "min_dynamic_max_tracks": minimum_dynamic_max_tracks,
+        "reason": reason,
+    }
+
+
+def publication_policy_for_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    parameters = manifest.get("parameters") if isinstance(manifest.get("parameters"), dict) else {}
+    requested_dynamic_max_tracks = parameters.get("requested_dynamic_max_tracks")
+    if requested_dynamic_max_tracks is None:
+        requested_dynamic_max_tracks = parameters.get("dynamic_max_tracks")
+    return publication_policy_for_requested_tracks(requested_dynamic_max_tracks)
+
+
+def ensure_run_publication_eligible(run_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+    policy = publication_policy_for_manifest(manifest)
+    if bool(policy.get("eligible")):
+        return policy
+    raise RuntimeError(f"Run {run_id} is not publication-eligible: {policy.get('reason')}")
+
+
+def _normalize_requested_territories(
+    territories: list[str] | tuple[str, ...] | None,
+) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in territories or ():
+        value = str(item or "").strip().lower()
+        if not value or value in seen:
+            continue
+        normalized.append(value)
+        seen.add(value)
+    return normalized
+
+
+def _manifest_has_archived_frontend_artifacts(
+    manifest: dict[str, Any],
+    territories: list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    frontend_artifacts = manifest.get("frontend_artifacts") if isinstance(manifest.get("frontend_artifacts"), dict) else {}
+    if str(frontend_artifacts.get("status") or "").strip().lower() != "complete":
+        return False
+
+    archived_files_by_territory = (
+        frontend_artifacts.get("archived_files_by_territory")
+        if isinstance(frontend_artifacts.get("archived_files_by_territory"), dict)
+        else {}
+    )
+    if not archived_files_by_territory:
+        return False
+
+    manifest_territories = manifest.get("territories") if isinstance(manifest.get("territories"), dict) else {}
+    requested_territories = _normalize_requested_territories(territories)
+    if not requested_territories:
+        requested_territories = _normalize_requested_territories(list(archived_files_by_territory.keys()))
+    if not requested_territories:
+        return False
+
+    for territory in requested_territories:
+        entry = manifest_territories.get(territory) if isinstance(manifest_territories, dict) else None
+        archived_files = archived_files_by_territory.get(territory) if isinstance(archived_files_by_territory, dict) else None
+        if not isinstance(entry, dict) or str(entry.get("status") or "").strip().lower() != "complete":
+            return False
+        if not isinstance(archived_files, dict) or not archived_files:
+            return False
+    return True
+
+
+def resolve_latest_published_run_id(
+    territories: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    requested_territories = _normalize_requested_territories(territories)
+    for manifest_path in sorted(RUN_OUTPUTS_DIR.glob("20*/manifest.json"), key=lambda path: path.parent.name, reverse=True):
+        payload = _load_json_payload(manifest_path)
+        if not isinstance(payload, dict):
+            continue
+        run_id = str(payload.get("run_id") or manifest_path.parent.name).strip()
+        if not run_id:
+            continue
+        if not bool(publication_policy_for_manifest(payload).get("eligible")):
+            continue
+        if not _manifest_has_archived_frontend_artifacts(payload, requested_territories):
+            continue
+        return run_id
+
+    requested_scope = ", ".join(requested_territories) if requested_territories else "the requested scope"
+    raise FileNotFoundError(f"No publication-ready archived run found for {requested_scope}")
 
 
 def resolve_run_id(raw_value: str) -> str:
     value = str(raw_value or "").strip()
     if not value:
         raise ValueError("run_id must not be empty")
-    if value.lower() != "latest":
+    normalized = value.lower()
+    if normalized in LATEST_PUBLISHED_RUN_ALIASES:
+        return resolve_latest_published_run_id()
+    if normalized != "latest":
         return value
     latest_manifest = RUN_OUTPUTS_DIR / "latest-manifest.json"
     if not latest_manifest.exists():
@@ -29,6 +168,16 @@ def resolve_run_id(raw_value: str) -> str:
     if not run_id:
         raise ValueError(f"Latest run manifest does not contain a run_id: {latest_manifest}")
     return run_id
+
+
+def resolve_publication_run_id(
+    raw_value: str | None,
+    territories: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    value = str(raw_value or "").strip()
+    if not value or value.lower() in LATEST_PUBLISHED_RUN_ALIASES:
+        return resolve_latest_published_run_id(territories)
+    return resolve_run_id(value)
 
 
 def run_manifest_path(run_id: str) -> Path:
@@ -75,6 +224,7 @@ def territory_frontend_rebuild_relative_paths(territory: str) -> tuple[str, ...]
     normalized = str(territory or "").strip().lower()
     return (
         f"data/{normalized}-wind-maps.json",
+        f"data/{normalized}-landslide-maps.json",
         f"data/{normalized}-multi-hazard-proxy.json",
         f"data/{normalized}-{case_study_page_suffix(normalized)}-analysis.json",
         f"data/{normalized}-network-states.geojson",
@@ -82,10 +232,7 @@ def territory_frontend_rebuild_relative_paths(territory: str) -> tuple[str, ...]
 
 
 def territory_optional_snapshot_relative_paths(territory: str) -> tuple[str, ...]:
-    normalized = str(territory or "").strip().lower()
-    return (
-        f"data/{normalized}-landslide-maps.json",
-    )
+    return ()
 
 
 def territory_run_generated_relative_paths(territory: str) -> tuple[str, ...]:
@@ -212,6 +359,176 @@ def _payload_publication_trace(payload: dict[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _extract_complete_analysis_public_loss_targets(
+    payload: dict[str, Any] | None,
+    hazard_key: str,
+) -> dict[str, float]:
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    hazard_payload = portfolio.get(hazard_key) if isinstance(portfolio, dict) else None
+    if not isinstance(hazard_payload, dict):
+        return {}
+
+    targets: dict[str, float] = {}
+    for scenario, field in PUBLIC_COMPLETE_ANALYSIS_FIELD_MAP.items():
+        value = _coerce_float(hazard_payload.get(field), default=0.0)
+        if value > 0.0:
+            targets[scenario] = value
+    return targets
+
+
+def _extract_page_analysis_public_loss_totals(
+    payload: dict[str, Any] | None,
+    hazard_key: str,
+) -> dict[str, float]:
+    impact = payload.get("impact") if isinstance(payload, dict) else None
+    summary_metrics = impact.get("summary_metrics") if isinstance(impact, dict) else None
+    hazard_payload = summary_metrics.get(hazard_key) if isinstance(summary_metrics, dict) else None
+    if not isinstance(hazard_payload, dict):
+        return {}
+
+    totals: dict[str, float] = {}
+    for scenario, field in PAGE_ANALYSIS_SUMMARY_FIELD_MAP.items():
+        value = _coerce_float(hazard_payload.get(field), default=0.0)
+        if value > 0.0:
+            totals[scenario] = value
+    return totals
+
+
+def _public_loss_alignment_tolerance(expected_total: float) -> float:
+    return max(
+        float(PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR),
+        abs(float(expected_total)) * float(PUBLIC_LOSS_ALIGNMENT_REL_TOLERANCE),
+    )
+
+
+def _validate_page_analysis_public_loss_alignment(
+    *,
+    run_id: str,
+    territory: str,
+    complete_payload: dict[str, Any] | None,
+    page_payload: dict[str, Any] | None,
+) -> dict[str, dict[str, dict[str, float]]]:
+    if not isinstance(page_payload, dict):
+        raise RuntimeError(f"{territory} page-analysis payload is missing or invalid for run {run_id}")
+
+    alignment: dict[str, dict[str, dict[str, float]]] = {}
+    for hazard_key in ("storm", "storm_cmcc"):
+        expected_totals = _extract_complete_analysis_public_loss_targets(complete_payload, hazard_key)
+        if not expected_totals:
+            continue
+
+        observed_totals = _extract_page_analysis_public_loss_totals(page_payload, hazard_key)
+        if not observed_totals:
+            raise RuntimeError(
+                f"{territory} page-analysis is missing impact.summary_metrics.{hazard_key} for run {run_id}"
+            )
+
+        hazard_alignment: dict[str, dict[str, float]] = {}
+        for scenario, expected_total in expected_totals.items():
+            if scenario not in observed_totals:
+                raise RuntimeError(
+                    f"{territory} page-analysis is missing public total {hazard_key}.{scenario} for run {run_id}"
+                )
+            observed_total = float(observed_totals[scenario])
+            abs_diff = abs(observed_total - float(expected_total))
+            tolerance = _public_loss_alignment_tolerance(expected_total)
+            if abs_diff > tolerance:
+                raise RuntimeError(
+                    f"{territory} page-analysis public loss totals mismatch complete-analysis for {hazard_key}.{scenario}: "
+                    f"observed={observed_total:.6f} expected={float(expected_total):.6f} diff={abs_diff:.6f} tol={tolerance:.6f}"
+                )
+            hazard_alignment[scenario] = {
+                "expected_eur": float(expected_total),
+                "observed_eur": observed_total,
+                "abs_diff_eur": abs_diff,
+            }
+        alignment[hazard_key] = hazard_alignment
+    return alignment
+
+
+def _normalized_float_mapping(raw_value: object) -> dict[str, float]:
+    if not isinstance(raw_value, dict):
+        return {}
+    normalized: dict[str, float] = {}
+    for key, value in raw_value.items():
+        name = str(key or "").strip()
+        if not name:
+            continue
+        normalized[name] = _coerce_float(value, default=0.0)
+    return normalized
+
+
+def _float_mappings_equal(
+    left: dict[str, float],
+    right: dict[str, float],
+    *,
+    tolerance: float = 1e-12,
+) -> bool:
+    if not left or not right:
+        return False
+    keys = sorted(set(left.keys()) | set(right.keys()))
+    return all(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) <= tolerance for key in keys)
+
+
+def _float_mappings_differ(
+    left: dict[str, float],
+    right: dict[str, float],
+    *,
+    tolerance: float = 1e-6,
+) -> bool:
+    keys = sorted(set(left.keys()) | set(right.keys()))
+    return any(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) > tolerance for key in keys)
+
+
+def _validate_proxy_breakdown_share_variation(
+    *,
+    run_id: str,
+    territory: str,
+    proxy_payload: dict[str, Any] | None,
+) -> dict[str, dict[str, dict[str, bool]]]:
+    hazards = proxy_payload.get("hazards") if isinstance(proxy_payload, dict) else None
+    if not isinstance(hazards, dict):
+        raise RuntimeError(f"{territory} multi-hazard proxy is missing hazards payload for run {run_id}")
+
+    validation: dict[str, dict[str, dict[str, bool]]] = {}
+    scenario_pairs = (("annual", "rp50"), ("annual", "rp100"), ("rp50", "rp100"))
+    for hazard_key in ("storm", "storm_cmcc"):
+        hazard_payload = hazards.get(hazard_key)
+        scenarios = hazard_payload.get("scenarios") if isinstance(hazard_payload, dict) else None
+        if not isinstance(scenarios, dict):
+            raise RuntimeError(
+                f"{territory} multi-hazard proxy is missing hazards.{hazard_key}.scenarios for run {run_id}"
+            )
+
+        hazard_checks: dict[str, dict[str, bool]] = {}
+        for left_scenario, right_scenario in scenario_pairs:
+            left_payload = scenarios.get(left_scenario) if isinstance(scenarios.get(left_scenario), dict) else None
+            right_payload = scenarios.get(right_scenario) if isinstance(scenarios.get(right_scenario), dict) else None
+            if left_payload is None or right_payload is None:
+                raise RuntimeError(
+                    f"{territory} multi-hazard proxy is missing {hazard_key} scenario pair {left_scenario}/{right_scenario} for run {run_id}"
+                )
+
+            left_ratios = _normalized_float_mapping(left_payload.get("component_ratios"))
+            right_ratios = _normalized_float_mapping(right_payload.get("component_ratios"))
+            left_shares = _normalized_float_mapping(left_payload.get("breakdown_shares"))
+            right_shares = _normalized_float_mapping(right_payload.get("breakdown_shares"))
+
+            ratios_differ = _float_mappings_differ(left_ratios, right_ratios)
+            shares_equal = _float_mappings_equal(left_shares, right_shares)
+            if ratios_differ and shares_equal:
+                raise RuntimeError(
+                    f"{territory} multi-hazard proxy has frozen breakdown_shares for {hazard_key} between "
+                    f"{left_scenario} and {right_scenario} despite differing component ratios"
+                )
+            hazard_checks[f"{left_scenario}_vs_{right_scenario}"] = {
+                "component_ratios_differ": bool(ratios_differ),
+                "breakdown_shares_equal": bool(shares_equal),
+            }
+        validation[hazard_key] = hazard_checks
+    return validation
+
+
 def _requires_publication_trace(relative_path: str) -> bool:
     path = str(relative_path or "").strip().lower()
     return path.endswith("-multi-hazard-proxy.json") or path.endswith("-analysis.json")
@@ -298,9 +615,13 @@ def validate_territory_web_snapshot(
         "case_study_run_id": None,
         "frontend_timestamps": {},
         "publication_trace": {},
+        "public_loss_alignment": {},
+        "proxy_breakdown_share_validation": {},
     }
 
     case_study_run_ids: dict[str, str] = {}
+    proxy_payload: dict[str, Any] | None = None
+    page_payload: dict[str, Any] | None = None
     for relative_path in required_frontend:
         path = source_web_dir / relative_path
         payload = _load_json_payload(path)
@@ -324,7 +645,37 @@ def validate_territory_web_snapshot(
             if _requires_publication_trace(relative_path) and publication_trace is None:
                 raise RuntimeError(f"{relative_path} is missing meta.publication_trace")
             if publication_trace is not None:
+                if bool(publication_trace.get("fallback_active")):
+                    raise RuntimeError(
+                        f"{relative_path} declares fallback_active=true; fallback publication is forbidden"
+                    )
+                if bool(publication_trace.get("multi_hazard_proxy_fallback_active")):
+                    raise RuntimeError(
+                        f"{relative_path} declares an upstream proxy fallback; fallback publication is forbidden"
+                    )
+                source_mode = str(publication_trace.get("source_mode") or "").strip()
+                if source_mode in FORBIDDEN_PUBLICATION_SOURCE_MODES:
+                    raise RuntimeError(
+                        f"{relative_path} uses forbidden publication source mode {source_mode}"
+                    )
+                upstream_proxy_source_mode = str(
+                    publication_trace.get("multi_hazard_proxy_source_mode") or ""
+                ).strip()
+                if upstream_proxy_source_mode in FORBIDDEN_PUBLICATION_SOURCE_MODES:
+                    raise RuntimeError(
+                        f"{relative_path} references forbidden upstream proxy source mode {upstream_proxy_source_mode}"
+                    )
+                referenced_complete_run_id = str(publication_trace.get("complete_analysis_run_id") or "").strip()
+                if referenced_complete_run_id and referenced_complete_run_id != resolved_run_id:
+                    raise RuntimeError(
+                        f"{relative_path} references complete-analysis run {referenced_complete_run_id}, expected {resolved_run_id}"
+                    )
                 validation["publication_trace"][relative_path] = publication_trace
+
+            if relative_path.endswith("-multi-hazard-proxy.json"):
+                proxy_payload = payload
+            elif relative_path.endswith("-analysis.json"):
+                page_payload = payload
 
     distinct_case_study_run_ids = sorted({value for value in case_study_run_ids.values() if value})
     if len(distinct_case_study_run_ids) != 1:
@@ -354,6 +705,19 @@ def validate_territory_web_snapshot(
             raise RuntimeError(
                 f"Incoherent publication trace for {normalized_territory}: proxy source mode {proxy_source_mode} != page-analysis upstream proxy source mode {page_proxy_source_mode}"
             )
+    if proxy_payload is not None:
+        validation["proxy_breakdown_share_validation"] = _validate_proxy_breakdown_share_variation(
+            run_id=resolved_run_id,
+            territory=normalized_territory,
+            proxy_payload=proxy_payload,
+        )
+    if page_payload is not None:
+        validation["public_loss_alignment"] = _validate_page_analysis_public_loss_alignment(
+            run_id=resolved_run_id,
+            territory=normalized_territory,
+            complete_payload=complete_payload,
+            page_payload=page_payload,
+        )
     validation["publication_fallback_present"] = any(
         bool(trace.get("fallback_active")) or bool(trace.get("multi_hazard_proxy_fallback_active"))
         for trace in validation["publication_trace"].values()
@@ -369,13 +733,37 @@ def validate_territory_web_snapshot(
     return validation
 
 
+def _repair_manifest_status_after_frontend_snapshot(manifest: dict[str, Any], archived_at: str) -> None:
+    territories_payload = manifest.get("territories") if isinstance(manifest.get("territories"), dict) else {}
+    complete_territories = [
+        territory
+        for territory, entry in territories_payload.items()
+        if isinstance(entry, dict) and str(entry.get("status") or "").strip().lower() == "complete"
+    ]
+    manifest["updated_at"] = archived_at
+    manifest["territories_completed"] = len(complete_territories)
+
+    frontend_artifacts = manifest.get("frontend_artifacts") if isinstance(manifest.get("frontend_artifacts"), dict) else {}
+    frontend_complete = str(frontend_artifacts.get("status") or "").strip().lower() == "complete"
+    if not territories_payload or len(complete_territories) != len(territories_payload) or not frontend_complete:
+        return
+
+    manifest["status"] = "success"
+    manifest["current_phase"] = None
+    manifest["finished_at"] = str(manifest.get("finished_at") or archived_at)
+    manifest["reconciled_at"] = archived_at
+    manifest["frontend_artifacts_success"] = True
+    manifest.pop("reconcile_reason", None)
+    manifest.pop("partial_reason", None)
+
+
 def snapshot_run_web_artifacts(
     run_id: str,
     territories: list[str] | tuple[str, ...] | None = None,
     *,
     source_web_dir: Path = WEB_DIR,
 ) -> tuple[str, dict[str, dict[str, str]], dict[str, dict[str, Any]]]:
-    resolved_run_id = resolve_run_id(run_id)
+    resolved_run_id = resolve_publication_run_id(run_id, territories)
     manifest = load_run_manifest(resolved_run_id)
     normalized_territories = normalized_territories_for_run(manifest, territories)
 
@@ -446,6 +834,7 @@ def snapshot_run_web_artifacts(
     )
     manifest["frontend_artifacts"] = frontend_artifacts
     manifest["frontend_artifacts_success"] = True
+    _repair_manifest_status_after_frontend_snapshot(manifest, archived_at)
     write_run_manifest(resolved_run_id, manifest)
     return resolved_run_id, archived_by_territory, validation_by_territory
 
@@ -454,7 +843,7 @@ def collect_archived_run_files(
     run_id: str,
     territories: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[str, dict[str, dict[str, str]]]:
-    resolved_run_id = resolve_run_id(run_id)
+    resolved_run_id = resolve_publication_run_id(run_id, territories)
     manifest = load_run_manifest(resolved_run_id)
     normalized_territories = normalized_territories_for_run(manifest, territories)
 
@@ -497,7 +886,10 @@ def build_staging_web_dir_from_run(
     *,
     base_web_dir: Path = WEB_DIR,
 ):
-    resolved_run_id, restored = collect_archived_run_files(run_id, territories)
+    resolved_run_id = resolve_publication_run_id(run_id, territories)
+    manifest = load_run_manifest(resolved_run_id)
+    ensure_run_publication_eligible(resolved_run_id, manifest)
+    resolved_run_id, restored = collect_archived_run_files(resolved_run_id, territories)
 
     temp_dir = tempfile.TemporaryDirectory(prefix=f"sib-deploy-{resolved_run_id}-")
     stage_root = Path(temp_dir.name) / "web"
@@ -508,5 +900,12 @@ def build_staging_web_dir_from_run(
             destination_path = stage_root / relative_path
             destination_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(archived_path), destination_path)
+
+    for territory in restored.keys():
+        validate_territory_web_snapshot(
+            resolved_run_id,
+            territory,
+            source_web_dir=stage_root,
+        )
 
     return temp_dir, stage_root, resolved_run_id, restored

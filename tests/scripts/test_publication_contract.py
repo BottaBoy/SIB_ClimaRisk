@@ -1,0 +1,466 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from scripts import journal_guamar_run, run_web_artifacts
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _complete_analysis_payload(*, updated_at: str) -> dict:
+    return {
+        "updated_at": updated_at,
+        "portfolio_results": {
+            "storm": {
+                "eai_eur": 10.0,
+                "pml_50_eur": 50.0,
+                "pml_100_eur": 100.0,
+                "percentile_99_loss_eur": 150.0,
+            },
+            "storm_cmcc": {
+                "eai_eur": 12.0,
+                "pml_50_eur": 55.0,
+                "pml_100_eur": 110.0,
+                "percentile_99_loss_eur": 160.0,
+            },
+        },
+    }
+
+
+def _proxy_payload(*, case_study_run_id: str, complete_analysis_run_id: str, frozen_breakdown_shares: bool = False) -> dict:
+    annual_shares = {"eau_aep": 0.9, "elec_bt_aerien": 0.1}
+    rp50_shares = annual_shares if frozen_breakdown_shares else {"eau_aep": 0.7, "elec_bt_aerien": 0.3}
+    rp100_shares = annual_shares if frozen_breakdown_shares else {"eau_aep": 0.6, "elec_bt_aerien": 0.4}
+    scenario_payload = {
+        "annual": {
+            "component_ratios": {"wind": 0.9, "rain": 0.1, "surge": 0.0, "landslide": 0.0},
+            "breakdown_shares": annual_shares,
+        },
+        "rp50": {
+            "component_ratios": {"wind": 0.4, "rain": 0.3, "surge": 0.2, "landslide": 0.1},
+            "breakdown_shares": rp50_shares,
+        },
+        "rp100": {
+            "component_ratios": {"wind": 0.2, "rain": 0.4, "surge": 0.2, "landslide": 0.2},
+            "breakdown_shares": rp100_shares,
+        },
+    }
+    return {
+        "meta": {
+            "generated_at": "2026-05-11T18:03:00+00:00",
+            "case_study_run_id": case_study_run_id,
+            "publication_trace": {
+                "artifact_kind": "multi_hazard_proxy",
+                "source_mode": "lightweight_sampled_climada_proxy",
+                "fallback_active": False,
+                "complete_analysis_run_id": complete_analysis_run_id,
+                "complete_analysis_generated_at": "2026-05-11T18:01:45+00:00",
+            },
+        },
+        "hazards": {
+            "storm": {"scenarios": dict(scenario_payload)},
+            "storm_cmcc": {"scenarios": dict(scenario_payload)},
+        },
+    }
+
+
+def _page_payload(
+    *,
+    case_study_run_id: str,
+    complete_analysis_run_id: str,
+    mismatch_rp100: bool = False,
+) -> dict:
+    storm_rp100 = 99.0 if mismatch_rp100 else 100.0
+    return {
+        "meta": {
+            "generated_at": "2026-05-11T18:04:00+00:00",
+            "case_study_run_id": case_study_run_id,
+            "publication_trace": {
+                "artifact_kind": "case_study_page_analysis",
+                "source_mode": "case_study_page_analysis",
+                "fallback_active": False,
+                "complete_analysis_run_id": complete_analysis_run_id,
+                "complete_analysis_generated_at": "2026-05-11T18:01:45+00:00",
+                "wind_map_run_id": case_study_run_id,
+                "wind_map_generated_at": "2026-05-11T18:02:00+00:00",
+                "multi_hazard_proxy_run_id": case_study_run_id,
+                "multi_hazard_proxy_fallback_active": False,
+                "multi_hazard_proxy_source_mode": "lightweight_sampled_climada_proxy",
+                "multi_hazard_proxy_fallback_reason": None,
+            },
+        },
+        "impact": {
+            "summary_metrics": {
+                "storm": {
+                    "eai_total_eur": 10.0,
+                    "rp50_total_loss_eur": 50.0,
+                    "rp100_total_loss_eur": storm_rp100,
+                    "p99_total_loss_eur": 150.0,
+                },
+                "storm_cmcc": {
+                    "eai_total_eur": 12.0,
+                    "rp50_total_loss_eur": 55.0,
+                    "rp100_total_loss_eur": 110.0,
+                    "p99_total_loss_eur": 160.0,
+                },
+            }
+        },
+    }
+
+
+def _landslide_payload(*, case_study_run_id: str) -> dict:
+    return {
+        "meta": {
+            "generated_at": "2026-05-11T18:02:30+00:00",
+            "case_study_run_id": case_study_run_id,
+        }
+    }
+
+
+def _write_publication_ready_fixture(
+    *,
+    tmp_path: Path,
+    run_id: str,
+    frozen_breakdown_shares: bool = False,
+    mismatch_rp100: bool = False,
+) -> tuple[Path, Path]:
+    outputs_dir = tmp_path / "outputs" / "complete-analysis-runs"
+    run_dir = outputs_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "territories": {
+                "guadeloupe": {
+                    "status": "complete",
+                    "phases": {
+                        "export": {"updated_at": "2026-05-11T18:01:45+00:00"},
+                    },
+                }
+            },
+        },
+    )
+
+    web_dir = tmp_path / "web"
+    data_dir = web_dir / "data"
+    case_study_run_id = "guadeloupe_case_20260511T180200Z"
+    _write_json(
+        data_dir / "guadeloupe-complete-analysis.json",
+        _complete_analysis_payload(updated_at="2026-05-11T18:01:45+00:00"),
+    )
+    _write_json(
+        data_dir / "guadeloupe-wind-maps.json",
+        {
+            "meta": {
+                "generated_at": "2026-05-11T18:02:00+00:00",
+                "case_study_run_id": case_study_run_id,
+            }
+        },
+    )
+    _write_json(
+        data_dir / "guadeloupe-landslide-maps.json",
+        _landslide_payload(case_study_run_id=case_study_run_id),
+    )
+    _write_json(
+        data_dir / "guadeloupe-multi-hazard-proxy.json",
+        _proxy_payload(
+            case_study_run_id=case_study_run_id,
+            complete_analysis_run_id=run_id,
+            frozen_breakdown_shares=frozen_breakdown_shares,
+        ),
+    )
+    _write_json(
+        data_dir / "guadeloupe-page1-analysis.json",
+        _page_payload(
+            case_study_run_id=case_study_run_id,
+            complete_analysis_run_id=run_id,
+            mismatch_rp100=mismatch_rp100,
+        ),
+    )
+    _write_json(data_dir / "guadeloupe-network-states.geojson", {"type": "FeatureCollection", "features": []})
+    return outputs_dir, web_dir
+
+
+def test_validate_territory_web_snapshot_rejects_fallback_publication(monkeypatch, tmp_path: Path) -> None:
+    run_id = "20260506_065034"
+    outputs_dir = tmp_path / "outputs" / "complete-analysis-runs"
+    run_dir = outputs_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "territories": {
+                "guadeloupe": {
+                    "status": "complete",
+                    "phases": {
+                        "export": {"updated_at": "2026-05-06T10:00:00+00:00"},
+                    },
+                }
+            },
+        },
+    )
+
+    web_dir = tmp_path / "web"
+    data_dir = web_dir / "data"
+    _write_json(
+        data_dir / "guadeloupe-complete-analysis.json",
+        {"updated_at": "2026-05-06T10:00:00+00:00"},
+    )
+    _write_json(
+        data_dir / "guadeloupe-wind-maps.json",
+        {
+            "meta": {
+                "generated_at": "2026-05-06T10:10:00+00:00",
+                "case_study_run_id": "guadeloupe_case_20260506T101000Z",
+            }
+        },
+    )
+    _write_json(
+        data_dir / "guadeloupe-landslide-maps.json",
+        _landslide_payload(case_study_run_id="guadeloupe_case_20260506T101000Z"),
+    )
+    _write_json(
+        data_dir / "guadeloupe-multi-hazard-proxy.json",
+        {
+            "meta": {
+                "generated_at": "2026-05-06T10:11:00+00:00",
+                "case_study_run_id": "guadeloupe_case_20260506T101000Z",
+                "publication_trace": {
+                    "artifact_kind": "multi_hazard_proxy",
+                    "source_mode": "lightweight_sampled_climada_proxy",
+                    "fallback_active": True,
+                },
+            }
+        },
+    )
+    _write_json(
+        data_dir / "guadeloupe-page1-analysis.json",
+        {
+            "meta": {
+                "generated_at": "2026-05-06T10:12:00+00:00",
+                "case_study_run_id": "guadeloupe_case_20260506T101000Z",
+                "publication_trace": {
+                    "artifact_kind": "page_analysis",
+                    "source_mode": "case_study_page_analysis",
+                    "multi_hazard_proxy_source_mode": "lightweight_sampled_climada_proxy",
+                    "multi_hazard_proxy_fallback_active": True,
+                },
+            }
+        },
+    )
+    _write_json(data_dir / "guadeloupe-network-states.geojson", {"type": "FeatureCollection", "features": []})
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="fallback publication is forbidden"):
+        run_web_artifacts.validate_territory_web_snapshot(
+            run_id,
+            "guadeloupe",
+            source_web_dir=web_dir,
+        )
+
+
+def test_validate_territory_web_snapshot_rejects_public_loss_total_mismatch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+        mismatch_rp100=True,
+    )
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="public loss totals mismatch complete-analysis"):
+        run_web_artifacts.validate_territory_web_snapshot(
+            run_id,
+            "guadeloupe",
+            source_web_dir=web_dir,
+        )
+
+
+def test_validate_territory_web_snapshot_rejects_frozen_proxy_breakdown_shares(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+        frozen_breakdown_shares=True,
+    )
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="frozen breakdown_shares"):
+        run_web_artifacts.validate_territory_web_snapshot(
+            run_id,
+            "guadeloupe",
+            source_web_dir=web_dir,
+        )
+
+
+def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+    )
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    validation = run_web_artifacts.validate_territory_web_snapshot(
+        run_id,
+        "guadeloupe",
+        source_web_dir=web_dir,
+    )
+
+    assert validation["public_loss_alignment"]["storm"]["rp100"]["abs_diff_eur"] == pytest.approx(0.0)
+    assert validation["proxy_breakdown_share_validation"]["storm"]["annual_vs_rp50"]["component_ratios_differ"] is True
+
+
+def test_extract_run_entry_keeps_wind_map_track_count_when_page_meta_mentions_fallback() -> None:
+    track_blob = journal_guamar_run.encode_track_ids(["track-1", "track-2"])
+
+    row = journal_guamar_run._extract_run_entry(
+        territory="guadeloupe",
+        hazard_key="storm",
+        wind_meta={
+            "generated_at": "2026-04-21T12:41:05+00:00",
+            "dynamic_max_tracks": 300,
+            "track_journal": {
+                "storm": {
+                    "track_ids_compressed": track_blob,
+                    "n_events": 2,
+                    "event_frequency_sum": 0.25,
+                }
+            },
+        },
+        page_meta={
+            "generated_at": "2026-04-21T12:41:06+00:00",
+            "case_study_run_id": "guadeloupe_case_20260421T124106Z",
+            "sampling_spacing_m": 1000.0,
+            "component_light_rerun": {"max_points_total": 400, "max_points_per_feature": 4},
+            "modeling": {"fallback": True},
+            "complete_analysis_source": {
+                "run_id": "20260421_091134",
+                "generated_at": "2026-04-21T10:39:56+00:00",
+                "dynamic_max_tracks": {"storm": 1500, "storm_cmcc": 1500},
+            },
+        },
+        proxy_meta={"max_points_total": 600, "max_points_per_feature": 6},
+        impact_summary={"storm": {"rp50_total_loss_eur": 123.0, "rp100_total_loss_eur": 456.0}},
+    )
+
+    assert row["dynamic_max_tracks"] == 300
+    assert row["wind_map_dynamic_max_tracks"] == 300
+    assert row["source_dynamic_max_tracks"] == 1500
+    assert row["complete_analysis_run_id"] == "20260421_091134"
+    assert row["track_ids_count"] == 2
+
+
+def test_repair_manifest_status_after_frontend_snapshot_promotes_complete_run() -> None:
+    manifest = {
+        "status": "partial",
+        "current_phase": "cleanup",
+        "reconcile_reason": "process_missing_during_cleanup",
+        "territories": {
+            "guadeloupe": {"status": "complete"},
+            "martinique": {"status": "complete"},
+        },
+        "frontend_artifacts": {
+            "status": "complete",
+            "territories": ["guadeloupe", "martinique"],
+        },
+    }
+
+    run_web_artifacts._repair_manifest_status_after_frontend_snapshot(
+        manifest,
+        "2026-05-12T07:17:17+00:00",
+    )
+
+    assert manifest["status"] == "success"
+    assert manifest["current_phase"] is None
+    assert manifest["territories_completed"] == 2
+    assert manifest["frontend_artifacts_success"] is True
+    assert manifest["reconciled_at"] == "2026-05-12T07:17:17+00:00"
+    assert "reconcile_reason" not in manifest
+
+
+def test_build_staging_web_dir_rejects_low_track_run_for_publication(monkeypatch, tmp_path: Path) -> None:
+    run_id = "20260512_080434"
+    outputs_dir = tmp_path / "outputs" / "complete-analysis-runs"
+    run_dir = outputs_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "parameters": {
+                "requested_dynamic_max_tracks": 150,
+                "dynamic_max_tracks": 150,
+            },
+            "territories": {
+                "guadeloupe": {"status": "complete"},
+            },
+        },
+    )
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="not publication-eligible"):
+        run_web_artifacts.build_staging_web_dir_from_run(run_id, base_web_dir=web_dir)
+
+
+def test_build_staging_web_dir_revalidates_archived_snapshot(monkeypatch, tmp_path: Path) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+        mismatch_rp100=True,
+    )
+    archive_root = outputs_dir / run_id / "territories" / "guadeloupe" / "web"
+    for relative_path in run_web_artifacts.territory_run_generated_relative_paths("guadeloupe"):
+        source_path = web_dir / relative_path
+        if not source_path.exists():
+            continue
+        destination_path = archive_root / relative_path
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        destination_path.write_bytes(source_path.read_bytes())
+
+    manifest_path = outputs_dir / run_id / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["parameters"] = {
+        "requested_dynamic_max_tracks": 1500,
+        "dynamic_max_tracks": 1500,
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="public loss totals mismatch complete-analysis"):
+        run_web_artifacts.build_staging_web_dir_from_run(run_id, base_web_dir=web_dir)

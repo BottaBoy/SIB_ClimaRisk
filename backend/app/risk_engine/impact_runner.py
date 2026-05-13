@@ -14,8 +14,14 @@ from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
 from .population_loader import load_population_data, get_population_for_cell
 from .social_impact import (
+    aggregate_population_state_distribution_by_territory,
+    aggregate_population_state_distribution_summary,
     aggregate_social_metrics_by_territory,
     aggregate_social_summary,
+    build_social_impact_summary_payload,
+    calculate_population_state_distribution,
+    calculate_social_impact_metrics,
+    SOCIAL_IMPACT_SUMMARY_BASIS,
 )
 from .types import DisaggregationSummary, ImpactComputationResult, NormalizedExposure
 
@@ -524,6 +530,7 @@ def _compute_impacts_climada(
     # Load and integrate population data for social impact metrics
     population_by_territory = {}
     social_summary_by_hazard = {}
+    population_state_distribution_by_hazard = {}
     
     try:
         population_data_dir = settings.population_data_dir or Path("/home/ubuntu/uploads/Population")
@@ -538,12 +545,21 @@ def _compute_impacts_climada(
                 population_by_territory.update(territory_pop_dict)
             
             # Calculate social impact metrics
-            if population_by_territory and aggregated.detailed_states_by_territory:
+            if population_by_territory and aggregated.cell_service_states_by_territory:
                 social_metrics = aggregate_social_metrics_by_territory(
                     population_by_territory=population_by_territory,
-                    detailed_states=aggregated.detailed_states_by_territory,
+                    detailed_states=aggregated.cell_service_states_by_territory,
+                    coverage_by_territory=aggregated.cell_service_coverage_by_territory,
                 )
                 social_summary_by_hazard = aggregate_social_summary(social_metrics)
+                population_state_distribution = aggregate_population_state_distribution_by_territory(
+                    population_by_territory=population_by_territory,
+                    detailed_states=aggregated.cell_service_states_by_territory,
+                    coverage_by_territory=aggregated.cell_service_coverage_by_territory,
+                )
+                population_state_distribution_by_hazard = aggregate_population_state_distribution_summary(
+                    population_state_distribution
+                )
             else:
                 logger.info("Population data available but detailed states not available for social impact")
         else:
@@ -587,6 +603,10 @@ def _compute_impacts_climada(
     cmcc_components_direct = _component_direct_eai_map(cmcc_components_raw, cmcc_direct)
     storm_components_p99 = _component_direct_percentile_99_map(storm_components_raw)
     cmcc_components_p99 = _component_direct_percentile_99_map(cmcc_components_raw)
+    social_summary_payload = build_social_impact_summary_payload(
+        social_summary_by_hazard,
+        population_state_distribution_by_hazard,
+    )
 
     portfolio_results = {
         "storm": {
@@ -649,7 +669,7 @@ def _compute_impacts_climada(
         },
         "component_health": aggregated.component_health,
         "interdependency": aggregated.interdependency,
-        "social_impact_summary": social_summary_by_hazard,
+        **social_summary_payload,
         "event_summary": {
             "storm_top_events": _scale_top_events(storm_direct_metrics.top_events, storm_scaler),
             "storm_cmcc_top_events": _scale_top_events(cmcc_direct_metrics.top_events, cmcc_scaler),
@@ -668,6 +688,10 @@ def _compute_impacts_climada(
         "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
         "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
         "When enabled, direct multi-hazard uses additive wind+rain+surge losses with per-point capping before interdependency uplift.",
+        (
+            "Social impact summaries use canonical cell+service states at 0.2 deg derived from native CLIMADA aggregation; "
+                "canonical key social_impact_summary, legacy alias social_impact_worst_case_summary."
+        ),
         *climada.notes,
         *bundle.warnings,
     ]
@@ -682,20 +706,40 @@ def _compute_impacts_climada(
         tr["population_total"] = round(pop_total, 0)
         
         # Add social metrics per hazard if available
-        if social_summary_by_hazard and aggregated.detailed_states_by_territory:
+        if social_summary_by_hazard and aggregated.cell_service_states_by_territory:
             tr["social_metrics"] = {}
-            for hazard in aggregated.detailed_states_by_territory.keys():
-                if hazard in aggregated.detailed_states_by_territory and territory_id in aggregated.detailed_states_by_territory[hazard]:
-                    # Rebuild social metrics for this specific territory
-                    from .social_impact import calculate_social_impact_metrics
-                    infra_states = aggregated.detailed_states_by_territory[hazard][territory_id]
+            tr["social_metrics_basis"] = SOCIAL_IMPACT_SUMMARY_BASIS
+            tr["social_impact_population_state_distribution"] = {}
+            for hazard in aggregated.cell_service_states_by_territory.keys():
+                if (
+                    hazard in aggregated.cell_service_states_by_territory
+                    and territory_id in aggregated.cell_service_states_by_territory[hazard]
+                ):
+                    infra_states = aggregated.cell_service_states_by_territory[hazard][territory_id]
+                    infra_coverage = {}
+                    if aggregated.cell_service_coverage_by_territory:
+                        infra_coverage = (aggregated.cell_service_coverage_by_territory.get(hazard) or {}).get(
+                            territory_id,
+                            {},
+                        )
                     metrics = calculate_social_impact_metrics(
                         hazard=hazard,
                         territory_id=territory_id,
                         population_total=pop_total,
                         infra_states=infra_states,
+                        infra_coverage=infra_coverage,
                     )
                     tr["social_metrics"][hazard] = metrics.to_dict()
+                    tr["social_impact_population_state_distribution"][hazard] = {
+                        service: distribution.to_dict()
+                        for service, distribution in calculate_population_state_distribution(
+                            hazard=hazard,
+                            territory_id=territory_id,
+                            population_total=pop_total,
+                            infra_states=infra_states,
+                            infra_coverage=infra_coverage,
+                        ).items()
+                    }
         
         enriched_territory_results.append(tr)
     

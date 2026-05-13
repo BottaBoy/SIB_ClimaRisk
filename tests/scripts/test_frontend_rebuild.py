@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 import subprocess
 import sys
 
@@ -10,28 +9,51 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from scripts import build_guadeloupe_page1_data, journal_guamar_run, rerun_case_studies_light, run_complete_analysis
+from scripts import journal_guamar_run, rerun_case_studies_light, run_complete_analysis
 
 
-def test_rebuild_case_study_frontend_artifacts_uses_complete_analysis_fallbacks(monkeypatch):
-    calls: list[dict[str, object]] = []
+def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_flags(monkeypatch, tmp_path):
+    popen_calls: list[dict[str, object]] = []
 
-    def _fake_run(cmd, timeout=None, **kwargs):
-        calls.append({"cmd": list(cmd), "timeout": timeout, "kwargs": dict(kwargs)})
+    class _FakeProcess:
+        pid = 12345
 
-        class _Result:
-            returncode = 0
+        def wait(self, timeout=None):
+            return 0
 
-        return _Result()
+    def _fake_popen(cmd, env=None, **kwargs):
+        popen_calls.append({"cmd": list(cmd), "env": dict(env or {}), "kwargs": dict(kwargs)})
+        return _FakeProcess()
 
-    monkeypatch.setattr(run_complete_analysis.subprocess, "run", _fake_run)
+    monkeypatch.setattr(run_complete_analysis.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(run_complete_analysis, "read_process_start_ticks", lambda pid: int(pid) + 1)
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "launch_frontend_supervision_monitor",
+        lambda **kwargs: type("_MonitorProcess", (), {"pid": 54321})(),
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "write_frontend_supervision_event",
+        lambda *args, **kwargs: None,
+    )
 
-    run_complete_analysis.rebuild_case_study_frontend_artifacts(["guadeloupe", "martinique"], 1500)
+    run_complete_analysis.rebuild_case_study_frontend_artifacts(
+        ["guadeloupe", "martinique"],
+        1500,
+        run_id="20260512_080434",
+        supervision_journal=tmp_path / "frontend-supervision.jsonl",
+    )
 
-    assert len(calls) == 1
-    cmd = calls[0]["cmd"]
-    assert "--prefer-complete-analysis-proxy-fallback" in cmd
-    assert "--prefer-complete-analysis-page-fallback" in cmd
+    assert len(popen_calls) == 1
+    cmd = popen_calls[0]["cmd"]
+    assert "--prefer-complete-analysis-proxy-fallback" not in cmd
+    assert "--prefer-complete-analysis-page-fallback" not in cmd
+    env = popen_calls[0]["env"]
+    assert env[run_complete_analysis.ENV_FRONTEND_SUPERVISION_RUN_ID] == "20260512_080434"
+    assert env[run_complete_analysis.ENV_FRONTEND_SUPERVISION_JOURNAL].endswith(
+        "frontend-supervision.jsonl"
+    )
 
 
 def test_normalize_called_process_exit_code_maps_sigkill_to_137(capsys):
@@ -43,117 +65,37 @@ def test_normalize_called_process_exit_code_maps_sigkill_to_137(capsys):
     assert "signal 9" in capsys.readouterr().err
 
 
-def test_complete_analysis_fallback_reinjects_landslide_with_asset_id_alignment(monkeypatch):
-    payload = {
-        "meta": {
-            "updated_at": "2026-04-21T10:39:56+00:00",
-            "sampling_spacing_m": 100.0,
-            "modeling": {
-                "hazard_track_count_storm": 1500,
-                "hazard_track_count_storm_cmcc": 1500,
-                "sharding_checkpoint_dir": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260421_091134/territories/guadeloupe/checkpoints",
-            },
-        },
-        "asset_results": [
-            {
-                "asset_id": "asset-a",
-                "asset_type": "elec_bt_aerien",
-                "exposure_eur": 100.0,
-                "eai_storm_direct_eur": 10.0,
-                "eai_storm_eur": 10.0,
-                "eai_cmcc_direct_eur": 0.0,
-                "eai_cmcc_eur": 0.0,
-            },
-            {
-                "asset_id": "asset-b",
-                "asset_type": "elec_hta_aerien",
-                "exposure_eur": 100.0,
-                "eai_storm_direct_eur": 20.0,
-                "eai_storm_eur": 20.0,
-                "eai_cmcc_direct_eur": 0.0,
-                "eai_cmcc_eur": 0.0,
-            },
-        ],
-        "portfolio_results": {
-            "storm": {
-                "eai_eur": 30.0,
-                "pml_50_eur": 30.0,
-                "pml_100_eur": 30.0,
-                "percentile_99_loss_eur": 30.0,
-            },
-            "storm_cmcc": {
-                "eai_eur": 0.0,
-                "pml_50_eur": 0.0,
-                "pml_100_eur": 0.0,
-                "percentile_99_loss_eur": 0.0,
-            },
-            "event_summary": {
-                "storm_top_events": [{"event_id": 1, "loss_eur": 30.0}],
-                "storm_cmcc_top_events": [],
-            },
-        },
-        "exposure_summary": {"asset_count_points": 2},
-    }
+def test_build_territory_env_does_not_force_disable_multi_hazard(monkeypatch, tmp_path):
+    topo_path = tmp_path / "Guadeloupe.tif"
+    topo_path.write_text("topo", encoding="utf-8")
 
-    fake_bundle = SimpleNamespace(
-        point_records=[
-            {"feature_id": "asset-b", "value_eur": 100.0, "asset_type": "elec_hta_aerien"},
-            {"feature_id": "asset-a", "value_eur": 100.0, "asset_type": "elec_bt_aerien"},
-        ]
-    )
-
-    monkeypatch.setattr(build_guadeloupe_page1_data, "build_climada_exposure", lambda *args, **kwargs: fake_bundle)
     monkeypatch.setattr(
-        build_guadeloupe_page1_data,
-        "_build_landslide_proxy_losses_lightweight",
-        lambda *args, **kwargs: {
-            "storm": {
-                "scenario_arrays": {
-                    scenario: build_guadeloupe_page1_data.np.array([7.0, 5.0], dtype=float)
-                    for scenario in build_guadeloupe_page1_data.MAP_SCENARIOS
-                }
-            },
-            "storm_cmcc": {
-                "scenario_arrays": {
-                    scenario: build_guadeloupe_page1_data.np.zeros(2, dtype=float)
-                    for scenario in build_guadeloupe_page1_data.MAP_SCENARIOS
-                }
-            },
-        },
+        rerun_case_studies_light,
+        "resolve_surge_topo_path_for_territory",
+        lambda territory, settings, env: topo_path,
     )
 
-    impact_metrics, aux = build_guadeloupe_page1_data._compute_impact_metrics_from_complete_analysis(
-        payload,
-        spacing_m=200.0,
-        network_value_per_km={
-            "elec_bt_aerien": 100.0,
-            "elec_hta_aerien": 100.0,
-        },
-        exposure_value_by_class={
-            "elec_bt_aerien": 100.0,
-            "elec_hta_aerien": 100.0,
-        },
-        landslide_exposure=object(),
-        settings=SimpleNamespace(climada_metric_crs="EPSG:32620", climada_max_points_per_feature=0),
-        territory="guadeloupe",
-        landslide_bbox=(-61.8, 15.8, -60.9, 16.6),
-    )
+    env = rerun_case_studies_light._build_territory_env("guadeloupe", base_settings=object())
 
-    annual_rows = {
-        row["class_key"]: row["storm"]
-        for row in impact_metrics["state_damage_tables"]["annual"]
-    }
-
-    assert annual_rows["elec_bt_aerien"]["damage_eur"] == 15.0
-    assert annual_rows["elec_hta_aerien"]["damage_eur"] == 27.0
-    assert annual_rows["elec_bt_aerien"]["damage_components_eur"]["landslide"] > 0.0
-    assert impact_metrics["summary_metrics"]["storm"]["eai_total_eur"] == 42.0
-    assert aux["fallback_landslide_supported"] is True
-    assert aux["complete_analysis_source"]["dynamic_max_tracks"]["storm"] == 1500
-    assert aux["complete_analysis_source"]["run_id"] == "20260421_091134"
+    assert env["SIB_RISK_HAZARD_SURGE_TOPO_PATH"] == str(topo_path)
+    assert env["SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE"] == "120"
+    assert "SIB_RISK_MULTI_HAZARD_ENABLED" not in env
 
 
-def test_extract_run_entry_prefers_complete_analysis_track_count_for_fallback_page():
+def test_purge_case_study_outputs_removes_stale_frontend_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(rerun_case_studies_light, "REPO_ROOT", tmp_path)
+
+    for path in rerun_case_studies_light._case_study_output_paths("guadeloupe"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("stale", encoding="utf-8")
+
+    rerun_case_studies_light._purge_case_study_outputs("guadeloupe")
+
+    for path in rerun_case_studies_light._case_study_output_paths("guadeloupe"):
+        assert not path.exists()
+
+
+def test_extract_run_entry_uses_wind_map_track_count_even_if_page_meta_mentions_fallback():
     track_blob = journal_guamar_run.encode_track_ids(["track-1", "track-2"])
 
     row = journal_guamar_run._extract_run_entry(
@@ -186,7 +128,7 @@ def test_extract_run_entry_prefers_complete_analysis_track_count_for_fallback_pa
         impact_summary={"storm": {"rp50_total_loss_eur": 123.0, "rp100_total_loss_eur": 456.0}},
     )
 
-    assert row["dynamic_max_tracks"] == 1500
+    assert row["dynamic_max_tracks"] == 300
     assert row["wind_map_dynamic_max_tracks"] == 300
     assert row["source_dynamic_max_tracks"] == 1500
     assert row["complete_analysis_run_id"] == "20260421_091134"

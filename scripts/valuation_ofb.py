@@ -129,6 +129,12 @@ def _effective_territory(territory: str | None) -> str:
     return "guadeloupe"
 
 
+def _outside_bbox_policy_label(territory_input: str, territory_effective: str) -> str:
+    if territory_input == territory_effective and territory_effective in {"guadeloupe", "martinique"}:
+        return "explicit_territory_input"
+    return f"default_to_{territory_effective}"
+
+
 def get_water_values(territory: str | None) -> dict[str, float]:
     key = _effective_territory(territory)
     values = NEW_VALUES_OFB[key]
@@ -178,5 +184,5 @@ def build_valuation_metadata(territory: str | None) -> dict[str, Any]:
         "initial_values": dict(INITIAL_VALUES[territory_effective]),
         "new_values": dict(NEW_VALUES_OFB[territory_effective]),
         "nb_prix_compares": dict(NB_PRIX_COMPARES[territory_effective]),
-        "policy_outside_bbox": "fallback_guadeloupe",
+        "policy_outside_bbox": _outside_bbox_policy_label(territory_input, territory_effective),
     }

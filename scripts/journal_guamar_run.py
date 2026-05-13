@@ -199,7 +199,6 @@ def _extract_run_entry(
     wind_pml_50 = float(summary.get("rp50_total_loss_eur") or 0.0)
     wind_pml_100 = float(summary.get("rp100_total_loss_eur") or 0.0)
     page_modeling = page_meta.get("modeling") if isinstance(page_meta.get("modeling"), dict) else {}
-    fallback_active = bool(page_modeling.get("fallback"))
     complete_analysis_source = (
         page_meta.get("complete_analysis_source") if isinstance(page_meta.get("complete_analysis_source"), dict) else {}
     )
@@ -224,7 +223,7 @@ def _extract_run_entry(
         "generated_at": str(page_meta.get("generated_at") or wind_meta.get("generated_at") or datetime.now(UTC).replace(microsecond=0).isoformat()),
         "case_study_run_id": str(page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
         "session_run_id": str(session_run_id or page_meta.get("case_study_run_id") or wind_meta.get("case_study_run_id") or ""),
-        "dynamic_max_tracks": source_dynamic_max_tracks if fallback_active and source_dynamic_max_tracks > 0 else wind_map_dynamic_max_tracks,
+        "dynamic_max_tracks": wind_map_dynamic_max_tracks,
         "wind_map_dynamic_max_tracks": wind_map_dynamic_max_tracks,
         "source_dynamic_max_tracks": source_dynamic_max_tracks,
         "complete_analysis_run_id": str(complete_analysis_source.get("run_id") or ""),

@@ -5,7 +5,7 @@ Deploy-only script for SIB web results.
 Usage:
     python3 deploy_only.py
     python3 deploy_only.py --vhost sib.shared.elio.dev
-    python3 deploy_only.py --run-id latest --vhost sib.dev.elio.bottagisio.com
+    python3 deploy_only.py --run-id latest-published --vhost sib.dev.elio.bottagisio.com
 """
 
 from __future__ import annotations
@@ -17,7 +17,13 @@ import sys
 import time
 from pathlib import Path
 
-from run_web_artifacts import build_staging_web_dir_from_run
+from run_web_artifacts import (
+    build_staging_web_dir_from_run,
+    load_run_manifest,
+    normalized_territories_for_run,
+    resolve_publication_run_id,
+    validate_territory_web_snapshot,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -89,12 +95,12 @@ def deploy_to_vhost(
     if not deploy_script.exists():
         logger.error(f"Deploy script not found: {deploy_script}")
         return False
-    
+
     dest_dir = resolve_vhost_destination(vhost)
-    
+
     logger.info(f"Source: {source_label or source_root}")
     logger.info(f"Destination: {dest_dir}")
-    
+
     try:
         start = time.time()
         result = subprocess.run(
@@ -104,13 +110,13 @@ def deploy_to_vhost(
             timeout=300,
         )
         elapsed = time.time() - start
-        
+
         if result.returncode != 0:
-            logger.error(f"✗ Deployment failed")
+            logger.error("✗ Deployment failed")
             if result.stderr:
                 logger.error(f"Error: {result.stderr}")
             return False
-        
+
         logger.info(f"✓ Deployment successful ({elapsed:.1f}s)")
         verified, issues = verify_deployed_web_root(dest_dir, source_root=source_root)
         if not verified:
@@ -118,21 +124,38 @@ def deploy_to_vhost(
                 logger.error(f"✗ Deployment verification failed: {issue}")
             return False
         logger.info(f"✓ Verified deployment in {dest_dir}")
-        
-        # Show output
+
         if result.stdout:
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if line.strip():
                     logger.info(f"  {line}")
-        
+
         return True
-    
+
     except subprocess.TimeoutExpired:
-        logger.error(f"✗ Deployment timed out after 300s")
+        logger.error("✗ Deployment timed out after 300s")
         return False
     except Exception as e:
         logger.error(f"✗ Deployment error: {e}", exc_info=True)
         return False
+
+
+def validate_source_web_root_for_deploy(
+    *,
+    source_root: Path,
+    run_id: str | None = None,
+    territories: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    resolved_run_id = resolve_publication_run_id(run_id or "latest-published", territories)
+    manifest = load_run_manifest(resolved_run_id)
+    normalized_territories = normalized_territories_for_run(manifest, territories)
+    for territory in normalized_territories:
+        validate_territory_web_snapshot(
+            resolved_run_id,
+            territory,
+            source_web_dir=source_root,
+        )
+    return resolved_run_id, normalized_territories
 
 
 def main():
@@ -149,7 +172,10 @@ def main():
     parser.add_argument(
         "--run-id",
         default=None,
-        help="Optional run_id from outputs/complete-analysis-runs to stage archived data files before deploy (or use 'latest').",
+        help=(
+            "Optional run_id from outputs/complete-analysis-runs to stage archived data files before deploy "
+            "(or use 'latest' for the newest complete-analysis run, or 'latest-published' for the newest archived publication-safe run)."
+        ),
     )
     parser.add_argument(
         "--territories",
@@ -196,6 +222,15 @@ def main():
                 logger.info(f"Using archived run {resolved_run_id} as deployment source for {vhost}")
                 for territory, files in restored.items():
                     logger.info(f"  restored {territory}: {len(files)} archived files")
+            else:
+                validated_run_id, validated_territories = validate_source_web_root_for_deploy(
+                    source_root=source_root,
+                    territories=args.territories,
+                )
+                logger.info(
+                    f"Validated local web artefacts against latest published run {validated_run_id} "
+                    f"for territories: {', '.join(validated_territories)}"
+                )
 
             if not deploy_to_vhost(vhost, source_root=source_root, source_label=source_label):
                 all_success = False

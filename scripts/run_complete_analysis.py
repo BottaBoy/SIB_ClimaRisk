@@ -65,6 +65,18 @@ from app.risk_engine.types import NormalizedExposure, NormalizedFeature
 # Case study specific
 sys.path.insert(0, str(SCRIPTS_ROOT))
 from case_study_sources import get_case_study, normalize_territory, territory_label
+from frontend_supervision import (
+    ENV_FRONTEND_SUPERVISION_JOURNAL,
+    ENV_FRONTEND_SUPERVISION_RUN_ID,
+    frontend_supervision_journal_path,
+    launch_frontend_supervision_monitor,
+    read_process_start_ticks,
+    write_frontend_supervision_event,
+)
+from run_web_artifacts import (
+    MIN_PUBLICATION_DYNAMIC_MAX_TRACKS,
+    publication_policy_for_requested_tracks,
+)
 from valuation_ofb import (
     SOURCE_LABEL,
     VALUATION_VERSION,
@@ -1167,7 +1179,13 @@ def deploy_results(vhost: str = "sib.dev.elio.bottagisio.com") -> bool:
         return False
 
 
-def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tracks: int) -> None:
+def rebuild_case_study_frontend_artifacts(
+    territories: list[str],
+    dynamic_max_tracks: int,
+    *,
+    run_id: str | None,
+    supervision_journal: Path,
+) -> None:
     script_path = SCRIPTS_ROOT / "rerun_case_studies_light.py"
     if not script_path.exists():
         raise FileNotFoundError(f"Missing frontend build script: {script_path}")
@@ -1183,8 +1201,14 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
     else:
         frontend_map_dynamic_max_tracks = int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP)
 
-    result = subprocess.run(
-        [
+    def _normalized_subprocess_returncode(returncode: int) -> int:
+        code = int(returncode)
+        if code >= 0:
+            return code
+        return 128 + abs(code)
+
+    def _frontend_command() -> list[str]:
+        return [
             sys.executable,
             str(script_path),
             "--territories",
@@ -1203,25 +1227,102 @@ def rebuild_case_study_frontend_artifacts(territories: list[str], dynamic_max_tr
             str(FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE),
             "--page-component-light-dynamic-max-tracks",
             str(FRONTEND_PAGE_COMPONENT_LIGHT_DYNAMIC_MAX_TRACKS),
-            "--prefer-complete-analysis-proxy-fallback",
-            "--prefer-complete-analysis-page-fallback",
             "--map-dynamic-max-tracks",
             str(frontend_map_dynamic_max_tracks),
-        ],
-        timeout=5400,
+        ]
+
+    command = _frontend_command()
+    env = os.environ.copy()
+    env[ENV_FRONTEND_SUPERVISION_JOURNAL] = str(supervision_journal)
+    if run_id:
+        env[ENV_FRONTEND_SUPERVISION_RUN_ID] = str(run_id)
+
+    write_frontend_supervision_event(
+        supervision_journal,
+        actor="parent",
+        event="frontend_rebuild_requested",
+        run_id=run_id,
+        parent_pid=os.getpid(),
+        territories=list(territories),
+        requested_dynamic_max_tracks=requested_dynamic_max_tracks,
+        frontend_map_dynamic_max_tracks=frontend_map_dynamic_max_tracks,
+        command=" ".join(str(part) for part in command),
     )
-    if result.returncode != 0:
+
+    process = subprocess.Popen(command, env=env)
+    child_start_ticks = read_process_start_ticks(process.pid)
+    parent_start_ticks = read_process_start_ticks(os.getpid())
+    write_frontend_supervision_event(
+        supervision_journal,
+        actor="parent",
+        event="frontend_child_spawned",
+        run_id=run_id,
+        parent_pid=os.getpid(),
+        parent_start_ticks=parent_start_ticks,
+        child_pid=process.pid,
+        child_start_ticks=child_start_ticks,
+    )
+    monitor_process = launch_frontend_supervision_monitor(
+        journal_path=supervision_journal,
+        run_id=run_id,
+        territories=list(territories),
+        parent_pid=os.getpid(),
+        parent_start_ticks=parent_start_ticks,
+        child_pid=process.pid,
+        child_start_ticks=child_start_ticks,
+    )
+    write_frontend_supervision_event(
+        supervision_journal,
+        actor="parent",
+        event="frontend_monitor_spawned",
+        run_id=run_id,
+        monitor_pid=monitor_process.pid,
+    )
+
+    try:
+        returncode = process.wait(timeout=5400)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        returncode = process.wait(timeout=30)
+        normalized_returncode = _normalized_subprocess_returncode(int(returncode))
+        write_frontend_supervision_event(
+            supervision_journal,
+            actor="parent",
+            event="frontend_child_wait_timeout",
+            run_id=run_id,
+            child_pid=process.pid,
+            timeout_seconds=5400,
+            returncode_raw=int(returncode),
+            returncode_normalized=normalized_returncode,
+        )
+        raise RuntimeError(
+            f"rerun_case_studies_light.py timed out after 5400s while rebuilding frontend artefacts for {', '.join(territories)}"
+        ) from exc
+
+    normalized_returncode = _normalized_subprocess_returncode(int(returncode))
+    write_frontend_supervision_event(
+        supervision_journal,
+        actor="parent",
+        event="frontend_child_returned",
+        run_id=run_id,
+        child_pid=process.pid,
+        returncode_raw=int(returncode),
+        returncode_normalized=normalized_returncode,
+    )
+    if returncode != 0:
         joined = ", ".join(territories) if territories else "unknown"
-        if result.returncode == 2:
+        if normalized_returncode == 2:
             raise RuntimeError(
                 f"rerun_case_studies_light.py detected reused or incoherent frontend artefacts for {joined}; deployment aborted"
             )
-        if result.returncode == 137:
+        if normalized_returncode == 137:
             raise RuntimeError(
                 f"rerun_case_studies_light.py was killed by SIGKILL while rebuilding frontend artefacts for {joined}; "
                 "the heavy case-study rerun likely exhausted memory"
             )
-        raise RuntimeError(f"rerun_case_studies_light.py failed for {joined} with exit code {result.returncode}")
+        raise RuntimeError(
+            f"rerun_case_studies_light.py failed for {joined} with exit code {normalized_returncode} (raw={returncode})"
+        )
 
 
 def snapshot_frontend_artifacts_for_run(
@@ -1389,6 +1490,9 @@ def main():
         "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
         **scenario_manifest_fields(scenario),
     }
+    publication_policy = publication_policy_for_requested_tracks(
+        parameters.get("requested_dynamic_max_tracks")
+    )
     resume_enabled = bool(args.resume_run_id)
     if resume_enabled:
         resume_run_id = _resolve_resume_run_id(str(args.resume_run_id))
@@ -1398,6 +1502,7 @@ def main():
             "running",
             resumed_at=datetime.now(timezone.utc).isoformat(),
             resume_invocation=parameters,
+            publication=publication_policy,
         )
     else:
         run_logger = RunLogger(JOURNAL_MD, JOURNAL_JSONL)
@@ -1405,6 +1510,13 @@ def main():
             RUN_OUTPUTS_DIR,
             run_logger.run_id,
             parameters=parameters,
+        )
+        run_manifest.set_status("running", publication=publication_policy)
+    if not bool(publication_policy.get("eligible")):
+        logger.info(
+            "Publication policy: auto-deploy disabled for this run (%s; minimum publication-safe tracks=%s)",
+            publication_policy.get("reason"),
+            int(MIN_PUBLICATION_DYNAMIC_MAX_TRACKS),
         )
     termination_guard = RunTerminationGuard(run_logger, run_manifest)
     run_logger.log_event(
@@ -1417,6 +1529,8 @@ def main():
         sampling_spacing_m=float(effective_settings.default_sampling_spacing_m),
         territory_grid_deg=float(effective_settings.territory_grid_deg),
         climada_max_points_per_feature=int(effective_settings.climada_max_points_per_feature),
+        publication_eligible=bool(publication_policy.get("eligible")),
+        min_publication_dynamic_max_tracks=int(publication_policy.get("min_dynamic_max_tracks") or 0),
         **scenario_manifest_fields(scenario),
     )
     
@@ -1459,10 +1573,38 @@ def main():
     if results and territories_for_frontend:
         logger.info("Rebuilding case-study frontend artefacts...")
         artefact_start = time.time()
+        frontend_supervision_journal = frontend_supervision_journal_path(run_manifest.run_dir)
         gc.collect()
-        run_manifest.set_status("running", frontend_artifacts={"status": "running", "territories": territories_for_frontend})
+        run_manifest.set_status(
+            "running",
+            frontend_artifacts={
+                "status": "running",
+                "territories": territories_for_frontend,
+                "supervision_journal": str(frontend_supervision_journal),
+            },
+        )
+        write_frontend_supervision_event(
+            frontend_supervision_journal,
+            actor="parent",
+            event="frontend_phase_started",
+            run_id=run_manifest.run_id,
+            parent_pid=os.getpid(),
+            territories=list(territories_for_frontend),
+        )
         try:
-            rebuild_case_study_frontend_artifacts(territories_for_frontend, args.dynamic_max_tracks)
+            rebuild_case_study_frontend_artifacts(
+                territories_for_frontend,
+                args.dynamic_max_tracks,
+                run_id=run_manifest.run_id,
+                supervision_journal=frontend_supervision_journal,
+            )
+            write_frontend_supervision_event(
+                frontend_supervision_journal,
+                actor="parent",
+                event="frontend_snapshot_started",
+                run_id=run_manifest.run_id,
+                territories=list(territories_for_frontend),
+            )
             archived_frontend_artifacts = snapshot_frontend_artifacts_for_run(
                 run_manifest,
                 territories_for_frontend,
@@ -1471,11 +1613,21 @@ def main():
             frontend_artifacts_success = True
             artefact_time = time.time() - artefact_start
             logger.info(f"✓ Frontend artefacts rebuilt in {artefact_time:.1f}s")
+            write_frontend_supervision_event(
+                frontend_supervision_journal,
+                actor="parent",
+                event="frontend_rebuild_completed",
+                run_id=run_manifest.run_id,
+                territories=list(territories_for_frontend),
+                duration_seconds=int(artefact_time),
+                archived_territories=sorted(archived_frontend_artifacts.keys()),
+            )
             run_logger.log_event(
                 "frontend_artifacts",
                 territories=territories_for_frontend,
                 duration_seconds=int(artefact_time),
-                status="complete"
+                status="complete",
+                supervision_journal=str(frontend_supervision_journal),
             )
             run_manifest.set_status(
                 "running",
@@ -1484,15 +1636,25 @@ def main():
                     "territories": territories_for_frontend,
                     "duration_seconds": int(artefact_time),
                     "archived_files_by_territory": archived_frontend_artifacts,
+                    "supervision_journal": str(frontend_supervision_journal),
                 },
             )
         except Exception as exc:
             logger.error(f"✗ Frontend artefact rebuild failed: {exc}", exc_info=True)
+            write_frontend_supervision_event(
+                frontend_supervision_journal,
+                actor="parent",
+                event="frontend_rebuild_failed",
+                run_id=run_manifest.run_id,
+                territories=list(territories_for_frontend),
+                error=str(exc),
+            )
             run_logger.log_event(
                 "frontend_artifacts",
                 territories=territories_for_frontend,
                 error=str(exc),
-                status="failed"
+                status="failed",
+                supervision_journal=str(frontend_supervision_journal),
             )
             run_manifest.set_status(
                 "running",
@@ -1500,6 +1662,7 @@ def main():
                     "status": "failed",
                     "territories": territories_for_frontend,
                     "error": str(exc),
+                    "supervision_journal": str(frontend_supervision_journal),
                 },
             )
     elif results:
@@ -1508,13 +1671,42 @@ def main():
     # Deploy if requested and successful
     deploy_success = False
     if not args.no_deploy and results and frontend_artifacts_success:
-        run_manifest.set_status("running", deploy={"status": "running"})
-        deploy_success = deploy_results()
-        run_logger.log_event("deploy", status="complete" if deploy_success else "failed")
-        run_manifest.set_status(
-            "running",
-            deploy={"status": "complete" if deploy_success else "failed"},
-        )
+        if bool(publication_policy.get("eligible")):
+            run_manifest.set_status("running", deploy={"status": "running"})
+            deploy_success = deploy_results()
+            run_logger.log_event("deploy", status="complete" if deploy_success else "failed")
+            run_manifest.set_status(
+                "running",
+                deploy={"status": "complete" if deploy_success else "failed"},
+            )
+        else:
+            deploy_reason = str(publication_policy.get("reason") or "run is not publication-eligible")
+            logger.info("Skipping deploy: %s", deploy_reason)
+            run_logger.log_event(
+                "deploy",
+                status="skipped",
+                reason=deploy_reason,
+                requested_dynamic_max_tracks=int(
+                    publication_policy.get("requested_dynamic_max_tracks") or 0
+                ),
+                min_publication_dynamic_max_tracks=int(
+                    publication_policy.get("min_dynamic_max_tracks") or 0
+                ),
+            )
+            run_manifest.set_status(
+                "running",
+                publication=publication_policy,
+                deploy={
+                    "status": "skipped",
+                    "reason": deploy_reason,
+                    "requested_dynamic_max_tracks": int(
+                        publication_policy.get("requested_dynamic_max_tracks") or 0
+                    ),
+                    "min_dynamic_max_tracks": int(
+                        publication_policy.get("min_dynamic_max_tracks") or 0
+                    ),
+                },
+            )
     
     # Finalize logging
     final_status = "success" if len(results) == len(territories) and frontend_artifacts_success else ("partial" if results else "failed")

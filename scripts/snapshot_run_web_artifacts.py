@@ -3,6 +3,7 @@
 
 Usage:
     python3 snapshot_run_web_artifacts.py --run-id latest
+    python3 snapshot_run_web_artifacts.py --run-id latest-published
     python3 snapshot_run_web_artifacts.py --run-id 20260416_065806 --territories guadeloupe
 """
 
@@ -21,7 +22,10 @@ def main() -> int:
     parser.add_argument(
         "--run-id",
         required=True,
-        help="Run identifier under outputs/complete-analysis-runs (or use 'latest').",
+        help=(
+            "Run identifier under outputs/complete-analysis-runs "
+            "(or use 'latest' for the newest complete-analysis run, or 'latest-published' for the newest archived publication-safe run)."
+        ),
     )
     parser.add_argument(
         "--territories",

@@ -15,6 +15,7 @@ STATE_THRESHOLDS = {
 HEALTH_WEIGHTS_BY_STATE = {"S1": 0.3, "S2": 0.7, "S3": 1.0}
 DEPENDENCY_STATE_THRESHOLDS = {"S1": 0.75, "S2": 0.55, "S3": 0.35}
 UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
+SERVICE_NAMES = ("elec", "water_aep", "water_eu")
 
 
 @dataclass
@@ -26,10 +27,28 @@ class InterdependencyAggregationResult:
     interdependency: dict[str, Any]
     dependency_scaler_by_hazard: dict[str, float]
     detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = None  # [hazard][territory][infra_classname] -> state
+    cell_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = None
+    cell_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = None
 
 
 def _new_state_bucket() -> dict[str, float]:
     return {"total": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0, "asset_count": 0.0}
+
+
+def _new_service_loss_bucket() -> dict[str, float]:
+    return {"exposure": 0.0, "direct_max_loss": 0.0}
+
+
+def _new_service_loss_map() -> dict[str, dict[str, float]]:
+    return {service: _new_service_loss_bucket() for service in SERVICE_NAMES}
+
+
+def _new_service_state_map() -> dict[str, str]:
+    return {service: "S0" for service in SERVICE_NAMES}
+
+
+def _new_service_coverage_map() -> dict[str, bool]:
+    return {service: False for service in SERVICE_NAMES}
 
 
 def _bucket_add_state(bucket: dict[str, float], *, state: str, weight: float) -> None:
@@ -120,27 +139,45 @@ def _dependency_state_from_elec_health(
     return "S0"
 
 
-def _infra_class_to_standardized_name(infra_class: str) -> str:
+def _infra_class_to_standardized_name(infra_class: str, *, asset_type: str | None = None) -> str:
     """
-    Map infrastructure class to standardized names for social impact metrics.
+    Map infrastructure records to standardized names for social impact metrics.
 
-    Maps asset types to: "elec", "water_aep", "water_eu", or "other"
+    Uses asset_type first so potable and wastewater assets are not merged when they
+    share the same infra_class bucket.
     """
-    infra_class_lower = str(infra_class or "").lower()
-    
-    # Electricity
-    if "elec" in infra_class_lower:
+    infra_class_lower = str(infra_class or "").strip().lower()
+    asset_type_lower = str(asset_type or "").strip().lower()
+
+    if "elec" in infra_class_lower or asset_type_lower.startswith("elec_"):
         return "elec"
-    
-    # Water - requires distinguishing between AEP (potable) and EU (wastewater)
+
+    if (
+        asset_type_lower.startswith("eau_aep")
+        or "_aep_" in asset_type_lower
+        or "potable" in asset_type_lower
+        or "drinking" in asset_type_lower
+    ):
+        return "water_aep"
+    if (
+        asset_type_lower.startswith("eau_eu")
+        or "_eu_" in asset_type_lower
+        or "assain" in asset_type_lower
+        or "waste" in asset_type_lower
+        or "sewer" in asset_type_lower
+    ):
+        return "water_eu"
+
     if "eau" in infra_class_lower or "water" in infra_class_lower:
-        # Try to distinguish AEP vs EU from asset_type if needed
-        # For now, default based on common patterns
-        if "eu" in infra_class_lower or "used" in infra_class_lower or "waste" in infra_class_lower:
+        if (
+            "eu" in infra_class_lower
+            or "used" in infra_class_lower
+            or "waste" in infra_class_lower
+            or "assain" in infra_class_lower
+        ):
             return "water_eu"
-        else:
-            return "water_aep"
-    
+        return "water_aep"
+
     return "other"
 
 
@@ -233,6 +270,9 @@ def aggregate_impacts_with_interdependency(
     }
     elec_global_bucket: dict[str, dict[str, float]] = {hazard: _new_state_bucket() for hazard in hazard_keys}
     elec_territory_loc_acc: dict[str, dict[str, float]] = {}
+    service_loss_by_hazard: dict[str, dict[str, dict[str, dict[str, float]]]] = {
+        hazard: defaultdict(_new_service_loss_map) for hazard in hazard_keys
+    }
 
     for idx, rec in enumerate(point_records):
         value = max(0.0, float(rec.get("value_eur", 0.0)))
@@ -361,6 +401,15 @@ def aggregate_impacts_with_interdependency(
             direct_state = _state_from_damage_ratio(direct_ratio, state_thresholds=effective_state_thresholds)
             final_state = direct_state
             indirect_eai = 0.0
+            infra_std_name = _infra_class_to_standardized_name(
+                infra_class,
+                asset_type=str(rec.get("asset_type") or ""),
+            )
+
+            if infra_std_name != "other":
+                service_loss_bucket = service_loss_by_hazard[hazard][territory_id][infra_std_name]
+                service_loss_bucket["exposure"] += value
+                service_loss_bucket["direct_max_loss"] += direct_max_loss
 
             if infra_class in water_classes:
                 elec_health, source = _resolve_electric_health(
@@ -402,7 +451,6 @@ def aggregate_impacts_with_interdependency(
             
             # Update detailed states for social impact metrics
             # Keep worst state (highest order) seen for each infrastructure type
-            infra_std_name = _infra_class_to_standardized_name(infra_class)
             if infra_std_name != "other":
                 current_state = detailed_states_by_territory[hazard][territory_id].get(infra_std_name, "S0")
                 if STATE_ORDER.get(final_state, 0) > STATE_ORDER.get(current_state, 0):
@@ -513,6 +561,50 @@ def aggregate_impacts_with_interdependency(
         for hazard, class_buckets in component_buckets_by_hazard.items()
     }
 
+    cell_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = {
+        hazard: defaultdict(_new_service_state_map) for hazard in hazard_keys
+    }
+    cell_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = {
+        hazard: defaultdict(_new_service_coverage_map) for hazard in hazard_keys
+    }
+    for hazard in hazard_keys:
+        local_elec_health = elec_health_by_territory.get(hazard, {})
+        for territory_id, service_loss_map in service_loss_by_hazard[hazard].items():
+            state_row = cell_service_states_by_territory[hazard][territory_id]
+            coverage_row = cell_service_coverage_by_territory[hazard][territory_id]
+
+            elec_loss = service_loss_map["elec"]
+            if float(elec_loss["exposure"]) > 0.0:
+                elec_ratio = float(elec_loss["direct_max_loss"]) / max(float(elec_loss["exposure"]), 1.0)
+                state_row["elec"] = _state_from_damage_ratio(
+                    elec_ratio,
+                    state_thresholds=effective_state_thresholds,
+                )
+                coverage_row["elec"] = True
+
+            for water_service in ("water_aep", "water_eu"):
+                water_loss = service_loss_map[water_service]
+                if float(water_loss["exposure"]) <= 0.0:
+                    continue
+
+                water_ratio = float(water_loss["direct_max_loss"]) / max(float(water_loss["exposure"]), 1.0)
+                water_state = _state_from_damage_ratio(
+                    water_ratio,
+                    state_thresholds=effective_state_thresholds,
+                )
+                state_row[water_service] = water_state
+
+                if territory_id not in local_elec_health:
+                    continue
+
+                dependency_state = _dependency_state_from_elec_health(
+                    float(local_elec_health[territory_id]),
+                    dependency_state_thresholds=effective_dependency_thresholds,
+                )
+                if STATE_ORDER[dependency_state] > STATE_ORDER[water_state]:
+                    state_row[water_service] = dependency_state
+                coverage_row[water_service] = True
+
     interdependency = {
         "electricity_to_water_enabled": True,
         "water_assets_dependency_assumption": "all_water_assets_dependent",
@@ -539,5 +631,11 @@ def aggregate_impacts_with_interdependency(
         dependency_scaler_by_hazard=scaler_by_hazard,
         detailed_states_by_territory={
             hazard: dict(states_dict) for hazard, states_dict in detailed_states_by_territory.items()
+        },
+        cell_service_states_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in cell_service_states_by_territory.items()
+        },
+        cell_service_coverage_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in cell_service_coverage_by_territory.items()
         },
     )
