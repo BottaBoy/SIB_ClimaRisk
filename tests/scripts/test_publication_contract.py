@@ -16,6 +16,19 @@ if str(SCRIPTS_ROOT) not in sys.path:
 from scripts import journal_guamar_run, run_web_artifacts
 
 
+def test_publication_policy_requires_1500_tracks() -> None:
+    policy = run_web_artifacts.publication_policy_for_requested_tracks(1499)
+
+    assert policy == {
+        "eligible": False,
+        "requested_dynamic_max_tracks": 1499,
+        "min_dynamic_max_tracks": 1500,
+        "reason": "requested_dynamic_max_tracks=1499 is below the publication-safe minimum 1500",
+    }
+
+    assert run_web_artifacts.publication_policy_for_requested_tracks(1500)["eligible"] is True
+
+
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

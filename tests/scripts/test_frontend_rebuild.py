@@ -51,6 +51,10 @@ def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_fl
     cmd = popen_calls[0]["cmd"]
     assert "--prefer-complete-analysis-proxy-fallback" not in cmd
     assert "--prefer-complete-analysis-page-fallback" not in cmd
+    assert "--page-component-light-spacing-m" not in cmd
+    assert "--page-component-light-max-points-total" not in cmd
+    assert "--page-component-light-max-points-per-feature" not in cmd
+    assert "--page-component-light-dynamic-max-tracks" not in cmd
     env = popen_calls[0]["env"]
     assert env[run_complete_analysis.ENV_FRONTEND_SUPERVISION_RUN_ID] == "20260512_080434"
     assert env[run_complete_analysis.ENV_FRONTEND_SUPERVISION_JOURNAL].endswith(
@@ -143,6 +147,57 @@ def test_assert_supported_page_component_light_config_rejects_partial_coverage_s
     assert "max_points_total is unsupported" in message
     assert "max_points_per_feature=4 differs from configured 120" in message
     assert "dynamic_max_tracks=50 differs from configured 1200" in message
+
+
+def test_resolve_page_component_light_config_defaults_to_safe_full_coverage_settings() -> None:
+    settings = type(
+        "_Settings",
+        (),
+        {"climada_max_points_per_feature": 300, "hazard_dynamic_max_tracks": 1200},
+    )()
+    env = {"SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE": "120"}
+
+    config = rerun_case_studies_light._resolve_page_component_light_config(
+        page_spacing_m=150.0,
+        component_light_spacing_m=None,
+        component_light_max_points_total=None,
+        component_light_max_points_per_feature=None,
+        component_light_dynamic_max_tracks=None,
+        settings=settings,
+        env=env,
+    )
+
+    assert config == {
+        "spacing_m": 150.0,
+        "max_points_total": 0,
+        "max_points_per_feature": 120,
+        "dynamic_max_tracks": 1200,
+    }
+
+
+def test_resolve_page_component_light_config_keeps_explicit_overrides() -> None:
+    settings = type(
+        "_Settings",
+        (),
+        {"climada_max_points_per_feature": 300, "hazard_dynamic_max_tracks": 1200},
+    )()
+
+    config = rerun_case_studies_light._resolve_page_component_light_config(
+        page_spacing_m=100.0,
+        component_light_spacing_m=100.0,
+        component_light_max_points_total=0,
+        component_light_max_points_per_feature=120,
+        component_light_dynamic_max_tracks=1200,
+        settings=settings,
+        env={},
+    )
+
+    assert config == {
+        "spacing_m": 100.0,
+        "max_points_total": 0,
+        "max_points_per_feature": 120,
+        "dynamic_max_tracks": 1200,
+    }
 
 
 def test_extract_run_entry_uses_wind_map_track_count_even_if_page_meta_mentions_fallback():

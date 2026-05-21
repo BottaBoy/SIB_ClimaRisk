@@ -1111,10 +1111,6 @@ DEPLOY_VERIFY_RELATIVE_PATHS = (
 FRONTEND_PROXY_MAX_POINTS_TOTAL = 600
 FRONTEND_PROXY_MAX_POINTS_PER_FEATURE = 6
 FRONTEND_PROXY_DYNAMIC_MAX_TRACKS = 100
-FRONTEND_PAGE_COMPONENT_LIGHT_SPACING_M = 1000.0
-FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_TOTAL = 400
-FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE = 4
-FRONTEND_PAGE_COMPONENT_LIGHT_DYNAMIC_MAX_TRACKS = 50
 FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP = 300
 
 
@@ -1208,6 +1204,8 @@ def rebuild_case_study_frontend_artifacts(
         return 128 + abs(code)
 
     def _frontend_command() -> list[str]:
+        # rerun_case_studies_light now derives a territory-safe full-coverage
+        # page-component configuration when these overrides are omitted.
         return [
             sys.executable,
             str(script_path),
@@ -1219,14 +1217,6 @@ def rebuild_case_study_frontend_artifacts(
             str(FRONTEND_PROXY_MAX_POINTS_PER_FEATURE),
             "--proxy-dynamic-max-tracks",
             str(FRONTEND_PROXY_DYNAMIC_MAX_TRACKS),
-            "--page-component-light-spacing-m",
-            str(FRONTEND_PAGE_COMPONENT_LIGHT_SPACING_M),
-            "--page-component-light-max-points-total",
-            str(FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_TOTAL),
-            "--page-component-light-max-points-per-feature",
-            str(FRONTEND_PAGE_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE),
-            "--page-component-light-dynamic-max-tracks",
-            str(FRONTEND_PAGE_COMPONENT_LIGHT_DYNAMIC_MAX_TRACKS),
             "--map-dynamic-max-tracks",
             str(frontend_map_dynamic_max_tracks),
         ]

@@ -237,6 +237,44 @@ def _build_territory_env(territory: str, *, base_settings: object) -> dict[str, 
     return territory_env
 
 
+def _resolve_page_component_light_config(
+    *,
+    page_spacing_m: float,
+    component_light_spacing_m: float | None,
+    component_light_max_points_total: int | None,
+    component_light_max_points_per_feature: int | None,
+    component_light_dynamic_max_tracks: int | None,
+    settings: object,
+    env: dict[str, str],
+) -> dict[str, int | float]:
+    configured_max_points_per_feature = int(
+        env.get(
+            "SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE",
+            getattr(settings, "climada_max_points_per_feature"),
+        )
+    )
+    configured_dynamic_max_tracks = int(
+        env.get(
+            "SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS",
+            getattr(settings, "hazard_dynamic_max_tracks"),
+        )
+    )
+    return {
+        "spacing_m": float(page_spacing_m if component_light_spacing_m is None else component_light_spacing_m),
+        "max_points_total": int(0 if component_light_max_points_total is None else component_light_max_points_total),
+        "max_points_per_feature": int(
+            configured_max_points_per_feature
+            if component_light_max_points_per_feature is None
+            else component_light_max_points_per_feature
+        ),
+        "dynamic_max_tracks": int(
+            configured_dynamic_max_tracks
+            if component_light_dynamic_max_tracks is None
+            else component_light_dynamic_max_tracks
+        ),
+    }
+
+
 def _read_meta(path: Path) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -294,25 +332,25 @@ def main(*, journal_path: Path | None = None) -> int:
     parser.add_argument(
         "--page-component-light-spacing-m",
         type=float,
-        default=800.0,
+        default=None,
         help="Spacing in meters for the lighter component rerun used inside page-analysis rebuilds.",
     )
     parser.add_argument(
         "--page-component-light-max-points-total",
         type=int,
-        default=800,
+        default=None,
         help="Maximum total sampled points for the lighter component rerun used inside page-analysis rebuilds.",
     )
     parser.add_argument(
         "--page-component-light-max-points-per-feature",
         type=int,
-        default=8,
+        default=None,
         help="Maximum sampled points per feature for the lighter component rerun used inside page-analysis rebuilds.",
     )
     parser.add_argument(
         "--page-component-light-dynamic-max-tracks",
         type=int,
-        default=100,
+        default=None,
         help="Maximum dynamic tracks for the lighter component rerun used inside page-analysis rebuilds.",
     )
     parser.add_argument("--map-cell-deg", type=float, default=0.02)
@@ -350,13 +388,22 @@ def main(*, journal_path: Path | None = None) -> int:
         page_json = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
         page_spacing_m = _page_spacing_for_territory(territory, args.page_spacing_m)
         territory_env = _build_territory_env(territory, base_settings=base_settings)
+        component_light_config = _resolve_page_component_light_config(
+            page_spacing_m=page_spacing_m,
+            component_light_spacing_m=args.page_component_light_spacing_m,
+            component_light_max_points_total=args.page_component_light_max_points_total,
+            component_light_max_points_per_feature=args.page_component_light_max_points_per_feature,
+            component_light_dynamic_max_tracks=args.page_component_light_dynamic_max_tracks,
+            settings=base_settings,
+            env=territory_env,
+        )
         _assert_supported_page_component_light_config(
             territory=territory,
             page_spacing_m=page_spacing_m,
-            component_light_spacing_m=float(args.page_component_light_spacing_m),
-            component_light_max_points_total=int(args.page_component_light_max_points_total),
-            component_light_max_points_per_feature=int(args.page_component_light_max_points_per_feature),
-            component_light_dynamic_max_tracks=int(args.page_component_light_dynamic_max_tracks),
+            component_light_spacing_m=float(component_light_config["spacing_m"]),
+            component_light_max_points_total=int(component_light_config["max_points_total"]),
+            component_light_max_points_per_feature=int(component_light_config["max_points_per_feature"]),
+            component_light_dynamic_max_tracks=int(component_light_config["dynamic_max_tracks"]),
             settings=base_settings,
             env=territory_env,
         )
@@ -443,13 +490,13 @@ def main(*, journal_path: Path | None = None) -> int:
                 "--spacing-m",
                 str(page_spacing_m),
                 "--component-light-spacing-m",
-                str(args.page_component_light_spacing_m),
+                str(component_light_config["spacing_m"]),
                 "--component-light-max-points-total",
-                str(args.page_component_light_max_points_total),
+                str(component_light_config["max_points_total"]),
                 "--component-light-max-points-per-feature",
-                str(args.page_component_light_max_points_per_feature),
+                str(component_light_config["max_points_per_feature"]),
                 "--component-light-dynamic-max-tracks",
-                str(args.page_component_light_dynamic_max_tracks),
+                str(component_light_config["dynamic_max_tracks"]),
                 "--wind-map-json",
                 str(REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"),
                 "--multi-hazard-proxy-json",

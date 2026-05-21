@@ -13,7 +13,7 @@ RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
 WEB_DIR = REPO_ROOT / "web"
 UTC = timezone.utc
 MAX_COMPLETE_ANALYSIS_TIMESTAMP_SKEW_SECONDS = 900
-MIN_PUBLICATION_DYNAMIC_MAX_TRACKS = 300
+MIN_PUBLICATION_DYNAMIC_MAX_TRACKS = 1500
 LATEST_PUBLISHED_RUN_ALIASES = frozenset({"latest-published", "latest_published", "published"})
 FORBIDDEN_PUBLICATION_SOURCE_MODES = {
     "complete_analysis_component_ratios",
