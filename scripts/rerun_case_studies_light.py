@@ -146,6 +146,61 @@ def _page_spacing_for_territory(territory: str, requested_spacing_m: float | Non
     return float(TERRITORY_PAGE_SPACING_M.get(str(territory).strip().lower(), 100.0))
 
 
+def _assert_supported_page_component_light_config(
+    *,
+    territory: str,
+    page_spacing_m: float,
+    component_light_spacing_m: float,
+    component_light_max_points_total: int,
+    component_light_max_points_per_feature: int,
+    component_light_dynamic_max_tracks: int,
+    settings: object,
+    env: dict[str, str] | None = None,
+) -> None:
+    runtime_env = os.environ if env is None else env
+    unsupported: list[str] = []
+    if float(component_light_spacing_m) != float(page_spacing_m):
+        unsupported.append(
+            f"spacing_m={component_light_spacing_m} differs from page spacing {page_spacing_m}"
+        )
+
+    if int(component_light_max_points_total) > 0:
+        unsupported.append(
+            "max_points_total is unsupported because page-analysis must preserve complete per-feature state coverage"
+        )
+
+    configured_max_points_per_feature = int(
+        runtime_env.get(
+            "SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE",
+            getattr(settings, "climada_max_points_per_feature"),
+        )
+    )
+    if int(component_light_max_points_per_feature) != configured_max_points_per_feature:
+        unsupported.append(
+            f"max_points_per_feature={component_light_max_points_per_feature} differs from configured {configured_max_points_per_feature}"
+        )
+
+    configured_dynamic_max_tracks = int(
+        runtime_env.get(
+            "SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS",
+            getattr(settings, "hazard_dynamic_max_tracks"),
+        )
+    )
+    if int(component_light_dynamic_max_tracks) != configured_dynamic_max_tracks:
+        unsupported.append(
+            f"dynamic_max_tracks={component_light_dynamic_max_tracks} differs from configured {configured_dynamic_max_tracks}"
+        )
+
+    if not unsupported:
+        return
+
+    details = "; ".join(unsupported)
+    raise RuntimeError(
+        f"[{territory}] unsupported page component-light configuration: {details}. "
+        "Explicit failure enforced because no fallback or partial-coverage page-analysis mode is allowed."
+    )
+
+
 def _case_study_output_paths(territory: str) -> tuple[Path, Path, Path, Path, Path]:
     page_suffix = "page2" if territory == "martinique" else "page1"
     data_root = REPO_ROOT / "web" / "data"
@@ -295,6 +350,16 @@ def main(*, journal_path: Path | None = None) -> int:
         page_json = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
         page_spacing_m = _page_spacing_for_territory(territory, args.page_spacing_m)
         territory_env = _build_territory_env(territory, base_settings=base_settings)
+        _assert_supported_page_component_light_config(
+            territory=territory,
+            page_spacing_m=page_spacing_m,
+            component_light_spacing_m=float(args.page_component_light_spacing_m),
+            component_light_max_points_total=int(args.page_component_light_max_points_total),
+            component_light_max_points_per_feature=int(args.page_component_light_max_points_per_feature),
+            component_light_dynamic_max_tracks=int(args.page_component_light_dynamic_max_tracks),
+            settings=base_settings,
+            env=territory_env,
+        )
         write_frontend_supervision_event(
             journal_path,
             actor="child",

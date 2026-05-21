@@ -2136,7 +2136,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _load_complete_analysis_payload(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
-        raise FileNotFoundError(f"Missing complete-analysis JSON for fallback synthesis: {path}")
+        raise FileNotFoundError(f"Missing complete-analysis JSON required for page-analysis build: {path}")
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2340,6 +2340,47 @@ def _build_state_geojson(
     hazard_feature_states: dict[str, Any],
     out_path: Path,
 ) -> None:
+    expected_feature_ids = [str(feat["feature_id"]) for feat in geometry_features]
+    expected_feature_id_set = set(expected_feature_ids)
+    validated_feature_states: dict[str, dict[str, dict[str, str]]] = {}
+    for hazard_key in ("storm", "storm_cmcc"):
+        hazard_states = hazard_feature_states.get(hazard_key)
+        if not isinstance(hazard_states, dict):
+            raise RuntimeError(f"Missing feature states for hazard '{hazard_key}'")
+        validated_feature_states[hazard_key] = {}
+        for scenario in PUBLIC_MAP_SCENARIOS:
+            scenario_states = hazard_states.get(scenario)
+            if not isinstance(scenario_states, dict):
+                raise RuntimeError(f"Missing feature states for scenario '{hazard_key}.{scenario}'")
+            scenario_feature_ids = {str(fid) for fid in scenario_states.keys()}
+            missing_feature_ids = sorted(expected_feature_id_set - scenario_feature_ids)
+            if missing_feature_ids:
+                preview = ", ".join(missing_feature_ids[:5])
+                suffix = "..." if len(missing_feature_ids) > 5 else ""
+                raise RuntimeError(
+                    f"Incomplete feature states for {hazard_key}.{scenario}: "
+                    f"missing {len(missing_feature_ids)} expected features ({preview}{suffix})"
+                )
+            unexpected_feature_ids = sorted(scenario_feature_ids - expected_feature_id_set)
+            if unexpected_feature_ids:
+                preview = ", ".join(unexpected_feature_ids[:5])
+                suffix = "..." if len(unexpected_feature_ids) > 5 else ""
+                raise RuntimeError(
+                    f"Unexpected feature states for {hazard_key}.{scenario}: "
+                    f"unknown features ({preview}{suffix})"
+                )
+            invalid_states = sorted(
+                {str(state) for state in scenario_states.values()} - set(STATE_ORDER.keys())
+            )
+            if invalid_states:
+                raise RuntimeError(
+                    f"Invalid feature states for {hazard_key}.{scenario}: {', '.join(invalid_states)}"
+                )
+            validated_feature_states[hazard_key][scenario] = {
+                str(fid): str(state)
+                for fid, state in scenario_states.items()
+            }
+
     rows: list[dict[str, Any]] = []
     geoms: list[Any] = []
     for feat in geometry_features:
@@ -2351,7 +2392,7 @@ def _build_state_geojson(
         }
         for hazard_key in ("storm", "storm_cmcc"):
             for scenario in PUBLIC_MAP_SCENARIOS:
-                row[f"state_{scenario}_{hazard_key}"] = hazard_feature_states[hazard_key][scenario].get(fid, "S0")
+                row[f"state_{scenario}_{hazard_key}"] = validated_feature_states[hazard_key][scenario][str(fid)]
         rows.append(row)
         geoms.append(feat["geometry"])
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs=WGS84)

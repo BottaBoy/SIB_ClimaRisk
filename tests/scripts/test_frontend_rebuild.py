@@ -2,6 +2,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(REPO_ROOT) not in sys.path:
@@ -93,6 +95,54 @@ def test_purge_case_study_outputs_removes_stale_frontend_files(monkeypatch, tmp_
 
     for path in rerun_case_studies_light._case_study_output_paths("guadeloupe"):
         assert not path.exists()
+
+
+def test_assert_supported_page_component_light_config_accepts_full_coverage_settings() -> None:
+    settings = type(
+        "_Settings",
+        (),
+        {"climada_max_points_per_feature": 300, "hazard_dynamic_max_tracks": 1200},
+    )()
+    env = {"SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE": "120"}
+
+    rerun_case_studies_light._assert_supported_page_component_light_config(
+        territory="guadeloupe",
+        page_spacing_m=100.0,
+        component_light_spacing_m=100.0,
+        component_light_max_points_total=0,
+        component_light_max_points_per_feature=120,
+        component_light_dynamic_max_tracks=1200,
+        settings=settings,
+        env=env,
+    )
+
+
+def test_assert_supported_page_component_light_config_rejects_partial_coverage_shortcuts() -> None:
+    settings = type(
+        "_Settings",
+        (),
+        {"climada_max_points_per_feature": 300, "hazard_dynamic_max_tracks": 1200},
+    )()
+    env = {"SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE": "120"}
+
+    with pytest.raises(RuntimeError) as exc_info:
+        rerun_case_studies_light._assert_supported_page_component_light_config(
+            territory="guadeloupe",
+            page_spacing_m=100.0,
+            component_light_spacing_m=1000.0,
+            component_light_max_points_total=400,
+            component_light_max_points_per_feature=4,
+            component_light_dynamic_max_tracks=50,
+            settings=settings,
+            env=env,
+        )
+
+    message = str(exc_info.value)
+    assert "unsupported page component-light configuration" in message
+    assert "spacing_m=1000.0 differs from page spacing 100.0" in message
+    assert "max_points_total is unsupported" in message
+    assert "max_points_per_feature=4 differs from configured 120" in message
+    assert "dynamic_max_tracks=50 differs from configured 1200" in message
 
 
 def test_extract_run_entry_uses_wind_map_track_count_even_if_page_meta_mentions_fallback():

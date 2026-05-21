@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import types
@@ -85,3 +86,74 @@ def test_calibrate_scenario_results_to_complete_analysis_hits_requested_totals()
     assert scenario_results["rp100"]["total_loss"].sum() == pytest.approx(70.0)
     assert scenario_results["event_max"]["total_loss"].sum() == pytest.approx(90.0)
     assert np.all(scenario_results["event_max"]["direct_loss"] <= scenario_results["event_max"]["total_loss"])
+
+
+def test_build_state_geojson_rejects_incomplete_feature_states(tmp_path: Path) -> None:
+    geometry_features = [
+        {"feature_id": "f1", "class_key": "eau_aep", "class_label": "Eau AEP", "geometry": {"id": 1}},
+        {"feature_id": "f2", "class_key": "eau_eu", "class_label": "Eau EU", "geometry": {"id": 2}},
+    ]
+    hazard_feature_states = {
+        hazard_key: {
+            scenario: ({"f1": "S1"} if scenario == "annual" and hazard_key == "storm" else {"f1": "S1", "f2": "S0"})
+            for scenario in build_guadeloupe_page1_data.PUBLIC_MAP_SCENARIOS
+        }
+        for hazard_key in ("storm", "storm_cmcc")
+    }
+
+    with pytest.raises(RuntimeError, match=r"Incomplete feature states for storm\.annual"):
+        build_guadeloupe_page1_data._build_state_geojson(
+            geometry_features,
+            hazard_feature_states,
+            tmp_path / "network-states.geojson",
+        )
+
+
+def test_build_state_geojson_writes_complete_feature_states(monkeypatch, tmp_path: Path) -> None:
+    class _FakeGeoDataFrame:
+        def __init__(self, rows, geometry=None, crs=None):
+            self._rows = rows
+            self._geometry = geometry
+            self._crs = crs
+
+        def to_json(self) -> str:
+            return json.dumps(
+                {
+                    "rows": self._rows,
+                    "geometry_count": len(self._geometry or []),
+                    "crs": self._crs,
+                },
+                ensure_ascii=False,
+            )
+
+    monkeypatch.setattr(
+        build_guadeloupe_page1_data,
+        "gpd",
+        type("_FakeGpd", (), {"GeoDataFrame": _FakeGeoDataFrame})(),
+    )
+    geometry_features = [
+        {"feature_id": "f1", "class_key": "eau_aep", "class_label": "Eau AEP", "geometry": {"id": 1}},
+        {"feature_id": "f2", "class_key": "eau_eu", "class_label": "Eau EU", "geometry": {"id": 2}},
+    ]
+    hazard_feature_states = {
+        hazard_key: {
+            scenario: {"f1": "S1", "f2": "S2"}
+            for scenario in build_guadeloupe_page1_data.PUBLIC_MAP_SCENARIOS
+        }
+        for hazard_key in ("storm", "storm_cmcc")
+    }
+    out_path = tmp_path / "network-states.geojson"
+
+    build_guadeloupe_page1_data._build_state_geojson(
+        geometry_features,
+        hazard_feature_states,
+        out_path,
+    )
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    rows = {row["feature_id"]: row for row in payload["rows"]}
+
+    assert payload["geometry_count"] == 2
+    assert payload["crs"] == build_guadeloupe_page1_data.WGS84
+    assert rows["f1"]["state_annual_storm"] == "S1"
+    assert rows["f2"]["state_p99_storm_cmcc"] == "S2"

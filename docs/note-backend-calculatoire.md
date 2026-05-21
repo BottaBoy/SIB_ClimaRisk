@@ -599,6 +599,20 @@ Implementation:
 3. generation de la pluie par `TCRain.from_tracks(..., model="R-CLIPER")`,
 4. generation de la submersion par `TCSurgeBathtub.from_tc_winds(wind_hazard, topo_path)`.
 
+#### 6.7.2 bis Topographie de submersion et priorite Copernicus
+Le backend ne pointe plus en priorite vers un unique raster historique pour la submersion. La resolution effective du `topo_path` est centralisee dans `backend/app/config.py::resolve_surge_topo_path_for_territory(...)` et suit l'ordre suivant:
+1. override explicite par territoire via `SIB_RISK_HAZARD_SURGE_TOPO_PATH_GUADELOUPE` ou `SIB_RISK_HAZARD_SURGE_TOPO_PATH_MARTINIQUE`;
+2. DEM Copernicus GLO-30 par defaut:
+   - `/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guadeloupe_COP30.tif`
+   - `/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Martinique_COP30.tif`
+3. anciens rasters legacy par territoire (`Guadeloupe.tif`, `Martinique.tif`) si les Copernicus ne sont pas disponibles;
+4. chemin generique `hazard_surge_topo_path` en dernier recours.
+
+Implication operationnelle:
+- les runs complets et les reconstructions frontend Guadeloupe/Martinique utilisent donc par defaut les nouveaux DEM Copernicus GLO-30 des qu'ils existent sur le poste;
+- `scripts/build_guadeloupe_complete_analysis.py`, `scripts/build_guadeloupe_wind_maps.py` et `scripts/rerun_case_studies_light.py` propagent ensuite ce chemin resolu vers la chaine `TCSurgeBathtub`;
+- si un override par territoire est fourni, il remplace explicitement le choix Copernicus sans fallback silencieux vers un autre raster.
+
 Important:
 - la composante pluie necessite les tracks dynamiques;
 - la production scientifique n'autorise plus de fallback HDF5 pre-calcule pour contourner cette contrainte;
@@ -973,6 +987,8 @@ Pour la page 5:
 - `SIB_RISK_MULTI_HAZARD_ENABLED`
 - `SIB_RISK_HAZARD_RAIN_MODEL`
 - `SIB_RISK_HAZARD_SURGE_TOPO_PATH`
+- `SIB_RISK_HAZARD_SURGE_TOPO_PATH_GUADELOUPE`
+- `SIB_RISK_HAZARD_SURGE_TOPO_PATH_MARTINIQUE`
 - `SIB_RISK_D2_FLOOD_CURVE_FILE`
 - `SIB_RISK_LANDSLIDE_ROOT`
 - `SIB_RISK_LANDSLIDE_PRECIP_CURRENT_PATH`
