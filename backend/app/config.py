@@ -31,7 +31,12 @@ def _prefer_existing_path(*candidates: Path) -> Path:
 
 
 _DEFAULT_SURGE_TOPO_ROOT = Path("/home/ubuntu/uploads/DEM_Topo/Topo")
+_DEFAULT_COPERNICUS_SURGE_TOPO_DIR = _DEFAULT_SURGE_TOPO_ROOT / "Copernicus GLO-30 Digital Elevation Model"
 _DEFAULT_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Guadeloupe_COP30.tif",
+    "martinique": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Martinique_COP30.tif",
+}
+_LEGACY_SURGE_TOPO_BY_TERRITORY = {
     "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
     "martinique": _DEFAULT_SURGE_TOPO_ROOT / "Martinique.tif",
 }
@@ -69,11 +74,14 @@ def resolve_surge_topo_path_for_territory(
 
     env_override = runtime_env.get(f"SIB_RISK_HAZARD_SURGE_TOPO_PATH_{territory_key.upper()}")
     territory_default = _DEFAULT_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    territory_legacy = _LEGACY_SURGE_TOPO_BY_TERRITORY.get(territory_key)
     candidates: list[Path] = []
     if env_override:
         candidates.append(Path(env_override))
     if territory_default is not None:
         candidates.append(territory_default)
+    if territory_legacy is not None:
+        candidates.append(territory_legacy)
     candidates.append(fallback_path)
     return _prefer_existing_path(*candidates)
 
@@ -91,6 +99,7 @@ class Settings:
     storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
     territory_grid_deg: float = 0.2
+    surge_grid_deg: float = 0.02
     data_root: Path = Path(__file__).resolve().parents[2] / "data"
     hazard_storm_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
     hazard_storm_cmcc_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
@@ -268,6 +277,7 @@ def load_settings() -> Settings:
         storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
         territory_grid_deg=float(env.get("SIB_RISK_TERRITORY_GRID_DEG", "0.2")),
+        surge_grid_deg=float(env.get("SIB_RISK_SURGE_GRID_DEG", "0.02")),
         data_root=Path(env.get("SIB_RISK_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))),
         hazard_storm_path=Path(env.get("SIB_RISK_HAZARD_STORM_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"))),
         hazard_storm_cmcc_path=Path(env.get("SIB_RISK_HAZARD_STORM_CMCC_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"))),

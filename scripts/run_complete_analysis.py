@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import atexit
 import argparse
+import ctypes
+import ctypes.util
 import dataclasses
 from datetime import datetime, timezone
 import gc
@@ -133,6 +135,68 @@ HAZARD_INFO_LABELS = {
     "storm": "STORM",
     "storm_cmcc": "STORM_CMCC",
 }
+
+_SELF_STATUS_PATH = Path("/proc/self/status")
+_MEMINFO_PATH = Path("/proc/meminfo")
+
+
+def _read_proc_value_kb(path: Path, prefix: str) -> int | None:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                if not raw_line.startswith(prefix):
+                    continue
+                parts = raw_line.split()
+                if len(parts) < 2:
+                    return None
+                return int(parts[1])
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    return None
+
+
+def _resolve_malloc_trim() -> Any | None:
+    if not sys.platform.startswith("linux"):
+        return None
+    libc_name = ctypes.util.find_library("c")
+    if not libc_name:
+        return None
+    try:
+        libc = ctypes.CDLL(libc_name)
+    except OSError:
+        return None
+    malloc_trim = getattr(libc, "malloc_trim", None)
+    if malloc_trim is None:
+        return None
+    malloc_trim.argtypes = [ctypes.c_size_t]
+    malloc_trim.restype = ctypes.c_int
+    return malloc_trim
+
+
+_MALLOC_TRIM = _resolve_malloc_trim()
+
+
+def _compact_process_memory() -> dict[str, Any]:
+    rss_kb_before = _read_proc_value_kb(_SELF_STATUS_PATH, "VmRSS:")
+    mem_available_kb_before = _read_proc_value_kb(_MEMINFO_PATH, "MemAvailable:")
+    gc_collected = int(gc.collect())
+    malloc_trim_result: int | None = None
+    if _MALLOC_TRIM is not None:
+        try:
+            malloc_trim_result = int(_MALLOC_TRIM(0))
+        except Exception:
+            malloc_trim_result = None
+    rss_kb_after = _read_proc_value_kb(_SELF_STATUS_PATH, "VmRSS:")
+    mem_available_kb_after = _read_proc_value_kb(_MEMINFO_PATH, "MemAvailable:")
+    return {
+        "gc_collected": gc_collected,
+        "malloc_trim_supported": bool(_MALLOC_TRIM is not None),
+        "malloc_trim_result": malloc_trim_result,
+        "rss_kb_before": rss_kb_before,
+        "rss_kb_after": rss_kb_after,
+        "mem_available_kb_before": mem_available_kb_before,
+        "mem_available_kb_after": mem_available_kb_after,
+    }
 
 
 def _component_info_label(component: str | None) -> str:
@@ -1186,9 +1250,30 @@ def rebuild_case_study_frontend_artifacts(
     if not script_path.exists():
         raise FileNotFoundError(f"Missing frontend build script: {script_path}")
 
+    compaction = _compact_process_memory()
+    logger.info(
+        "Frontend rebuild parent memory compaction: rss_kb_before=%s rss_kb_after=%s mem_available_kb_before=%s mem_available_kb_after=%s malloc_trim_supported=%s malloc_trim_result=%s gc_collected=%s",
+        compaction.get("rss_kb_before"),
+        compaction.get("rss_kb_after"),
+        compaction.get("mem_available_kb_before"),
+        compaction.get("mem_available_kb_after"),
+        compaction.get("malloc_trim_supported"),
+        compaction.get("malloc_trim_result"),
+        compaction.get("gc_collected"),
+    )
+    write_frontend_supervision_event(
+        supervision_journal,
+        actor="parent",
+        event="frontend_parent_memory_compacted",
+        run_id=run_id,
+        parent_pid=os.getpid(),
+        **compaction,
+    )
+
     # Normal runs keep the stable public cap, but fast validation runs must not
     # request a heavier map rebuild than the parent analysis itself.
     requested_dynamic_max_tracks = int(dynamic_max_tracks)
+    configured_dynamic_max_tracks = int(getattr(load_settings(), "hazard_dynamic_max_tracks"))
     if requested_dynamic_max_tracks > 0:
         frontend_map_dynamic_max_tracks = min(
             int(FRONTEND_MAP_DYNAMIC_MAX_TRACKS_CAP),
@@ -1226,6 +1311,10 @@ def rebuild_case_study_frontend_artifacts(
     env[ENV_FRONTEND_SUPERVISION_JOURNAL] = str(supervision_journal)
     if run_id:
         env[ENV_FRONTEND_SUPERVISION_RUN_ID] = str(run_id)
+    frontend_page_component_dynamic_max_tracks: int | None = None
+    if 0 < requested_dynamic_max_tracks < configured_dynamic_max_tracks:
+        frontend_page_component_dynamic_max_tracks = requested_dynamic_max_tracks
+        env["SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS"] = str(requested_dynamic_max_tracks)
 
     write_frontend_supervision_event(
         supervision_journal,
@@ -1235,7 +1324,9 @@ def rebuild_case_study_frontend_artifacts(
         parent_pid=os.getpid(),
         territories=list(territories),
         requested_dynamic_max_tracks=requested_dynamic_max_tracks,
+        configured_dynamic_max_tracks=configured_dynamic_max_tracks,
         frontend_map_dynamic_max_tracks=frontend_map_dynamic_max_tracks,
+        frontend_page_component_dynamic_max_tracks=frontend_page_component_dynamic_max_tracks,
         command=" ".join(str(part) for part in command),
     )
 

@@ -12,6 +12,7 @@ import copy
 import hashlib
 
 from .errors import DependencyMissingError
+from .climada_petals_loader import load_climada_petals_hazard_symbols
 from .exposure_to_climada import ClimadaExposureBundle, subset_climada_exposure_bundle
 from .hazard_loader import (
     DEFAULT_BASIN_COVERAGES,
@@ -33,6 +34,7 @@ from .impact_functions_multi_hazard import (
 
 RETURN_PERIODS = (10, 20, 50, 100, 200, 1000)
 PUBLIC_EVENT_LOSS_PERCENTILE = 0.99
+SURGE_MAX_COASTAL_ELEVATION_M = 20.0
 _TOPO_RASTER_CACHE: dict[str, Path] = {}
 _SHARD_MEMORY_MULTIPLIER = {
     "wind": 0.95,
@@ -582,6 +584,16 @@ def _compute_pml_from_impact(np: Any, impact_obj: Any, return_periods: tuple[int
     )
 
 
+def _summarize_event_stats(np: Any, metrics: HazardImpactResult | None) -> dict[str, Any]:
+    frequency = _as_1d_float(np, getattr(metrics, "event_frequency", [])) if metrics is not None else np.zeros(0, dtype=float)
+    positive = frequency > 0.0
+    return {
+        "event_count": int(frequency.size),
+        "nonzero_event_count": int(np.count_nonzero(positive)),
+        "event_frequency_sum": round(float(frequency.sum()) if frequency.size else 0.0, 8),
+    }
+
+
 def _compute_loss_percentile(np: Any, losses: Any, frequency: Any, percentile: float) -> float:
     losses_arr = np.clip(_as_1d_float(np, losses), 0.0, None)
     weights = _as_1d_float(np, frequency)
@@ -917,6 +929,41 @@ def _should_use_pointwise_surge_fraction(
     return cells > int(max_fraction_cells) and cells > int(raster_cell_ratio_threshold * centroid_count)
 
 
+def _read_raster_sample_pointwise(path: Path | str, lat: Any, lon: Any) -> Any:
+    import numpy as np  # type: ignore
+
+    lat_arr = np.asarray(lat, dtype=float).reshape(-1)
+    lon_arr = np.asarray(lon, dtype=float).reshape(-1)
+    if lat_arr.size == 0:
+        return np.zeros_like(lat_arr)
+
+    try:
+        import rasterio  # type: ignore
+        from rasterio.warp import transform as rasterio_transform  # type: ignore
+    except Exception:
+        import climada.util.coordinates as u_coord  # type: ignore
+
+        return np.asarray(u_coord.read_raster_sample(str(path), lat_arr, lon_arr), dtype=float).reshape(-1)
+
+    with rasterio.open(str(path)) as src:
+        x_values = lon_arr.tolist()
+        y_values = lat_arr.tolist()
+        src_crs = src.crs
+        if src_crs is not None and str(src_crs).upper() not in {"EPSG:4326", "OGC:CRS84"}:
+            x_values, y_values = rasterio_transform("EPSG:4326", src_crs, x_values, y_values)
+
+        nodata_value = src.nodata
+        sampled_values: list[float] = []
+        for cell in src.sample(zip(x_values, y_values), masked=True):
+            scalar = cell[0] if len(cell) else np.ma.masked
+            if np.ma.is_masked(scalar):
+                sampled_values.append(float(nodata_value) if nodata_value is not None else 0.0)
+            else:
+                sampled_values.append(float(scalar))
+
+    return np.asarray(sampled_values, dtype=float)
+
+
 def _build_pointwise_surge_hazard(
     np: Any,
     *,
@@ -928,15 +975,13 @@ def _build_pointwise_surge_hazard(
     read_raster_sample_fn: Callable[..., Any] | None = None,
 ) -> Any:
     if read_raster_sample_fn is None:
-        import climada.util.coordinates as u_coord  # type: ignore
-
-        read_raster_sample_fn = u_coord.read_raster_sample
+        read_raster_sample_fn = _read_raster_sample_pointwise
 
     centroids = copy.deepcopy(wind_hazard.centroids)
 
     centroids_dist_coast = centroids.get_dist_coast(signed=True)
     coastal_msk = (wind_hazard.intensity > 0).sum(axis=0).A1 > 0
-    coastal_msk &= (centroids_dist_coast < 0)
+    coastal_msk &= (centroids_dist_coast <= 0)
     coastal_msk &= (centroids_dist_coast >= -50 * 1000)
     coastal_msk &= (np.abs(centroids.lat) <= 61)
 
@@ -947,7 +992,7 @@ def _build_pointwise_surge_hazard(
     )
 
     elevation_msk = coastal_centroids_h >= 0
-    elevation_msk &= coastal_centroids_h <= 10 + add_sea_level_rise
+    elevation_msk &= coastal_centroids_h <= SURGE_MAX_COASTAL_ELEVATION_M + add_sea_level_rise
     coastal_msk[coastal_msk] = elevation_msk
 
     coastal_centroids_h = coastal_centroids_h[elevation_msk]
@@ -2853,8 +2898,10 @@ def run_climada_direct_impacts(
             )
         else:
             try:
-                from climada_petals.hazard.tc_rainfield import TCRain as _TCRain  # type: ignore
-                from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub as _TCSurgeBathtub  # type: ignore
+                petals_symbols = {
+                    **load_climada_petals_hazard_symbols("tc_rainfield", "TCRain"),
+                    **load_climada_petals_hazard_symbols("tc_surge_bathtub", "TCSurgeBathtub"),
+                }
 
                 multi_hazard_model = build_multi_hazard_impact_model(
                     surge_haz_type="TCSurgeBathtub",
@@ -2865,8 +2912,8 @@ def run_climada_direct_impacts(
                 )
                 impfset_rain = ImpactFuncSet(multi_hazard_model.rain_funcs)
                 impfset_surge = ImpactFuncSet(multi_hazard_model.surge_funcs)
-                TCRain = _TCRain
-                TCSurgeBathtub = _TCSurgeBathtub
+                TCRain = petals_symbols["TCRain"]
+                TCSurgeBathtub = petals_symbols["TCSurgeBathtub"]
                 multi_hazard_ready = True
                 notes.append(
                     "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub)."
@@ -3229,10 +3276,15 @@ def run_climada_direct_impacts(
         "requested_hazard_keys": list(selected_hazard_keys),
         "hazard_zero_intensity": hazard_zero_intensity,
         "hazard_source": str(bundle.source),
+        "hazard_dynamic_max_tracks_requested": int(dynamic_max_tracks),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
         "hazard_point_count": int(bundle.point_count or 0),
         "hazard_track_count_storm": int(getattr(bundle, "track_count_storm", 0) or 0),
         "hazard_track_count_storm_cmcc": int(getattr(bundle, "track_count_storm_cmcc", 0) or 0),
+        "hazard_event_stats_by_hazard": {
+            hazard_key: _summarize_event_stats(np, out.get(hazard_key))
+            for hazard_key in selected_hazard_keys
+        },
         "hazard_global_hazards_built": bool(getattr(bundle, "global_hazards_built", True)),
         "hazard_build_sharded": bool(dynamic_hazard_sharding_active),
         "hazard_build_planned_shards": int(len(dynamic_hazard_shards)),
@@ -3244,6 +3296,7 @@ def run_climada_direct_impacts(
         "impact_function_profile": str(vulnerability_payload.get("profile") or "unknown"),
         "impact_function_default_curve": vulnerability_payload.get("default_curve"),
         "impact_function_mapping": vulnerability_payload.get("explicit_asset_type_mapping") or {},
+        "storm_convert_10min_to_1min": bool(convert_10min_to_1min),
         "multi_hazard_enabled_requested": bool(multi_hazard_enabled),
         "multi_hazard_enabled_effective": bool(effective_multi_hazard),
         "multi_hazard_components_by_hazard": components_by_hazard,

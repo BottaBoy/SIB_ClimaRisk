@@ -355,7 +355,7 @@ def main(*, journal_path: Path | None = None) -> int:
     )
     parser.add_argument("--map-cell-deg", type=float, default=0.02)
     parser.add_argument("--map-dynamic-max-tracks", type=int, default=300)
-    parser.add_argument("--map-surge-native-cell-deg", type=float, default=0.01)
+    parser.add_argument("--map-surge-native-cell-deg", type=float, default=float(load_settings().surge_grid_deg))
     args = parser.parse_args()
 
     if not PYTHON.exists():

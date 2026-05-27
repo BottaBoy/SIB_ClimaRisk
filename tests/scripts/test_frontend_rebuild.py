@@ -16,6 +16,7 @@ from scripts import journal_guamar_run, rerun_case_studies_light, run_complete_a
 
 def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_flags(monkeypatch, tmp_path):
     popen_calls: list[dict[str, object]] = []
+    supervision_events: list[dict[str, object]] = []
 
     class _FakeProcess:
         pid = 12345
@@ -31,13 +32,31 @@ def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_fl
     monkeypatch.setattr(run_complete_analysis, "read_process_start_ticks", lambda pid: int(pid) + 1)
     monkeypatch.setattr(
         run_complete_analysis,
+        "load_settings",
+        lambda: type("_Settings", (), {"hazard_dynamic_max_tracks": 1200})(),
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
         "launch_frontend_supervision_monitor",
         lambda **kwargs: type("_MonitorProcess", (), {"pid": 54321})(),
     )
     monkeypatch.setattr(
         run_complete_analysis,
+        "_compact_process_memory",
+        lambda: {
+            "gc_collected": 7,
+            "malloc_trim_supported": True,
+            "malloc_trim_result": 1,
+            "rss_kb_before": 420000,
+            "rss_kb_after": 180000,
+            "mem_available_kb_before": 900000,
+            "mem_available_kb_after": 1250000,
+        },
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
         "write_frontend_supervision_event",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: supervision_events.append(dict(kwargs)),
     )
 
     run_complete_analysis.rebuild_case_study_frontend_artifacts(
@@ -60,6 +79,75 @@ def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_fl
     assert env[run_complete_analysis.ENV_FRONTEND_SUPERVISION_JOURNAL].endswith(
         "frontend-supervision.jsonl"
     )
+    assert "SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS" not in env
+    assert [event.get("event") for event in supervision_events[:2]] == [
+        "frontend_parent_memory_compacted",
+        "frontend_rebuild_requested",
+    ]
+    assert supervision_events[0]["rss_kb_before"] == 420000
+    assert supervision_events[0]["rss_kb_after"] == 180000
+    assert supervision_events[0]["malloc_trim_result"] == 1
+    assert supervision_events[1]["frontend_page_component_dynamic_max_tracks"] is None
+
+
+def test_rebuild_case_study_frontend_artifacts_aligns_page_analysis_dynamic_tracks_for_fast_runs(monkeypatch, tmp_path):
+    popen_calls: list[dict[str, object]] = []
+    supervision_events: list[dict[str, object]] = []
+
+    class _FakeProcess:
+        pid = 12345
+
+        def wait(self, timeout=None):
+            return 0
+
+    def _fake_popen(cmd, env=None, **kwargs):
+        popen_calls.append({"cmd": list(cmd), "env": dict(env or {}), "kwargs": dict(kwargs)})
+        return _FakeProcess()
+
+    monkeypatch.setattr(run_complete_analysis.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(run_complete_analysis, "read_process_start_ticks", lambda pid: int(pid) + 1)
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "load_settings",
+        lambda: type("_Settings", (), {"hazard_dynamic_max_tracks": 1200})(),
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "launch_frontend_supervision_monitor",
+        lambda **kwargs: type("_MonitorProcess", (), {"pid": 54321})(),
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "_compact_process_memory",
+        lambda: {
+            "gc_collected": 3,
+            "malloc_trim_supported": True,
+            "malloc_trim_result": 1,
+            "rss_kb_before": 640000,
+            "rss_kb_after": 320000,
+            "mem_available_kb_before": 900000,
+            "mem_available_kb_after": 1200000,
+        },
+    )
+    monkeypatch.setattr(
+        run_complete_analysis,
+        "write_frontend_supervision_event",
+        lambda *args, **kwargs: supervision_events.append(dict(kwargs)),
+    )
+
+    run_complete_analysis.rebuild_case_study_frontend_artifacts(
+        ["guadeloupe"],
+        150,
+        run_id="20260527_063207",
+        supervision_journal=tmp_path / "frontend-supervision.jsonl",
+    )
+
+    assert len(popen_calls) == 1
+    env = popen_calls[0]["env"]
+    assert env["SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS"] == "150"
+    assert supervision_events[1]["configured_dynamic_max_tracks"] == 1200
+    assert supervision_events[1]["requested_dynamic_max_tracks"] == 150
+    assert supervision_events[1]["frontend_page_component_dynamic_max_tracks"] == 150
 
 
 def test_normalize_called_process_exit_code_maps_sigkill_to_137(capsys):

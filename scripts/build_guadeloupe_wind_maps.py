@@ -49,7 +49,7 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import load_settings  # noqa: E402
+from app.config import load_settings, resolve_surge_topo_path_for_territory  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs  # noqa: E402
 from app.risk_engine.hazard_loader import _normalize_frequency_safe, load_storm_hazards_from_parquet_for_points  # noqa: E402
 from case_study_sources import CASE_STUDY_BBOX, normalize_territory  # noqa: E402
@@ -1125,7 +1125,7 @@ def main() -> None:
     parser.add_argument(
         "--surge-native-cell-deg",
         type=float,
-        default=0.01,
+        default=float(load_settings().surge_grid_deg),
         help="Regular grid spacing in degrees used internally for the native TCSurgeBathtub computation before clipping back to the output cells.",
     )
     parser.add_argument(
@@ -1143,6 +1143,7 @@ def main() -> None:
 
     settings = load_settings()
     territory = normalize_territory(args.territory)
+    topo_arg_explicit = any(arg == "--topo-path" or arg.startswith("--topo-path=") for arg in sys.argv[1:])
     case_study_run_id = str(args.case_study_run_id or "").strip()
     if not case_study_run_id:
         case_study_run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
@@ -1157,6 +1158,8 @@ def main() -> None:
     storm_parquet_path = Path(args.storm_dir) if args.storm_dir else Path(settings.storm_parquet_path)
     cmcc_parquet_path = Path(args.cmcc_dir) if args.cmcc_dir else Path(settings.storm_cmcc_parquet_path)
     topo_path = Path(args.topo_path)
+    if not topo_arg_explicit and os.environ.get("SIB_RISK_HAZARD_SURGE_TOPO_PATH") is None:
+        topo_path = resolve_surge_topo_path_for_territory(territory, settings=settings)
     admin_path = Path(args.admin_boundaries_path)
     out = Path(args.out) if args.out else (REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json")
 

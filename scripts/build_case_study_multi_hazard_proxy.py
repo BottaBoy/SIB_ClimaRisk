@@ -25,7 +25,7 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import load_settings  # noqa: E402
+from app.config import load_settings, resolve_surge_topo_path_for_territory  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs, run_climada_direct_impacts  # noqa: E402
 from app.risk_engine.exposure_to_climada import build_climada_exposure  # noqa: E402
 from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
@@ -234,6 +234,7 @@ def _load_surge_priority_scores_from_native_chain(
     point_records: list[dict[str, Any]],
     *,
     settings: Any,
+    surge_topo_path: Path,
     dynamic_max_tracks: int,
 ) -> dict[int, float]:
     if TCSurgeBathtub is None or not point_records:
@@ -267,7 +268,7 @@ def _load_surge_priority_scores_from_native_chain(
             max_tracks=int(dynamic_max_tracks),
             track_cache_max_entries=int(getattr(settings, "hazard_track_cache_max_entries", 8)),
         )
-        prepared_topo = _prepare_topo_raster_with_crs(Path(settings.hazard_surge_topo_path))
+        prepared_topo = _prepare_topo_raster_with_crs(Path(surge_topo_path))
     except Exception as exc:
         logger.warning(
             "Native surge priority scoring failed (%s: %s); continuing without native priority scores",
@@ -1089,6 +1090,7 @@ def main() -> None:
         infra_eau_dir=Path(args.infra_eau_dir) if args.infra_eau_dir else None,
     )
     settings = load_settings()
+    resolved_surge_topo_path = resolve_surge_topo_path_for_territory(territory, settings=settings)
     hazard_storm_path, hazard_storm_cmcc_path = _resolve_hazard_paths_for_case_study(territory, settings)
     args.hazard_storm_path = str(hazard_storm_path)
     args.hazard_storm_cmcc_path = str(hazard_storm_cmcc_path)
@@ -1165,6 +1167,7 @@ def main() -> None:
         priority_scores = _load_surge_priority_scores_from_native_chain(
             point_records,
             settings=settings,
+            surge_topo_path=Path(resolved_surge_topo_path),
             dynamic_max_tracks=int(args.dynamic_max_tracks),
         )
         args.surge_priority_source = "native_tcsurge_bathtub" if priority_scores else "none"
@@ -1229,7 +1232,7 @@ def main() -> None:
             "track_cache_max_entries": 0,
             "multi_hazard_enabled": bool(settings.multi_hazard_enabled),
             "rain_model": settings.hazard_rain_model,
-            "surge_topo_path": Path(settings.hazard_surge_topo_path),
+            "surge_topo_path": Path(resolved_surge_topo_path),
             "flood_curve_file": Path(settings.d2_flood_curve_file),
             "execution_profile": "case-study-proxy",
             "memory_budget_gb": proxy_memory_budget_gb,

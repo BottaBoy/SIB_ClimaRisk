@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from datetime import datetime, timezone
+import gc
 import hashlib
 import json
 import os
@@ -56,7 +57,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.config import load_settings  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.exposure_to_climada import ClimadaExposureBundle, build_climada_exposure  # noqa: E402
-from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
+from app.risk_engine.hazard_loader import load_storm_hazard  # noqa: E402
 from app.risk_engine.impact_functions import (  # noqa: E402
     resolve_tc_impact_func_id,
     try_build_climada_impact_funcs,
@@ -782,8 +783,9 @@ def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
 
 def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    class_labels = {**DAMAGE_BREAKDOWN_LABELS, **NETWORK_CLASS_LABELS}
 
-    def append_lines(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
+    def append_geometries(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
         gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg).to_crs(WGS84)
         if gdf.empty:
             return
@@ -794,7 +796,7 @@ def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str,
                 {
                     "feature_id": f"{prefix}-{source_idx}-{idx}",
                     "class_key": class_key,
-                    "class_label": NETWORK_CLASS_LABELS[class_key],
+                    "class_label": class_labels.get(class_key, class_key),
                     "geometry": geom,
                 }
             )
@@ -803,7 +805,18 @@ def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str,
         class_key = str(src["class_key"])
         prefix = str(src["prefix"])
         for source_idx, path in enumerate(src["paths"], start=1):
-            append_lines(path, class_key, prefix, source_idx)
+            append_geometries(path, class_key, prefix, source_idx)
+
+    for src in case_cfg.get("water_point_fixed_sources", []):
+        class_key = str(src["asset_type"])
+        prefix = str(src["prefix"])
+        for source_idx, path in enumerate(src["paths"], start=1):
+            append_geometries(path, class_key, prefix, source_idx)
+
+    for src in case_cfg.get("aep_ouvrage_sources", []):
+        prefix = str(src["prefix"])
+        for source_idx, path in enumerate(src["paths"], start=1):
+            append_geometries(path, "eau_aep_ouvrages", prefix, source_idx)
     return out
 
 
@@ -1599,7 +1612,6 @@ def _compute_impact_metrics(
         max_points_per_feature=settings.climada_max_points_per_feature,
         impact_func_id_resolver=resolve_tc_impact_func_id,
     )
-    hazards = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, settings.storm_years)
 
     values = np.array([float(rec["value_eur"]) for rec in bundle.point_records], dtype=float)
     territories = [str(rec["territory_id"]) for rec in bundle.point_records]
@@ -1628,7 +1640,12 @@ def _compute_impact_metrics(
 
     hazard_outputs: dict[str, Any] = {}
     calibration_by_hazard: dict[str, dict[str, dict[str, float]]] = {}
-    for hazard_key, hazard_obj in {"storm": hazards.storm, "storm_cmcc": hazards.storm_cmcc}.items():
+    hazard_paths = {
+        "storm": hazard_storm_path,
+        "storm_cmcc": hazard_storm_cmcc_path,
+    }
+    for hazard_key, hazard_path in hazard_paths.items():
+        hazard_obj = load_storm_hazard(hazard_path, settings.storm_years)
         impact = ImpactCalc(bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
         landslide_scenario_arrays = (landslide_proxy_losses.get(hazard_key) or {}).get("scenario_arrays") or {}
         wind_eai_direct = np.asarray(impact.eai_exp, dtype=float).reshape(-1)
@@ -1693,6 +1710,9 @@ def _compute_impact_metrics(
             }
             for scenario, scenario_loss in class_scenario_losses.items():
                 class_scenario_factors[scenario][class_key] = max(0.0, float(scenario_loss)) / max(class_eai, 1e-9)
+            del class_impact
+            del subset
+            gc.collect()
 
         direct_losses_by_scenario: dict[str, np.ndarray] = {"annual": np.array(eai_direct, dtype=float)}
         for scenario in ("event_max", "rp50", "rp100", "top10", "top5"):
@@ -1909,6 +1929,9 @@ def _compute_impact_metrics(
                 for scenario in PUBLIC_MAP_SCENARIOS
             },
         }
+        del impact
+        del hazard_obj
+        gc.collect()
 
     merged_rows = _merge_rows_by_scenario(hazard_outputs)
     summary_text = _build_impact_summary_text(hazard_outputs)

@@ -23,6 +23,104 @@ Historique migré: 11 run(s).
 
 
 
+
+
+
+
+
+
+
+
+## Run [2026-05-27 09:19:52]
+**Run ID**: `20260527_072457`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 16,990,585 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 21,692,529 EUR
+- Status: ✓ Complete
+**Total Duration**: 6894s (114.9m)
+
+## Run [2026-05-27 07:13:33]
+**Run ID**: `20260527_063207`
+### Guadeloupe
+### Martinique
+**Total Duration**: 672s (11.2m)
+
+## Run [2026-05-27 06:59:31]
+**Run ID**: `20260527_063207`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 2,917,369 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,092 EUR
+- Status: ✓ Complete
+**Total Duration**: 1643s (27.4m)
+
+## Run [2026-05-27 05:49:11]
+**Run ID**: `20260527_052145`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 2,917,369 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,092 EUR
+- Status: ✓ Complete
+**Total Duration**: 1646s (27.4m)
+
+## Run [2026-05-26 13:51:46]
+**Run ID**: `20260526_132707`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 2,917,369 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,092 EUR
+- Status: ✓ Complete
+**Total Duration**: 1478s (24.6m)
+
+## Run [2026-05-21 12:52:39]
+**Run ID**: `20260521_122506`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 2,917,367 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,090 EUR
+- Status: ✓ Complete
+**Total Duration**: 1653s (27.6m)
+
+## Run [2026-05-21 12:11:16]
+**Run ID**: `20260521_115309`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 2,917,367 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 3,459,090 EUR
+- Status: ✓ Complete
+**Total Duration**: 1087s (18.1m)
+
+## Run [2026-05-20 14:20:01]
+**Run ID**: `20260520_133302`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 5,949,429 EUR
+- Status: ✓ Complete
+### Martinique
+- Assets loaded: 134828
+- EAI: 7,252,304 EUR
+- Status: ✓ Complete
+**Total Duration**: 2818s (47.0m)
+
 ## Run [2026-05-12 08:30:12]
 **Run ID**: `20260512_080434`
 ### Guadeloupe

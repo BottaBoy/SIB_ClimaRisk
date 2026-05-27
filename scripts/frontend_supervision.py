@@ -103,6 +103,97 @@ def has_terminal_event(journal_path: Path, actor: str) -> bool:
     return False
 
 
+def _complete_analysis_manifest_paths_from_journal(journal_path: Path) -> tuple[Path, Path]:
+    run_dir = Path(journal_path).resolve().parent
+    return run_dir / "manifest.json", run_dir.parent / "latest-manifest.json"
+
+
+def reconcile_interrupted_frontend_manifest(
+    *,
+    journal_path: Path,
+    run_id: str | None,
+    territories: list[str],
+    summary: dict[str, Any],
+) -> bool:
+    manifest_path, latest_path = _complete_analysis_manifest_paths_from_journal(Path(journal_path))
+    if not manifest_path.exists():
+        return False
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    manifest_run_id = str(payload.get("run_id") or "").strip()
+    if run_id and manifest_run_id and manifest_run_id != str(run_id):
+        return False
+
+    current_status = str(payload.get("status") or "").strip().lower()
+    frontend_payload = payload.get("frontend_artifacts") if isinstance(payload.get("frontend_artifacts"), dict) else {}
+    frontend_status = str(frontend_payload.get("status") or "").strip().lower()
+    if current_status != "running" and frontend_status != "running":
+        return False
+
+    territory_payload = payload.get("territories") if isinstance(payload.get("territories"), dict) else {}
+    completed_territories = [
+        key
+        for key, value in territory_payload.items()
+        if isinstance(value, dict) and str(value.get("status") or "").strip().lower() == "complete"
+    ]
+    final_status = "partial" if completed_territories else "failed"
+    finished_at = datetime.now(UTC).isoformat()
+    frontend_error = "frontend supervision detected parent/child disappearance before terminal rebuild events"
+
+    updated_frontend_payload = dict(frontend_payload)
+    updated_frontend_payload.update(
+        {
+            "status": "failed",
+            "error": frontend_error,
+            "territories": list(updated_frontend_payload.get("territories") or territories),
+            "supervision_journal": str(journal_path),
+            "monitor_summary": dict(summary),
+            "reconciled_at": finished_at,
+        }
+    )
+
+    payload["status"] = final_status
+    payload["finished_at"] = finished_at
+    payload["frontend_artifacts"] = updated_frontend_payload
+    payload["frontend_artifacts_success"] = False
+    payload["latest_event"] = {
+        "timestamp": finished_at,
+        "phase": "frontend_artifacts",
+        "status": final_status,
+        "reason": "frontend_supervision_reconciled_missing_terminal_events",
+    }
+    payload["updated_at"] = finished_at
+
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2)
+    manifest_path.write_text(encoded, encoding="utf-8")
+
+    if latest_path.exists():
+        try:
+            latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            latest_payload = None
+        if isinstance(latest_payload, dict) and str(latest_payload.get("run_id") or "").strip() == manifest_run_id:
+            latest_path.write_text(encoded, encoding="utf-8")
+    else:
+        latest_path.write_text(encoded, encoding="utf-8")
+
+    write_frontend_supervision_event(
+        Path(journal_path),
+        actor="monitor",
+        event="manifest_reconciled",
+        run_id=manifest_run_id or run_id,
+        final_status=final_status,
+        completed_territories=sorted(completed_territories),
+    )
+    return True
+
+
 def monitor_frontend_processes(
     *,
     journal_path: Path,
@@ -198,6 +289,17 @@ def monitor_frontend_processes(
         "parent_terminal_event_seen": parent_terminal_event_seen,
         "child_terminal_event_seen": child_terminal_event_seen,
     }
+    manifest_reconciled = False
+    if (parent_missing_logged or child_missing_logged) and (
+        not parent_terminal_event_seen or not child_terminal_event_seen
+    ):
+        manifest_reconciled = reconcile_interrupted_frontend_manifest(
+            journal_path=journal_path,
+            run_id=run_id,
+            territories=list(territories),
+            summary=summary,
+        )
+    summary["manifest_reconciled"] = bool(manifest_reconciled)
     write_frontend_supervision_event(
         journal_path,
         actor="monitor",

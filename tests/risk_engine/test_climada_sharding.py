@@ -497,6 +497,20 @@ def test_run_climada_direct_impacts_keeps_single_shard_dynamic_input_on_sharded_
     assert result.modeling["hazard_build_planned_shards"] == 1
     assert result.modeling["hazard_global_hazards_built"] is False
     assert result.modeling["hazard_build_sharded"] is True
+    assert result.modeling["hazard_dynamic_max_tracks_requested"] == 800
+    assert result.modeling["storm_convert_10min_to_1min"] is True
+    assert result.modeling["hazard_event_stats_by_hazard"] == {
+        "storm": {
+            "event_count": 1,
+            "nonzero_event_count": 1,
+            "event_frequency_sum": 0.01,
+        },
+        "storm_cmcc": {
+            "event_count": 1,
+            "nonzero_event_count": 1,
+            "event_frequency_sum": 0.01,
+        },
+    }
 
 
 def test_rebuild_component_result_recomputes_metrics_from_arrays():
@@ -820,11 +834,11 @@ def test_build_pointwise_surge_hazard_uses_unit_land_fraction_for_point_centroid
             self.crs = "EPSG:4326"
 
         def get_dist_coast(self, signed: bool = True):
-            return np.array([-1000.0, -2000.0, 500.0], dtype=float)
+            return np.array([0.0, -2000.0, 500.0], dtype=float)
 
     wind_hazard = SimpleNamespace(
         centroids=DummyCentroids(),
-        intensity=sparse.csr_matrix(np.array([[30.0, 40.0, 50.0]], dtype=float)),
+        intensity=sparse.csr_matrix(np.array([[30.0, 300.0, 50.0]], dtype=float)),
         event_id=np.array([101]),
         event_name=np.array(["evt-101"]),
         date=np.array([123456]),
@@ -840,16 +854,83 @@ def test_build_pointwise_surge_hazard_uses_unit_land_fraction_for_point_centroid
         surge_hazard_cls=DummySurgeHazard,
         wind_hazard=wind_hazard,
         topo_path="dummy-topo.tif",
+        inland_decay_rate=0.0,
         read_raster_sample_fn=lambda path, lat, lon: np.array([1.0, 20.0], dtype=float),
     )
 
-    assert surge.intensity.indices.tolist() == [0]
-    assert surge.fraction.indices.tolist() == [0]
-    assert surge.fraction.data.tolist() == [1.0]
+    assert surge.intensity.indices.tolist() == [0, 1]
+    assert surge.fraction.indices.tolist() == [0, 1]
+    assert surge.fraction.data.tolist() == [1.0, 1.0]
     assert surge.event_id.tolist() == [101]
     assert surge.event_name.tolist() == ["evt-101"]
     assert surge.frequency.tolist() == [0.1]
-    assert float(surge.intensity.data[0]) > 0.0
+    assert all(float(value) > 0.0 for value in surge.intensity.data.tolist())
+
+
+def test_build_pointwise_surge_hazard_samples_raster_without_window_expansion(tmp_path: Path):
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+
+    raster_path = tmp_path / "pointwise-topo.tif"
+    data = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 20.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    with rasterio.open(
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=3,
+        width=3,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_origin(-1.5, 1.5, 1.0, 1.0),
+        nodata=-9999.0,
+    ) as dst:
+        dst.write(data, 1)
+
+    class DummyCentroids:
+        def __init__(self):
+            self.lat = np.array([0.0, 0.0, -1.0], dtype=float)
+            self.lon = np.array([-1.0, 0.0, 1.0], dtype=float)
+            self.crs = "EPSG:4326"
+
+        def get_dist_coast(self, signed: bool = True):
+            return np.array([0.0, -2000.0, 500.0], dtype=float)
+
+    wind_hazard = SimpleNamespace(
+        centroids=DummyCentroids(),
+        intensity=sparse.csr_matrix(np.array([[30.0, 300.0, 50.0]], dtype=float)),
+        event_id=np.array([101]),
+        event_name=np.array(["evt-101"]),
+        date=np.array([123456]),
+        orig=np.array([False]),
+        frequency=np.array([0.1], dtype=float),
+    )
+
+    class DummySurgeHazard:
+        pass
+
+    surge = _build_pointwise_surge_hazard(
+        np,
+        surge_hazard_cls=DummySurgeHazard,
+        wind_hazard=wind_hazard,
+        topo_path=raster_path,
+        inland_decay_rate=0.0,
+    )
+
+    assert surge.intensity.indices.tolist() == [0, 1]
+    assert surge.fraction.indices.tolist() == [0, 1]
+    assert surge.fraction.data.tolist() == [1.0, 1.0]
+    assert surge.event_id.tolist() == [101]
+    assert surge.event_name.tolist() == ["evt-101"]
+    assert surge.frequency.tolist() == [0.1]
+    assert all(float(value) > 0.0 for value in surge.intensity.data.tolist())
 
 
 def test_build_surge_hazard_prefers_pointwise_mode_for_dynamic_source(monkeypatch: pytest.MonkeyPatch):
