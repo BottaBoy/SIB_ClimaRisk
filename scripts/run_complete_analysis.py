@@ -117,6 +117,23 @@ CASE_HAZARD_PATHS = {
     ),
 }
 
+HYDRAULIC_NETWORK_KIND_TO_ASSET_TYPE = {
+    "AEP": "eau_aep_cana",
+    "EU": "eau_eu_cana",
+}
+
+HYDRAULIC_ASSET_ROLE_TO_ASSET_TYPE = {
+    "captage_aep": "eau_aep_ouvrage_CAP",
+    "upep_aep": "eau_aep_ouvrage_TRAIT",
+    "pompage_aep": "eau_aep_ouvrage_STPMP",
+    "reservoir_aep": "eau_aep_ouvrage_CUV",
+    "ouvrage_eau_brute_aep": "eau_aep_ouvrage_OUVEB",
+    "poste_refoulement": "eau_eu_pr",
+    "step": "eau_eu_step",
+}
+
+HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX = "hydraulic-native"
+
 WEB_DATA_DIR = REPO_ROOT / "web" / "data"
 DOCS_DIR = REPO_ROOT / "docs"
 # Keep complete-analysis execution logs isolated from case-study journals.
@@ -658,14 +675,203 @@ def _as_wgs84_and_metric(gdf: gpd.GeoDataFrame) -> tuple:
     return gdf_wgs, gdf_metric
 
 
-def _valuation_properties(asset_type: str, *, valuation_method: str) -> dict[str, Any]:
-    return {
+def _valuation_properties(asset_type: str, *, valuation_method: str, **extra_properties: Any) -> dict[str, Any]:
+    props = {
         "asset_type": str(asset_type),
         "uses_default_value": False,
         "valuation_source": SOURCE_LABEL,
         "valuation_version": VALUATION_VERSION,
         "valuation_method": str(valuation_method),
     }
+    for key, value in extra_properties.items():
+        if value is None:
+            continue
+        props[str(key)] = value
+    return props
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _resolve_hydraulic_service_key(
+    row: Any,
+    *,
+    feature_id: str,
+    context: str,
+    allow_zone_uid_fallback: bool = False,
+) -> tuple[str, str, str]:
+    service_key = _clean_text(getattr(row, "zone_component_key", ""))
+    if service_key:
+        return service_key, "hydraulic_zone_component", "zone_component_key"
+
+    zone_uid = _clean_text(getattr(row, "zone_uid", ""))
+    if zone_uid and allow_zone_uid_fallback:
+        return zone_uid, "hydraulic_zone_uid_legacy", "zone_uid_fallback"
+
+    fallback_key = f"{HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX}:{feature_id}"
+    return fallback_key, "native_feature", "feature_id_fallback"
+
+
+def _hydraulic_line_asset_type(network_kind: str) -> str:
+    asset_type = HYDRAULIC_NETWORK_KIND_TO_ASSET_TYPE.get(_clean_text(network_kind).upper())
+    if not asset_type:
+        raise ValueError(f"Unsupported hydraulic line network_kind: {network_kind!r}")
+    return asset_type
+
+
+def _hydraulic_asset_type(feature_role: str, asset_type_code: str) -> str:
+    asset_type = HYDRAULIC_ASSET_ROLE_TO_ASSET_TYPE.get(_clean_text(feature_role))
+    if asset_type:
+        return asset_type
+    code = _clean_text(asset_type_code).upper()
+    if code:
+        return f"eau_aep_ouvrage_{code}"
+    raise ValueError(f"Unsupported hydraulic asset role: feature_role={feature_role!r} asset_type_code={asset_type_code!r}")
+
+
+def _hydraulic_line_features(
+    gdf: gpd.GeoDataFrame,
+    *,
+    water_values: dict[str, float],
+    context: str,
+) -> list[NormalizedFeature]:
+    gdf_wgs, gdf_metric = _as_wgs84_and_metric(gdf)
+    out: list[NormalizedFeature] = []
+    fallback_counts: Counter[str] = Counter()
+    for idx, (row_wgs, geom_metric) in enumerate(zip(gdf_wgs.itertuples(index=False), gdf_metric.geometry, strict=False), start=1):
+        geom_wgs = getattr(row_wgs, "geometry", None)
+        if geom_wgs is None or geom_metric is None or getattr(geom_wgs, "is_empty", False) or getattr(geom_metric, "is_empty", False):
+            continue
+        feature_id = _clean_text(getattr(row_wgs, "feature_id", "")) or f"hydraulic-line-{idx}"
+        service_key, service_unit_kind, service_key_source = _resolve_hydraulic_service_key(
+            row_wgs,
+            feature_id=feature_id,
+            context=context,
+        )
+        if service_key_source != "zone_component_key":
+            fallback_counts[service_key_source] += 1
+        centroid = geom_wgs.centroid
+        if centroid is None or getattr(centroid, "is_empty", False):
+            continue
+        asset_type = _hydraulic_line_asset_type(getattr(row_wgs, "network_kind", ""))
+        value_key = "eau_aep" if asset_type == "eau_aep_cana" else "eau_eu"
+        zone_uid = _clean_text(getattr(row_wgs, "zone_uid", "")) or None
+        feature_role = _clean_text(getattr(row_wgs, "feature_role", "")) or "canalisation"
+        network_kind = _clean_text(getattr(row_wgs, "network_kind", "")) or None
+        source_feature_id = _clean_text(getattr(row_wgs, "source_feature_id", "")) or None
+        zone_label = _clean_text(getattr(row_wgs, "zone_component_label", "")) or service_key
+        length_km = max(0.0, float(getattr(geom_metric, "length", 0.0)) / 1000.0)
+        value_eur = max(5_000.0, length_km * float(water_values[value_key]))
+        out.append(
+            NormalizedFeature(
+                feature_id=feature_id,
+                label=f"{asset_type} {zone_label}",
+                value_eur=float(value_eur),
+                geometry_type=str(getattr(geom_wgs, "geom_type", "LineString")),
+                exposure_category="ouvrage_eau",
+                lon=float(getattr(centroid, "x", 0.0)),
+                lat=float(getattr(centroid, "y", 0.0)),
+                geometry_geojson=None,
+                properties=_valuation_properties(
+                    asset_type,
+                    valuation_method="length_times_eur_per_km",
+                    zone_component_key=service_key,
+                    service_feature_id=service_key,
+                    zone_uid=zone_uid,
+                    network_kind=network_kind,
+                    feature_role=feature_role,
+                    source_feature_id=source_feature_id,
+                    service_unit_kind=service_unit_kind,
+                    hydraulic_service_key_source=service_key_source,
+                ),
+            )
+        )
+    if fallback_counts:
+        summary = ", ".join(f"{kind}={count}" for kind, count in sorted(fallback_counts.items()))
+        logger.warning(
+            "%s: %d hydraulic line features used fallback service keys (%s)",
+            context,
+            int(sum(fallback_counts.values())),
+            summary,
+        )
+    return out
+
+
+def _hydraulic_asset_features(
+    gdf: gpd.GeoDataFrame,
+    *,
+    water_values: dict[str, float],
+    context: str,
+) -> list[NormalizedFeature]:
+    gdf_wgs, _ = _as_wgs84_and_metric(gdf)
+    out: list[NormalizedFeature] = []
+    fallback_counts: Counter[str] = Counter()
+    for idx, row in enumerate(gdf_wgs.itertuples(index=False), start=1):
+        geom = getattr(row, "geometry", None)
+        if geom is None or getattr(geom, "is_empty", False):
+            continue
+        feature_id = _clean_text(getattr(row, "feature_id", "")) or f"hydraulic-asset-{idx}"
+        service_key, service_unit_kind, service_key_source = _resolve_hydraulic_service_key(
+            row,
+            feature_id=feature_id,
+            context=context,
+            allow_zone_uid_fallback=True,
+        )
+        if service_key_source != "zone_component_key":
+            fallback_counts[service_key_source] += 1
+        centroid = geom.centroid
+        if centroid is None or getattr(centroid, "is_empty", False):
+            continue
+        feature_role = _clean_text(getattr(row, "feature_role", ""))
+        asset_type_code = _clean_text(getattr(row, "asset_type_code", ""))
+        asset_type = _hydraulic_asset_type(feature_role, asset_type_code)
+        if asset_type == "eau_eu_pr":
+            value_eur = float(water_values["eau_eu_pr"])
+        elif asset_type == "eau_eu_step":
+            value_eur = float(water_values["eau_eu_step"])
+        else:
+            value_eur = float(get_aep_ouvrage_value(asset_type_code or asset_type.rsplit("_", 1)[-1]))
+        zone_uid = _clean_text(getattr(row, "zone_uid", "")) or None
+        network_kind = _clean_text(getattr(row, "network_kind", "")) or None
+        criticality = _clean_text(getattr(row, "criticality", "")) or None
+        source_feature_id = _clean_text(getattr(row, "source_feature_id", "")) or None
+        asset_name = _clean_text(getattr(row, "asset_name", "")) or feature_id
+        out.append(
+            NormalizedFeature(
+                feature_id=feature_id,
+                label=asset_name,
+                value_eur=float(value_eur),
+                geometry_type=str(getattr(geom, "geom_type", "Point")),
+                exposure_category="ouvrage_eau",
+                lon=float(getattr(centroid, "x", 0.0)),
+                lat=float(getattr(centroid, "y", 0.0)),
+                geometry_geojson=None,
+                properties=_valuation_properties(
+                    asset_type,
+                    valuation_method="hydraulic_asset_role_lookup",
+                    zone_component_key=service_key,
+                    service_feature_id=service_key,
+                    zone_uid=zone_uid,
+                    network_kind=network_kind,
+                    feature_role=feature_role,
+                    criticality=criticality,
+                    asset_type_code=asset_type_code or None,
+                    source_feature_id=source_feature_id,
+                    service_unit_kind=service_unit_kind,
+                    hydraulic_service_key_source=service_key_source,
+                ),
+            )
+        )
+    if fallback_counts:
+        summary = ", ".join(f"{kind}={count}" for kind, count in sorted(fallback_counts.items()))
+        logger.warning(
+            "%s: %d hydraulic asset features used fallback service keys (%s)",
+            context,
+            int(sum(fallback_counts.values())),
+            summary,
+        )
+    return out
 
 
 def _line_features(
@@ -838,78 +1044,41 @@ def build_complete_exposure(
             except Exception as e:
                 logger.warning(f"Failed to load {path}: {e}")
 
-    # Load water lines
-    for src in cfg["water_line_sources"]:
-        eur_per_km = float(water_values[str(src["value_key"])])
-        for p_idx, path in enumerate(src["paths"], start=1):
-            try:
-                gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
-                if gdf.empty:
-                    continue
+    # Load water networks and ouvrages from canonical hydraulic zoning V2 bundles
+    for src in cfg["hydraulic_zone_sources"]:
+        bundle_path = Path(src["path"])
+        try:
+            lines_gdf = _clip_to_bbox(gpd.read_file(bundle_path, layer=str(src["line_layer"])), bbox_polygon)
+            if not lines_gdf.empty:
                 features.extend(
-                    _line_features(
-                        gdf,
-                        feature_prefix=f"{src['prefix']}-{p_idx}",
-                        asset_type=str(src["asset_type"]),
-                        exposure_category="ouvrage_eau",
-                        eur_per_km=eur_per_km,
+                    _hydraulic_line_features(
+                        lines_gdf,
+                        water_values=water_values,
+                        context=f"hydraulic bundle {bundle_path.name}:{src['line_layer']}",
                     )
                 )
-            except Exception as e:
-                logger.warning(f"Failed to load {path}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to load hydraulic lines from {bundle_path}: {e}")
 
-    # Load water AEP ouvrages
-    for src in cfg["aep_ouvrage_sources"]:
-        mode = str(src.get("mode", "")).strip().lower()
-        for p_idx, path in enumerate(src["paths"], start=1):
-            try:
-                gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
-                if gdf.empty:
-                    continue
-                if mode == "fixed_type":
-                    features.extend(
-                        _point_features_aep_ouvrages_fixed_type(
-                            gdf,
-                            feature_prefix=f"{src['prefix']}-{p_idx}",
-                            ovrg_type=str(src.get("ovrg_type", "NA")),
-                        )
-                    )
-                else:
-                    features.extend(
-                        _point_features_aep_ouvrages_from_field(
-                            gdf,
-                            feature_prefix=f"{src['prefix']}-{p_idx}",
-                            field_name=str(src.get("field_name", "ovrg_type")),
-                        )
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to load {path}: {e}")
-
-    # Load water point sources (fixed value)
-    for src in cfg["water_point_fixed_sources"]:
-        fixed_value_eur = float(water_values[str(src["value_key"])])
-        for p_idx, path in enumerate(src["paths"], start=1):
-            try:
-                gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
-                if gdf.empty:
-                    continue
+        try:
+            assets_gdf = _clip_to_bbox(gpd.read_file(bundle_path, layer=str(src["asset_layer"])), bbox_polygon)
+            if not assets_gdf.empty:
                 features.extend(
-                    _point_features_fixed_value(
-                        gdf,
-                        feature_prefix=f"{src['prefix']}-{p_idx}",
-                        asset_type=str(src["asset_type"]),
-                        exposure_category="ouvrage_eau",
-                        fixed_value_eur=fixed_value_eur,
+                    _hydraulic_asset_features(
+                        assets_gdf,
+                        water_values=water_values,
+                        context=f"hydraulic bundle {bundle_path.name}:{src['asset_layer']}",
                     )
                 )
-            except Exception as e:
-                logger.warning(f"Failed to load {path}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to load hydraulic assets from {bundle_path}: {e}")
 
     warnings = [
-        "Water valuation based on OFB cost comparator (territory mean).",
+        "Water valuation uses the documented network dossier profile plus territory-specific AEP exceptions.",
         f"Valuation source: {SOURCE_LABEL}.",
         f"Territory: {territory_key}.",
         "All water assets conservatively assumed dependent on electricity.",
+        "Water service metadata comes from hydraulic_zoning_v2 zone_component_key.",
     ]
 
     exposure = NormalizedExposure(
@@ -1168,6 +1337,8 @@ DEPLOY_VERIFY_RELATIVE_PATHS = (
     "data/martinique-multi-hazard-proxy.json",
     "data/guadeloupe-page1-analysis.json",
     "data/martinique-page2-analysis.json",
+    "data/guadeloupe-water-infra.geojson",
+    "data/martinique-water-infra.geojson",
     "data/guadeloupe-network-states.geojson",
     "data/martinique-network-states.geojson",
 )
