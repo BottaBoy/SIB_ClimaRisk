@@ -88,6 +88,46 @@ def test_calibrate_scenario_results_to_complete_analysis_hits_requested_totals()
     assert np.all(scenario_results["event_max"]["direct_loss"] <= scenario_results["event_max"]["total_loss"])
 
 
+def test_recalculate_calibrated_scenario_states_refreshes_state_fields_from_direct_loss() -> None:
+    scenario_results = {
+        "rp50": {
+            "total_loss": np.array([40.0, 5.0], dtype=float),
+            "direct_loss": np.array([40.0, 5.0], dtype=float),
+            "direct_state": np.array(["S0", "S0"], dtype=object),
+            "final_state": np.array(["S0", "S0"], dtype=object),
+            "indirect_s3_flag": np.array([False, False], dtype=bool),
+        },
+        "rp100": {
+            "total_loss": np.array([10.0, 1.0], dtype=float),
+            "direct_loss": np.array([10.0, 1.0], dtype=float),
+            "direct_state": np.array(["S1", "S0"], dtype=object),
+            "final_state": np.array(["S1", "S0"], dtype=object),
+            "indirect_s3_flag": np.array([False, False], dtype=bool),
+        },
+    }
+
+    def _fake_evaluator(direct_loss: np.ndarray) -> dict[str, np.ndarray]:
+        severe = bool(float(np.asarray(direct_loss, dtype=float).sum()) >= 40.0)
+        state_code = "S3" if severe else "S1"
+        return {
+            "direct_state": np.array([state_code, "S0"], dtype=object),
+            "final_state": np.array([state_code, "S0"], dtype=object),
+            "indirect_s3_flag": np.array([severe, False], dtype=bool),
+        }
+
+    build_guadeloupe_page1_data._recalculate_calibrated_scenario_states(
+        scenario_results,
+        scenario_keys=("rp50",),
+        values_size=2,
+        evaluator=_fake_evaluator,
+    )
+
+    assert scenario_results["rp50"]["direct_state"].tolist() == ["S3", "S0"]
+    assert scenario_results["rp50"]["final_state"].tolist() == ["S3", "S0"]
+    assert scenario_results["rp50"]["indirect_s3_flag"].tolist() == [True, False]
+    assert scenario_results["rp100"]["direct_state"].tolist() == ["S1", "S0"]
+
+
 def test_build_state_geojson_rejects_incomplete_feature_states(tmp_path: Path) -> None:
     geometry_features = [
         {"feature_id": "f1", "class_key": "eau_aep", "class_label": "Eau AEP", "geometry": {"id": 1}},

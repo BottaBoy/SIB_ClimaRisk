@@ -1814,6 +1814,12 @@ def _compute_impact_metrics(
         )
         if applied_calibration:
             calibration_by_hazard[hazard_key] = applied_calibration
+            _recalculate_calibrated_scenario_states(
+                scenario_results,
+                scenario_keys=tuple(applied_calibration.keys()),
+                values_size=int(values.size),
+                evaluator=evaluate_scenario,
+            )
 
         rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
         for scenario in TABLE_SCENARIOS:
@@ -2300,6 +2306,26 @@ def _calibrate_scenario_results_to_complete_analysis(
         }
 
     return applied
+
+
+def _recalculate_calibrated_scenario_states(
+    scenario_results: dict[str, dict[str, Any]],
+    *,
+    scenario_keys: list[str] | tuple[str, ...] | set[str],
+    values_size: int,
+    evaluator: Callable[[np.ndarray], dict[str, Any]],
+) -> None:
+    for scenario in scenario_keys:
+        calibrated_result = scenario_results.get(str(scenario))
+        if not isinstance(calibrated_result, dict):
+            continue
+        calibrated_direct_loss = np.asarray(calibrated_result.get("direct_loss"), dtype=float).reshape(-1)
+        if calibrated_direct_loss.size != int(values_size):
+            continue
+        recalculated_states = evaluator(calibrated_direct_loss)
+        calibrated_result["direct_state"] = recalculated_states["direct_state"]
+        calibrated_result["final_state"] = recalculated_states["final_state"]
+        calibrated_result["indirect_s3_flag"] = recalculated_states["indirect_s3_flag"]
 
 
 def _mean_top_event_loss(events: Any, keep: int) -> float:
