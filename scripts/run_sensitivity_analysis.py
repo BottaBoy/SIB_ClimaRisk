@@ -6,6 +6,7 @@ import atexit
 from datetime import datetime, timezone
 import json
 import logging
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -31,9 +32,13 @@ logging.basicConfig(
 )
 
 SENSITIVITY_OUTPUTS_DIR = REPO_ROOT / "outputs" / "sensitivity-runs"
+COMPLETE_ANALYSIS_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
 COMPLETE_ANALYSIS_LATEST_MANIFEST = REPO_ROOT / "outputs" / "complete-analysis-runs" / "latest-manifest.json"
 DEFAULT_SCENARIO_PACK = REPO_ROOT / "config" / "sensitivity" / "default-scenario-pack.json"
 CHILD_SCRIPT = REPO_ROOT / "scripts" / "run_complete_analysis.py"
+COMPLETE_ANALYSIS_MANIFEST_RE = re.compile(
+    r"(?P<path>/home/ubuntu/sib-work/outputs/complete-analysis-runs/[^\s\"']+/manifest\.json)"
+)
 
 
 def _utcnow() -> str:
@@ -201,6 +206,17 @@ def _child_manifest_for_scenario(scenario_id: str) -> dict[str, Any] | None:
     return payload
 
 
+def _child_manifest_path_from_log(log_path: Path) -> Path | None:
+    try:
+        content = log_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    matches = list(COMPLETE_ANALYSIS_MANIFEST_RE.finditer(content))
+    if not matches:
+        return None
+    return Path(matches[-1].group("path"))
+
+
 def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario) -> list[str]:
     command = [
         sys.executable,
@@ -213,7 +229,7 @@ def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario
         "--memory-budget-gb",
         str(float(args.memory_budget_gb)),
         "--max-points-per-shard",
-        str(int(args.max_points_per_shard)),
+        str(int(args.child_max_points_per_shard)),
         "--min-points-per-shard",
         str(int(args.min_points_per_shard)),
         "--scenario-pack",
@@ -241,7 +257,14 @@ def main() -> int:
     )
     parser.add_argument("--dynamic-max-tracks", type=int, default=1200)
     parser.add_argument("--memory-budget-gb", type=float, default=6.0)
-    parser.add_argument("--max-points-per-shard", type=int, default=0)
+    parser.add_argument(
+        "--max-points-per-shard",
+        "--child-max-points-per-shard",
+        dest="child_max_points_per_shard",
+        type=int,
+        default=1500,
+        help="Hard cap applied to complete-analysis child runs launched by sensitivity analysis (default: 1500)",
+    )
     parser.add_argument("--min-points-per-shard", type=int, default=512)
     parser.add_argument("--allow-degraded-components", action="store_true")
     parser.add_argument("--resume-run-id", type=str, default=None)
@@ -280,7 +303,7 @@ def main() -> int:
         "scenario_ids": [scenario.scenario_id for scenario in scenarios],
         "dynamic_max_tracks": int(args.dynamic_max_tracks),
         "memory_budget_gb": float(args.memory_budget_gb),
-        "max_points_per_shard": int(args.max_points_per_shard),
+        "child_max_points_per_shard": int(args.child_max_points_per_shard),
         "min_points_per_shard": int(args.min_points_per_shard),
         "allow_degraded_components": bool(args.allow_degraded_components),
         "continue_on_error": bool(args.continue_on_error),
@@ -388,6 +411,12 @@ def main() -> int:
 
             while True:
                 child_manifest = _child_manifest_for_scenario(scenario_id)
+                if child_manifest is None:
+                    child_manifest_path = _child_manifest_path_from_log(log_path)
+                    if child_manifest_path is not None:
+                        child_manifest = _load_json(child_manifest_path)
+                        if child_manifest is not None and str(child_manifest.get("scenario_id") or "") != scenario_id:
+                            child_manifest = None
                 if child_manifest is not None:
                     manifest.update_scenario(
                         scenario_id,
@@ -402,6 +431,12 @@ def main() -> int:
 
         duration_seconds = int(max(0.0, time.time() - start_time))
         child_manifest = _child_manifest_for_scenario(scenario_id)
+        if child_manifest is None:
+            child_manifest_path = _child_manifest_path_from_log(log_path)
+            if child_manifest_path is not None:
+                child_manifest = _load_json(child_manifest_path)
+                if child_manifest is not None and str(child_manifest.get("scenario_id") or "") != scenario_id:
+                    child_manifest = None
         child_status = str((child_manifest or {}).get("status") or "")
         child_run_id = str((child_manifest or {}).get("run_id") or "") or None
         child_manifest_path = str((child_manifest or {}).get("manifest_path") or "") or None

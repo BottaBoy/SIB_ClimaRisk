@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 import logging
+import re
 from pathlib import Path
 import sys
 from typing import Any
@@ -30,10 +31,14 @@ logging.basicConfig(
 )
 
 SENSITIVITY_OUTPUTS_DIR = REPO_ROOT / "outputs" / "sensitivity-runs"
+COMPLETE_ANALYSIS_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
 DEFAULT_SCENARIO_PACK = REPO_ROOT / "config" / "sensitivity" / "default-scenario-pack.json"
 HAZARD_KEYS = ("storm", "storm_cmcc")
 HAZARD_FIELD_PREFIX = {"storm": "storm", "storm_cmcc": "cmcc"}
 COMPONENT_ORDER = ("wind", "rain", "surge")
+COMPLETE_ANALYSIS_MANIFEST_RE = re.compile(
+    r"(?P<path>/home/ubuntu/sib-work/outputs/complete-analysis-runs/[^\s\"']+/manifest\.json)"
+)
 
 
 def _utcnow() -> str:
@@ -70,31 +75,53 @@ def _coerce_float(value: Any) -> float:
 
 
 def _resolve_complete_analysis_path(scenario_entry: dict[str, Any]) -> Path | None:
-    child_manifest_path = scenario_entry.get("child_manifest_path")
+    candidate_paths: list[Path] = []
+
+    child_manifest_path = str(scenario_entry.get("child_manifest_path") or "").strip()
     if child_manifest_path:
-        path = Path(str(child_manifest_path))
-        if path.exists():
-            child_manifest = _load_json(path)
-            territories = child_manifest.get("territories") if isinstance(child_manifest.get("territories"), dict) else {}
-            for territory_entry in territories.values():
-                if not isinstance(territory_entry, dict):
+        candidate_paths.append(Path(child_manifest_path))
+
+    child_run_id = str(scenario_entry.get("child_run_id") or "").strip()
+    if child_run_id:
+        candidate_paths.append(COMPLETE_ANALYSIS_OUTPUTS_DIR / child_run_id / "manifest.json")
+
+    log_path = str(scenario_entry.get("log_path") or "").strip()
+    if log_path:
+        log_file = Path(log_path)
+        if log_file.exists():
+            try:
+                log_text = log_file.read_text(encoding="utf-8")
+            except Exception:
+                log_text = ""
+            for match in COMPLETE_ANALYSIS_MANIFEST_RE.finditer(log_text):
+                candidate_paths.append(Path(match.group("path")))
+
+    for path in candidate_paths:
+        if not path.exists():
+            continue
+        child_manifest = _load_json(path)
+        if child_manifest is None:
+            continue
+        territories = child_manifest.get("territories") if isinstance(child_manifest.get("territories"), dict) else {}
+        for territory_entry in territories.values():
+            if not isinstance(territory_entry, dict):
+                continue
+            for key in ("archived_complete_analysis_path", "complete_analysis_path"):
+                candidate = territory_entry.get(key)
+                if not candidate:
                     continue
-                for key in ("archived_complete_analysis_path", "complete_analysis_path"):
-                    candidate = territory_entry.get(key)
-                    if not candidate:
-                        continue
-                    candidate_path = Path(str(candidate))
-                    if candidate_path.exists():
-                        return candidate_path
-                phases = territory_entry.get("phases") if isinstance(territory_entry.get("phases"), dict) else {}
-                export_phase = phases.get("export") if isinstance(phases.get("export"), dict) else {}
-                for key in ("archived_output_file", "output_file"):
-                    candidate = export_phase.get(key)
-                    if not candidate:
-                        continue
-                    candidate_path = Path(str(candidate))
-                    if candidate_path.exists():
-                        return candidate_path
+                candidate_path = Path(str(candidate))
+                if candidate_path.exists():
+                    return candidate_path
+            phases = territory_entry.get("phases") if isinstance(territory_entry.get("phases"), dict) else {}
+            export_phase = phases.get("export") if isinstance(phases.get("export"), dict) else {}
+            for key in ("archived_output_file", "output_file"):
+                candidate = export_phase.get(key)
+                if not candidate:
+                    continue
+                candidate_path = Path(str(candidate))
+                if candidate_path.exists():
+                    return candidate_path
     return None
 
 
