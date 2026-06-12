@@ -35,46 +35,98 @@ def _make_state(
 def test_should_restart_when_running_and_process_missing() -> None:
     state = _make_state(status="running", process_alive=False, age_seconds=90.0)
 
-    should_restart, reason = babysit._should_restart(state, stale_after_seconds=20 * 60)
+    should_restart, reason, kill_first = babysit._should_restart(state, stale_after_seconds=20 * 60)
 
     assert should_restart is True
     assert "process missing" in reason
+    assert kill_first is False
 
 
 def test_should_restart_when_failed_and_process_absent() -> None:
     state = _make_state(status="failed", process_alive=False)
 
-    should_restart, reason = babysit._should_restart(state, stale_after_seconds=20 * 60)
+    should_restart, reason, kill_first = babysit._should_restart(state, stale_after_seconds=20 * 60)
 
     assert should_restart is True
     assert reason == "status=failed"
+    assert kill_first is False
 
 
 def test_should_restart_when_aborted_and_process_absent() -> None:
     state = _make_state(status="aborted", process_alive=False)
 
-    should_restart, reason = babysit._should_restart(state, stale_after_seconds=20 * 60)
+    should_restart, reason, kill_first = babysit._should_restart(state, stale_after_seconds=20 * 60)
 
     assert should_restart is True
     assert reason == "status=aborted"
+    assert kill_first is False
 
 
 def test_should_not_restart_when_success() -> None:
     state = _make_state(status="success", process_alive=False)
 
-    should_restart, reason = babysit._should_restart(state, stale_after_seconds=20 * 60)
+    should_restart, reason, kill_first = babysit._should_restart(state, stale_after_seconds=20 * 60)
 
     assert should_restart is False
     assert reason == "status=success"
+    assert kill_first is False
 
 
 def test_should_not_restart_when_running_and_process_alive() -> None:
     state = _make_state(status="running", process_alive=True, age_seconds=90.0)
 
-    should_restart, reason = babysit._should_restart(state, stale_after_seconds=20 * 60)
+    should_restart, reason, kill_first = babysit._should_restart(
+        state,
+        stale_after_seconds=20 * 60,
+        silent_hang_after_seconds=30 * 60,
+    )
 
     assert should_restart is False
     assert reason == "status=running"
+    assert kill_first is False
+
+
+def test_should_restart_when_running_and_process_alive_but_silent_too_long() -> None:
+    state = _make_state(status="running", process_alive=True, age_seconds=31 * 60.0)
+
+    should_restart, reason, kill_first = babysit._should_restart(
+        state,
+        stale_after_seconds=20 * 60,
+        silent_hang_after_seconds=30 * 60,
+    )
+
+    assert should_restart is True
+    assert "silent" in reason
+    assert kill_first is True
+
+
+def test_terminate_live_processes_tries_term_then_kill(monkeypatch) -> None:
+    killed: list[tuple[int, int]] = []
+
+    monkeypatch.setattr(babysit, "_read_pidfile", lambda run_id: (Path("/tmp/resume.pid"), 4321))
+    monkeypatch.setattr(babysit, "_find_pgrep_pids", lambda run_id: [4321, 6789])
+    monkeypatch.setattr(babysit.time, "sleep", lambda _seconds: None)
+
+    alive = {4321, 6789}
+
+    def _fake_pid_is_alive(pid: int | None) -> bool:
+        return pid in alive if pid is not None else False
+
+    def _fake_kill(pid: int, signum: int) -> None:
+        killed.append((pid, signum))
+        if signum == babysit.signal.SIGTERM:
+            alive.discard(pid)
+        if signum == babysit.signal.SIGKILL:
+            alive.discard(pid)
+
+    monkeypatch.setattr(babysit, "_pid_is_alive", _fake_pid_is_alive)
+    monkeypatch.setattr(babysit.os, "kill", _fake_kill)
+
+    targets = babysit._terminate_live_processes("20260611_075636", grace_seconds=0.0)
+
+    assert targets == [4321, 6789]
+    assert (4321, babysit.signal.SIGTERM) in killed
+    assert (6789, babysit.signal.SIGTERM) in killed
 
 
 def test_launch_resume_uses_safe_launcher_and_parses_pid(monkeypatch, capsys) -> None:
@@ -173,6 +225,7 @@ def test_babysitter_restarts_and_then_exits_on_success(monkeypatch, capsys) -> N
         run_id,
         poll_seconds=0.0,
         stale_after_minutes=20.0,
+        silent_hang_after_minutes=30.0,
         restart_delay_seconds=0.0,
         sleep_fn=_fake_sleep,
         now_fn=lambda: datetime.now(timezone.utc),
@@ -185,4 +238,105 @@ def test_babysitter_restarts_and_then_exits_on_success(monkeypatch, capsys) -> N
     assert "SIB Complete Analysis Babysitter" in output
     assert "relaunch requested for" in output
     assert "relaunch issued for" in output
+    assert "completed successfully; babysitter exiting" in output
+
+
+def test_babysitter_kills_silent_hang_before_relaunch(monkeypatch, capsys) -> None:
+    run_id = "20260611_075636"
+    running_manifest = {
+        "run_id": run_id,
+        "status": "running",
+        "updated_at": "2026-06-12T10:00:00+00:00",
+        "latest_event": {
+            "timestamp": "2026-06-12T10:00:00+00:00",
+            "event": "shard_start",
+            "territory": "guadeloupe",
+            "hazard": "storm",
+            "component": "rain",
+        },
+        "parameters": {
+            "dynamic_max_tracks": 0,
+            "memory_budget_gb": 6.0,
+            "max_points_per_shard": 577,
+        },
+        "territories": {},
+    }
+    success_manifest = {
+        "run_id": run_id,
+        "status": "success",
+        "updated_at": "2026-06-12T10:31:00+00:00",
+        "latest_event": {
+            "timestamp": "2026-06-12T10:31:00+00:00",
+            "event": "complete",
+            "territory": "guadeloupe",
+            "hazard": "storm",
+            "component": "rain",
+        },
+        "parameters": {
+            "dynamic_max_tracks": 0,
+            "memory_budget_gb": 6.0,
+            "max_points_per_shard": 577,
+        },
+        "territories": {},
+    }
+    manifests = iter([running_manifest, success_manifest])
+    states = iter(
+        [
+            _make_state(status="running", process_alive=True, age_seconds=31 * 60.0),
+            _make_state(status="success", process_alive=False, age_seconds=31 * 60.0),
+        ]
+    )
+    launches: list[str] = []
+    terminations: list[str] = []
+
+    monkeypatch.setattr(babysit, "_load_manifest", lambda _run_id: next(manifests))
+    monkeypatch.setattr(babysit, "_inspect_run", lambda _run_id, manifest=None, now=None: next(states))
+    monkeypatch.setattr(babysit, "_launch_resume", lambda restarted_run_id: launches.append(restarted_run_id) or (True, 2222))
+    monkeypatch.setattr(babysit, "_human_ts", lambda moment=None: "2026-06-12T10:00:00+00:00")
+    monkeypatch.setattr(babysit, "_human_duration", lambda seconds: "31m 0s")
+    monkeypatch.setattr(babysit, "_snapshot_key", lambda manifest, state=None: manifest["status"])
+    monkeypatch.setattr(babysit, "_print_detailed_status", lambda manifest, state: None)
+
+    alive = {1111}
+
+    def _fake_read_pidfile(run_id: str):
+        return Path("/tmp/resume.pid"), 1111
+
+    def _fake_find_pgrep_pids(run_id: str):
+        return [1111]
+
+    def _fake_pid_is_alive(pid: int | None) -> bool:
+        return pid in alive if pid is not None else False
+
+    def _fake_kill(pid: int, signum: int) -> None:
+        killed.append((pid, signum))
+        alive.discard(pid)
+
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(babysit, "_read_pidfile", _fake_read_pidfile)
+    monkeypatch.setattr(babysit, "_find_pgrep_pids", _fake_find_pgrep_pids)
+    monkeypatch.setattr(babysit, "_pid_is_alive", _fake_pid_is_alive)
+    monkeypatch.setattr(babysit.os, "kill", _fake_kill)
+
+    sleeps: list[float] = []
+
+    def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    exit_code = babysit.babysit_complete_analysis_run(
+        run_id,
+        poll_seconds=0.0,
+        stale_after_minutes=20.0,
+        silent_hang_after_minutes=30.0,
+        restart_delay_seconds=0.0,
+        sleep_fn=_fake_sleep,
+        now_fn=lambda: datetime.now(timezone.utc),
+    )
+
+    assert exit_code == 0
+    assert launches == [run_id]
+    assert (1111, babysit.signal.SIGTERM) in killed
+    output = capsys.readouterr().out
+    assert "silent for" in output
+    assert "terminating stale process set" in output
     assert "completed successfully; babysitter exiting" in output

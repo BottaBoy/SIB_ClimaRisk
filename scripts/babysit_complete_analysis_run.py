@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +123,11 @@ def _pid_is_alive(pid: int | None) -> bool:
 
 
 def _find_pgrep_pid(run_id: str) -> int | None:
+    pids = _find_pgrep_pids(run_id)
+    return pids[0] if pids else None
+
+
+def _find_pgrep_pids(run_id: str) -> list[int]:
     result = subprocess.run(
         ["pgrep", "-af", "run_complete_analysis.py"],
         capture_output=True,
@@ -144,8 +150,8 @@ def _find_pgrep_pid(run_id: str) -> int | None:
         except ValueError:
             continue
         if _pid_is_alive(pid):
-            return pid
-    return None
+            pids.append(pid)
+    return pids
 
 
 def _inspect_run(run_id: str, *, manifest: dict[str, Any] | None = None, now: datetime | None = None) -> RunState:
@@ -331,26 +337,83 @@ def _restart_delay_seconds(base_delay_seconds: float, restart_count: int) -> flo
     return min(delay, float(MAX_BACKOFF_SECONDS))
 
 
-def _should_restart(state: RunState, *, stale_after_seconds: float) -> tuple[bool, str]:
+def _terminate_live_processes(run_id: str, *, grace_seconds: float = 30.0) -> list[int]:
+    pidfile_path, pidfile_pid = _read_pidfile(run_id)
+    target_pids = {pidfile_pid} if pidfile_pid is not None else set()
+    target_pids.update(_find_pgrep_pids(run_id))
+    targets = sorted(pid for pid in target_pids if pid is not None and pid > 0)
+    if not targets:
+        return []
+
+    print(
+        f"[{_human_ts()}] terminating stale process set for {run_id}: "
+        f"{', '.join(str(pid) for pid in targets)}",
+        flush=True,
+    )
+    for pid in targets:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        except OSError:
+            pass
+
+    deadline = time.monotonic() + float(grace_seconds)
+    while time.monotonic() < deadline:
+        if not any(_pid_is_alive(pid) for pid in targets):
+            return targets
+        time.sleep(1.0)
+
+    stubborn_pids = [pid for pid in targets if _pid_is_alive(pid)]
+    if stubborn_pids:
+        print(
+            f"[{_human_ts()}] forcing kill for stale process set on {run_id}: "
+            f"{', '.join(str(pid) for pid in stubborn_pids)}",
+            flush=True,
+        )
+    for pid in stubborn_pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        except OSError:
+            pass
+    return targets
+
+
+def _should_restart(
+    state: RunState,
+    *,
+    stale_after_seconds: float,
+    silent_hang_after_seconds: float | None = None,
+) -> tuple[bool, str, bool]:
+    if silent_hang_after_seconds is None:
+        silent_hang_after_seconds = stale_after_seconds
     if state.status == "success":
-        return False, "status=success"
+        return False, "status=success", False
     if state.status in {"failed", "aborted", "partial"}:
         if state.process_alive:
-            return False, f"status={state.status} but process still alive"
-        return True, f"status={state.status}"
+            return False, f"status={state.status} but process still alive", False
+        return True, f"status={state.status}", False
     if state.status == "running":
         if state.process_alive:
-            return False, "status=running"
+            if state.age_seconds is not None and state.age_seconds >= silent_hang_after_seconds:
+                return True, f"status=running but silent for {_human_duration(state.age_seconds)}", True
+            return False, "status=running", False
         if state.age_seconds is None:
-            return True, "status=running but process missing"
+            return True, "status=running but process missing", False
         if state.age_seconds >= stale_after_seconds:
-            return True, f"status=running but stale for {_human_duration(state.age_seconds)}"
-        return True, "status=running but process missing"
+            return True, f"status=running but stale for {_human_duration(state.age_seconds)}", False
+        return True, "status=running but process missing", False
     if not state.status:
         if state.process_alive:
-            return False, "manifest status missing but process alive"
-        return True, "manifest status missing"
-    return False, f"status={state.status}"
+            return False, "manifest status missing but process alive", False
+        return True, "manifest status missing", False
+    return False, f"status={state.status}", False
 
 
 def babysit_complete_analysis_run(
@@ -358,6 +421,7 @@ def babysit_complete_analysis_run(
     *,
     poll_seconds: float = 60.0,
     stale_after_minutes: float = 20.0,
+    silent_hang_after_minutes: float = 30.0,
     restart_delay_seconds: float = 30.0,
     max_restarts: int | None = None,
     sleep_fn: Any = time.sleep,
@@ -370,13 +434,19 @@ def babysit_complete_analysis_run(
     print("=" * 70, flush=True)
     print("SIB Complete Analysis Babysitter", flush=True)
     print(f"Run ID: {run_id}", flush=True)
-    print(f"Poll interval: {float(poll_seconds):.1f}s | stale_after: {float(stale_after_minutes):.1f}m", flush=True)
+    print(
+        "Poll interval: "
+        f"{float(poll_seconds):.1f}s | stale_after: {float(stale_after_minutes):.1f}m | "
+        f"silent_hang_after: {float(silent_hang_after_minutes):.1f}m",
+        flush=True,
+    )
     print(f"Resume launcher: {RESUME_LAUNCHER}", flush=True)
     print("=" * 70, flush=True)
 
     restart_count = 0
     last_snapshot = ""
     stale_after_seconds = float(stale_after_minutes) * 60.0
+    silent_hang_after_seconds = float(silent_hang_after_minutes) * 60.0
 
     while True:
         manifest = _load_manifest(run_id)
@@ -406,7 +476,11 @@ def babysit_complete_analysis_run(
             print(f"[{_human_ts()}] run {run_id} completed successfully; babysitter exiting", flush=True)
             return 0
 
-        should_restart, reason = _should_restart(state, stale_after_seconds=stale_after_seconds)
+        should_restart, reason, kill_first = _should_restart(
+            state,
+            stale_after_seconds=stale_after_seconds,
+            silent_hang_after_seconds=silent_hang_after_seconds,
+        )
         if should_restart:
             if max_restarts is not None and restart_count >= int(max_restarts):
                 print(
@@ -422,6 +496,8 @@ def babysit_complete_analysis_run(
                 flush=True,
             )
             sleep_fn(delay)
+            if kill_first:
+                _terminate_live_processes(run_id)
             launched, pid = _launch_resume(run_id)
             restart_count += 1
             if launched and pid is not None:
@@ -447,6 +523,12 @@ def main() -> int:
         help="Consider a running manifest stale after this many minutes without updates (default: 20)",
     )
     parser.add_argument(
+        "--silent-hang-after-minutes",
+        type=float,
+        default=30.0,
+        help="Relaunch a running process that has not updated its manifest for this many minutes (default: 30)",
+    )
+    parser.add_argument(
         "--restart-delay-seconds",
         type=float,
         default=30.0,
@@ -464,6 +546,7 @@ def main() -> int:
             args.run_id,
             poll_seconds=args.poll_seconds,
             stale_after_minutes=args.stale_after_minutes,
+            silent_hang_after_minutes=args.silent_hang_after_minutes,
             restart_delay_seconds=args.restart_delay_seconds,
             max_restarts=args.max_restarts,
         )

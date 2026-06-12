@@ -146,6 +146,7 @@ backend/.venv/bin/python scripts/babysit_complete_analysis_run.py \
   --run-id 20260611_075636 \
   --poll-seconds 60 \
   --stale-after-minutes 20 \
+  --silent-hang-after-minutes 30 \
   --restart-delay-seconds 30
 ```
 
@@ -156,6 +157,7 @@ Le babysitter:
 - relance toujours via `scripts/resume_complete_analysis_safe.py`
 - réutilise les shards déjà calculés
 - écrit et relit `outputs/complete-analysis-runs/<run_id>/resume.pid`
+- peut aussi tuer et relancer un run qui reste silencieux trop longtemps, par défaut au bout de 30 minutes
 
 Si tu préfères passer par VS Code, utilise la tâche `SIB: Babysit Complete Analysis Run`.
 
