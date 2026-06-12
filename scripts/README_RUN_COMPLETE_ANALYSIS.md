@@ -108,6 +108,57 @@ En mode reprise:
 - les plans de split déclenchés après `MemoryError` sont réutilisés
 - les checkpoints sont stockés sous `outputs/complete-analysis-runs/<run_id>/territories/<territory>/checkpoints/`
 
+Robustesse des interruptions:
+
+- `SIGINT` et `SIGTERM` arrêtent proprement le run et marquent le manifeste comme interrompu
+- `SIGHUP` est ignoré par défaut pour éviter qu'une simple déconnexion du terminal ne casse un calcul long
+- si tu veux que `SIGHUP` reste fatal, lance le script avec `--abort-on-sighup`
+
+### Reprise sûre recommandée
+
+Pour éviter les erreurs de relance manuelle et les doublons de process, utilise le lanceur sûr:
+
+```bash
+cd /home/ubuntu/sib-work
+python3 scripts/resume_complete_analysis_safe.py --run-id 20260611_075636
+```
+
+Ce lanceur:
+
+- refuse de démarrer si un process du même `run_id` tourne déjà
+- infère automatiquement le `max_points_per_shard` depuis les checkpoints existants
+- lance le job en session détachée avec `PYTHONUNBUFFERED=1`
+- écrit un `pidfile` dans `outputs/complete-analysis-runs/<run_id>/resume.pid`
+
+Pour tuer ensuite ce run de façon ciblée:
+
+```bash
+kill $(cat /home/ubuntu/sib-work/outputs/complete-analysis-runs/20260611_075636/resume.pid)
+```
+
+### Babysitter robuste
+
+Pour superviser un run précis en continu, avec relance automatique si le process disparaît ou si le manifeste bascule en échec:
+
+```bash
+cd /home/ubuntu/sib-work
+backend/.venv/bin/python scripts/babysit_complete_analysis_run.py \
+  --run-id 20260611_075636 \
+  --poll-seconds 60 \
+  --stale-after-minutes 20 \
+  --restart-delay-seconds 30
+```
+
+Le babysitter:
+
+- suit un seul `run_id`
+- imprime des check-ups horodatés dans le terminal
+- relance toujours via `scripts/resume_complete_analysis_safe.py`
+- réutilise les shards déjà calculés
+- écrit et relit `outputs/complete-analysis-runs/<run_id>/resume.pid`
+
+Si tu préfères passer par VS Code, utilise la tâche `SIB: Babysit Complete Analysis Run`.
+
 ### Personnaliser `dynamic_max_tracks`
 
 ```bash
