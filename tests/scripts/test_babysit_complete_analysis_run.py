@@ -129,6 +129,21 @@ def test_terminate_live_processes_tries_term_then_kill(monkeypatch) -> None:
     assert (6789, babysit.signal.SIGTERM) in killed
 
 
+def test_find_pgrep_pids_parses_matching_processes(monkeypatch) -> None:
+    class _Result:
+        stdout = (
+            "12345 /home/ubuntu/sib-work/backend/.venv/bin/python "
+            "scripts/run_complete_analysis.py --resume-run-id 20260611_075636\n"
+            "67890 /home/ubuntu/sib-work/backend/.venv/bin/python run_complete_analysis_20260611_075636.log\n"
+            "54321 /home/ubuntu/sib-work/backend/.venv/bin/python scripts/run_complete_analysis.py --run-id 20260611_000000\n"
+        )
+
+    monkeypatch.setattr(babysit.subprocess, "run", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(babysit, "_pid_is_alive", lambda pid: pid in {12345, 67890})
+
+    assert babysit._find_pgrep_pids("20260611_075636") == [12345, 67890]
+
+
 def test_take_babysitter_ownership_stops_previous_babysitter(monkeypatch) -> None:
     killed: list[tuple[int, int]] = []
     written: dict[str, object] = {}

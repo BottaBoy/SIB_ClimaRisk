@@ -15,9 +15,8 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
-RUN_LOGS_DIR = REPO_ROOT / "logs"
-RESUME_LAUNCHER = REPO_ROOT / "scripts" / "resume_complete_analysis_safe.py"
+RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "hazard-comparison-runs"
+RESUME_LAUNCHER = REPO_ROOT / "scripts" / "resume_hazard_comparison_safe.py"
 PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
 MAX_BACKOFF_SECONDS = 15 * 60
 BABYSITTER_PIDFILE_NAME = "babysitter.pid"
@@ -170,15 +169,16 @@ def _find_pgrep_pid(run_id: str) -> int | None:
 
 def _find_pgrep_pids(run_id: str) -> list[int]:
     result = subprocess.run(
-        ["pgrep", "-af", "run_complete_analysis.py"],
+        ["pgrep", "-af", "run_hazard_comparative_analysis.py"],
         capture_output=True,
         text=True,
-        check=False,
     )
     exact_needles = (
         f"--resume-run-id {run_id}",
         f"--resume-run-id={run_id}",
-        f"run_complete_analysis_{run_id}.log",
+        f"--run-id {run_id}",
+        f"--run-id={run_id}",
+        f"hazard-comparison-runs/{run_id}",
     )
     pids: list[int] = []
     for raw_line in result.stdout.splitlines():
@@ -198,7 +198,7 @@ def _find_pgrep_pids(run_id: str) -> list[int]:
 
 def _find_babysitter_pids(run_id: str) -> list[int]:
     result = subprocess.run(
-        ["pgrep", "-af", "babysit_complete_analysis_run.py"],
+        ["pgrep", "-af", "babysit_hazard_comparison_run.py"],
         capture_output=True,
         text=True,
         check=False,
@@ -247,10 +247,7 @@ def _sleep_with_owner_checks(
         remaining -= step
         superseded, owner_pid = _is_superseded_babysitter(run_id, self_pid)
         if superseded:
-            print(
-                f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting",
-                flush=True,
-            )
+            print(f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting", flush=True)
             return False
     return True
 
@@ -333,14 +330,15 @@ def _format_component(component_entry: dict[str, Any] | None) -> str:
     if not isinstance(component_entry, dict):
         return "unknown"
     status = str(component_entry.get("status") or "unknown")
-    planned = int(component_entry.get("planned_shards") or 0)
-    completed = int(component_entry.get("completed_shards") or 0)
-    resumed = int(component_entry.get("resumed_shards") or 0)
     fragment = status
-    if planned:
-        fragment += f" | shards={completed}/{planned}"
-    if resumed:
-        fragment += f" | resumed={resumed}"
+    output_path = str(component_entry.get("output_path") or "").strip()
+    if output_path:
+        fragment += f" | output={Path(output_path).name}"
+    event_count = component_entry.get("event_count")
+    if event_count is not None:
+        fragment += f" | events={int(event_count)}"
+    if component_entry.get("resumed"):
+        fragment += " | resumed"
     last_error = str(component_entry.get("last_error") or "").strip()
     if last_error:
         fragment += f" | last_error={last_error}"
@@ -361,52 +359,51 @@ def _print_detailed_status(manifest: dict[str, Any], state: RunState) -> None:
         print(
             "  Latest: "
             f"territory={latest_event.get('territory')} | "
+            f"scenario={latest_event.get('scenario')} | "
             f"event={latest_event.get('event')} | "
-            f"hazard={latest_event.get('hazard')} | "
             f"component={latest_event.get('component')}"
         )
     parameters = manifest.get("parameters") or {}
     print(
         "  Parameters: "
-        f"tracks={parameters.get('dynamic_max_tracks')} | "
-        f"memory_budget_gb={parameters.get('memory_budget_gb')} | "
-        f"max_points_per_shard={parameters.get('max_points_per_shard')}"
+        f"dynamic_max_tracks={parameters.get('dynamic_max_tracks')} | "
+        f"territories={','.join(str(value) for value in (parameters.get('territories') or [])) or 'all'} | "
+        f"scenarios={','.join(str(value) for value in (parameters.get('scenarios') or [])) or 'all'}"
     )
     territories = manifest.get("territories") or {}
-    for territory_name, territory_entry in territories.items():
-        if not isinstance(territory_entry, dict):
+    for territory_id, territory_payload in territories.items():
+        if not isinstance(territory_payload, dict):
             continue
-        print(f"  - {territory_name}: {territory_entry.get('status')}")
-        phases = territory_entry.get("phases") or {}
+        territory_status = str(territory_payload.get("status") or "unknown")
+        scenarios = territory_payload.get("scenarios") or {}
+        total_scenarios = len(scenarios)
+        completed_scenarios = sum(
+            1
+            for scenario_payload in scenarios.values()
+            if isinstance(scenario_payload, dict) and str(scenario_payload.get("status") or "") == "complete"
+        )
+        print(
+            f"  - {territory_id}: status={territory_status} | "
+            f"scenarios={completed_scenarios}/{total_scenarios} complete"
+        )
+        phases = territory_payload.get("phases") or {}
         if isinstance(phases, dict):
-            for phase_name in ("load_exposure", "disaggregation", "impacts", "export"):
+            phase_bits = []
+            for phase_name in ("phase3_hazard_build", "phase4_metric_extraction", "phase5_export_artifacts", "phase6_html_report"):
                 phase_entry = phases.get(phase_name)
-                if not isinstance(phase_entry, dict):
-                    continue
-                line = f"    {phase_name}: {phase_entry.get('status')}"
-                if phase_name == "load_exposure" and phase_entry.get("asset_count") is not None:
-                    line += f" | assets={phase_entry.get('asset_count')}"
-                if phase_name == "disaggregation" and phase_entry.get("point_count") is not None:
-                    line += f" | points={phase_entry.get('point_count')}"
-                if phase_name == "impacts" and phase_entry.get("eai_eur") is not None:
-                    line += f" | eai={phase_entry.get('eai_eur'):,.0f} EUR"
-                if phase_entry.get("error"):
-                    line += f" | error={phase_entry.get('error')}"
-                print(line)
-        hazards = ((territory_entry.get("impacts") or {}).get("hazards") or {})
-        if isinstance(hazards, dict):
-            for hazard_key, hazard_entry in hazards.items():
-                if not isinstance(hazard_entry, dict):
-                    continue
-                components = hazard_entry.get("components") or {}
-                if not isinstance(components, dict):
-                    continue
-                component_bits = []
-                for component_name in ("wind", "rain", "surge"):
-                    component_bits.append(
-                        f"{component_name}={_format_component(components.get(component_name))}"
-                    )
-                print(f"    {hazard_key}: {'; '.join(component_bits)}")
+                if isinstance(phase_entry, dict) and phase_entry.get("status"):
+                    phase_bits.append(f"{phase_name}={phase_entry.get('status')}")
+            if phase_bits:
+                print(f"    phases: {' | '.join(phase_bits)}")
+        scenarios_payload = territory_payload.get("scenarios") or {}
+        for scenario_id, scenario_payload in scenarios_payload.items():
+            if not isinstance(scenario_payload, dict):
+                continue
+            scenario_status = str(scenario_payload.get("status") or "unknown")
+            component_bits = []
+            for component_name in ("wind", "rain", "surge", "landslide"):
+                component_bits.append(f"{component_name}={_format_component((scenario_payload.get('components') or {}).get(component_name))}")
+            print(f"    {scenario_id}: {scenario_status} | {'; '.join(component_bits)}")
 
 
 def _snapshot_key(manifest: dict[str, Any] | None, state: RunState | None = None) -> str:
@@ -420,7 +417,7 @@ def _snapshot_key(manifest: dict[str, Any] | None, state: RunState | None = None
         str(latest_event.get("timestamp") or ""),
         str(latest_event.get("event") or ""),
         str(latest_event.get("territory") or ""),
-        str(latest_event.get("hazard") or ""),
+        str(latest_event.get("scenario") or ""),
         str(latest_event.get("component") or ""),
     ]
     if state is not None:
@@ -538,8 +535,8 @@ def _should_restart(
 ) -> tuple[bool, str, bool]:
     if silent_hang_after_seconds is None:
         silent_hang_after_seconds = stale_after_seconds
-    if state.status == "success":
-        return False, "status=success", False
+    if state.status in {"success", "complete", "planned"}:
+        return False, f"status={state.status}", False
     if state.status in {"failed", "aborted", "partial"}:
         if state.process_alive:
             return False, f"status={state.status} but process still alive", False
@@ -561,7 +558,7 @@ def _should_restart(
     return False, f"status={state.status}", False
 
 
-def babysit_complete_analysis_run(
+def babysit_hazard_comparison_run(
     run_id: str,
     *,
     poll_seconds: float = 60.0,
@@ -580,7 +577,7 @@ def babysit_complete_analysis_run(
     babysitter_pidfile = _take_babysitter_ownership(run_id, self_pid)
 
     print("=" * 70, flush=True)
-    print("SIB Complete Analysis Babysitter", flush=True)
+    print("SIB Hazard Comparison Babysitter", flush=True)
     print(f"Run ID: {run_id}", flush=True)
     print(f"Babysitter pidfile: {babysitter_pidfile}", flush=True)
     print(
@@ -600,10 +597,7 @@ def babysit_complete_analysis_run(
     while True:
         superseded, owner_pid = _is_superseded_babysitter(run_id, self_pid)
         if superseded:
-            print(
-                f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting",
-                flush=True,
-            )
+            print(f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting", flush=True)
             return 0
 
         manifest = _load_manifest(run_id)
@@ -620,7 +614,7 @@ def babysit_complete_analysis_run(
             heartbeat += (
                 f" latest={state.latest_event.get('event')} "
                 f"{state.latest_event.get('territory')} "
-                f"{state.latest_event.get('hazard')} "
+                f"{state.latest_event.get('scenario')} "
                 f"{state.latest_event.get('component')}"
             )
         print(heartbeat, flush=True)
@@ -629,7 +623,7 @@ def babysit_complete_analysis_run(
             _print_detailed_status(manifest, state)
             last_snapshot = snapshot
 
-        if state.status == "success":
+        if state.status in {"success", "complete", "planned"} and not state.process_alive:
             print(f"[{_human_ts()}] run {run_id} completed successfully; babysitter exiting", flush=True)
             return 0
 
@@ -673,7 +667,7 @@ def babysit_complete_analysis_run(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Babysit a complete-analysis run and relaunch it when it dies.")
+    parser = argparse.ArgumentParser(description="Babysit a hazard-comparison run and relaunch it when it dies.")
     parser.add_argument("--run-id", required=True, help="Run ID to supervise")
     parser.add_argument("--poll-seconds", type=float, default=60.0, help="Seconds between checks (default: 60)")
     parser.add_argument(
@@ -702,7 +696,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        return babysit_complete_analysis_run(
+        return babysit_hazard_comparison_run(
             args.run_id,
             poll_seconds=args.poll_seconds,
             stale_after_minutes=args.stale_after_minutes,
