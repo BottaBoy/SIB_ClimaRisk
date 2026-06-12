@@ -129,6 +129,77 @@ def test_terminate_live_processes_tries_term_then_kill(monkeypatch) -> None:
     assert (6789, babysit.signal.SIGTERM) in killed
 
 
+def test_take_babysitter_ownership_stops_previous_babysitter(monkeypatch) -> None:
+    killed: list[tuple[int, int]] = []
+    written: dict[str, object] = {}
+    alive = {2222}
+
+    monkeypatch.setattr(babysit, "_read_babysitter_pidfile", lambda run_id: (Path("/tmp/babysitter.pid"), 2222))
+    monkeypatch.setattr(babysit, "_find_babysitter_pids", lambda run_id: [2222])
+    monkeypatch.setattr(babysit, "_pid_is_alive", lambda pid: pid in alive if pid is not None else False)
+    monkeypatch.setattr(babysit.time, "sleep", lambda _seconds: None)
+
+    def _fake_kill(pid: int, signum: int) -> None:
+        killed.append((pid, signum))
+        alive.discard(pid)
+
+    def _fake_write(run_id: str, pid: int) -> Path:
+        written["run_id"] = run_id
+        written["pid"] = pid
+        return Path("/tmp/babysitter.pid")
+
+    monkeypatch.setattr(babysit.os, "kill", _fake_kill)
+    monkeypatch.setattr(babysit, "_write_babysitter_pidfile", _fake_write)
+
+    pidfile_path = babysit._take_babysitter_ownership("20260611_075636", 1111)
+
+    assert pidfile_path == Path("/tmp/babysitter.pid")
+    assert (2222, babysit.signal.SIGTERM) in killed
+    assert written == {"run_id": "20260611_075636", "pid": 1111}
+
+
+def test_babysitter_exits_when_superseded_by_new_owner(monkeypatch, capsys) -> None:
+    run_id = "20260611_075636"
+    manifest = {
+        "run_id": run_id,
+        "status": "running",
+        "updated_at": "2026-06-12T10:00:00+00:00",
+        "latest_event": {"timestamp": "2026-06-12T10:00:00+00:00", "event": "shard_start"},
+        "parameters": {"dynamic_max_tracks": 0, "memory_budget_gb": 6.0, "max_points_per_shard": 577},
+        "territories": {},
+    }
+    manifests = iter([manifest])
+    states = iter([_make_state(status="running", process_alive=True, age_seconds=60.0)])
+    superseded = iter([False, True])
+
+    monkeypatch.setattr(babysit, "_take_babysitter_ownership", lambda run_id, self_pid: Path("/tmp/babysitter.pid"))
+    monkeypatch.setattr(babysit, "_is_superseded_babysitter", lambda run_id, self_pid: (next(superseded), 2222))
+    monkeypatch.setattr(babysit, "_load_manifest", lambda _run_id: next(manifests))
+    monkeypatch.setattr(babysit, "_inspect_run", lambda _run_id, manifest=None, now=None: next(states))
+    monkeypatch.setattr(babysit, "_human_ts", lambda moment=None: "2026-06-12T10:00:00+00:00")
+    monkeypatch.setattr(babysit, "_human_duration", lambda seconds: "1m 0s")
+    monkeypatch.setattr(babysit, "_snapshot_key", lambda manifest, state=None: manifest["status"])
+    monkeypatch.setattr(babysit, "_print_detailed_status", lambda manifest, state: None)
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(babysit.time, "sleep", lambda delay: sleeps.append(delay))
+
+    exit_code = babysit.babysit_complete_analysis_run(
+        run_id,
+        poll_seconds=0.0,
+        stale_after_minutes=20.0,
+        silent_hang_after_minutes=30.0,
+        restart_delay_seconds=0.0,
+        sleep_fn=lambda delay: sleeps.append(delay),
+        now_fn=lambda: datetime.now(timezone.utc),
+    )
+
+    assert exit_code == 0
+    assert sleeps == []
+    output = capsys.readouterr().out
+    assert "superseded by pid=2222" in output
+
+
 def test_launch_resume_uses_safe_launcher_and_parses_pid(monkeypatch, capsys) -> None:
     recorded: dict[str, object] = {}
 
@@ -208,6 +279,8 @@ def test_babysitter_restarts_and_then_exits_on_success(monkeypatch, capsys) -> N
     )
     launches: list[str] = []
 
+    monkeypatch.setattr(babysit, "_take_babysitter_ownership", lambda run_id, self_pid: Path("/tmp/babysitter.pid"))
+    monkeypatch.setattr(babysit, "_is_superseded_babysitter", lambda run_id, self_pid: (False, None))
     monkeypatch.setattr(babysit, "_load_manifest", lambda _run_id: next(manifests))
     monkeypatch.setattr(babysit, "_inspect_run", lambda _run_id, manifest=None, now=None: next(states))
     monkeypatch.setattr(babysit, "_launch_resume", lambda restarted_run_id: launches.append(restarted_run_id) or (True, 2222))
@@ -233,7 +306,6 @@ def test_babysitter_restarts_and_then_exits_on_success(monkeypatch, capsys) -> N
 
     assert exit_code == 0
     assert launches == [run_id]
-    assert sleeps  # restart backoff or poll sleep happened
     output = capsys.readouterr().out
     assert "SIB Complete Analysis Babysitter" in output
     assert "relaunch requested for" in output
@@ -289,6 +361,8 @@ def test_babysitter_kills_silent_hang_before_relaunch(monkeypatch, capsys) -> No
     launches: list[str] = []
     terminations: list[str] = []
 
+    monkeypatch.setattr(babysit, "_take_babysitter_ownership", lambda run_id, self_pid: Path("/tmp/babysitter.pid"))
+    monkeypatch.setattr(babysit, "_is_superseded_babysitter", lambda run_id, self_pid: (False, None))
     monkeypatch.setattr(babysit, "_load_manifest", lambda _run_id: next(manifests))
     monkeypatch.setattr(babysit, "_inspect_run", lambda _run_id, manifest=None, now=None: next(states))
     monkeypatch.setattr(babysit, "_launch_resume", lambda restarted_run_id: launches.append(restarted_run_id) or (True, 2222))

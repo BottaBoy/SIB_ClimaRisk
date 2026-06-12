@@ -154,8 +154,10 @@ Le babysitter:
 
 - suit un seul `run_id`
 - imprime des check-ups horodatés dans le terminal
+- prend la main sur tout ancien babysitter encore vivant sur le même `run_id`
 - relance toujours via `scripts/resume_complete_analysis_safe.py`
 - réutilise les shards déjà calculés
+- s'arrête dès que le run passe en `success`
 - écrit et relit `outputs/complete-analysis-runs/<run_id>/resume.pid`
 - peut aussi tuer et relancer un run qui reste silencieux trop longtemps, par défaut au bout de 30 minutes
 

@@ -20,6 +20,8 @@ RUN_LOGS_DIR = REPO_ROOT / "logs"
 RESUME_LAUNCHER = REPO_ROOT / "scripts" / "resume_complete_analysis_safe.py"
 PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
 MAX_BACKOFF_SECONDS = 15 * 60
+BABYSITTER_PIDFILE_NAME = "babysitter.pid"
+BABYSITTER_CHECK_INTERVAL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,45 @@ def _read_pidfile(run_id: str) -> tuple[Path, int | None]:
     return pidfile_path, pid
 
 
+def _babysitter_pidfile_path(run_id: str) -> Path:
+    return RUN_OUTPUTS_DIR / str(run_id) / BABYSITTER_PIDFILE_NAME
+
+
+def _read_babysitter_pidfile(run_id: str) -> tuple[Path, int | None]:
+    pidfile_path = _babysitter_pidfile_path(run_id)
+    if not pidfile_path.exists():
+        return pidfile_path, None
+    try:
+        payload = json.loads(pidfile_path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = None
+    if isinstance(payload, dict):
+        try:
+            pid = int(payload.get("pid") or 0)
+        except Exception:
+            pid = None
+        return pidfile_path, pid
+    try:
+        pid = int(pidfile_path.read_text(encoding="utf-8").strip())
+    except Exception:
+        return pidfile_path, None
+    return pidfile_path, pid
+
+
+def _write_babysitter_pidfile(run_id: str, pid: int) -> Path:
+    pidfile_path = _babysitter_pidfile_path(run_id)
+    pidfile_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_id": str(run_id),
+        "pid": int(pid),
+        "started_at": _human_ts(),
+    }
+    tmp_path = pidfile_path.with_suffix(".pid.tmp")
+    tmp_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp_path, pidfile_path)
+    return pidfile_path
+
+
 def _pid_is_alive(pid: int | None) -> bool:
     if pid is None or pid <= 0:
         return False
@@ -152,6 +193,109 @@ def _find_pgrep_pids(run_id: str) -> list[int]:
         if _pid_is_alive(pid):
             pids.append(pid)
     return pids
+
+
+def _find_babysitter_pids(run_id: str) -> list[int]:
+    result = subprocess.run(
+        ["pgrep", "-af", "babysit_complete_analysis_run.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    exact_needles = (
+        f"--run-id {run_id}",
+        f"--run-id={run_id}",
+    )
+    pids: list[int] = []
+    for raw_line in result.stdout.splitlines():
+        if not any(needle in raw_line for needle in exact_needles):
+            continue
+        parts = raw_line.split(maxsplit=1)
+        if not parts:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if _pid_is_alive(pid):
+            pids.append(pid)
+    return pids
+
+
+def _is_superseded_babysitter(run_id: str, self_pid: int) -> tuple[bool, int | None]:
+    lease_pidfile_path, lease_pid = _read_babysitter_pidfile(run_id)
+    if lease_pid is not None and lease_pid != self_pid and _pid_is_alive(lease_pid):
+        return True, lease_pid
+    other_pids = [pid for pid in _find_babysitter_pids(run_id) if pid != self_pid and _pid_is_alive(pid)]
+    if other_pids:
+        return True, other_pids[0]
+    return False, None
+
+
+def _sleep_with_owner_checks(
+    run_id: str,
+    self_pid: int,
+    total_seconds: float,
+    *,
+    sleep_fn: Any = time.sleep,
+) -> bool:
+    remaining = max(0.0, float(total_seconds))
+    while remaining > 0:
+        step = min(remaining, BABYSITTER_CHECK_INTERVAL_SECONDS)
+        sleep_fn(step)
+        remaining -= step
+        superseded, owner_pid = _is_superseded_babysitter(run_id, self_pid)
+        if superseded:
+            print(
+                f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting",
+                flush=True,
+            )
+            return False
+    return True
+
+
+def _take_babysitter_ownership(run_id: str, self_pid: int) -> Path:
+    existing_pidfile_path, existing_pid = _read_babysitter_pidfile(run_id)
+    live_babysitter_pids = [pid for pid in _find_babysitter_pids(run_id) if pid != self_pid]
+    takeover_targets = []
+    if existing_pid is not None and existing_pid != self_pid and _pid_is_alive(existing_pid):
+        takeover_targets.append(existing_pid)
+    for pid in live_babysitter_pids:
+        if pid not in takeover_targets:
+            takeover_targets.append(pid)
+
+    if takeover_targets:
+        print(
+            f"[{_human_ts()}] taking over babysitter for {run_id}; stopping previous babysitter(s): "
+            f"{', '.join(str(pid) for pid in takeover_targets)}",
+            flush=True,
+        )
+        for pid in takeover_targets:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                pass
+            except OSError:
+                pass
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            if not any(_pid_is_alive(pid) for pid in takeover_targets):
+                break
+            time.sleep(1.0)
+        stubborn_pids = [pid for pid in takeover_targets if _pid_is_alive(pid)]
+        for pid in stubborn_pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                pass
+            except OSError:
+                pass
+
+    return _write_babysitter_pidfile(run_id, self_pid)
 
 
 def _inspect_run(run_id: str, *, manifest: dict[str, Any] | None = None, now: datetime | None = None) -> RunState:
@@ -431,9 +575,13 @@ def babysit_complete_analysis_run(
     if not run_id:
         raise ValueError("run_id must not be empty")
 
+    self_pid = os.getpid()
+    babysitter_pidfile = _take_babysitter_ownership(run_id, self_pid)
+
     print("=" * 70, flush=True)
     print("SIB Complete Analysis Babysitter", flush=True)
     print(f"Run ID: {run_id}", flush=True)
+    print(f"Babysitter pidfile: {babysitter_pidfile}", flush=True)
     print(
         "Poll interval: "
         f"{float(poll_seconds):.1f}s | stale_after: {float(stale_after_minutes):.1f}m | "
@@ -449,6 +597,14 @@ def babysit_complete_analysis_run(
     silent_hang_after_seconds = float(silent_hang_after_minutes) * 60.0
 
     while True:
+        superseded, owner_pid = _is_superseded_babysitter(run_id, self_pid)
+        if superseded:
+            print(
+                f"[{_human_ts()}] babysitter superseded by pid={owner_pid}; exiting",
+                flush=True,
+            )
+            return 0
+
         manifest = _load_manifest(run_id)
         state = _inspect_run(run_id, manifest=manifest, now=now_fn())
         snapshot = _snapshot_key(manifest, state)
@@ -495,7 +651,8 @@ def babysit_complete_analysis_run(
                 f"waiting {delay:.0f}s before retry #{restart_count + 1}",
                 flush=True,
             )
-            sleep_fn(delay)
+            if not _sleep_with_owner_checks(run_id, self_pid, delay, sleep_fn=sleep_fn):
+                return 0
             if kill_first:
                 _terminate_live_processes(run_id)
             launched, pid = _launch_resume(run_id)
@@ -506,10 +663,12 @@ def babysit_complete_analysis_run(
                     "continuing supervision",
                     flush=True,
                 )
-            sleep_fn(min(5.0, float(poll_seconds)))
+            if not _sleep_with_owner_checks(run_id, self_pid, min(5.0, float(poll_seconds)), sleep_fn=sleep_fn):
+                return 0
             continue
 
-        sleep_fn(float(poll_seconds))
+        if not _sleep_with_owner_checks(run_id, self_pid, float(poll_seconds), sleep_fn=sleep_fn):
+            return 0
 
 
 def main() -> int:
