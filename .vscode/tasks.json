@@ -41,6 +41,29 @@
       }
     },
     {
+      "label": "SIB: Babysit Complete Analysis Run",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "RUN_ID='${input:completeAnalysisRunId}'; SESSION=\"babysit-${input:completeAnalysisRunId}\"; LOG_FILE=\"/home/ubuntu/sib-work/logs/babysit_complete_analysis_${input:completeAnalysisRunId}.log\"; cd /home/ubuntu/sib-work; if tmux has-session -t \"$SESSION\" 2>/dev/null; then echo \"Reusing tmux session $SESSION\"; else tmux new-session -d -s \"$SESSION\" \"bash -lc '/home/ubuntu/sib-work/backend/.venv/bin/python scripts/babysit_complete_analysis_run.py --run-id $RUN_ID --poll-seconds 60 --stale-after-minutes 20 --silent-hang-after-minutes 30 --restart-delay-seconds 30 2>&1 | tee -a $LOG_FILE'\"; echo \"Started tmux session $SESSION\"; fi; exec tmux attach -t \"$SESSION\""
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      }
+    },
+    {
       "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe Only)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
@@ -208,6 +231,14 @@
         "kind": "none",
         "isDefault": false
       }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "completeAnalysisRunId",
+      "type": "promptString",
+      "description": "Complete-analysis run ID to babysit",
+      "default": "20260611_075636"
     }
   ]
 }
