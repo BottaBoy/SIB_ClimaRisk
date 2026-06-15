@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import sys
 
@@ -11,7 +12,22 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from scripts import journal_guamar_run, rerun_case_studies_light, run_complete_analysis
+from scripts import (
+    journal_guamar_run,
+    rebuild_frontend_artifacts_from_local_run,
+    rerun_case_studies_light,
+    run_complete_analysis,
+)
+
+
+def test_frontend_artifacts_not_required_for_sensitivity_runs() -> None:
+    assert run_complete_analysis._frontend_artifacts_required(None) is True
+    assert (
+        run_complete_analysis._frontend_artifacts_required(
+            type("_Scenario", (), {"scenario_id": "all-default"})()
+        )
+        is False
+    )
 
 
 def test_rebuild_case_study_frontend_artifacts_does_not_pass_removed_fallback_flags(monkeypatch, tmp_path):
@@ -189,6 +205,201 @@ def test_purge_case_study_outputs_removes_stale_frontend_files(monkeypatch, tmp_
         assert not path.exists()
 
 
+def test_case_study_output_paths_include_water_infra_geojson(monkeypatch, tmp_path):
+    monkeypatch.setattr(rerun_case_studies_light, "REPO_ROOT", tmp_path)
+
+    names = [path.name for path in rerun_case_studies_light._case_study_output_paths("guadeloupe")]
+
+    assert "guadeloupe-water-infra.geojson" in names
+
+
+def test_case_study_output_paths_use_page7_for_saint_barthelemy(monkeypatch, tmp_path):
+    monkeypatch.setattr(rerun_case_studies_light, "REPO_ROOT", tmp_path)
+
+    names = [path.name for path in rerun_case_studies_light._case_study_output_paths("saint-barthelemy")]
+
+    assert "saint-barthelemy-page7-analysis.json" in names
+
+
+def test_resolve_archived_complete_analysis_json_prefers_run_archive(tmp_path) -> None:
+    journal_path = tmp_path / "20260527_160919" / "frontend-supervision.jsonl"
+    manifest_path = journal_path.parent / "manifest.json"
+    archived_path = journal_path.parent / "territories" / "martinique" / "web" / "data" / "martinique-complete-analysis.json"
+    archived_path.parent.mkdir(parents=True, exist_ok=True)
+    archived_path.write_text("{}", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_id": "20260527_160919",
+                "territories": {
+                    "martinique": {
+                        "archived_complete_analysis_path": str(archived_path),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolved = rerun_case_studies_light._resolve_archived_complete_analysis_json(
+        "martinique",
+        journal_path=journal_path,
+        complete_analysis_run_id="20260527_160919",
+    )
+
+    assert resolved == archived_path
+
+
+def test_main_passes_archived_complete_analysis_json_to_proxy_and_page(monkeypatch, tmp_path) -> None:
+    journal_path = tmp_path / "20260527_160919" / "frontend-supervision.jsonl"
+    manifest_path = journal_path.parent / "manifest.json"
+    archived_path = journal_path.parent / "territories" / "guadeloupe" / "web" / "data" / "guadeloupe-complete-analysis.json"
+    archived_path.parent.mkdir(parents=True, exist_ok=True)
+    archived_path.write_text("{}", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_id": "20260527_160919",
+                "territories": {
+                    "guadeloupe": {
+                        "archived_complete_analysis_path": str(archived_path),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    recorded_runs: list[dict[str, object]] = []
+    monkeypatch.setenv("SIB_FRONTEND_SUPERVISION_RUN_ID", "20260527_160919")
+    monkeypatch.setattr(
+        rerun_case_studies_light.sys,
+        "argv",
+        ["rerun_case_studies_light.py", "--territories", "guadeloupe"],
+    )
+    monkeypatch.setattr(rerun_case_studies_light, "load_settings", lambda: type("_Settings", (), {"surge_grid_deg": 0.02})())
+    monkeypatch.setattr(rerun_case_studies_light, "_resolve_landslide_python", lambda: rerun_case_studies_light.PYTHON)
+    monkeypatch.setattr(rerun_case_studies_light, "_build_territory_env", lambda territory, base_settings: {})
+    monkeypatch.setattr(
+        rerun_case_studies_light,
+        "_resolve_page_component_light_config",
+        lambda **kwargs: {
+            "spacing_m": 100.0,
+            "max_points_total": 0,
+            "max_points_per_feature": 120,
+            "dynamic_max_tracks": 1200,
+        },
+    )
+    monkeypatch.setattr(rerun_case_studies_light, "_assert_supported_page_component_light_config", lambda **kwargs: None)
+    monkeypatch.setattr(rerun_case_studies_light, "_purge_case_study_outputs", lambda territory: None)
+    monkeypatch.setattr(rerun_case_studies_light, "_assert_case_study_coherence", lambda territory, run_id: None)
+    monkeypatch.setattr(rerun_case_studies_light, "record_guamar_run", lambda territory, session_run_id: None)
+    monkeypatch.setattr(rerun_case_studies_light, "write_frontend_supervision_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        rerun_case_studies_light,
+        "_run",
+        lambda cmd, **kwargs: recorded_runs.append({"cmd": list(cmd), **kwargs}),
+    )
+
+    exit_code = rerun_case_studies_light.main(journal_path=journal_path)
+
+    assert exit_code == 0
+    proxy_cmd = next(item["cmd"] for item in recorded_runs if item.get("step") == "build_multi_hazard_proxy")
+    page_cmd = next(item["cmd"] for item in recorded_runs if item.get("step") == "build_page_analysis")
+    assert "--complete-analysis-json" in proxy_cmd
+    assert proxy_cmd[proxy_cmd.index("--complete-analysis-json") + 1] == str(archived_path)
+    assert "--complete-analysis-json" in page_cmd
+    assert page_cmd[page_cmd.index("--complete-analysis-json") + 1] == str(archived_path)
+
+
+def test_resolve_local_requested_dynamic_max_tracks_reads_complete_analysis_payloads(monkeypatch, tmp_path) -> None:
+    data_root = tmp_path / "web" / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "meta": {
+            "modeling": {
+                "hazard_dynamic_max_tracks_requested": 150,
+            }
+        }
+    }
+    for territory in ("guadeloupe", "martinique"):
+        (data_root / f"{territory}-complete-analysis.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+
+    dynamic_max_tracks, resolved = rebuild_frontend_artifacts_from_local_run.resolve_local_requested_dynamic_max_tracks(
+        ["guadeloupe", "martinique"],
+        data_root=data_root,
+    )
+
+    assert dynamic_max_tracks == 150
+    assert resolved == {"guadeloupe": 150, "martinique": 150}
+
+
+def test_rebuild_wrapper_propagates_local_dynamic_tracks(monkeypatch, tmp_path) -> None:
+    data_root = tmp_path / "web" / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "meta": {
+            "modeling": {
+                "hazard_dynamic_max_tracks_requested": 150,
+            }
+        }
+    }
+    (data_root / "guadeloupe-complete-analysis.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    monkeypatch.setattr(rebuild_frontend_artifacts_from_local_run, "WEB_DATA_DIR", data_root)
+
+    captured: dict[str, object] = {}
+
+    def _fake_run(cmd, check, env):
+        captured["cmd"] = list(cmd)
+        captured["check"] = bool(check)
+        captured["env"] = dict(env)
+        return None
+
+    monkeypatch.setattr(rebuild_frontend_artifacts_from_local_run.subprocess, "run", _fake_run)
+
+    exit_code = rebuild_frontend_artifacts_from_local_run.main([
+        "--territories",
+        "guadeloupe",
+    ])
+
+    assert exit_code == 0
+    assert captured["check"] is True
+    assert captured["env"]["SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS"] == "150"
+    assert "--page-component-light-dynamic-max-tracks" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--page-component-light-dynamic-max-tracks") + 1] == "150"
+
+
+def test_assert_case_study_coherence_requires_hydraulic_geojson_outputs(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(rerun_case_studies_light, "REPO_ROOT", tmp_path)
+
+    data_root = tmp_path / "web" / "data"
+    data_root.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "meta": {
+            "case_study_run_id": "guadeloupe_case_20260527T070221Z",
+            "generated_at": "2026-05-27T07:08:39+00:00",
+        }
+    }
+    for name in (
+        "guadeloupe-wind-maps.json",
+        "guadeloupe-landslide-maps.json",
+        "guadeloupe-multi-hazard-proxy.json",
+        "guadeloupe-page1-analysis.json",
+    ):
+        (data_root / name).write_text(__import__("json").dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="missing required case-study geojson artefacts: water-infra, network-states"):
+        rerun_case_studies_light._assert_case_study_coherence(
+            "guadeloupe",
+            "guadeloupe_case_20260527T070221Z",
+        )
+
+
 def test_assert_supported_page_component_light_config_accepts_full_coverage_settings() -> None:
     settings = type(
         "_Settings",
@@ -326,3 +537,10 @@ def test_extract_run_entry_uses_wind_map_track_count_even_if_page_meta_mentions_
     assert row["source_dynamic_max_tracks"] == 1500
     assert row["complete_analysis_run_id"] == "20260421_091134"
     assert row["track_ids_count"] == 2
+
+
+def test_deploy_verify_relative_paths_include_water_infra_geojson() -> None:
+    assert "data/guadeloupe-water-infra.geojson" in run_complete_analysis.DEPLOY_VERIFY_RELATIVE_PATHS
+    assert "data/martinique-water-infra.geojson" in run_complete_analysis.DEPLOY_VERIFY_RELATIVE_PATHS
+    assert "data/saint-barthelemy-water-infra.geojson" in run_complete_analysis.DEPLOY_VERIFY_RELATIVE_PATHS
+    assert "data/saint-barthelemy-page7-analysis.json" in run_complete_analysis.DEPLOY_VERIFY_RELATIVE_PATHS

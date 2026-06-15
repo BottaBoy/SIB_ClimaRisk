@@ -38,7 +38,7 @@ from build_guadeloupe_page1_data import (  # noqa: E402
     _sample_raster_values_for_point_records,
     _simulate_landslide_portfolio_yearly_losses,
 )
-from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
+from case_study_sources import get_case_study, parse_territory, territory_label  # noqa: E402
 
 try:
     from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub  # type: ignore
@@ -1064,8 +1064,8 @@ def _run_proxy_climada(sample_bundle: Any, climada_kwargs: dict[str, Any]) -> An
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build a lightweight sampled multi-hazard proxy for Guadeloupe/Martinique case-study reruns.")
-    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser = argparse.ArgumentParser(description="Build a lightweight sampled multi-hazard proxy for explicit SIB case-study territories.")
+    parser.add_argument("--territory", default="guadeloupe")
     parser.add_argument("--infra-elec-dir", default=None)
     parser.add_argument("--infra-eau-dir", default=None)
     parser.add_argument("--complete-analysis-json", default=None)
@@ -1083,7 +1083,7 @@ def main() -> None:
     args = parser.parse_args()
     _load_case_study_helpers()
 
-    territory = normalize_territory(args.territory)
+    territory = parse_territory(args.territory)
     case_cfg = get_case_study(
         territory,
         infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,

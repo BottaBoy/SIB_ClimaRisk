@@ -35,6 +35,7 @@ _DEFAULT_COPERNICUS_SURGE_TOPO_DIR = _DEFAULT_SURGE_TOPO_ROOT / "Copernicus GLO-
 _DEFAULT_SURGE_TOPO_BY_TERRITORY = {
     "guadeloupe": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Guadeloupe_COP30.tif",
     "martinique": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Martinique_COP30.tif",
+    "saint-barthelemy": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "SaintBarthelemy_COP30.tif",
 }
 _LEGACY_SURGE_TOPO_BY_TERRITORY = {
     "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
@@ -50,6 +51,13 @@ def _normalize_territory_key(raw: str | None) -> str | None:
         "mar": "martinique",
         "martinique": "martinique",
         "mtq": "martinique",
+        "mq": "martinique",
+        "saint-barthelemy": "saint-barthelemy",
+        "saint_barthelemy": "saint-barthelemy",
+        "saintbarth": "saint-barthelemy",
+        "saint_barth": "saint-barthelemy",
+        "blm": "saint-barthelemy",
+        "stb": "saint-barthelemy",
     }
     return aliases.get(key)
 

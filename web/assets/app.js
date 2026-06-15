@@ -21,7 +21,8 @@ const state = {
   caseStudyTerritory: 'guadeloupe',
   caseStudyCache: {
     guadeloupe: null,
-    martinique: null
+    martinique: null,
+    'saint-barthelemy': null
   },
   mapReady: false,
   windMaps: null,
@@ -220,7 +221,32 @@ const networkMapRef = {
 
 const introNetworkMapRefs = {
   guadeloupe: { instance: null, layer: null, hasFitted: false, selectionKey: '' },
-  martinique: { instance: null, layer: null, hasFitted: false, selectionKey: '' }
+  martinique: { instance: null, layer: null, hasFitted: false, selectionKey: '' },
+  'saint-barthelemy': { instance: null, layer: null, hasFitted: false, selectionKey: '' }
+};
+
+const CASE_STUDY_PAGE_TO_TERRITORY = {
+  page2: 'guadeloupe',
+  page3: 'martinique',
+  page7: 'saint-barthelemy'
+};
+
+const CASE_STUDY_TERRITORY_TO_PAGE = {
+  guadeloupe: 'page2',
+  martinique: 'page3',
+  'saint-barthelemy': 'page7'
+};
+
+const CASE_STUDY_TERRITORY_LABELS = {
+  guadeloupe: 'Guadeloupe',
+  martinique: 'Martinique',
+  'saint-barthelemy': 'Saint-Barthélemy'
+};
+
+const CASE_STUDY_POPULATION_CODES = {
+  guadeloupe: 'glp',
+  martinique: 'mtq',
+  'saint-barthelemy': 'blm'
 };
 
 const introHazardMapRef = {
@@ -260,6 +286,7 @@ const CASE_STUDY_DISABLED_WATER_LAYER_TYPES = new Set(['aep_ouvrage']);
 const NETWORK_LAYER_ORDER = [
   'eau_aep',
   'eau_eu',
+  'elec_grid_0p1deg',
   'elec_bt_souterrain',
   'elec_bt_aerien',
   'elec_hta_souterrain',
@@ -269,10 +296,18 @@ const NETWORK_LAYER_ORDER = [
 const NETWORK_LAYER_LABEL = {
   eau_aep: 'Reseau eau AEP',
   eau_eu: 'Reseau eau EU',
+  elec_grid_0p1deg: 'Electricite agrégée 0.1°',
   elec_bt_souterrain: 'Reseau basse tension souterrain',
   elec_bt_aerien: 'Reseau basse tension aerien',
   elec_hta_souterrain: 'Reseau haute tension souterrain',
   elec_hta_aerien: 'Reseau haute tension aerien'
+};
+
+const REQUIRED_NETWORK_STATE_METADATA = {
+  state_geometry_mode: 'hydraulic_zoning_v2',
+  water_state_geometry_mode: 'hydraulic_zoning_v2',
+  water_service_unit: 'zone_component_key',
+  electric_state_geometry_mode: 'fixed_grid_0p1deg'
 };
 
 const ASSET_TYPE_ADMIN_LABEL = {
@@ -375,6 +410,7 @@ const els = {
   navPage1: document.getElementById('nav-page-1'),
   navPage2: document.getElementById('nav-page-2'),
   navPage3: document.getElementById('nav-page-3'),
+  navPage7: document.getElementById('nav-page-7'),
   navPage4: document.getElementById('nav-page-4'),
   navPage5: document.getElementById('nav-page-5'),
   navPage6: document.getElementById('nav-page-6'),
@@ -655,10 +691,19 @@ function pageFromHash() {
   const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
   if (hash === 'page2') return 'page2';
   if (hash === 'page3') return 'page3';
+  if (hash === 'page7') return 'page7';
   if (hash === 'page4') return runtime.isPublicShowcase ? 'page1' : 'page4';
   if (hash === 'page5') return 'page5';
   if (hash === 'page6') return runtime.allowAdminVisu ? 'page6' : 'page1';
   return 'page1';
+}
+
+function isCaseStudyPage(pageKey) {
+  return !!CASE_STUDY_PAGE_TO_TERRITORY[pageKey];
+}
+
+function caseStudyTerritoryForPage(pageKey) {
+  return CASE_STUDY_PAGE_TO_TERRITORY[pageKey] || 'guadeloupe';
 }
 
 function loadAdminPage5Panels() {
@@ -728,6 +773,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     [els.navPage1, 'page1'],
     [els.navPage2, 'page2'],
     [els.navPage3, 'page3'],
+    [els.navPage7, 'page7'],
     [els.navPage4, 'page4'],
     [els.navPage5, 'page5'],
     [els.navPage6, 'page6']
@@ -742,6 +788,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     setTimeout(() => {
       if (introNetworkMapRefs.guadeloupe.instance) introNetworkMapRefs.guadeloupe.instance.invalidateSize();
       if (introNetworkMapRefs.martinique.instance) introNetworkMapRefs.martinique.instance.invalidateSize();
+      if (introNetworkMapRefs['saint-barthelemy'].instance) introNetworkMapRefs['saint-barthelemy'].instance.invalidateSize();
       if (introHazardMapRef.instance) introHazardMapRef.instance.invalidateSize();
       if (chartRefs.intro_impact_water) chartRefs.intro_impact_water.resize();
       if (chartRefs.intro_impact_electricity) chartRefs.intro_impact_electricity.resize();
@@ -759,7 +806,7 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
       if (chartRefs.user_impact_eventmax) chartRefs.user_impact_eventmax.resize();
     }, 80);
   }
-  if (pageKey === 'page2' || pageKey === 'page3') {
+  if (isCaseStudyPage(pageKey)) {
     setTimeout(() => {
       if (windMapRef.storm.instance) windMapRef.storm.instance.invalidateSize();
       if (windMapRef.storm_cmcc.instance) windMapRef.storm_cmcc.instance.invalidateSize();
@@ -1209,12 +1256,18 @@ function currentCaseStudyRunBadgeSummary() {
     || caseMeta.case_study_run_id
     || ''
   ).trim();
+  const runId = String(
+    completeMeta.run_id
+    || completeSource.run_id
+    || caseMeta?.publication_trace?.complete_analysis_run_id
+    || ''
+  ).trim();
   const trackCount = maxTrackCountFromMeta(
     completeSource.dynamic_max_tracks
     || completeMeta.dynamic_max_tracks
     || caseMeta.dynamic_max_tracks
   );
-  return { runName, trackCount, badgeMeta };
+  return { runName, runId, trackCount, badgeMeta };
 }
 
 function setTraceBadge(text, traceState = 'unavailable', title = '') {
@@ -1646,15 +1699,16 @@ function getHazardDifferenceLabel() {
 }
 
 function updateMetaBadges() {
-  if (state.currentPage === 'page2' || state.currentPage === 'page3') {
+  if (isCaseStudyPage(state.currentPage)) {
     setElementHidden(els.badgeEngine, true);
     setElementHidden(els.badgeTrace, true);
     const runSummary = currentCaseStudyRunBadgeSummary();
     const badgeMeta = runSummary.badgeMeta;
     if (badgeMeta.caseMeta || badgeMeta.completeMeta) {
       const runLabel = runSummary.runName || 'inconnu';
+      const runIdLabel = runSummary.runId && runSummary.runId !== runLabel ? ` · ID ${runSummary.runId}` : '';
       const tracksLabel = Number.isFinite(runSummary.trackCount) ? ` · ${numberFmt.format(runSummary.trackCount)} tracks` : '';
-      els.badgeSource.textContent = `Run: ${runLabel}${tracksLabel}`;
+      els.badgeSource.textContent = `Run: ${runLabel}${tracksLabel}${runIdLabel}`;
       if (badgeMeta.hasNewerCompleteAnalysis && badgeMeta.completeUpdatedAt) {
         els.badgeUpdated.textContent =
           `Mis a jour impacts: ${formatDate(badgeMeta.completeUpdatedAt)} | ` +
@@ -1748,7 +1802,7 @@ function renderKpis() {
 
 function renderInfraSummary() {
   const analysis = state.page1Analysis;
-  const territory = caseStudyTerritoryFromAnalysis(analysis, state.currentPage === 'page3' ? 'martinique' : 'guadeloupe');
+  const territory = caseStudyTerritoryFromAnalysis(analysis, caseStudyTerritoryForPage(state.currentPage));
   const territoryLabel = caseStudyTerritoryLabel(territory);
   if (els.caseStudyTitle) {
     els.caseStudyTitle.textContent = `Impact des risques physiques sur les infrastructures : etude de cas ${territoryLabel}`;
@@ -1788,8 +1842,11 @@ function renderMethodologyValuation(analysis) {
   if (!els.methodValuationOfb) return;
   const valuation = analysis?.exposition?.valuation_metadata || {};
   const territory = String(valuation.territory_effective || 'guadeloupe');
-  const source = String(valuation.source || 'Comparateur de couts OFB (moyenne territoriale observee)');
+  const source = String(valuation.source || 'Profil de valorisation reseaux');
   const version = String(valuation.valuation_version || 'n/a');
+  const referenceTerritory = String(valuation.reference_profile_territory || 'guadeloupe');
+  const classCoverage = valuation.class_coverage || {};
+  const aepCoverage = classCoverage.eau_aep || {};
   const nb = valuation.nb_prix_compares || {};
   const compared = [
     `AEP canalisations: ${numberFmt.format(Number(nb.aep_cana || 0))}`,
@@ -1797,19 +1854,19 @@ function renderMethodologyValuation(analysis) {
     `EU PR: ${numberFmt.format(Number(nb.eu_pr || 0))}`,
     `EU STEP: ${numberFmt.format(Number(nb.eu_step || 0))}`
   ].join(' | ');
-  const policy = 'Regle territoriale: Guadeloupe/Martinique par bbox, hors zone = fallback Guadeloupe.';
+  const policy = 'Regle territoriale: AEP conserve la valeur du territoire applique, EU partage un profil Guadeloupe; hors zone = fallback Guadeloupe.';
   const newValues = valuation.new_values || {};
   const dynamicRules = [
     'Elec basse tension aerien: 167 060 EUR/km (D3 overhead line 220kV)',
     'Elec basse tension souterrain: 1 336 480 EUR/km (derive D3)',
     'Elec haute tension aerien: 249 299 EUR/km (D3 overhead line 380kV)',
     'Elec haute tension souterrain: 1 994 390 EUR/km (D3)',
-    `AEP canalisations (${territory}): ${numberFmt.format(Number(newValues.aep_cana_eur_per_km || 0))} EUR/km`,
-    `EU canalisations (${territory}): ${numberFmt.format(Number(newValues.eu_cana_eur_per_km || 0))} EUR/km`,
-    `EU PR (${territory}): ${numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0))} EUR/unite`,
-    `EU STEP (${territory}): ${numberFmt.format(Number(newValues.eu_step_eur_per_unit || 0))} EUR/unite`,
+    `AEP canalisations (${territory}): ${numberFmt.format(Number(newValues.aep_cana_eur_per_km || 0))} EUR/km (${String(aepCoverage.status || 'statut non documente')})`,
+    `EU canalisations (profil partage ${referenceTerritory}): ${numberFmt.format(Number(newValues.eu_cana_eur_per_km || 0))} EUR/km`,
+    `EU PR (profil partage ${referenceTerritory}): ${numberFmt.format(Number(newValues.eu_pr_eur_per_unit || 0))} EUR/unite`,
+    `EU STEP (profil partage ${referenceTerritory}): ${numberFmt.format(Number(newValues.eu_step_eur_per_unit || 0))} EUR/unite`,
     'AEP ouvrages: valeur fixe par ovrg_type (TRAIT/STPMP/CAP/CUV/autres)',
-    'Source OFB: comparateur de couts, moyenne territoriale observee'
+    `Source principale eau: ${source}`
   ];
 
   els.methodValuationOfb.innerHTML = `
@@ -2541,6 +2598,30 @@ function featureRepresentativePoint(feature) {
     lon: totals.lon / points.length,
     lat: totals.lat / points.length,
   };
+}
+
+function isPolygonGeometry(feature) {
+  const geometryType = String(feature?.geometry?.type || '').trim();
+  return geometryType === 'Polygon' || geometryType === 'MultiPolygon';
+}
+
+function networkStatesMetadata(networkStates) {
+  const metadata = networkStates?.metadata;
+  return metadata && typeof metadata === 'object' ? metadata : {};
+}
+
+function networkStatesUseHydraulicWaterZones(networkStates) {
+  return String(networkStatesMetadata(networkStates).water_state_geometry_mode || '').trim().toLowerCase() === 'hydraulic_zoning_v2';
+}
+
+function validateNetworkStatesMetadata(payload) {
+  const metadata = networkStatesMetadata(payload);
+  Object.entries(REQUIRED_NETWORK_STATE_METADATA).forEach(([key, expectedValue]) => {
+    const observedValue = String(metadata?.[key] || '').trim();
+    if (observedValue !== expectedValue) {
+      throw new Error(`metadata ${key}=${observedValue || 'missing'} (expected ${expectedValue})`);
+    }
+  });
 }
 
 function territoryCellIdFromLatLon(latRaw, lonRaw) {
@@ -4068,7 +4149,7 @@ function isCaseStudyCmccMeanVisualSmoothingEnabled(hazardKey, metric, meta) {
   if (normalizeHazardComponent(metric?.component) !== 'wind') return false;
   if (String(metric?.mode || '').toLowerCase() !== 'mean') return false;
   const territory = String(meta?.territory || '').trim().toLowerCase();
-  return territory === 'guadeloupe' || territory === 'martinique';
+  return territory === 'guadeloupe' || territory === 'martinique' || territory === 'saint-barthelemy';
 }
 
 function collectNeighborValuesForVisualSmoothing(i, j, knownByIndex, metricValueKey, floorValue) {
@@ -5542,16 +5623,26 @@ function renderAdminVulnerabilityOverviewMiniChart(assetKey, component, curve, s
 
 function waterInfraStyle(feature) {
   const t = String(feature?.properties?.infra_type || '').toLowerCase();
-  if (t === 'aep_cana') return { color: '#003A76', weight: 1.2, opacity: 0.85 };
-  if (t === 'aep_ouvrage') return { color: '#5BC5F2', weight: 1.8, opacity: 0.95 };
-  if (t === 'eu_cana') return { color: '#564949', weight: 1.2, opacity: 0.85 };
-  if (t === 'eu_pr') return { color: '#9A7867', weight: 1.8, opacity: 0.95 };
-  if (t === 'eu_step') return { color: '#CC9F72', weight: 2.2, opacity: 0.95 };
-  if (t === 'elec_bt_aerien') return { color: '#6AB96F', weight: 1.2, opacity: 0.85 };
-  if (t === 'elec_bt_souterrain') return { color: '#A4A64B', weight: 1.2, opacity: 0.85 };
-  if (t === 'elec_hta_aerien') return { color: '#F39655', weight: 1.4, opacity: 0.9 };
-  if (t === 'elec_hta_souterrain') return { color: '#FFD744', weight: 1.4, opacity: 0.9 };
-  return { color: '#c7d0d8', weight: 1.0, opacity: 0.7 };
+  let style = { color: '#c7d0d8', weight: 1.0, opacity: 0.7 };
+  if (t === 'aep_cana') style = { color: '#003A76', weight: 1.2, opacity: 0.85 };
+  if (t === 'aep_ouvrage') style = { color: '#5BC5F2', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_cana') style = { color: '#564949', weight: 1.2, opacity: 0.85 };
+  if (t === 'eu_pr') style = { color: '#9A7867', weight: 1.8, opacity: 0.95 };
+  if (t === 'eu_step') style = { color: '#CC9F72', weight: 2.2, opacity: 0.95 };
+  if (t === 'elec_bt_aerien') style = { color: '#6AB96F', weight: 1.2, opacity: 0.85 };
+  if (t === 'elec_bt_souterrain') style = { color: '#A4A64B', weight: 1.2, opacity: 0.85 };
+  if (t === 'elec_hta_aerien') style = { color: '#F39655', weight: 1.4, opacity: 0.9 };
+  if (t === 'elec_hta_souterrain') style = { color: '#FFD744', weight: 1.4, opacity: 0.9 };
+  if (isPolygonGeometry(feature)) {
+    return {
+      ...style,
+      fillColor: style.color,
+      fillOpacity: t === 'aep_cana' || t === 'eu_cana' ? 0.16 : 0.22,
+      weight: Math.max(Number(style.weight || 0), 1.2),
+      opacity: 0.92
+    };
+  }
+  return style;
 }
 
 function ensureWaterLayerState(typeKey) {
@@ -5638,12 +5729,16 @@ function ensureWaterLayers(payload) {
       }),
       onEachFeature: (feature, layerItem) => {
         const p = feature?.properties || {};
+        const infraType = String(p.infra_type || 'infra');
+        const tooltipRows = [
+          `<strong>${escapeHtml(WATER_LAYER_LABEL[infraType] || infraType)}</strong>`,
+          `id: ${escapeHtml(String(p.feature_id || 'n/a'))}`
+        ];
+        if (p.zone_component_key) tooltipRows.push(`service: ${escapeHtml(String(p.zone_component_key))}`);
+        if (p.feature_role) tooltipRows.push(`role: ${escapeHtml(String(p.feature_role))}`);
+        if (p.source_group) tooltipRows.push(`groupe: ${escapeHtml(String(p.source_group))}`);
         layerItem.bindTooltip(
-          [
-            `<strong>${escapeHtml(String(p.infra_type || 'infra'))}</strong>`,
-            `id: ${escapeHtml(String(p.feature_id || 'n/a'))}`,
-            `groupe: ${escapeHtml(String(p.source_group || 'n/a'))}`
-          ].join('<br/>'),
+          tooltipRows.join('<br/>'),
           { sticky: true }
         );
       }
@@ -5712,7 +5807,7 @@ function renderWaterInfraMap() {
 }
 
 function normalizeCaseStudyPopulationTerritory(territoryRaw) {
-  return normalizeCaseStudyTerritory(territoryRaw) === 'martinique' ? 'mtq' : 'glp';
+  return CASE_STUDY_POPULATION_CODES[normalizeCaseStudyTerritory(territoryRaw)] || 'glp';
 }
 
 function updateWaterPopulationToggleUi() {
@@ -5941,9 +6036,25 @@ function networkFeatureState(feature) {
 function networkStateStyle(feature) {
   const layerKey = String(feature?.properties?.layer_key || '');
   const stateCode = networkFeatureState(feature);
+  const color = STATE_COLORS[stateCode] || STATE_COLORS.S0;
+  if (isPolygonGeometry(feature)) {
+    const fillOpacityByState = {
+      S0: 0.12,
+      S1: 0.2,
+      S2: 0.28,
+      S3: 0.36
+    };
+    return {
+      color,
+      weight: 1.3,
+      opacity: 0.95,
+      fillColor: color,
+      fillOpacity: fillOpacityByState[stateCode] || 0.2
+    };
+  }
   const weight = layerKey.startsWith('eau_') ? 1.4 : 1.1;
   return {
-    color: STATE_COLORS[stateCode] || STATE_COLORS.S0,
+    color,
     weight,
     opacity: 0.92
   };
@@ -6199,9 +6310,11 @@ function renderNetworkStateMap() {
     } else {
       const extras = [];
       if (state.networkStatePopulationVisible) extras.push('population');
-      if (state.networkStateGridVisible) extras.push('quadrillage');
+      if (state.networkStateGridVisible) extras.push('maille meteo');
       const extraText = extras.length ? ` · ${extras.join(' + ')} affiche` : '';
-      els.networkStateCaption.textContent = `Affichage ${hz} (${sc}) - ${numberFmt.format(visibleTotal)} segments visibles sur ${numberFmt.format((state.networkStates.features || []).length)}${extraText}.`;
+      const unitLabel = networkStatesUseHydraulicWaterZones(state.networkStates) ? 'unites visibles' : 'segments visibles';
+      const contractText = networkStatesUseHydraulicWaterZones(state.networkStates) ? ' · eau affichee en zones hydrauliques' : '';
+      els.networkStateCaption.textContent = `Affichage ${hz} (${sc}) - ${numberFmt.format(visibleTotal)} ${unitLabel} sur ${numberFmt.format((state.networkStates.features || []).length)}${extraText}${contractText}.`;
     }
   }
 
@@ -6285,7 +6398,7 @@ function renderFocusedStateShareChart(refKey, domId, currentValues, futureValues
   const futureLabel = options.outerLabel || getHazardLabel('storm_cmcc');
   const currentPositive = positiveStateShare(currentValues);
   const futurePositive = positiveStateShare(futureValues);
-  const zoomMax = Math.max(5, Math.ceil(Math.max(currentPositive, futurePositive) * 1.25));
+  const zoomMax = Math.min(100, Math.max(5, Math.ceil(Math.max(currentPositive, futurePositive) * 1.25)));
   const legendData = NETWORK_STATE_ORDER.filter((stateCode) => {
     return Number(currentValues?.[stateCode] || 0) > 0 || Number(futureValues?.[stateCode] || 0) > 0 || stateCode === 'S0';
   });
@@ -7347,21 +7460,20 @@ function renderIntroNetworkStateMap(territoryRaw, networkStates) {
 
   ref.layer = L.geoJSON({ type: 'FeatureCollection', features }, {
     style: (feature) => {
-      const stateCode = String(feature?.properties?.state_rp100_storm || 'S0').toUpperCase();
-      return {
-        color: STATE_COLORS[stateCode] || STATE_COLORS.S0,
-        weight: 1.6,
-        opacity: 0.92
-      };
+      return networkStateStyle(feature);
     },
     onEachFeature: (feature, layerItem) => {
       const stateCode = String(feature?.properties?.state_rp100_storm || 'S0').toUpperCase();
+      const tooltipRows = [
+        `<strong>${escapeHtml(selection?.label || 'Réseau')}</strong>`,
+        `Etat RP100 climat actuel: ${escapeHtml(stateCode)}`,
+        `id: ${escapeHtml(String(feature?.properties?.feature_id || 'n/a'))}`
+      ];
+      if (feature?.properties?.zone_component_key) {
+        tooltipRows.push(`service: ${escapeHtml(String(feature.properties.zone_component_key))}`);
+      }
       layerItem.bindTooltip(
-        [
-          `<strong>${escapeHtml(selection?.label || 'Réseau')}</strong>`,
-          `Etat RP100 climat actuel: ${escapeHtml(stateCode)}`,
-          `id: ${escapeHtml(String(feature?.properties?.feature_id || 'n/a'))}`
-        ].join('<br/>'),
+        tooltipRows.join('<br/>'),
         { sticky: true }
       );
     }
@@ -7375,7 +7487,8 @@ function renderIntroNetworkStateMap(territoryRaw, networkStates) {
   }
 
   if (captionEl) {
-    captionEl.textContent = `RP100 · climat actuel · ${selection?.label || 'Réseau eau AEP'} · ${numberFmt.format(features.length)} éléments affichés.`;
+    const unitLabel = features.some((feature) => isPolygonGeometry(feature)) ? 'zones hydrauliques' : 'elements';
+    captionEl.textContent = `RP100 · climat actuel · ${selection?.label || 'Réseau eau AEP'} · ${numberFmt.format(features.length)} ${unitLabel}.`;
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -7690,7 +7803,7 @@ function renderAll() {
   renderWaterInfraMap();
   renderInfraSummary();
   renderUserImpactSection(state.activeResult);
-  if (state.currentPage === 'page2' || state.currentPage === 'page3') {
+  if (isCaseStudyPage(state.currentPage)) {
     ensureNetworkStatesLoaded();
   }
   renderNetworkStateMap();
@@ -7728,7 +7841,12 @@ function setActiveResult(result, mode = state.selectedDatasetMode) {
 }
 
 function normalizeCaseStudyTerritory(territory) {
-  return String(territory || '').trim().toLowerCase() === 'martinique' ? 'martinique' : 'guadeloupe';
+  const value = String(territory || '').trim().toLowerCase();
+  if (value === 'martinique' || value === 'mq' || value === 'mtq' || value === 'mar') return 'martinique';
+  if (value === 'saint-barthelemy' || value === 'saint_barthelemy' || value === 'saintbarth' || value === 'saint_barth' || value === 'stb' || value === 'blm') {
+    return 'saint-barthelemy';
+  }
+  return 'guadeloupe';
 }
 
 function caseStudyTerritoryFromAnalysis(analysis, fallbackTerritory = null) {
@@ -7738,7 +7856,7 @@ function caseStudyTerritoryFromAnalysis(analysis, fallbackTerritory = null) {
 }
 
 function caseStudyTerritoryLabel(territory) {
-  return normalizeCaseStudyTerritory(territory) === 'martinique' ? 'Martinique' : 'Guadeloupe';
+  return CASE_STUDY_TERRITORY_LABELS[normalizeCaseStudyTerritory(territory)] || 'Guadeloupe';
 }
 
 function caseStudyFileBase(territory) {
@@ -8233,7 +8351,7 @@ async function fetchWaterInfra(territory = 'guadeloupe') {
 
 async function fetchPage1Analysis(territory = 'guadeloupe') {
   const base = caseStudyFileBase(territory);
-  const suffix = base === 'martinique' ? 'page2' : 'page1';
+  const suffix = CASE_STUDY_TERRITORY_TO_PAGE[base] === 'page3' ? 'page2' : (CASE_STUDY_TERRITORY_TO_PAGE[base] === 'page7' ? 'page7' : 'page1');
   const url = new URL(`/data/${base}-${suffix}-analysis.json`, window.location.origin).toString();
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -8262,6 +8380,7 @@ async function fetchNetworkStates(territory = 'guadeloupe') {
   if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
     throw new Error("Payload des états de réseaux invalide");
   }
+  validateNetworkStatesMetadata(payload);
   return payload;
 }
 
@@ -8726,6 +8845,11 @@ function bindEvents() {
       await switchCaseStudyPage('page3', 'martinique');
     });
   }
+  if (els.navPage7) {
+    els.navPage7.addEventListener('click', async () => {
+      await switchCaseStudyPage('page7', 'saint-barthelemy');
+    });
+  }
   if (els.navPage4) {
     els.navPage4.addEventListener('click', () => {
       if (runtime.isPublicShowcase) {
@@ -8755,12 +8879,8 @@ function bindEvents() {
   }
   window.addEventListener('hashchange', () => {
     const page = pageFromHash();
-    if (page === 'page3') {
-      switchCaseStudyPage('page3', 'martinique', { updateHash: false });
-      return;
-    }
-    if (page === 'page2') {
-      switchCaseStudyPage('page2', 'guadeloupe', { updateHash: false });
+    if (isCaseStudyPage(page)) {
+      switchCaseStudyPage(page, caseStudyTerritoryForPage(page), { updateHash: false });
       return;
     }
     if (page === 'page6') {
@@ -9211,17 +9331,20 @@ async function bootstrap() {
     const initialPage = pageFromHash();
     setActivePage(initialPage, { updateHash: false });
     renderDrawPreview();
-    const initialTerritory = initialPage === 'page3' ? 'martinique' : 'guadeloupe';
+    const initialTerritory = caseStudyTerritoryForPage(initialPage);
     const initialCasePayload = await ensureCaseStudyLoaded(initialTerritory).catch((err) => {
       console.warn(`Case-study ${initialTerritory} payload could not be loaded`, err);
       return null;
     });
     if (initialCasePayload) {
       applyCaseStudyState(initialTerritory, initialCasePayload);
-      const secondaryTerritory = initialTerritory === 'guadeloupe' ? 'martinique' : 'guadeloupe';
-      ensureCaseStudyLoaded(secondaryTerritory).catch((err) => {
-        console.warn(`Case-study ${secondaryTerritory} preload failed`, err);
-      });
+      Object.keys(CASE_STUDY_TERRITORY_TO_PAGE)
+        .filter((territory) => territory !== initialTerritory)
+        .forEach((territory) => {
+          ensureCaseStudyLoaded(territory).catch((err) => {
+            console.warn(`Case-study ${territory} preload failed`, err);
+          });
+        });
     } else {
       if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
       if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";

@@ -20,6 +20,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import load_settings  # noqa: E402
+from case_study_sources import parse_territory  # noqa: E402
 
 DEFAULT_WEB_DATA_DIR = REPO_ROOT / "web" / "data"
 DEFAULT_LANDSLIDE_ROOT = Path("/home/ubuntu/uploads/Landslide")
@@ -237,10 +238,13 @@ def main() -> int:
         "--territories",
         nargs="+",
         default=["guadeloupe", "martinique"],
-        choices=["guadeloupe", "martinique"],
         help="Territories to process.",
     )
     args = parser.parse_args()
+    try:
+        args.territories = [parse_territory(value) for value in args.territories]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     web_data_dir = Path(args.web_data_dir)
     landslide_root = Path(args.landslide_root)

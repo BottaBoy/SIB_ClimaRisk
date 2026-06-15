@@ -54,6 +54,27 @@ def _complete_analysis_payload(*, updated_at: str) -> dict:
     }
 
 
+def _network_states_payload(*, metadata: dict | None = None) -> dict:
+    return {
+        "type": "FeatureCollection",
+        "features": [],
+        "metadata": {
+            "state_geometry_mode": "hydraulic_zoning_v2",
+            "water_state_geometry_mode": "hydraulic_zoning_v2",
+            "water_service_unit": "zone_component_key",
+            "electric_state_geometry_mode": "native_network_geometry",
+            **(metadata or {}),
+        },
+    }
+
+
+def _water_infra_payload() -> dict:
+    return {
+        "type": "FeatureCollection",
+        "features": [],
+    }
+
+
 def _proxy_payload(*, case_study_run_id: str, complete_analysis_run_id: str, frozen_breakdown_shares: bool = False) -> dict:
     annual_shares = {"eau_aep": 0.9, "elec_bt_aerien": 0.1}
     rp50_shares = annual_shares if frozen_breakdown_shares else {"eau_aep": 0.7, "elec_bt_aerien": 0.3}
@@ -205,7 +226,8 @@ def _write_publication_ready_fixture(
             mismatch_rp100=mismatch_rp100,
         ),
     )
-    _write_json(data_dir / "guadeloupe-network-states.geojson", {"type": "FeatureCollection", "features": []})
+    _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
+    _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
     return outputs_dir, web_dir
 
 
@@ -277,7 +299,8 @@ def test_validate_territory_web_snapshot_rejects_fallback_publication(monkeypatc
             }
         },
     )
-    _write_json(data_dir / "guadeloupe-network-states.geojson", {"type": "FeatureCollection", "features": []})
+    _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
+    _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
 
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
 
@@ -303,6 +326,33 @@ def test_validate_territory_web_snapshot_rejects_public_loss_total_mismatch(
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
 
     with pytest.raises(RuntimeError, match="public loss totals mismatch complete-analysis"):
+        run_web_artifacts.validate_territory_web_snapshot(
+            run_id,
+            "guadeloupe",
+            source_web_dir=web_dir,
+        )
+
+
+def test_validate_territory_web_snapshot_rejects_network_states_without_hydraulic_metadata(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+    )
+    _write_json(
+        web_dir / "data" / "guadeloupe-network-states.geojson",
+        {
+            "type": "FeatureCollection",
+            "features": [],
+        },
+    )
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="missing hydraulic network-state metadata"):
         run_web_artifacts.validate_territory_web_snapshot(
             run_id,
             "guadeloupe",
@@ -351,6 +401,7 @@ def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
 
     assert validation["public_loss_alignment"]["storm"]["rp100"]["abs_diff_eur"] == pytest.approx(0.0)
     assert validation["proxy_breakdown_share_validation"]["storm"]["annual_vs_rp50"]["component_ratios_differ"] is True
+    assert validation["geojson_contract"]["data/guadeloupe-network-states.geojson"]["water_service_unit"] == "zone_component_key"
 
 
 def test_extract_run_entry_keeps_wind_map_track_count_when_page_meta_mentions_fallback() -> None:

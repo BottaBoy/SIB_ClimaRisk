@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Journal helper for Guadeloupe / Martinique reruns.
+"""Journal helper for case-study reruns.
 
-Rule: every completed Guadeloupe/Martinique run must be journalized here
+Rule: every completed case-study run must be journalized here
 immediately after the page-analysis artefacts are written.
 """
 
@@ -20,6 +20,12 @@ UTC = timezone.utc
 REPO_ROOT = Path(__file__).resolve().parents[1]
 JOURNAL_JSONL = REPO_ROOT / "docs" / "Journalisation_Run_GuaMar.jsonl"
 JOURNAL_MD = REPO_ROOT / "docs" / "Journalisation_Run_GuaMar.md"
+SUPPORTED_TERRITORIES = {"guadeloupe", "martinique", "saint-barthelemy"}
+PAGE_SUFFIX_BY_TERRITORY = {
+    "guadeloupe": "page1",
+    "martinique": "page2",
+    "saint-barthelemy": "page7",
+}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -49,7 +55,7 @@ def _load_meta_from_value(raw_path: Any) -> dict[str, Any]:
 def _is_case_study_row(payload: dict[str, Any]) -> bool:
     territory = str(payload.get("territory") or "").strip().lower()
     hazard = str(payload.get("hazard") or "").strip().lower()
-    if territory not in {"guadeloupe", "martinique"}:
+    if territory not in SUPPORTED_TERRITORIES:
         return False
     if hazard not in {"storm", "storm_cmcc"}:
         return False
@@ -245,11 +251,11 @@ def _extract_run_entry(
 
 def record_guamar_run(territory: str, *, session_run_id: str | None = None) -> list[dict[str, Any]]:
     territory = str(territory).strip().lower()
-    if territory not in {"guadeloupe", "martinique"}:
-        raise ValueError("territory must be 'guadeloupe' or 'martinique'")
+    if territory not in SUPPORTED_TERRITORIES:
+        raise ValueError("territory must be one of: guadeloupe, martinique, saint-barthelemy")
 
     wind_map_path = REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"
-    page_suffix = "page2" if territory == "martinique" else "page1"
+    page_suffix = PAGE_SUFFIX_BY_TERRITORY[territory]
     page_path = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
 
     wind_meta = _load_meta(wind_map_path)
@@ -327,7 +333,7 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
     lines: list[str] = []
     lines.append("# Journalisation_Run_GuaMar")
     lines.append("")
-    lines.append("Journal des reruns Guadeloupe / Martinique.")
+    lines.append("Journal des reruns Guadeloupe / Martinique / Saint-Barthelemy.")
     lines.append("")
     lines.append("Règle: chaque run terminé doit être journalisé automatiquement juste après la génération des artefacts de page.")
     lines.append("")
@@ -375,7 +381,7 @@ def _render_markdown(history: list[dict[str, Any]]) -> None:
         )
     lines.append("")
     lines.append("Notes:")
-    lines.append("- `ID de session` est identique pour les quatre lignes produites par un meme rerun Guadeloupe + Martinique.")
+    lines.append("- `ID de session` est identique pour toutes les lignes produites par un meme rerun multi-territoires.")
     lines.append("- La comparaison `% tracks communs vs run precedent` se fait avec le dernier run du meme territoire et du meme alea.")
     lines.append("- `n_events` correspond au nombre de tracks uniques journalises pour le run courant.")
     lines.append("- Quand la page est generee en fallback depuis le complete-analysis, `dynamic_max_tracks` journalise le run source complet et `wind_map_dynamic_max_tracks` conserve le cap reel des cartes de vent publiees.")

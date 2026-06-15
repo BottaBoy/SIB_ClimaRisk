@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 
+from case_study_sources import parse_territory, territory_page_suffix
 from frontend_supervision import (
     frontend_supervision_journal_from_env,
     frontend_supervision_run_id_from_env,
@@ -29,6 +30,7 @@ UTC = timezone.utc
 TERRITORY_PAGE_SPACING_M = {
     "guadeloupe": 100.0,
     "martinique": 150.0,
+    "saint-barthelemy": 100.0,
 }
 
 
@@ -201,16 +203,59 @@ def _assert_supported_page_component_light_config(
     )
 
 
-def _case_study_output_paths(territory: str) -> tuple[Path, Path, Path, Path, Path]:
-    page_suffix = "page2" if territory == "martinique" else "page1"
+def _case_study_output_paths(territory: str) -> tuple[Path, Path, Path, Path, Path, Path]:
+    page_suffix = territory_page_suffix(territory)
     data_root = REPO_ROOT / "web" / "data"
     return (
         data_root / f"{territory}-wind-maps.json",
         data_root / f"{territory}-landslide-maps.json",
         data_root / f"{territory}-multi-hazard-proxy.json",
         data_root / f"{territory}-{page_suffix}-analysis.json",
+        data_root / f"{territory}-water-infra.geojson",
         data_root / f"{territory}-network-states.geojson",
     )
+
+
+def _resolve_archived_complete_analysis_json(
+    territory: str,
+    *,
+    journal_path: Path | None,
+    complete_analysis_run_id: str | None,
+) -> Path | None:
+    if journal_path is None or not complete_analysis_run_id:
+        return None
+
+    manifest_path = Path(journal_path).resolve().parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    manifest_run_id = str(payload.get("run_id") or "").strip()
+    if manifest_run_id and manifest_run_id != str(complete_analysis_run_id).strip():
+        return None
+
+    territories = payload.get("territories") if isinstance(payload.get("territories"), dict) else {}
+    territory_payload = territories.get(str(territory)) if isinstance(territories, dict) else None
+    if not isinstance(territory_payload, dict):
+        return None
+
+    phases = territory_payload.get("phases") if isinstance(territory_payload.get("phases"), dict) else {}
+    export_phase = phases.get("export") if isinstance(phases, dict) else {}
+    candidates = [
+        territory_payload.get("archived_complete_analysis_path"),
+        export_phase.get("archived_output_file") if isinstance(export_phase, dict) else None,
+    ]
+    for raw_path in candidates:
+        candidate = Path(str(raw_path or ""))
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _purge_case_study_outputs(territory: str) -> None:
@@ -284,12 +329,27 @@ def _read_meta(path: Path) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+def _assert_required_case_study_geojson_outputs(territory: str) -> None:
+    data_root = REPO_ROOT / "web" / "data"
+    required_outputs = {
+        "water-infra": data_root / f"{territory}-water-infra.geojson",
+        "network-states": data_root / f"{territory}-network-states.geojson",
+    }
+    missing = [label for label, path in required_outputs.items() if not path.exists()]
+    if missing:
+        raise RuntimeError(
+            f"[{territory}] missing required case-study geojson artefacts: {', '.join(missing)}"
+        )
+
+
 def _assert_case_study_coherence(territory: str, run_id: str) -> None:
     wind_map_path = REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"
     landslide_path = REPO_ROOT / "web" / "data" / f"{territory}-landslide-maps.json"
     proxy_path = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
-    page_suffix = "page2" if territory == "martinique" else "page1"
+    page_suffix = territory_page_suffix(territory)
     page_path = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
+
+    _assert_required_case_study_geojson_outputs(territory)
 
     wind_meta = _read_meta(wind_map_path)
     landslide_meta = _read_meta(landslide_path)
@@ -317,8 +377,8 @@ def _assert_case_study_coherence(territory: str, run_id: str) -> None:
 
 
 def main(*, journal_path: Path | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a lighter, more robust case-study rerun for Guadeloupe/Martinique.")
-    parser.add_argument("--territories", nargs="+", choices=["guadeloupe", "martinique"], default=["guadeloupe", "martinique"])
+    parser = argparse.ArgumentParser(description="Run a lighter, more robust case-study rerun for explicit SIB territories.")
+    parser.add_argument("--territories", nargs="+", default=["guadeloupe", "martinique"])
     parser.add_argument("--proxy-spacing-m", type=float, default=800.0)
     parser.add_argument("--proxy-max-points-total", type=int, default=800)
     parser.add_argument("--proxy-max-points-per-feature", type=int, default=8)
@@ -357,6 +417,10 @@ def main(*, journal_path: Path | None = None) -> int:
     parser.add_argument("--map-dynamic-max-tracks", type=int, default=300)
     parser.add_argument("--map-surge-native-cell-deg", type=float, default=float(load_settings().surge_grid_deg))
     args = parser.parse_args()
+    try:
+        args.territories = [parse_territory(value) for value in args.territories]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if not PYTHON.exists():
         raise FileNotFoundError(f"Python backend venv not found: {PYTHON}")
@@ -384,8 +448,20 @@ def main(*, journal_path: Path | None = None) -> int:
     for territory in args.territories:
         run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
         proxy_json = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
-        page_suffix = "page2" if territory == "martinique" else "page1"
+        page_suffix = territory_page_suffix(territory)
         page_json = REPO_ROOT / "web" / "data" / f"{territory}-{page_suffix}-analysis.json"
+        archived_complete_analysis_json = _resolve_archived_complete_analysis_json(
+            territory,
+            journal_path=journal_path,
+            complete_analysis_run_id=frontend_supervision_run_id_from_env(),
+        )
+        complete_analysis_args = []
+        if archived_complete_analysis_json is not None:
+            complete_analysis_args = [
+                "--complete-analysis-json",
+                str(archived_complete_analysis_json),
+            ]
+            _info(f"[{territory}] using archived complete-analysis JSON {archived_complete_analysis_json}")
         page_spacing_m = _page_spacing_for_territory(territory, args.page_spacing_m)
         territory_env = _build_territory_env(territory, base_settings=base_settings)
         component_light_config = _resolve_page_component_light_config(
@@ -459,6 +535,7 @@ def main(*, journal_path: Path | None = None) -> int:
                 str(REPO_ROOT / "scripts" / "build_case_study_multi_hazard_proxy.py"),
                 "--territory",
                 territory,
+                *complete_analysis_args,
                 "--spacing-m",
                 str(args.proxy_spacing_m),
                 "--max-points-total",
@@ -480,6 +557,18 @@ def main(*, journal_path: Path | None = None) -> int:
             territory=territory,
             step="build_multi_hazard_proxy",
         )
+        _run(
+            [
+                str(PYTHON),
+                str(REPO_ROOT / "scripts" / "build_guadeloupe_water_infra_map.py"),
+                "--territory",
+                territory,
+            ],
+            env=territory_env,
+            journal_path=journal_path,
+            territory=territory,
+            step="build_water_infra_map",
+        )
         _info(f"[{territory}] impacts -> mouvement de terrain (rebuild case-study page analysis)")
         _run(
             [
@@ -487,6 +576,7 @@ def main(*, journal_path: Path | None = None) -> int:
                 str(REPO_ROOT / "scripts" / "build_guadeloupe_page1_data.py"),
                 "--territory",
                 territory,
+                *complete_analysis_args,
                 "--spacing-m",
                 str(page_spacing_m),
                 "--component-light-spacing-m",

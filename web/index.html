@@ -21,6 +21,7 @@
         <button id="nav-page-1" class="page-tab active" type="button">Introduction - analyse de risques OFB</button>
         <button id="nav-page-2" class="page-tab" type="button">Etude de cas Guadeloupe</button>
         <button id="nav-page-3" class="page-tab" type="button">Etude de cas Martinique</button>
+        <button id="nav-page-7" class="page-tab" type="button">Etude de cas Saint-Barthélemy</button>
         <button id="nav-page-4" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
         <button id="nav-page-5" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
         <button id="nav-page-6" class="page-tab page-tab-admin" type="button">Admin visu</button>
@@ -46,7 +47,7 @@
             L’objectif de cette page est de donner une première visualisation des événements extrêmes qui peuvent impacter les outre-mer.
           </p>
           <p>
-            Deux études de cas sont disponibles (Guadeloupe et Martinique), présentant les dégâts humains (population affectée par les dégradations voire défaillances des réseaux),
+            Trois études de cas sont disponibles (Guadeloupe, Martinique et Saint-Barthélemy), présentant les dégâts humains (population affectée par les dégradations voire défaillances des réseaux),
             matériels (quelles zones, réseaux et ouvrages sont impactés) et financiers (quels sont les coûts de remplacement des ouvrages endommagés).
           </p>
           <p>
@@ -70,7 +71,7 @@
             en termes humain, matériel et financier.
           </p>
           <p>
-            Sur ce site vous pourrez découvrir les résultats d’impacts des principaux aléas sur les réseaux d’eau et d’électricité en Guadeloupe et en Martinique.
+            Sur ce site vous pourrez découvrir les résultats d’impacts des principaux aléas sur les réseaux d’eau et d’électricité en Guadeloupe, en Martinique et à Saint-Barthélemy.
             La page “Données utilisateurs” vous permettra aussi de tester l’impact des aléas sur vos propres infrastructures.
           </p>
         </div>
@@ -251,6 +252,7 @@
         <div class="artifact-links intro-links">
           <a href="#page2">Voir l'étude de cas Guadeloupe</a>
           <a href="#page3">Voir l'étude de cas Martinique</a>
+          <a href="#page7">Voir l'étude de cas Saint-Barthélemy</a>
           <a href="#page4">Tester vos propres infrastructures</a>
         </div>
       </section>
@@ -264,7 +266,7 @@
         </p>
       </section>
 
-      <header class="hero panel page-block page2 page3">
+      <header class="hero panel page-block page2 page3 page7">
         <div>
           <p class="eyebrow">Analyse de reference</p>
           <h1 id="case-study-title">Impact des risques physiques sur les infrastructures : etude de cas Guadeloupe</h1>
@@ -282,7 +284,7 @@
         </div>
       </header>
 
-      <section class="panel exposition-panel page-block page2 page3" aria-labelledby="expo-title">
+      <section class="panel exposition-panel page-block page2 page3 page7" aria-labelledby="expo-title">
         <div class="section-head">
           <div>
             <h2 id="expo-title">Exposition</h2>
@@ -356,7 +358,7 @@
         </article>
       </section>
 
-      <section class="panel wind-panel page-block page2 page3" aria-labelledby="wind-panel-title">
+      <section class="panel wind-panel page-block page2 page3 page7" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
             <h2 id="wind-panel-title">Analyse des aléas</h2>
@@ -462,7 +464,7 @@
         </article>
       </section>
 
-      <section class="panel impact-panel page-block page2 page3" aria-labelledby="impact-title">
+      <section class="panel impact-panel page-block page2 page3 page7" aria-labelledby="impact-title">
         <div class="section-head">
           <div>
             <h2 id="impact-title">Impact</h2>
@@ -628,7 +630,7 @@
                 <option value="p99">Percentile 99</option>
               </select>
               <label class="layer-item"><input id="network-population-toggle" type="checkbox" /><span>Afficher la population</span></label>
-              <label class="layer-item"><input id="network-grid-toggle" type="checkbox" /><span>Afficher le quadrillage des cartes</span></label>
+              <label class="layer-item"><input id="network-grid-toggle" type="checkbox" /><span>Afficher la maille météo de référence</span></label>
             </div>
           </div>
           <div id="network-layer-controls" class="layer-controls" aria-label="Network state layers"></div>
@@ -653,7 +655,7 @@
         </div>
       </section>
 
-      <section class="panel conclusion-panel page-block page2 page3" aria-labelledby="conclusion-title">
+      <section class="panel conclusion-panel page-block page2 page3 page7" aria-labelledby="conclusion-title">
         <div class="section-head">
           <div>
             <h2 id="conclusion-title">Conclusion</h2>
@@ -697,7 +699,7 @@
         </p>
       </section>
 
-      <section class="panel disclaimer page-block page2 page3" aria-label="Clause de non responsabilite">
+      <section class="panel disclaimer page-block page2 page3 page7" aria-label="Clause de non responsabilite">
         <p>
           Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
@@ -706,7 +708,7 @@
         </p>
       </section>
 
-      <section class="panel disclaimer page-block page2 page3 references-block" aria-label="Références">
+      <section class="panel disclaimer page-block page2 page3 page7 references-block" aria-label="Références">
         <p>
           <strong>Références</strong><br /><br />
           Bloemendaal, N., Haigh, I. D., de Moel, H., Muis, S., Haarsma, R. J., &amp; Aerts, J. C. (2020). Generation of a global synthetic tropical cyclone hazard dataset using STORM. Scientific Data, 7(1), 40.<br /><br />
@@ -995,15 +997,19 @@ web/assets/app.js
 scripts/build_guadeloupe_complete_analysis.py
   -> cree web/data/guadeloupe-complete-analysis.json
   -> cree web/data/martinique-complete-analysis.json
-scripts/build_guadeloupe_page1_data.py --territory <guadeloupe|martinique>
+  -> cree web/data/saint-barthelemy-complete-analysis.json
+scripts/build_guadeloupe_page1_data.py --territory <guadeloupe|martinique|saint-barthelemy>
   -> cree web/data/guadeloupe-page1-analysis.json
   -> cree web/data/martinique-page2-analysis.json
+  -> cree web/data/saint-barthelemy-page7-analysis.json
 scripts/build_guadeloupe_wind_maps.py
   -> cree web/data/guadeloupe-wind-maps.json
   -> cree web/data/martinique-wind-maps.json
+  -> cree web/data/saint-barthelemy-wind-maps.json
 scripts/build_guadeloupe_water_infra_map.py
   -> cree web/data/guadeloupe-water-infra.geojson
   -> cree web/data/martinique-water-infra.geojson
+  -> cree web/data/saint-barthelemy-water-infra.geojson
           </pre>
         </article>
         <div class="method-grid">

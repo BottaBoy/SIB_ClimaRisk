@@ -67,3 +67,26 @@ def test_resolve_surge_topo_path_uses_territory_env_override_first(
     )
 
     assert resolved == override_path
+
+
+def test_resolve_surge_topo_path_supports_saint_barthelemy_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    copernicus_path = tmp_path / "Copernicus GLO-30 Digital Elevation Model" / "SaintBarthelemy_COP30.tif"
+    fallback_path = tmp_path / "fallback.asc"
+
+    copernicus_path.parent.mkdir(parents=True, exist_ok=True)
+    copernicus_path.write_text("copernicus", encoding="utf-8")
+    fallback_path.write_text("fallback", encoding="utf-8")
+
+    monkeypatch.setattr(config, "_DEFAULT_SURGE_TOPO_BY_TERRITORY", {"saint-barthelemy": copernicus_path})
+    monkeypatch.setattr(config, "_LEGACY_SURGE_TOPO_BY_TERRITORY", {})
+
+    resolved = config.resolve_surge_topo_path_for_territory(
+        "stb",
+        settings=config.Settings(hazard_surge_topo_path=fallback_path),
+        env={},
+    )
+
+    assert resolved == copernicus_path

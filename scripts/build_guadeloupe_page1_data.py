@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 try:
     import geopandas as gpd
@@ -72,13 +72,14 @@ from build_guadeloupe_complete_analysis import (  # noqa: E402
     WGS84,
     _as_wgs84_and_metric,
     _ensure_crs,
+    _read_vector,
     build_complete_exposure,
 )
-from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
+from case_study_sources import get_case_study, parse_territory, territory_label  # noqa: E402
 from valuation_ofb import (  # noqa: E402
     SOURCE_LABEL,
     build_valuation_metadata,
-    get_aep_ouvrage_value,
+    get_aep_ouvrage_value_for_territory,
     get_network_values_per_km,
     get_water_values,
 )
@@ -86,7 +87,10 @@ from journal_guamar_run import record_guamar_run  # noqa: E402
 
 
 STATE_ORDER = {"S0": 0, "S1": 1, "S2": 2, "S3": 3}
-UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
+WATER_BLOCKING_ROLES_BY_SERVICE = {
+    "eau_aep": frozenset({"captage_aep", "upep_aep", "pompage_aep"}),
+    "eau_eu": frozenset({"step", "poste_refoulement"}),
+}
 
 NETWORK_CLASS_LABELS = {
     "eau_aep": "Eau AEP",
@@ -108,6 +112,7 @@ DAMAGE_BREAKDOWN_LABELS = {
     "eau_eu_pr": "Postes de refoulement",
     "eau_eu_step": "STEP",
 }
+HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX = "hydraulic-native"
 
 ASSET_TYPE_TO_NETWORK_CLASS = {
     "eau_aep_cana": "eau_aep",
@@ -133,6 +138,7 @@ MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
 PUBLIC_MAP_SCENARIOS = ("annual", "rp50", "rp100", "p99", "top10", "top5")
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 WIND_BIN_STEP_MPS = 1.0
+ELECTRIC_NATIVE_GRID_DEG = 0.1
 DEFAULT_COMPONENT_LIGHT_SPACING_M = 800.0
 DEFAULT_COMPONENT_LIGHT_MAX_POINTS_TOTAL = 4000
 DEFAULT_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE = 10
@@ -144,6 +150,10 @@ CASE_HAZARD_PATHS = {
     "martinique": (
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
+    ),
+    "saint-barthelemy": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
     ),
 }
 
@@ -289,6 +299,85 @@ def _health(bucket: dict[str, float]) -> float:
         return 1.0
     weighted = 0.3 * float(bucket["S1"]) + 0.7 * float(bucket["S2"]) + 1.0 * float(bucket["S3"])
     return max(0.0, min(1.0, 1.0 - weighted / total))
+
+
+def _evaluate_network_dependency_scenario(
+    *,
+    direct_loss: np.ndarray,
+    values: np.ndarray,
+    class_keys: list[str | None],
+    territories: list[str],
+    weights_km: np.ndarray,
+    water_service_classes: list[str | None] | None = None,
+    service_feature_ids: list[str | None] | None = None,
+    is_service_network: list[bool] | None = None,
+    is_blocking_asset: list[bool] | None = None,
+) -> dict[str, Any]:
+    direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float), 0.0), values)
+    direct_ratio = np.divide(direct, np.maximum(values, 1.0))
+    direct_state = np.array([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
+
+    item_count = len(class_keys)
+    if water_service_classes is None:
+        water_service_classes = [None] * item_count
+    if service_feature_ids is None:
+        service_feature_ids = [None] * item_count
+    if is_service_network is None:
+        is_service_network = [False] * item_count
+    if is_blocking_asset is None:
+        is_blocking_asset = [False] * item_count
+
+    elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
+    for i, ckey in enumerate(class_keys):
+        if ckey is None or not ckey.startswith("elec_"):
+            continue
+        _add_state(elec_buckets[territories[i]], str(direct_state[i]), float(weights_km[i]))
+    elec_health = {k: _health(v) for k, v in elec_buckets.items()}
+    global_health = _health(_merge_buckets(list(elec_buckets.values())))
+
+    state_after_dependency: list[str] = []
+    for i, ckey in enumerate(class_keys):
+        state_code = str(direct_state[i])
+        water_service_class = water_service_classes[i]
+        if water_service_class in {"eau_aep", "eau_eu"}:
+            dep_state = _dependency_state_from_elec_health(elec_health.get(territories[i], global_health))
+            final_code = dep_state if STATE_ORDER[dep_state] > STATE_ORDER[state_code] else state_code
+            state_after_dependency.append(final_code)
+            continue
+        state_after_dependency.append(state_code)
+
+    blocking_state_by_service: dict[str, str] = {}
+    for i, blocking in enumerate(is_blocking_asset):
+        if not blocking:
+            continue
+        service_feature_id = str(service_feature_ids[i] or "").strip()
+        if not service_feature_id:
+            continue
+        blocking_state = str(state_after_dependency[i])
+        current_state = blocking_state_by_service.get(service_feature_id, "S0")
+        if STATE_ORDER[blocking_state] > STATE_ORDER[current_state]:
+            blocking_state_by_service[service_feature_id] = blocking_state
+
+    final_state: list[str] = []
+    indirect_s3_flag = np.zeros_like(direct, dtype=bool)
+    for i, state_code in enumerate(state_after_dependency):
+        final_code = str(state_code)
+        if is_service_network[i]:
+            service_feature_id = str(service_feature_ids[i] or "").strip()
+            blocker_state = blocking_state_by_service.get(service_feature_id)
+            if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[final_code]:
+                final_code = blocker_state
+        indirect_s3_flag[i] = final_code == "S3" and str(direct_state[i]) != "S3"
+        final_state.append(final_code)
+
+    final_state_arr = np.array(final_state, dtype=object)
+    return {
+        "direct_loss": direct,
+        "direct_state": direct_state,
+        "final_state": final_state_arr,
+        "total_loss": np.array(direct, dtype=float),
+        "indirect_s3_flag": indirect_s3_flag,
+    }
 
 
 def _histogram_percent(
@@ -651,7 +740,7 @@ def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
 def _count_features(paths: list[Path], case_cfg: dict[str, Any]) -> int:
     count = 0
     for path in paths:
-        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+        gdf = _clip_case_gdf(_read_vector(path), case_cfg)
         count += int(len(gdf))
     return count
 
@@ -661,7 +750,7 @@ def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
     for src in case_cfg["aep_ouvrage_sources"]:
         mode = str(src.get("mode", "")).strip().lower()
         for path in src["paths"]:
-            gdf = _ensure_crs(gpd.read_file(path))
+            gdf = _read_vector(path, source_crs=str(src.get("source_crs", "") or "") or None)
             gdf = _clip_case_gdf(gdf, case_cfg)
             if gdf.empty:
                 continue
@@ -677,6 +766,78 @@ def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
             else:
                 counts["NA"] += int(len(gdf))
     return counts
+
+
+def _hydraulic_asset_value_code(row: Any) -> str:
+    feature_role = str(getattr(row, "feature_role", "") or "").strip().lower()
+    asset_type_code = str(getattr(row, "asset_type_code", "") or "").strip().upper()
+    if feature_role == "captage_aep":
+        return "CAP"
+    if feature_role == "upep_aep":
+        return "TRAIT"
+    if feature_role == "pompage_aep":
+        return "STPMP"
+    if feature_role == "reservoir_aep":
+        return "CUV"
+    if feature_role == "ouvrage_eau_brute_aep":
+        return "OUVEB"
+    return asset_type_code or "NA"
+
+
+def _build_hydraulic_water_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[str, Any]:
+    lengths_km = {"eau_aep": 0.0, "eau_eu": 0.0}
+    water_lines_total = 0
+    aep_type_counts: dict[str, int] = defaultdict(int)
+    eu_pr_total = 0
+    eu_step_total = 0
+
+    for src in case_cfg.get("hydraulic_zone_sources", []):
+        bundle_path = Path(src["path"])
+        lines_gdf = _clip_case_gdf(_read_vector(bundle_path, layer=str(src["line_layer"])), case_cfg)
+        if not lines_gdf.empty:
+            water_lines_total += int(len(lines_gdf))
+            for network_kind, group in lines_gdf.groupby("network_kind", dropna=False):
+                network_kind_upper = str(network_kind or "").strip().upper()
+                if network_kind_upper == "AEP":
+                    lengths_km["eau_aep"] += _line_length_km(group)
+                elif network_kind_upper == "EU":
+                    lengths_km["eau_eu"] += _line_length_km(group)
+
+        assets_gdf = _clip_case_gdf(_read_vector(bundle_path, layer=str(src["asset_layer"])), case_cfg)
+        if assets_gdf.empty:
+            continue
+        for row in assets_gdf.itertuples(index=False):
+            network_kind_upper = str(getattr(row, "network_kind", "") or "").strip().upper()
+            feature_role = str(getattr(row, "feature_role", "") or "").strip().lower()
+            if network_kind_upper == "EU":
+                if feature_role == "poste_refoulement":
+                    eu_pr_total += 1
+                elif feature_role == "step":
+                    eu_step_total += 1
+            elif network_kind_upper == "AEP":
+                aep_type_counts[_hydraulic_asset_value_code(row)] += 1
+
+    water_values = get_water_values(territory)
+    return {
+        "lengths_km": {k: round(float(v), 3) for k, v in lengths_km.items()},
+        "water_lines_total": int(water_lines_total),
+        "aep_type_counts": {str(k): int(v) for k, v in aep_type_counts.items()},
+        "eu_pr_total": int(eu_pr_total),
+        "eu_step_total": int(eu_step_total),
+        "total_value_network": {
+            "eau_aep": round(float(lengths_km["eau_aep"]) * float(water_values["eau_aep"]), 2),
+            "eau_eu": round(float(lengths_km["eau_eu"]) * float(water_values["eau_eu"]), 2),
+        },
+        "total_value_aep_ouvrages": round(
+            sum(
+                get_aep_ouvrage_value_for_territory(territory, code) * int(count)
+                for code, count in aep_type_counts.items()
+            ),
+            2,
+        ),
+        "total_value_pr": round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2),
+        "total_value_step": round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2),
+    }
 
 
 def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[str, Any]:
@@ -695,37 +856,31 @@ def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[st
     for src in case_cfg["elec_line_sources"]:
         class_key = str(src["class_key"])
         for path in src["paths"]:
-            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+            gdf = _clip_case_gdf(
+                _read_vector(path, source_crs=str(src.get("source_crs", "") or "") or None),
+                case_cfg,
+            )
             if gdf.empty:
                 continue
             lengths_km[class_key] += _line_length_km(gdf)
             elec_lines_total += int(len(gdf))
 
-    for src in case_cfg["water_line_sources"]:
-        class_key = str(src["class_key"])
-        for path in src["paths"]:
-            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
-            if gdf.empty:
-                continue
-            lengths_km[class_key] += _line_length_km(gdf)
-            water_lines_total += int(len(gdf))
-
     value_per_km = get_network_values_per_km(territory)
+    hydraulic_water_metrics = _build_hydraulic_water_exposure_metrics(case_cfg, territory)
+    lengths_km["eau_aep"] = float(hydraulic_water_metrics["lengths_km"]["eau_aep"])
+    lengths_km["eau_eu"] = float(hydraulic_water_metrics["lengths_km"]["eau_eu"])
+    water_lines_total = int(hydraulic_water_metrics["water_lines_total"])
+
     total_value_network = {key: round(lengths_km[key] * value_per_km[key], 2) for key in value_per_km.keys()}
-    water_values = get_water_values(territory)
+    total_value_network["eau_aep"] = float(hydraulic_water_metrics["total_value_network"]["eau_aep"])
+    total_value_network["eau_eu"] = float(hydraulic_water_metrics["total_value_network"]["eau_eu"])
 
-    aep_type_counts = _count_aep_ouvrage_types(case_cfg)
-    total_value_aep_ouvr = round(sum(get_aep_ouvrage_value(k) * int(v) for k, v in aep_type_counts.items()), 2)
-
-    eu_pr_total = 0
-    eu_step_total = 0
-    for src in case_cfg["water_point_fixed_sources"]:
-        if str(src["asset_type"]) == "eau_eu_pr":
-            eu_pr_total += _count_features(list(src["paths"]), case_cfg)
-        if str(src["asset_type"]) == "eau_eu_step":
-            eu_step_total += _count_features(list(src["paths"]), case_cfg)
-    total_value_pr = round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2)
-    total_value_step = round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2)
+    aep_type_counts = dict(hydraulic_water_metrics["aep_type_counts"])
+    total_value_aep_ouvr = float(hydraulic_water_metrics["total_value_aep_ouvrages"])
+    eu_pr_total = int(hydraulic_water_metrics["eu_pr_total"])
+    eu_step_total = int(hydraulic_water_metrics["eu_step_total"])
+    total_value_pr = float(hydraulic_water_metrics["total_value_pr"])
+    total_value_step = float(hydraulic_water_metrics["total_value_step"])
 
     aep_ouvrages_total = int(sum(int(v) for v in aep_type_counts.values()))
     counts = {
@@ -770,6 +925,47 @@ def _network_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(str(point_record.get("asset_type") or ""))
 
 
+def _water_service_class_from_point(point_record: dict[str, Any]) -> str | None:
+    asset_type = str(point_record.get("asset_type") or "")
+    if asset_type.startswith("eau_aep"):
+        return "eau_aep"
+    if asset_type.startswith("eau_eu"):
+        return "eau_eu"
+    return None
+
+
+def _water_service_feature_id_from_point(point_record: dict[str, Any]) -> str | None:
+    water_service_class = _water_service_class_from_point(point_record)
+    if water_service_class is None:
+        return None
+    service_feature_id = str(point_record.get("service_feature_id") or point_record.get("zone_component_key") or "").strip()
+    if not service_feature_id:
+        raise ValueError(
+            f"Water dependency record requires service_feature_id/zone_component_key for {point_record.get('feature_id')}"
+        )
+    return service_feature_id
+
+
+def _water_feature_role_from_point(point_record: dict[str, Any]) -> str:
+    return str(point_record.get("feature_role") or "").strip().lower()
+
+
+def _is_water_service_network_point(point_record: dict[str, Any]) -> bool:
+    return _network_class_from_point(point_record) in {"eau_aep", "eau_eu"}
+
+
+def _is_blocking_water_asset_point(point_record: dict[str, Any]) -> bool:
+    water_service_class = _water_service_class_from_point(point_record)
+    if water_service_class is None:
+        return False
+    if str(point_record.get("infra_class") or "").strip().lower() != "eau_ouvrage":
+        return False
+    return _water_feature_role_from_point(point_record) in WATER_BLOCKING_ROLES_BY_SERVICE.get(
+        water_service_class,
+        frozenset(),
+    )
+
+
 def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
     asset_type = str(point_record.get("asset_type") or "")
     if asset_type.startswith("eau_aep_ouvrage_"):
@@ -781,12 +977,200 @@ def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(asset_type)
 
 
-def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+def _public_state_feature_id(point_record: dict[str, Any]) -> str:
+    class_key = _network_class_from_point(point_record)
+    if class_key in {"eau_aep", "eau_eu"}:
+        service_feature_id = str(point_record.get("service_feature_id") or point_record.get("zone_component_key") or "").strip()
+        if not service_feature_id:
+            raise ValueError(
+                f"Water public state feature requires service_feature_id/zone_component_key for {point_record.get('feature_id')}"
+            )
+        return service_feature_id
+    return str(point_record.get("feature_id") or "")
+
+
+def _electric_native_unit_id_from_point(point_record: dict[str, Any]) -> str:
+    lat = point_record.get("lat")
+    lon = point_record.get("lon")
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+        lat_bin = round(float(lat) / ELECTRIC_NATIVE_GRID_DEG) * ELECTRIC_NATIVE_GRID_DEG
+        lon_bin = round(float(lon) / ELECTRIC_NATIVE_GRID_DEG) * ELECTRIC_NATIVE_GRID_DEG
+        return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}"
+    return str(point_record.get("territory_id") or point_record.get("feature_id") or "")
+
+
+def _grid_geometry_from_cell_id(cell_id: str):
+    text = str(cell_id or "").strip()
+    if not text.startswith("cell-") or "_" not in text or box is None:
+        return None
+    try:
+        lat_txt, lon_txt = text[5:].split("_", 1)
+        lat = float(lat_txt)
+        lon = float(lon_txt)
+    except ValueError:
+        return None
+    half = ELECTRIC_NATIVE_GRID_DEG / 2.0
+    return box(lon - half, lat - half, lon + half, lat + half)
+
+
+def _aggregate_native_service_states_for_public_map(
+    *,
+    bundle: ClimadaExposureBundle,
+    values: np.ndarray,
+    class_keys: list[str | None],
+    water_service_classes: list[str | None],
+    service_feature_ids: list[str | None],
+    is_blocking_asset: list[bool],
+    weights_km: np.ndarray,
+    hazard_outputs: dict[str, Any],
+) -> tuple[dict[str, dict[str, dict[str, str]]], set[str]]:
+    native_states_by_hazard: dict[str, dict[str, dict[str, str]]] = {}
+    electric_unit_ids: set[str] = set()
+    point_records = list(bundle.point_records or [])
+    electric_units = [
+        _electric_native_unit_id_from_point(rec) if str(class_keys[idx] or "").startswith("elec_") else ""
+        for idx, rec in enumerate(point_records)
+    ]
+
+    for hazard_key, hazard_payload in hazard_outputs.items():
+        scenario_results = hazard_payload.get("scenario_results") if isinstance(hazard_payload, dict) else None
+        if not isinstance(scenario_results, dict):
+            continue
+        native_states_by_hazard[hazard_key] = {}
+        for public_scenario in PUBLIC_MAP_SCENARIOS:
+            scenario_key = _public_loss_scenario_source(public_scenario)
+            scenario_result = scenario_results.get(scenario_key)
+            if not isinstance(scenario_result, dict):
+                raise RuntimeError(f"Missing scenario results for {hazard_key}.{public_scenario}")
+            direct_loss = np.asarray(scenario_result.get("total_loss"), dtype=float).reshape(-1)
+            direct_state = np.asarray(scenario_result.get("direct_state"), dtype=object).reshape(-1)
+            final_state = np.asarray(scenario_result.get("final_state"), dtype=object).reshape(-1)
+
+            elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
+            elec_exposure: dict[str, float] = defaultdict(float)
+            elec_loss: dict[str, float] = defaultdict(float)
+            water_exposure: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_loss: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_lat_sum: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_lon_sum: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_count: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            blocking_state_by_service: dict[str, str] = {}
+
+            for idx, rec in enumerate(point_records):
+                class_key = class_keys[idx]
+                if class_key is None:
+                    continue
+                if str(class_key).startswith("elec_"):
+                    unit_id = electric_units[idx]
+                    if not unit_id:
+                        continue
+                    electric_unit_ids.add(unit_id)
+                    _add_state(elec_buckets[unit_id], str(direct_state[idx]), float(weights_km[idx]))
+                    elec_exposure[unit_id] += float(values[idx])
+                    elec_loss[unit_id] += float(direct_loss[idx])
+                    continue
+
+                water_service_class = water_service_classes[idx]
+                if water_service_class not in {"eau_aep", "eau_eu"}:
+                    continue
+                service_unit_id = str(service_feature_ids[idx] or "").strip() or str(rec.get("territory_id") or "")
+                if not service_unit_id:
+                    continue
+                water_exposure[water_service_class][service_unit_id] += float(values[idx])
+                water_loss[water_service_class][service_unit_id] += float(direct_loss[idx])
+                lat = rec.get("lat")
+                lon = rec.get("lon")
+                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                    water_lat_sum[water_service_class][service_unit_id] += float(lat)
+                    water_lon_sum[water_service_class][service_unit_id] += float(lon)
+                    water_count[water_service_class][service_unit_id] += 1.0
+                if is_blocking_asset[idx]:
+                    current_state = blocking_state_by_service.get(service_unit_id, "S0")
+                    candidate_state = str(final_state[idx])
+                    if STATE_ORDER.get(candidate_state, 0) > STATE_ORDER.get(current_state, 0):
+                        blocking_state_by_service[service_unit_id] = candidate_state
+
+            elec_health = {unit_id: _health(bucket) for unit_id, bucket in elec_buckets.items()}
+            global_elec_health = _health(_merge_buckets(list(elec_buckets.values())))
+
+            scenario_state_map: dict[str, str] = {}
+            for unit_id, exposure_value in elec_exposure.items():
+                ratio = float(elec_loss[unit_id]) / max(float(exposure_value), 1.0)
+                scenario_state_map[unit_id] = _state_from_ratio(ratio)
+
+            for water_service_class in ("eau_aep", "eau_eu"):
+                for service_unit_id, exposure_value in water_exposure[water_service_class].items():
+                    ratio = float(water_loss[water_service_class][service_unit_id]) / max(float(exposure_value), 1.0)
+                    state_code = _state_from_ratio(ratio)
+                    count = float(water_count[water_service_class].get(service_unit_id, 0.0))
+                    elec_unit_id = ""
+                    if count > 0.0:
+                        lat = float(water_lat_sum[water_service_class][service_unit_id]) / count
+                        lon = float(water_lon_sum[water_service_class][service_unit_id]) / count
+                        elec_unit_id = _electric_native_unit_id_from_point({"lat": lat, "lon": lon})
+                    dep_state = _dependency_state_from_elec_health(
+                        elec_health.get(elec_unit_id, global_elec_health)
+                    )
+                    if STATE_ORDER[dep_state] > STATE_ORDER[state_code]:
+                        state_code = dep_state
+                    blocker_state = blocking_state_by_service.get(service_unit_id)
+                    if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[state_code]:
+                        state_code = blocker_state
+                    scenario_state_map[service_unit_id] = state_code
+
+            native_states_by_hazard[hazard_key][public_scenario] = scenario_state_map
+
+    return native_states_by_hazard, electric_unit_ids
+
+
+def _hydraulic_zone_class_key(network_kind: str) -> str:
+    network_kind_upper = str(network_kind or "").strip().upper()
+    if network_kind_upper == "AEP":
+        return "eau_aep"
+    if network_kind_upper == "EU":
+        return "eau_eu"
+    raise ValueError(f"Unsupported hydraulic network_kind for public state geometry: {network_kind!r}")
+
+def _hydraulic_asset_class_key(feature_role: str, network_kind: str) -> str:
+    feature_role_text = str(feature_role or "").strip().lower()
+    network_kind_upper = str(network_kind or "").strip().upper()
+    if feature_role_text == "poste_refoulement":
+        return "eau_eu_pr"
+    if feature_role_text == "step":
+        return "eau_eu_step"
+    if network_kind_upper == "AEP":
+        return "eau_aep_ouvrages"
+    raise ValueError(
+        f"Unsupported hydraulic asset for public state geometry: feature_role={feature_role!r} network_kind={network_kind!r}"
+    )
+
+
+def _hydraulic_native_service_feature_id(feature_id: str) -> str:
+    return f"{HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX}:{feature_id}"
+
+
+def _build_network_geometry_features(
+    case_cfg: dict[str, Any],
+    *,
+    electric_unit_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     class_labels = {**DAMAGE_BREAKDOWN_LABELS, **NETWORK_CLASS_LABELS}
+    electric_feature_ids = sorted({str(unit_id) for unit_id in (electric_unit_ids or set()) if str(unit_id).strip()})
 
-    def append_geometries(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
-        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg).to_crs(WGS84)
+    def append_geometries(
+        path: Path,
+        class_key: str,
+        prefix: str,
+        source_idx: int,
+        *,
+        layer: str | None = None,
+        source_crs: str | None = None,
+    ) -> None:
+        gdf = _clip_case_gdf(
+            _read_vector(path, layer=layer, source_crs=source_crs),
+            case_cfg,
+        ).to_crs(WGS84)
         if gdf.empty:
             return
         for idx, geom in enumerate(gdf.geometry, start=1):
@@ -798,25 +1182,160 @@ def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str,
                     "class_key": class_key,
                     "class_label": class_labels.get(class_key, class_key),
                     "geometry": geom,
+                    "state_geometry_mode": "native_network_geometry",
+                    "service_unit_kind": "native_feature",
+                    "service_feature_id": "",
+                    "zone_component_key": "",
+                    "zone_uid": "",
+                    "network_kind": "",
+                    "feature_role": "",
                 }
             )
 
-    for src in case_cfg["network_geometry_sources"]:
-        class_key = str(src["class_key"])
-        prefix = str(src["prefix"])
-        for source_idx, path in enumerate(src["paths"], start=1):
-            append_geometries(path, class_key, prefix, source_idx)
+    if electric_feature_ids:
+        for unit_id in electric_feature_ids:
+            geom = _grid_geometry_from_cell_id(unit_id)
+            if geom is None:
+                continue
+            out.append(
+                {
+                    "feature_id": unit_id,
+                    "class_key": "elec_grid_0p1deg",
+                    "class_label": "Electricite agrégée 0.1°",
+                    "geometry": geom,
+                    "state_geometry_mode": "fixed_grid_0p1deg",
+                    "service_unit_kind": "fixed_grid_0p1deg",
+                    "service_feature_id": "",
+                    "zone_component_key": "",
+                    "zone_uid": "",
+                    "network_kind": "ELEC",
+                    "feature_role": "aggregated_service_grid",
+                }
+            )
+    else:
+        for src in case_cfg["network_geometry_sources"]:
+            class_key = str(src["class_key"])
+            if not class_key.startswith("elec_"):
+                continue
+            prefix = str(src["prefix"])
+            for source_idx, path in enumerate(src["paths"], start=1):
+                append_geometries(
+                    path,
+                    class_key,
+                    prefix,
+                    source_idx,
+                    source_crs=str(src.get("source_crs", "") or "") or None,
+                )
 
-    for src in case_cfg.get("water_point_fixed_sources", []):
-        class_key = str(src["asset_type"])
-        prefix = str(src["prefix"])
-        for source_idx, path in enumerate(src["paths"], start=1):
-            append_geometries(path, class_key, prefix, source_idx)
-
-    for src in case_cfg.get("aep_ouvrage_sources", []):
-        prefix = str(src["prefix"])
-        for source_idx, path in enumerate(src["paths"], start=1):
-            append_geometries(path, "eau_aep_ouvrages", prefix, source_idx)
+    for src in case_cfg.get("hydraulic_zone_sources", []):
+        gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["zone_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        if gdf.empty:
+            continue
+        for row in gdf.itertuples(index=False):
+            geom = getattr(row, "geometry", None)
+            if geom is None or getattr(geom, "is_empty", False):
+                continue
+            feature_id = str(getattr(row, "zone_component_key", "") or "").strip()
+            if not feature_id:
+                raise ValueError(f"Hydraulic public state geometry requires zone_component_key in {src['path']}")
+            network_kind = str(getattr(row, "network_kind", "") or "").strip()
+            class_key = _hydraulic_zone_class_key(network_kind)
+            out.append(
+                {
+                    "feature_id": feature_id,
+                    "class_key": class_key,
+                    "class_label": class_labels.get(class_key, class_key),
+                    "geometry": geom,
+                    "state_geometry_mode": "hydraulic_zoning_v2",
+                    "service_unit_kind": "hydraulic_zone_component",
+                    "service_feature_id": feature_id,
+                    "zone_component_key": feature_id,
+                    "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
+                    "network_kind": network_kind,
+                    "feature_role": "canalisation",
+                }
+            )
+        lines_gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["line_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        if not lines_gdf.empty:
+            for idx, row in enumerate(lines_gdf.itertuples(index=False), start=1):
+                geom = getattr(row, "geometry", None)
+                if geom is None or getattr(geom, "is_empty", False):
+                    continue
+                zone_component_key = str(getattr(row, "zone_component_key", "") or "").strip()
+                if zone_component_key:
+                    continue
+                feature_id = str(
+                    getattr(row, "feature_id", "")
+                    or getattr(row, "source_feature_id", "")
+                    or f"hydraulic-line-{idx}"
+                ).strip()
+                zone_uid = str(getattr(row, "zone_uid", "") or "").strip()
+                if zone_uid:
+                    raise ValueError(
+                        f"Hydraulic public state geometry requires zone_component_key for assigned line {feature_id} in {src['path']}"
+                    )
+                network_kind = str(getattr(row, "network_kind", "") or "").strip()
+                class_key = _hydraulic_zone_class_key(network_kind)
+                service_feature_id = _hydraulic_native_service_feature_id(feature_id)
+                out.append(
+                    {
+                        "feature_id": service_feature_id,
+                        "class_key": class_key,
+                        "class_label": class_labels.get(class_key, class_key),
+                        "geometry": geom,
+                        "state_geometry_mode": "native_network_geometry",
+                        "service_unit_kind": "native_feature",
+                        "service_feature_id": service_feature_id,
+                        "zone_component_key": service_feature_id,
+                        "zone_uid": "",
+                        "network_kind": network_kind,
+                        "feature_role": str(getattr(row, "feature_role", "") or "canalisation").strip(),
+                    }
+                )
+        assets_gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["asset_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        if assets_gdf.empty:
+            continue
+        for idx, row in enumerate(assets_gdf.itertuples(index=False), start=1):
+            geom = getattr(row, "geometry", None)
+            if geom is None or getattr(geom, "is_empty", False):
+                continue
+            feature_id = str(
+                getattr(row, "feature_id", "")
+                or getattr(row, "source_feature_id", "")
+                or f"hydraulic-asset-{idx}"
+            ).strip()
+            network_kind = str(getattr(row, "network_kind", "") or "").strip()
+            feature_role = str(getattr(row, "feature_role", "") or "").strip()
+            zone_component_key = str(getattr(row, "zone_component_key", "") or "").strip()
+            service_feature_id = zone_component_key or _hydraulic_native_service_feature_id(feature_id)
+            class_key = _hydraulic_asset_class_key(
+                feature_role,
+                network_kind,
+            )
+            out.append(
+                {
+                    "feature_id": feature_id,
+                    "class_key": class_key,
+                    "class_label": class_labels.get(class_key, class_key),
+                    "geometry": geom,
+                    "state_geometry_mode": "native_network_geometry",
+                    "service_unit_kind": "native_feature",
+                    "service_feature_id": service_feature_id,
+                    "zone_component_key": service_feature_id,
+                    "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
+                    "network_kind": network_kind,
+                    "feature_role": feature_role,
+                }
+            )
     return out
 
 
@@ -1604,7 +2123,12 @@ def _compute_impact_metrics(
         raise RuntimeError("Unable to instantiate CLIMADA impact functions")
     impfset = ImpactFuncSet(impact_funcs)
 
-    disagg = summarize_disaggregation(exposure, spacing_m=spacing_m)
+    disagg = summarize_disaggregation(
+        exposure,
+        spacing_m=spacing_m,
+        metric_crs=settings.climada_metric_crs,
+        max_points_per_feature=int(settings.climada_max_points_per_feature),
+    )
     bundle = build_climada_exposure(
         exposure,
         spacing_m=spacing_m,
@@ -1615,9 +2139,13 @@ def _compute_impact_metrics(
 
     values = np.array([float(rec["value_eur"]) for rec in bundle.point_records], dtype=float)
     territories = [str(rec["territory_id"]) for rec in bundle.point_records]
-    feature_ids = [str(rec["feature_id"]) for rec in bundle.point_records]
+    feature_ids = [_public_state_feature_id(rec) for rec in bundle.point_records]
     class_keys = [_network_class_from_point(rec) for rec in bundle.point_records]
     breakdown_class_keys = [_breakdown_class_from_point(rec) for rec in bundle.point_records]
+    water_service_classes = [_water_service_class_from_point(rec) for rec in bundle.point_records]
+    service_feature_ids = [_water_service_feature_id_from_point(rec) for rec in bundle.point_records]
+    is_service_network = [_is_water_service_network_point(rec) for rec in bundle.point_records]
+    is_blocking_asset = [_is_blocking_water_asset_point(rec) for rec in bundle.point_records]
     weights_km = np.array(
         [
             (float(rec["value_eur"]) / network_value_per_km[class_key]) if class_key in network_value_per_km else 0.0
@@ -1737,42 +2265,17 @@ def _compute_impact_metrics(
             direct_losses_by_scenario[scenario] = combined
 
         def evaluate_scenario(direct_loss: np.ndarray) -> dict[str, Any]:
-            direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float), 0.0), values)
-            direct_ratio = np.divide(direct, np.maximum(values, 1.0))
-            direct_state = np.array([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
-
-            elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
-            for i, ckey in enumerate(class_keys):
-                if ckey is None or not ckey.startswith("elec_"):
-                    continue
-                _add_state(elec_buckets[territories[i]], str(direct_state[i]), float(weights_km[i]))
-            elec_health = {k: _health(v) for k, v in elec_buckets.items()}
-            global_health = _health(_merge_buckets(list(elec_buckets.values())))
-
-            total_loss = np.array(direct, dtype=float)
-            final_state: list[str] = []
-            indirect_s3_flag = np.zeros_like(direct, dtype=bool)
-            for i, ckey in enumerate(class_keys):
-                state_code = str(direct_state[i])
-                if ckey in {"eau_aep", "eau_eu"}:
-                    dep_state = _dependency_state_from_elec_health(elec_health.get(territories[i], global_health))
-                    final_code = dep_state if STATE_ORDER[dep_state] > STATE_ORDER[state_code] else state_code
-                    uplift = UPLIFT_BY_STATE[dep_state]
-                    total_with_dep = min(float(values[i]), float(direct[i]) * (1.0 + float(uplift)))
-                    total_loss[i] = max(0.0, total_with_dep)
-                    indirect_s3_flag[i] = final_code == "S3" and state_code != "S3"
-                    final_state.append(final_code)
-                else:
-                    final_state.append(state_code)
-
-            final_state_arr = np.array(final_state, dtype=object)
-            return {
-                "direct_loss": np.minimum(np.maximum(direct, 0.0), values),
-                "direct_state": direct_state,
-                "final_state": final_state_arr,
-                "total_loss": np.minimum(np.maximum(total_loss, 0.0), values),
-                "indirect_s3_flag": indirect_s3_flag,
-        }
+            return _evaluate_network_dependency_scenario(
+                direct_loss=direct_loss,
+                values=values,
+                class_keys=class_keys,
+                territories=territories,
+                weights_km=weights_km,
+                water_service_classes=water_service_classes,
+                service_feature_ids=service_feature_ids,
+                is_service_network=is_service_network,
+                is_blocking_asset=is_blocking_asset,
+            )
 
         hazard_proxy = (multi_hazard_proxy or {}).get(hazard_key, {}) if isinstance(multi_hazard_proxy, dict) else {}
         scenario_component_ratios = (
@@ -1914,6 +2417,7 @@ def _compute_impact_metrics(
         hazard_outputs[hazard_key] = {
             "rows_by_scenario": rows_by_scenario,
             "breakdown_by_scenario": breakdown_by_scenario,
+            "scenario_results": scenario_results,
             "summary": {
                 "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
                 "direct_hs_pct_p99": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
@@ -2001,16 +2505,24 @@ def _compute_impact_metrics(
         },
     }
     aux = {
-        "hazard_feature_states": {
-            "storm": hazard_outputs["storm"]["feature_states"],
-            "storm_cmcc": hazard_outputs["storm_cmcc"]["feature_states"],
-        },
         "disaggregation": {
             "sampling_spacing_m": float(disagg.spacing_m),
             "asset_count_points": int(disagg.asset_count_points),
         },
         "complete_analysis_calibration": calibration_by_hazard,
     }
+    hazard_feature_states, electric_unit_ids = _aggregate_native_service_states_for_public_map(
+        bundle=bundle,
+        values=values,
+        class_keys=class_keys,
+        water_service_classes=water_service_classes,
+        service_feature_ids=service_feature_ids,
+        is_blocking_asset=is_blocking_asset,
+        weights_km=weights_km,
+        hazard_outputs=hazard_outputs,
+    )
+    aux["hazard_feature_states"] = hazard_feature_states
+    aux["electric_unit_ids"] = sorted(electric_unit_ids)
     return impact_payload, aux
 
 
@@ -2353,17 +2865,6 @@ def _load_zone_wind_comparison_table(doc_path: Path, zone_heading: str) -> list[
             break
     if start_idx is None:
         return []
-
-    table_lines: list[str] = []
-    for line in lines[start_idx + 1 :]:
-        if line.strip().startswith("## "):
-            break
-        if line.strip().startswith("|"):
-            table_lines.append(line.rstrip())
-    if len(table_lines) < 3:
-        return []
-
-    rows: list[dict[str, str]] = []
     for line in table_lines[2:]:
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) < 4:
@@ -2389,8 +2890,11 @@ def _build_state_geojson(
     hazard_feature_states: dict[str, Any],
     out_path: Path,
 ) -> None:
-    expected_feature_ids = [str(feat["feature_id"]) for feat in geometry_features]
-    expected_feature_id_set = set(expected_feature_ids)
+    expected_state_ids = [
+        str(feat.get("service_feature_id") or feat.get("feature_id") or "")
+        for feat in geometry_features
+    ]
+    expected_feature_id_set = {state_id for state_id in expected_state_ids if state_id}
     validated_feature_states: dict[str, dict[str, dict[str, str]]] = {}
     for hazard_key in ("storm", "storm_cmcc"):
         hazard_states = hazard_feature_states.get(hazard_key)
@@ -2434,24 +2938,44 @@ def _build_state_geojson(
     geoms: list[Any] = []
     for feat in geometry_features:
         fid = feat["feature_id"]
+        state_lookup_id = str(feat.get("service_feature_id") or fid)
         row = {
             "feature_id": fid,
             "layer_key": feat["class_key"],
             "layer_label": feat["class_label"],
+            "state_geometry_mode": str(feat.get("state_geometry_mode") or "native_network_geometry"),
+            "service_unit_kind": str(feat.get("service_unit_kind") or "native_feature"),
+            "service_feature_id": str(feat.get("service_feature_id") or ""),
+            "zone_component_key": str(feat.get("zone_component_key") or ""),
+            "zone_uid": str(feat.get("zone_uid") or ""),
+            "network_kind": str(feat.get("network_kind") or ""),
+            "feature_role": str(feat.get("feature_role") or ""),
         }
         for hazard_key in ("storm", "storm_cmcc"):
             for scenario in PUBLIC_MAP_SCENARIOS:
-                row[f"state_{scenario}_{hazard_key}"] = validated_feature_states[hazard_key][scenario][str(fid)]
+                row[f"state_{scenario}_{hazard_key}"] = validated_feature_states[hazard_key][scenario][state_lookup_id]
         rows.append(row)
         geoms.append(feat["geometry"])
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs=WGS84)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(gdf.to_json(), encoding="utf-8")
+    geojson = json.loads(gdf.to_json())
+    water_rows = [feat for feat in geometry_features if str(feat.get("class_key") or "") in {"eau_aep", "eau_eu"}]
+    water_state_modes = sorted({str(feat.get("state_geometry_mode") or "native_network_geometry") for feat in water_rows})
+    payload = {
+        **geojson,
+        "metadata": {
+            "state_geometry_mode": "hydraulic_zoning_v2" if "hydraulic_zoning_v2" in water_state_modes else "native_network_geometry",
+            "water_state_geometry_mode": "hydraulic_zoning_v2" if water_rows else "native_network_geometry",
+            "water_service_unit": "zone_component_key" if water_rows else "feature_id",
+            "electric_state_geometry_mode": "fixed_grid_0p1deg",
+        },
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build all computed data for territory case-study pages (exposition, hazard, impact, conclusion).")
-    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--territory", default="guadeloupe")
     parser.add_argument("--infra-elec-dir", default=None)
     parser.add_argument("--infra-eau-dir", default=None)
     parser.add_argument("--storm-source", default=os.environ.get("SIB_RISK_STORM_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_ds")))
@@ -2487,7 +3011,7 @@ def main() -> None:
     args = parser.parse_args()
     _require_runtime_deps()
 
-    territory = normalize_territory(args.territory)
+    territory = parse_territory(args.territory)
     case_cfg = get_case_study(
         territory,
         infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
@@ -2632,7 +3156,10 @@ def main() -> None:
             f"Unable to build wind comparison table from wind map payload: {wind_map_json}"
         )
 
-    geometry_features = _build_network_geometry_features(case_cfg)
+    geometry_features = _build_network_geometry_features(
+        case_cfg,
+        electric_unit_ids=set(aux.get("electric_unit_ids") or []),
+    )
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
 
     complete_analysis_calibration = aux.get("complete_analysis_calibration") if isinstance(aux, dict) else None

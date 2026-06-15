@@ -2,11 +2,130 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "lalalalalalalalal",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--dynamic-max-tracks",
+        "1200",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Martinique Only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "mar",
+        "--dynamic-max-tracks",
+        "1200",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Saint-Barthélemy Only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "stb",
+        "--dynamic-max-tracks",
+        "1200",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (No Deploy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "1200",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
       "label": "SIB: Resume Latest Complete Analysis (No Deploy)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/run_complete_analysis.py",
+        "scripts/run_complete_analysis.py",
         "--resume-run-id",
         "latest",
         "--no-deploy",
@@ -15,13 +134,494 @@
         "--memory-budget-gb",
         "6"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
         "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Fast: 800 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--dynamic-max-tracks",
+        "800",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Very Fast: 150 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "150",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Rich: 1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--dynamic-max-tracks",
+        "1500",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Saint-Barthélemy Rich: 1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "stb",
+        "--dynamic-max-tracks",
+        "1500",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Full Tracks: Guadeloupe + Martinique, No Deploy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "both",
+        "--dynamic-max-tracks",
+        "0",
+        "--no-deploy",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Saint-Barthélemy Full Tracks, No Deploy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "stb",
+        "--dynamic-max-tracks",
+        "0",
+        "--no-deploy",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Hazard Comparison (300 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_hazard_comparative_analysis.py",
+        "--dynamic-max-tracks",
+        "300"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Hazard Comparison (1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_hazard_comparative_analysis.py",
+        "--dynamic-max-tracks",
+        "1500"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Hazard Comparison (Full Tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_hazard_comparative_analysis.py",
+        "--dynamic-max-tracks",
+        "0"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Monitor Hazard Comparison Run",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/monitor_hazard_comparison_run.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe Only)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/rebuild_frontend_artifacts_from_local_run.py",
+        "--territories",
+        "guadeloupe",
+        "--proxy-max-points-total",
+        "600",
+        "--proxy-max-points-per-feature",
+        "6",
+        "--proxy-dynamic-max-tracks",
+        "100",
+        "--map-dynamic-max-tracks",
+        "300"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend Artefacts (Both Territories)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/rebuild_frontend_artifacts_from_local_run.py",
+        "--territories",
+        "guadeloupe",
+        "martinique",
+        "--proxy-max-points-total",
+        "600",
+        "--proxy-max-points-per-feature",
+        "6",
+        "--proxy-dynamic-max-tracks",
+        "100",
+        "--map-dynamic-max-tracks",
+        "300"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend Artefacts (Selected Run)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/rebuild_frontend_artifacts_for_run.py",
+        "--run-id",
+        "${input:sibFrontendRunId}",
+        "--proxy-max-points-total",
+        "600",
+        "--proxy-max-points-per-feature",
+        "6",
+        "--proxy-dynamic-max-tracks",
+        "100",
+        "--map-dynamic-max-tracks",
+        "300"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Rebuild Frontend + Deploy (Guadeloupe Only)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "\"${workspaceFolder}/backend/.venv/bin/python\" scripts/rebuild_frontend_artifacts_from_local_run.py --territories guadeloupe --proxy-max-points-total 600 --proxy-max-points-per-feature 6 --proxy-dynamic-max-tracks 100 --map-dynamic-max-tracks 300 && \"${workspaceFolder}/backend/.venv/bin/python\" scripts/deploy_only.py --vhost sib.shared.elio.dev"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: View Run Logs (Markdown)",
+      "type": "shell",
+      "command": "cat",
+      "args": [
+        "docs/Journalisation_Run_GuaMar.md"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      }
+    },
+    {
+      "label": "SIB: View Run Logs (JSONL - Pretty)",
+      "type": "shell",
+      "command": "cat",
+      "args": [
+        "docs/Journalisation_Run_GuaMar.jsonl"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      }
+    },
+    {
+      "label": "SIB: Check Latest Deployment",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "scripts/check_latest_deployment.sh"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
       }
     },
     {
@@ -29,24 +629,7 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/monitor_run.py"
-      ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "group": {
-        "kind": "build",
-        "isDefault": false
-      }
-    },
-    {
-      "label": "SIB: Babysit Complete Analysis Run",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "RUN_ID='${input:completeAnalysisRunId}'; SESSION=\"babysit-${input:completeAnalysisRunId}\"; LOG_FILE=\"/home/ubuntu/sib-work/logs/babysit_complete_analysis_${input:completeAnalysisRunId}.log\"; cd /home/ubuntu/sib-work; if tmux has-session -t \"$SESSION\" 2>/dev/null; then echo \"Reusing tmux session $SESSION\"; else tmux new-session -d -s \"$SESSION\" \"bash -lc '/home/ubuntu/sib-work/backend/.venv/bin/python scripts/babysit_complete_analysis_run.py --run-id $RUN_ID --poll-seconds 60 --stale-after-minutes 20 --silent-hang-after-minutes 30 --restart-delay-seconds 30 2>&1 | tee -a $LOG_FILE'\"; echo \"Started tmux session $SESSION\"; fi; exec tmux attach -t \"$SESSION\""
+        "scripts/monitor_run.py"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -64,92 +647,126 @@
       }
     },
     {
-      "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe Only)",
+      "label": "SIB: Babysit Complete Analysis Run",
       "type": "shell",
-      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "command": "bash",
       "args": [
-        "${workspaceFolder}/scripts/rerun_case_studies_light.py",
-        "--territories",
-        "guadeloupe",
-        "--proxy-max-points-total",
-        "600",
-        "--proxy-max-points-per-feature",
-        "6",
-        "--proxy-dynamic-max-tracks",
-        "100",
-        "--map-dynamic-max-tracks",
-        "300"
+        "${workspaceFolder}/scripts/launch_babysit_tmux.sh",
+        "--kind",
+        "complete",
+        "--run-id",
+        "${input:completeAnalysisRunId}"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
       }
     },
     {
-      "label": "SIB: Rebuild Frontend Artefacts (Guadeloupe + Martinique)",
+      "label": "SIB: Babysit Hazard Comparison Run",
       "type": "shell",
-      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "command": "bash",
       "args": [
-        "${workspaceFolder}/scripts/rerun_case_studies_light.py",
-        "--territories",
-        "guadeloupe",
-        "martinique",
-        "--proxy-max-points-total",
-        "600",
-        "--proxy-max-points-per-feature",
-        "6",
-        "--proxy-dynamic-max-tracks",
-        "100",
-        "--map-dynamic-max-tracks",
-        "300"
+        "${workspaceFolder}/scripts/launch_babysit_tmux.sh",
+        "--kind",
+        "hazard-comparison",
+        "--run-id",
+        "${input:hazardComparisonRunId}"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
       }
     },
     {
-      "label": "SIB: Deploy Only (sib.shared.elio.dev)",
+      "label": "SIB: Deploy Only (Live shared root)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/deploy_only.py",
+        "scripts/deploy_only.py",
         "--vhost",
         "sib.shared.elio.dev"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
       }
     },
     {
-      "label": "SIB: Deploy Only (Both Servers)",
+      "label": "SIB: Deploy Only (Both labels, deduped)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/deploy_only.py",
+        "scripts/deploy_only.py",
         "--vhost",
         "both"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Prepare Latest Run Publication (Guadeloupe Only)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "\"${workspaceFolder}/backend/.venv/bin/python\" scripts/rebuild_frontend_artifacts_from_local_run.py --territories guadeloupe --proxy-max-points-total 600 --proxy-max-points-per-feature 6 --proxy-dynamic-max-tracks 100 --map-dynamic-max-tracks 300 && \"${workspaceFolder}/backend/.venv/bin/python\" scripts/snapshot_run_web_artifacts.py --run-id latest --territories guadeloupe"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
       }
     },
     {
@@ -157,17 +774,25 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
+        "scripts/snapshot_run_web_artifacts.py",
         "--run-id",
-        "latest-published"
+        "latest"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
       }
     },
     {
@@ -175,47 +800,89 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/snapshot_run_web_artifacts.py",
+        "scripts/snapshot_run_web_artifacts.py",
         "--run-id",
-        "latest-published",
+        "latest",
         "--territories",
         "guadeloupe"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
       }
     },
     {
-      "label": "SIB: Deploy Archived Latest Run (sib.dev.elio.bottagisio.com)",
+      "label": "SIB: Snapshot Run Web Artefacts (Selected Run)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/deploy_only.py",
+        "scripts/snapshot_run_web_artifacts.py",
+        "--run-id",
+        "${input:sibSnapshotRunId}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Deploy Archived Latest Run (sib.dev alias -> shared root)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/deploy_only.py",
         "--run-id",
         "latest-published",
         "--vhost",
         "sib.dev.elio.bottagisio.com"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
       }
     },
     {
-      "label": "SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev.elio.bottagisio.com)",
+      "label": "SIB: Deploy Archived Latest Run (Guadeloupe Only -> sib.dev alias)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/deploy_only.py",
+        "scripts/deploy_only.py",
         "--run-id",
         "latest-published",
         "--territories",
@@ -223,13 +890,260 @@
         "--vhost",
         "sib.dev.elio.bottagisio.com"
       ],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "problemMatcher": [],
       "group": {
-        "kind": "none",
+        "kind": "build",
         "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: List Complete Analysis Runs",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--list-runs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
+      }
+    },
+    {
+      "label": "SIB: Generate Run Graphs (Latest Success - HTML)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--latest-success",
+        "--formats",
+        "html,png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Export Run Graphs (Latest Success - PNG)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--latest-success",
+        "--formats",
+        "png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Generate Run Graphs (Selected Run - HTML)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--formats",
+        "html,png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Export Run Graphs (Selected Run - PNG)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--formats",
+        "png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Export Run Graphs (Selected Run - PNG, Saint-Barthélemy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs.py",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "saint-barthelemy",
+        "--formats",
+        "png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+  "label": "SIB: Generate Sensitivity Graphs - Choose Run ID",
+  "type": "shell",
+  "command": "bash",
+  "args": [
+    "-c",
+    "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json"
+  ],
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "problemMatcher": [],
+  "group": {
+    "kind": "build",
+    "isDefault": false
+  },
+  "presentation": {
+    "echo": true,
+    "reveal": "always",
+    "focus": false,
+    "panel": "shared",
+    "showReuseMessage": true,
+    "clear": false
+  }
+},
+    {
+      "label": "SIB: Run Sensitivity Analysis (Custom Scenario IDs)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_sensitivity_analysis.py",
+        "--scenario-pack",
+        "config/sensitivity/default-scenario-pack.json",
+        "--scenario-ids",
+        "${input:sibSensitivityScenarioIds}",
+        "--continue-on-error"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Babysit Sensitivity Analysis Run",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/launch_babysit_tmux.sh",
+      "args": [
+        "--kind",
+        "sensitivity",
+        "--run-id",
+        "${input:sensitivityRunId}"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new"
       }
     }
   ],
@@ -239,6 +1153,42 @@
       "type": "promptString",
       "description": "Complete-analysis run ID to babysit",
       "default": "20260611_075636"
+    },
+    {
+      "id": "hazardComparisonRunId",
+      "type": "promptString",
+      "description": "Hazard-comparison run ID to babysit",
+      "default": "20260611_075636"
+    },
+    {
+      "id": "sibSnapshotRunId",
+      "type": "promptString",
+      "description": "Run ID exact (ex 20260527_160919) ou selecteur snapshot: latest, latest-published.",
+      "default": "latest"
+    },
+    {
+      "id": "sibGraphRunId",
+      "type": "promptString",
+      "description": "Run ID exact (ex 20260527_160919) ou selecteur archive: latest, latest-success.",
+      "default": "latest-success"
+    },
+    {
+      "id": "sibFrontendRunId",
+      "type": "promptString",
+      "description": "Run ID exact (ex 20260527_160919) ou selecteur frontend: latest, latest-success.",
+      "default": "latest-success"
+    },
+    {
+      "id": "sensitivityRunId",
+      "type": "promptString",
+      "description": "ID du run de sensibilité, ex: sensitivity_20260602_110051",
+      "default": "sensitivity_20260602_110051"
+    },
+    {
+      "id": "sibSensitivityScenarioIds",
+      "type": "promptString",
+      "description": "Scenario IDs separes par des virgules. Laisser vide pour utiliser le pack par defaut complet.",
+      "default": ""
     }
   ]
 }

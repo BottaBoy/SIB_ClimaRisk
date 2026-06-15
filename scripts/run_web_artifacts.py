@@ -34,6 +34,12 @@ PAGE_ANALYSIS_SUMMARY_FIELD_MAP = {
 PROXY_BREAKDOWN_SHARE_SCENARIOS = ("annual", "rp50", "rp100")
 PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR = 0.5
 PUBLIC_LOSS_ALIGNMENT_REL_TOLERANCE = 1e-8
+REQUIRED_NETWORK_STATES_METADATA = {
+    "state_geometry_mode": "hydraulic_zoning_v2",
+    "water_state_geometry_mode": "hydraulic_zoning_v2",
+    "water_service_unit": "zone_component_key",
+    "electric_state_geometry_mode": "fixed_grid_0p1deg",
+}
 
 
 def _coerce_int(raw_value: object, *, default: int = 0) -> int:
@@ -212,7 +218,11 @@ def write_run_manifest(run_id: str, payload: dict[str, Any]) -> None:
 
 def case_study_page_suffix(territory: str) -> str:
     normalized = str(territory or "").strip().lower()
-    return "page2" if normalized == "martinique" else "page1"
+    if normalized == "martinique":
+        return "page2"
+    if normalized == "saint-barthelemy":
+        return "page7"
+    return "page1"
 
 
 def territory_complete_analysis_relative_path(territory: str) -> str:
@@ -227,6 +237,7 @@ def territory_frontend_rebuild_relative_paths(territory: str) -> tuple[str, ...]
         f"data/{normalized}-landslide-maps.json",
         f"data/{normalized}-multi-hazard-proxy.json",
         f"data/{normalized}-{case_study_page_suffix(normalized)}-analysis.json",
+        f"data/{normalized}-water-infra.geojson",
         f"data/{normalized}-network-states.geojson",
     )
 
@@ -544,6 +555,34 @@ def _path_timestamp(path: Path) -> datetime | None:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
 
+def _validate_geojson_feature_collection(relative_path: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{relative_path} is not valid JSON")
+    if str(payload.get("type") or "") != "FeatureCollection":
+        raise RuntimeError(f"{relative_path} is not a GeoJSON FeatureCollection")
+    features = payload.get("features")
+    if not isinstance(features, list):
+        raise RuntimeError(f"{relative_path} is missing a GeoJSON features array")
+    return payload
+
+
+def _validate_network_states_geojson(relative_path: str, payload: dict[str, Any] | None) -> dict[str, str | None]:
+    geojson = _validate_geojson_feature_collection(relative_path, payload)
+    metadata = geojson.get("metadata") if isinstance(geojson.get("metadata"), dict) else None
+    if metadata is None:
+        raise RuntimeError(f"{relative_path} is missing hydraulic network-state metadata")
+
+    observed: dict[str, str | None] = {}
+    for key, expected_value in REQUIRED_NETWORK_STATES_METADATA.items():
+        value = str(metadata.get(key) or "").strip() or None
+        observed[key] = value
+        if value != expected_value:
+            raise RuntimeError(
+                f"{relative_path} has invalid metadata.{key}: expected {expected_value}, got {value}"
+            )
+    return observed
+
+
 def _manifest_complete_analysis_timestamp(manifest: dict[str, Any], territory: str) -> datetime | None:
     territories = manifest.get("territories") if isinstance(manifest.get("territories"), dict) else {}
     entry = territories.get(str(territory)) if isinstance(territories, dict) else None
@@ -617,6 +656,7 @@ def validate_territory_web_snapshot(
         "publication_trace": {},
         "public_loss_alignment": {},
         "proxy_breakdown_share_validation": {},
+        "geojson_contract": {},
     }
 
     case_study_run_ids: dict[str, str] = {}
@@ -634,6 +674,19 @@ def validate_territory_web_snapshot(
                 f"{relative_path} is older than {complete_rel}: "
                 f"{timestamp.isoformat()} < {complete_timestamp.isoformat()}"
             )
+        if path.suffix.lower() == ".geojson":
+            geojson_payload = _validate_geojson_feature_collection(relative_path, payload)
+            if relative_path.endswith("network-states.geojson"):
+                validation["geojson_contract"][relative_path] = _validate_network_states_geojson(
+                    relative_path,
+                    geojson_payload,
+                )
+            else:
+                validation["geojson_contract"][relative_path] = {
+                    "type": str(geojson_payload.get("type") or ""),
+                    "feature_count": len(geojson_payload.get("features") or []),
+                }
+            continue
         if path.suffix.lower() == ".json":
             case_study_run_id = _payload_case_study_run_id(payload)
             if relative_path.endswith("network-states.geojson"):

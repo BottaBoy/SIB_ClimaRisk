@@ -8,11 +8,14 @@ import html
 import json
 import math
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import textwrap
 import webbrowser
 from typing import Any
 
+from case_study_sources import territory_label
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
@@ -29,6 +32,14 @@ TERRITORY_ALIASES = {
     "guadeloupe": "guadeloupe",
     "mar": "martinique",
     "martinique": "martinique",
+    "mq": "martinique",
+    "mtq": "martinique",
+    "stb": "saint-barthelemy",
+    "blm": "saint-barthelemy",
+    "saintbarth": "saint-barthelemy",
+    "saint_barth": "saint-barthelemy",
+    "saint-barthelemy": "saint-barthelemy",
+    "saint_barthelemy": "saint-barthelemy",
 }
 
 HAZARD_ALIASES = {
@@ -73,6 +84,8 @@ ANNUAL_FEC_COMBO_COLORS = {
     ("guadeloupe", "storm_cmcc"): "#c2410c",
     ("martinique", "storm"): "#14b8a6",
     ("martinique", "storm_cmcc"): "#f97316",
+    ("saint-barthelemy", "storm"): "#2563eb",
+    ("saint-barthelemy", "storm_cmcc"): "#7c3aed",
 }
 LIFETIME_EXTRA_RETURN_PERIODS = (400, 600, 800)
 EXTENDED_PML_PERIODS = tuple(sorted({*PML_PERIODS, *LIFETIME_EXTRA_RETURN_PERIODS}))
@@ -80,8 +93,6 @@ EXTENDED_PML_PERIODS = tuple(sorted({*PML_PERIODS, *LIFETIME_EXTRA_RETURN_PERIOD
 GRAPH_TYPE_ORDER = (
     "run_overview_summary",
     "hazard_metric_scorecard",
-    "storm_vs_cmcc_eai_pml1000",
-    "tvar95_by_territory_hazard",
     "annual_fec_all_territories",
     "annual_fec_all_territories_pct",
     "annual_fec_by_territory_hazard",
@@ -91,17 +102,12 @@ GRAPH_TYPE_ORDER = (
     "pml_ladder_by_territory_hazard",
     "top_events_by_hazard",
     "wind_year_hist_by_hazard",
-    "wind_track_hist_by_hazard",
     "direct_vs_indirect_eai_by_hazard",
-    "component_health_by_territory",
-    "interdependency_summary_by_territory",
 )
 
 GRAPH_TYPE_LABELS = {
     "run_overview_summary": "Resume du run",
     "hazard_metric_scorecard": "Scorecard alea",
-    "storm_vs_cmcc_eai_pml1000": "Comparaison STORM vs STORM_CMCC",
-    "tvar95_by_territory_hazard": "TVaR95 par territoire",
     "annual_fec_all_territories": "FEC annuelle comparee",
     "annual_fec_all_territories_pct": "FEC annuelle comparee en %",
     "annual_fec_by_territory_hazard": "FEC annuelle",
@@ -111,10 +117,7 @@ GRAPH_TYPE_LABELS = {
     "pml_ladder_by_territory_hazard": "Echelle PML",
     "top_events_by_hazard": "Top evenements",
     "wind_year_hist_by_hazard": "Histogramme vent max par annee",
-    "wind_track_hist_by_hazard": "Histogramme vent max par track",
     "direct_vs_indirect_eai_by_hazard": "Direct vs indirect",
-    "component_health_by_territory": "Sante des composants",
-    "interdependency_summary_by_territory": "Resume interdependance",
 }
 
 SECTION_LABELS = {
@@ -173,6 +176,133 @@ _WIND_MAP_CACHE: dict[tuple[str, str], tuple[dict[str, Any], str] | None] = {}
 _REAL_WIND_TRACK_HIST_CACHE: dict[tuple[str, str, str], tuple[list[float], list[float], str] | None] = {}
 _DYNAMIC_HAZARD_BUNDLE_CACHE: dict[tuple[str, str, int], Any] = {}
 _BACKEND_RUNTIME: tuple[Any, Any] | None = None
+
+
+def _render_integrated_vincennes_assets(record: RunRecord, output_dir: Path) -> list[str]:
+    helper_script = REPO_ROOT / "outputs" / "Graphs" / "presentation-vincennes" / "export_assets.py"
+    for category in ("charts", "maps", "tables"):
+        category_dir = output_dir / category
+        if category_dir.exists():
+            shutil.rmtree(category_dir)
+    command = [
+        sys.executable,
+        str(helper_script),
+        "--run-id",
+        record.run_id,
+        "--output-root",
+        str(output_dir),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        stdout = completed.stdout.strip()
+        stderr = completed.stderr.strip()
+        details = "\n".join(part for part in [stdout, stderr] if part)
+        raise RuntimeError(
+            "Integrated charts/maps/tables export failed for "
+            f"run {record.run_id} using {helper_script}:\n{details or 'no error details available'}"
+        )
+    generated_paths: list[str] = []
+    for category in ("charts", "maps", "tables"):
+        category_dir = output_dir / category
+        if not category_dir.exists():
+            continue
+        for path in sorted(candidate for candidate in category_dir.rglob("*") if candidate.is_file()):
+            generated_paths.append(str(path))
+    return generated_paths
+
+
+def _count_outputs_by_category(output_dir: Path, paths: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for raw_path in paths:
+        path = Path(raw_path)
+        try:
+            relative = path.relative_to(output_dir)
+            category = relative.parts[0] if relative.parts else "root"
+        except ValueError:
+            category = path.parent.name or "root"
+        counts[category] = counts.get(category, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _standard_graph_family(graph: GraphSpec) -> str:
+    if graph.graph_type == "run_overview_summary":
+        return "synthese"
+    if graph.section == "wind":
+        return "alea"
+    return "impact"
+
+
+def _auxiliary_output_classification(output_dir: Path, raw_path: str) -> tuple[str, str, str]:
+    path = Path(raw_path)
+    relative = path.relative_to(output_dir)
+    category = relative.parts[0] if relative.parts else "root"
+    file_name = relative.name.lower()
+    technical_type = {"charts": "chart", "maps": "map", "tables": "table"}.get(category, "file")
+    if category == "maps":
+        if any(token in file_name for token in ("storm_vent", "pluie", "inondation_cotiere", "mouvements_de_terrain", "bassin_")):
+            family = "alea"
+        elif any(token in file_name for token in ("aep_canalisations", "haute_tension_souterrain")):
+            family = "exposition"
+        else:
+            family = "impact"
+    elif category == "charts":
+        if "vent_max" in file_name:
+            family = "alea"
+        else:
+            family = "impact"
+    elif category == "tables":
+        if "comparaison_aleas" in file_name:
+            family = "alea"
+        else:
+            family = "impact"
+    else:
+        family = "autre"
+    return str(relative), technical_type, family
+
+
+def _build_generated_output_records(
+    output_dir: Path,
+    graphs: list[GraphSpec],
+    png_paths: list[str],
+    auxiliary_output_paths: list[str],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for graph, raw_path in zip(graphs, png_paths):
+        path = Path(raw_path)
+        relative = str(path.relative_to(output_dir))
+        records.append(
+            {
+                "path": relative,
+                "technical_type": graph.kind,
+                "family": _standard_graph_family(graph),
+                "source": "standard",
+                "graph_type": graph.graph_type,
+                "territory": graph.territory,
+                "hazard": graph.hazard,
+            }
+        )
+    for raw_path in auxiliary_output_paths:
+        relative, technical_type, family = _auxiliary_output_classification(output_dir, raw_path)
+        records.append(
+            {
+                "path": relative,
+                "technical_type": technical_type,
+                "family": family,
+                "source": "integrated_auxiliary",
+                "graph_type": None,
+                "territory": None,
+                "hazard": None,
+            }
+        )
+    return records
+
+
+def _count_generated_outputs(records: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for record in records:
+        value = str(record.get(key) or "autre")
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -410,6 +540,11 @@ def print_runs(records: list[RunRecord]) -> None:
 
 
 def resolve_run_record(run_id: str | None, latest_success: bool, records: list[RunRecord]) -> RunRecord:
+    normalized_run_id = str(run_id or "").strip().lower()
+    if normalized_run_id in {"latest-success", "latest_success", "latest-successful"}:
+        run_id = None
+        latest_success = True
+
     if run_id:
         if str(run_id).strip().lower() == "latest":
             selected_id = _resolve_latest_manifest_run_id()
@@ -495,9 +630,6 @@ def _territory_payload_candidates(record: RunRecord, territory: str) -> list[tup
             RUN_OUTPUTS_DIR / run_id / "territories" / territory / "web" / "data" / f"{territory}-complete-analysis.json",
             "default_archived_path",
         ),
-        (territory_entry.get("complete_analysis_path"), "complete_analysis_path"),
-        (export_phase.get("output_file"), "output_file"),
-        (WEB_DATA_DIR / f"{territory}-complete-analysis.json", "web_data_fallback"),
     ]
     seen: set[str] = set()
     for raw_path, label in raw_candidates:
@@ -517,22 +649,15 @@ def load_territory_payload(record: RunRecord, territory: str) -> TerritoryPayloa
         if not candidate_path.exists():
             continue
         payload = _load_json(candidate_path)
-        source_kind = "archived" if candidate_path.is_relative_to(RUN_OUTPUTS_DIR / record.run_id) else "working-fallback"
-        warning = None
-        if source_kind != "archived":
-            warning = (
-                f"Run {record.run_id} for {territory} falls back to mutable payload {candidate_path} "
-                f"({label}); archived complete-analysis JSON not found."
-            )
         return TerritoryPayload(
             territory=territory,
             payload_path=str(candidate_path),
             payload=payload,
-            source_kind=source_kind,
-            warning=warning,
+            source_kind="archived",
+            warning=None,
         )
     raise FileNotFoundError(
-        f"No complete-analysis JSON found for territory={territory} in run {record.run_id}"
+        f"No archived complete-analysis JSON found for territory={territory} in run {record.run_id}"
     )
 
 
@@ -1179,29 +1304,50 @@ def build_run_overview_graph(record: RunRecord, payloads: dict[str, TerritoryPay
 
 
 def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
-    rows: list[list[str]] = []
+    categories = ["Annual EAI", "Direct EAI", "Indirect EAI", "PML100", "PML1000", "TVaR95", "P99"]
+    series: list[dict[str, Any]] = []
     for hazard in selected_hazards:
         metrics = _extract_hazard_metrics(payload, hazard)
-        rows.append(
-            [
-                HAZARD_LABELS[hazard],
-                _format_eur(metrics.get("eai_eur")),
-                _format_eur(metrics.get("eai_direct_eur")),
-                _format_eur(metrics.get("eai_indirect_eur")),
-                _format_eur(metrics.get("pml_100_eur")),
-                _format_eur(metrics.get("pml_1000_eur")),
-                _format_eur(metrics.get("tvar_95_eur")),
-                _format_eur(metrics.get("percentile_99_loss_eur")),
-            ]
+        series.append(
+            {
+                "name": HAZARD_LABELS[hazard],
+                "type": "bar",
+                "data": [
+                    _safe_float(metrics.get("eai_eur")),
+                    _safe_float(metrics.get("eai_direct_eur")),
+                    _safe_float(metrics.get("eai_indirect_eur")),
+                    _safe_float(metrics.get("pml_100_eur")),
+                    _safe_float(metrics.get("pml_1000_eur")),
+                    _safe_float(metrics.get("tvar_95_eur")),
+                    _safe_float(metrics.get("percentile_99_loss_eur")),
+                ],
+                "itemStyle": {"color": HAZARD_COLORS[hazard]},
+            }
         )
-    return _make_table_graph(
-        "hazard_metric_scorecard",
-        f"Hazard Scorecard - {territory}",
-        "overview",
-        "Tableau synthetique des metriques principales par alea.",
-        ["Hazard", "Annual EAI", "Direct EAI", "Indirect EAI", "PML100", "PML1000", "TVaR95", "P99"],
-        rows,
+    return GraphSpec(
+        graph_id=_graph_id("hazard_metric_scorecard", territory),
+        graph_type="hazard_metric_scorecard",
+        title=f"Hazard Scorecard - {territory}",
+        section="overview",
         territory=territory,
+        hazard=None,
+        kind="chart",
+        description="Comparaison synthetique des principales metriques de pertes par alea.",
+        echarts_option=_build_bar_option(f"Hazard Scorecard - {territory}", categories, series),
+        png_payload={
+            "type": "grouped_bar",
+            "title": f"Hazard Scorecard - {territory}",
+            "categories": categories,
+            "series": [
+                {
+                    "name": str(item.get("name") or ""),
+                    "values": list(item.get("data") or []),
+                    "color": item.get("itemStyle", {}).get("color") if isinstance(item.get("itemStyle"), dict) else None,
+                }
+                for item in series
+            ],
+            "ylabel": "Loss (EUR)",
+        },
     )
 
 
@@ -1353,6 +1499,13 @@ def build_annual_fec_all_territories_graph(
     series: list[dict[str, Any]] = []
     png_series: list[dict[str, Any]] = []
     graph_warnings: list[str] = []
+    territory_line_types = {
+        "guadeloupe": "solid",
+        "martinique": "dashed",
+        "saint-barthelemy": "dotted",
+    }
+    territory_labels = [territory_label(territory) for territory in selected_territories]
+    title_suffix = " + ".join(territory_labels)
     for territory in selected_territories:
         payload = payloads[territory].payload
         for hazard in selected_hazards:
@@ -1361,9 +1514,9 @@ def build_annual_fec_all_territories_graph(
                 continue
             if warning and warning not in graph_warnings:
                 graph_warnings.append(warning)
-            name = f"{territory.title()} - {HAZARD_LABELS[hazard]}"
+            name = f"{territory_label(territory)} - {HAZARD_LABELS[hazard]}"
             color = ANNUAL_FEC_COMBO_COLORS.get((territory, hazard), HAZARD_COLORS[hazard])
-            line_type = "solid" if territory == "guadeloupe" else "dashed"
+            line_type = territory_line_types.get(territory, "solid")
             series.append(
                 {
                     "name": name,
@@ -1379,7 +1532,7 @@ def build_annual_fec_all_territories_graph(
     if len(series) < 2:
         return None
     option = _build_line_option(
-        "Annual FEC - Guadeloupe + Martinique",
+        f"Annual FEC - {title_suffix}",
         "Return period (years)",
         "Damage (EUR)",
         series,
@@ -1387,16 +1540,16 @@ def build_annual_fec_all_territories_graph(
     return GraphSpec(
         graph_id=_graph_id("annual_fec_all_territories"),
         graph_type="annual_fec_all_territories",
-        title="Annual FEC - Guadeloupe + Martinique",
+        title=f"Annual FEC - {title_suffix}",
         section="fec",
         territory=None,
         hazard=None,
         kind="chart",
-        description="Vue consolidee sur un seul graphe des courbes annuelles Guadeloupe/Martinique x STORM/STORM_CMCC.",
+        description=f"Vue consolidee sur un seul graphe des courbes annuelles {title_suffix} x STORM/STORM_CMCC.",
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": "Annual FEC - Guadeloupe + Martinique",
+            "title": f"Annual FEC - {title_suffix}",
             "series": png_series,
             "xlabel": "Return period (years)",
             "ylabel": "Damage (EUR)",
@@ -1415,6 +1568,13 @@ def build_annual_fec_all_territories_pct_graph(
     series: list[dict[str, Any]] = []
     png_series: list[dict[str, Any]] = []
     graph_warnings: list[str] = []
+    territory_line_types = {
+        "guadeloupe": "solid",
+        "martinique": "dashed",
+        "saint-barthelemy": "dotted",
+    }
+    territory_labels = [territory_label(territory) for territory in selected_territories]
+    title_suffix = " + ".join(territory_labels)
     for territory in selected_territories:
         payload = payloads[territory].payload
         total_exposure_value = _resolve_total_exposure_value(record, territory, payload)
@@ -1432,9 +1592,9 @@ def build_annual_fec_all_territories_pct_graph(
             if warning and warning not in graph_warnings:
                 graph_warnings.append(warning)
             damage_pct = [round((float(value) / total_exposure_value) * 100.0, 4) for value in damage]
-            name = f"{territory.title()} - {HAZARD_LABELS[hazard]}"
+            name = f"{territory_label(territory)} - {HAZARD_LABELS[hazard]}"
             color = ANNUAL_FEC_COMBO_COLORS.get((territory, hazard), HAZARD_COLORS[hazard])
-            line_type = "solid" if territory == "guadeloupe" else "dashed"
+            line_type = territory_line_types.get(territory, "solid")
             series.append(
                 {
                     "name": name,
@@ -1450,7 +1610,7 @@ def build_annual_fec_all_territories_pct_graph(
     if len(series) < 2:
         return None
     option = _build_line_option(
-        "Annual FEC - Guadeloupe + Martinique (%)",
+        f"Annual FEC - {title_suffix} (%)",
         "Return period (years)",
         "Damage (% of territory infrastructure value)",
         series,
@@ -1458,19 +1618,19 @@ def build_annual_fec_all_territories_pct_graph(
     return GraphSpec(
         graph_id=_graph_id("annual_fec_all_territories_pct"),
         graph_type="annual_fec_all_territories_pct",
-        title="Annual FEC - Guadeloupe + Martinique (%)",
+        title=f"Annual FEC - {title_suffix} (%)",
         section="fec",
         territory=None,
         hazard=None,
         kind="chart",
         description=(
-            "Vue consolidee des courbes annuelles Guadeloupe/Martinique x STORM/STORM_CMCC, "
+            f"Vue consolidee des courbes annuelles {title_suffix} x STORM/STORM_CMCC, "
             "avec un axe Y normalise en pourcentage de la valeur totale d'infrastructure de chaque territoire."
         ),
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": "Annual FEC - Guadeloupe + Martinique (%)",
+            "title": f"Annual FEC - {title_suffix} (%)",
             "series": png_series,
             "xlabel": "Return period (years)",
             "ylabel": "Damage (% of territory infrastructure value)",
@@ -1970,10 +2130,6 @@ def build_graphs_for_territory(
     payload = bundle.payload
     graphs: list[GraphSpec] = []
     graphs.append(build_hazard_metric_scorecard(territory, payload, selected_hazards))
-    comparison_graph = build_storm_vs_cmcc_comparison(territory, payload, selected_hazards)
-    if comparison_graph is not None:
-        graphs.append(comparison_graph)
-    graphs.append(build_tvar95_comparison(territory, payload, selected_hazards))
     graphs.append(build_direct_vs_indirect_graph(territory, payload, selected_hazards))
     annual_component_mix = build_hazard_component_share_graph(
         territory,
@@ -2005,9 +2161,6 @@ def build_graphs_for_territory(
     )
     if p99_component_mix is not None:
         graphs.append(p99_component_mix)
-    interdependency_graph = build_interdependency_summary_graph(territory, payload)
-    if interdependency_graph is not None:
-        graphs.append(interdependency_graph)
     for hazard in selected_hazards:
         for graph in (
             build_annual_fec_graph(record, territory, payload, hazard),
@@ -2015,8 +2168,6 @@ def build_graphs_for_territory(
             build_pml_ladder_graph(territory, payload, hazard),
             build_top_events_graph(territory, payload, hazard),
             build_wind_hist_graph(record, territory, payload, hazard, "wind_year_hist", "wind_year_hist_by_hazard", "Wind Year Histogram"),
-            build_wind_hist_graph(record, territory, payload, hazard, "wind_track_hist", "wind_track_hist_by_hazard", "Wind Track Histogram"),
-            build_component_health_graph(territory, payload, hazard),
         ):
             if graph is not None:
                 graphs.append(graph)
@@ -2453,8 +2604,11 @@ def write_graph_manifest(
     output_dir: Path,
     html_index: Path | None,
     png_paths: list[str],
+    auxiliary_output_paths: list[str],
     warnings: list[str],
 ) -> Path:
+    all_output_paths = [*png_paths, *auxiliary_output_paths]
+    generated_outputs = _build_generated_output_records(output_dir, graphs, png_paths, auxiliary_output_paths)
     payload = {
         "run_id": record.run_id,
         "status": record.status,
@@ -2463,6 +2617,10 @@ def write_graph_manifest(
         "output_dir": str(output_dir),
         "html_index": str(html_index) if html_index is not None else None,
         "png_count": len(png_paths),
+        "auxiliary_output_count": len(auxiliary_output_paths),
+        "output_counts_by_category": _count_outputs_by_category(output_dir, all_output_paths),
+        "output_counts_by_technical_type": _count_generated_outputs(generated_outputs, "technical_type"),
+        "output_counts_by_family": _count_generated_outputs(generated_outputs, "family"),
         "warnings": warnings,
         "territories": {name: asdict(bundle) | {"payload": None} for name, bundle in payloads.items()},
         "graphs": [
@@ -2480,6 +2638,8 @@ def write_graph_manifest(
             for graph in graphs
         ],
         "png_paths": png_paths,
+        "auxiliary_output_paths": auxiliary_output_paths,
+        "generated_outputs": generated_outputs,
     }
     manifest_path = output_dir / "graphs-manifest.json"
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -2494,7 +2654,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run_group.add_argument("--run-id", help="Run ID to load. Use 'latest' to force latest-manifest.json")
     run_group.add_argument("--latest-success", action="store_true", help="Resolve the most recent complete-analysis run with top-level status=success")
     parser.add_argument("--list-runs", action="store_true", help="List available complete-analysis runs and exit")
-    parser.add_argument("--territories", nargs="*", help="Optional territory filter: guadeloupe, martinique, gua, mar")
+    parser.add_argument("--territories", nargs="*", help="Optional territory filter: guadeloupe, martinique, saint-barthelemy, gua, mar, stb, blm")
     parser.add_argument("--hazards", nargs="*", help="Optional hazard filter: storm, storm_cmcc, cmcc")
     parser.add_argument("--graph-ids", nargs="*", help="Optional graph-type filter. Choices include: " + ", ".join(GRAPH_TYPE_ORDER))
     parser.add_argument("--formats", default="html", help="Comma-separated outputs: html,png")
@@ -2564,12 +2724,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[ok] HTML graph pack written to {html_index}")
 
     png_paths: list[str] = []
+    auxiliary_output_paths: list[str] = []
     if "png" in output_formats:
         png_dir = run_output_dir / "png"
+        if png_dir.exists():
+            shutil.rmtree(png_dir)
         png_paths = render_png_graphs(graphs, png_dir)
+        auxiliary_output_paths = _render_integrated_vincennes_assets(selected_record, run_output_dir)
         print(f"[ok] PNG graphs written to {png_dir}")
+        if auxiliary_output_paths:
+            print(f"[ok] Integrated charts/maps/tables written to {run_output_dir}")
 
-    manifest_path = write_graph_manifest(selected_record, payloads, graphs, run_output_dir, html_index, png_paths, warnings)
+    manifest_path = write_graph_manifest(selected_record, payloads, graphs, run_output_dir, html_index, png_paths, auxiliary_output_paths, warnings)
     print(f"[ok] Graph manifest written to {manifest_path}")
     print(f"[ok] Selected run: {selected_record.run_id}")
     print(f"[ok] Graph count: {len(graphs)}")

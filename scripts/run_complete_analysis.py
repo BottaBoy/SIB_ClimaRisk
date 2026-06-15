@@ -47,9 +47,10 @@ except ImportError:
     gpd = None
 
 try:
-    from shapely.geometry import box
+    from shapely.geometry import box, mapping
 except ImportError:
     box = None
+    mapping = None
 
 # Backend imports
 from app.risk_engine.analysis_export import build_result_payload
@@ -66,7 +67,14 @@ from app.risk_engine.types import NormalizedExposure, NormalizedFeature
 
 # Case study specific
 sys.path.insert(0, str(SCRIPTS_ROOT))
-from case_study_sources import get_case_study, normalize_territory, territory_label
+from case_study_sources import (
+    EXPLICIT_TERRITORIES,
+    get_case_study,
+    normalize_territory,
+    parse_territory_selection,
+    territory_label,
+    territory_page_suffix,
+)
 from frontend_supervision import (
     ENV_FRONTEND_SUPERVISION_JOURNAL,
     ENV_FRONTEND_SUPERVISION_RUN_ID,
@@ -83,8 +91,8 @@ from valuation_ofb import (
     SOURCE_LABEL,
     VALUATION_VERSION,
     build_valuation_metadata,
-    get_aep_ouvrage_value,
-    get_elec_values,
+    get_aep_ouvrage_value_for_territory,
+    get_elec_values_for_territory,
     get_water_values,
 )
 from run_web_artifacts import (
@@ -114,6 +122,10 @@ CASE_HAZARD_PATHS = {
     "martinique": (
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
+    ),
+    "saint-barthelemy": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
     ),
 }
 
@@ -242,6 +254,200 @@ def _resolve_resume_run_id(raw_value: str) -> str:
     return run_id
 
 
+def _load_existing_run_manifest_payload(run_id: str) -> dict[str, Any]:
+    manifest_path = RUN_OUTPUTS_DIR / str(run_id) / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Run manifest not found for run_id={run_id}: {manifest_path}")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid run manifest payload at {manifest_path}")
+    return payload
+
+
+def _parse_iso_datetime(raw_value: Any) -> datetime | None:
+    if raw_value is None:
+        return None
+    value = str(raw_value).strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _infer_resume_max_points_per_shard(existing_manifest: dict[str, Any]) -> int | None:
+    resumed_at = _parse_iso_datetime(existing_manifest.get("resumed_at"))
+    candidate_counts: list[int] = []
+    fallback_counts: list[int] = []
+    territories = existing_manifest.get("territories") if isinstance(existing_manifest.get("territories"), dict) else {}
+    for territory_entry in territories.values() if isinstance(territories, dict) else []:
+        if not isinstance(territory_entry, dict):
+            continue
+        impacts = territory_entry.get("impacts") if isinstance(territory_entry.get("impacts"), dict) else {}
+        hazards = impacts.get("hazards") if isinstance(impacts, dict) else {}
+        if not isinstance(hazards, dict):
+            continue
+        for hazard_entry in hazards.values():
+            if not isinstance(hazard_entry, dict):
+                continue
+            components = hazard_entry.get("components") if isinstance(hazard_entry.get("components"), dict) else {}
+            if not isinstance(components, dict):
+                continue
+            for component_entry in components.values():
+                if not isinstance(component_entry, dict):
+                    continue
+                shards = component_entry.get("shards") if isinstance(component_entry.get("shards"), dict) else {}
+                if not isinstance(shards, dict):
+                    continue
+                for shard_entry in shards.values():
+                    if not isinstance(shard_entry, dict):
+                        continue
+                    if str(shard_entry.get("status") or "") != "complete":
+                        continue
+                    point_count = int(shard_entry.get("point_count") or 0)
+                    if point_count <= 0:
+                        continue
+                    fallback_counts.append(point_count)
+                    updated_at = _parse_iso_datetime(shard_entry.get("updated_at"))
+                    if resumed_at is not None and updated_at is not None and updated_at >= resumed_at:
+                        continue
+                    candidate_counts.append(point_count)
+    if candidate_counts:
+        return max(candidate_counts)
+    if fallback_counts:
+        return max(fallback_counts)
+    return None
+
+
+def _resolve_resume_runtime_parameters(
+    *,
+    args: argparse.Namespace,
+    existing_manifest: dict[str, Any] | None,
+    scenario: SensitivityScenario | None,
+) -> tuple[dict[str, Any], list[str]]:
+    warnings: list[str] = []
+    existing_parameters = (
+        dict(existing_manifest.get("parameters") or {})
+        if isinstance(existing_manifest, dict)
+        else {}
+    )
+
+    resolved_dynamic_max_tracks = int(
+        existing_parameters.get("dynamic_max_tracks")
+        if existing_parameters.get("dynamic_max_tracks") is not None
+        else int(args.dynamic_max_tracks)
+    )
+    resolved_requested_dynamic_max_tracks = int(
+        existing_parameters.get("requested_dynamic_max_tracks")
+        if existing_parameters.get("requested_dynamic_max_tracks") is not None
+        else int(args.dynamic_max_tracks)
+    )
+    resolved_memory_budget_gb = float(
+        existing_parameters.get("memory_budget_gb")
+        if existing_parameters.get("memory_budget_gb") is not None
+        else float(args.memory_budget_gb)
+    )
+    inferred_max_points_per_shard = None
+    if isinstance(existing_manifest, dict):
+        inferred_max_points_per_shard = _infer_resume_max_points_per_shard(existing_manifest)
+    resolved_max_points_per_shard = int(
+        inferred_max_points_per_shard
+        if inferred_max_points_per_shard is not None
+        else (
+            existing_parameters.get("max_points_per_shard")
+            if existing_parameters.get("max_points_per_shard") is not None
+            else int(args.max_points_per_shard)
+        )
+    )
+    resolved_min_points_per_shard = int(
+        existing_parameters.get("min_points_per_shard")
+        if existing_parameters.get("min_points_per_shard") is not None
+        else int(args.min_points_per_shard)
+    )
+    territories_raw = existing_parameters.get("territories")
+    resolved_territories = (
+        list(territories_raw)
+        if isinstance(territories_raw, list) and territories_raw
+        else parse_territory_selection(str(args.territories), default="both")
+    )
+
+    if existing_parameters:
+        current_requested = {
+            "dynamic_max_tracks": int(args.dynamic_max_tracks),
+            "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
+            "memory_budget_gb": float(args.memory_budget_gb),
+            "max_points_per_shard": int(args.max_points_per_shard),
+            "min_points_per_shard": int(args.min_points_per_shard),
+            "territories": parse_territory_selection(str(args.territories), default="both"),
+        }
+        resolved_current = {
+            "dynamic_max_tracks": resolved_dynamic_max_tracks,
+            "requested_dynamic_max_tracks": resolved_requested_dynamic_max_tracks,
+            "memory_budget_gb": resolved_memory_budget_gb,
+            "max_points_per_shard": resolved_max_points_per_shard,
+            "min_points_per_shard": resolved_min_points_per_shard,
+            "territories": resolved_territories,
+        }
+        for key in ("dynamic_max_tracks", "requested_dynamic_max_tracks", "memory_budget_gb", "max_points_per_shard", "min_points_per_shard", "territories"):
+            if current_requested[key] != resolved_current[key]:
+                warnings.append(
+                    f"resume parameter '{key}' changed from {current_requested[key]!r} to {resolved_current[key]!r}; using the manifest value to preserve shard checkpoints"
+                )
+
+    effective_args = {
+        "dynamic_max_tracks": resolved_dynamic_max_tracks,
+        "requested_dynamic_max_tracks": resolved_requested_dynamic_max_tracks,
+        "memory_budget_gb": resolved_memory_budget_gb,
+        "max_points_per_shard": resolved_max_points_per_shard,
+        "min_points_per_shard": resolved_min_points_per_shard,
+        "territories": resolved_territories,
+    }
+    return effective_args, warnings
+
+
+def _infer_resume_dynamic_hazard_point_cap(
+    run_manifest: "RunManifest",
+    territory: str,
+) -> int | None:
+    territories = run_manifest.data.get("territories") if isinstance(run_manifest.data.get("territories"), dict) else {}
+    territory_entry = territories.get(str(territory)) if isinstance(territories, dict) else None
+    if not isinstance(territory_entry, dict):
+        return None
+    impacts = territory_entry.get("impacts") if isinstance(territory_entry.get("impacts"), dict) else {}
+    hazards = impacts.get("hazards") if isinstance(impacts, dict) else {}
+    if not isinstance(hazards, dict):
+        return None
+
+    candidate_counts: list[int] = []
+    for hazard_entry in hazards.values():
+        if not isinstance(hazard_entry, dict):
+            continue
+        components = hazard_entry.get("components") if isinstance(hazard_entry.get("components"), dict) else {}
+        if not isinstance(components, dict):
+            continue
+        for component_entry in components.values():
+            if not isinstance(component_entry, dict):
+                continue
+            shards = component_entry.get("shards") if isinstance(component_entry.get("shards"), dict) else {}
+            if not isinstance(shards, dict):
+                continue
+            for shard_entry in shards.values():
+                if not isinstance(shard_entry, dict):
+                    continue
+                if str(shard_entry.get("status") or "") != "complete":
+                    continue
+                point_count = int(shard_entry.get("point_count") or 0)
+                if point_count > 0:
+                    candidate_counts.append(point_count)
+    if candidate_counts:
+        return max(candidate_counts)
+    return None
+
+
 def _build_complete_analysis_settings(
     *,
     dynamic_max_tracks: int,
@@ -330,10 +536,10 @@ class RunLogger:
             if terr:
                 territory_events[terr][event.get("phase", "")] = event
         
-        for territory in ["guadeloupe", "martinique"]:
+        for territory in EXPLICIT_TERRITORIES:
             if territory in territory_events:
                 events = territory_events[territory]
-                run_section.append(f"### {territory.capitalize()}")
+                run_section.append(f"### {territory_label(territory)}")
                 
                 if "load_exposure" in events:
                     assets = events["load_exposure"].get("asset_count", "?")
@@ -579,15 +785,16 @@ class RunManifest:
 class RunTerminationGuard:
     """Marks a run as aborted if the process exits before normal finalization."""
 
-    def __init__(self, run_logger: RunLogger, run_manifest: RunManifest):
+    def __init__(self, run_logger: RunLogger, run_manifest: RunManifest, *, abort_on_sighup: bool = False):
         self._run_logger = run_logger
         self._run_manifest = run_manifest
+        self._abort_on_sighup = bool(abort_on_sighup)
         self._active = True
         self._previous_handlers: dict[int, Any] = {}
         atexit.register(self._on_exit)
         signal_numbers = [signal.SIGINT, signal.SIGTERM]
         sighup = getattr(signal, "SIGHUP", None)
-        if sighup is not None:
+        if sighup is not None and self._abort_on_sighup:
             signal_numbers.append(sighup)
         for signum in signal_numbers:
             self._previous_handlers[signum] = signal.getsignal(signum)
@@ -615,11 +822,19 @@ class RunTerminationGuard:
         try:
             current_status = str(self._run_manifest.data.get("status") or "")
             if current_status == "running":
-                self._run_manifest.set_status("aborted", **payload)
+                manifest_payload = dict(payload)
+                manifest_payload.pop("status", None)
+                self._run_manifest.set_status("aborted", **manifest_payload)
         except Exception:
             pass
 
     def _on_signal(self, signum: int, _frame: Any) -> None:
+        sighup = getattr(signal, "SIGHUP", None)
+        if sighup is not None and signum == sighup and not self._abort_on_sighup:
+            logger.warning(
+                "Run received SIGHUP; keeping the complete-analysis job alive so the computation can finish."
+            )
+            return
         logger.error("Run interrupted by signal %s; marking manifest as aborted", signum)
         self._mark_aborted(reason="signal_interrupt", signum=signum)
         previous = self._previous_handlers.get(signum, signal.SIG_DFL)
@@ -673,6 +888,22 @@ def _as_wgs84_and_metric(gdf: gpd.GeoDataFrame) -> tuple:
     gdf_wgs = gdf.to_crs(WGS84)
     gdf_metric = gdf.to_crs(METRIC_CRS)
     return gdf_wgs, gdf_metric
+
+
+def _read_vector(path: Path, *, layer: str | None = None, source_crs: str | None = None) -> gpd.GeoDataFrame:
+    gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
+    if gdf.crs is None:
+        return gdf.set_crs(source_crs or WGS84)
+    return gdf
+
+
+def _geometry_to_geojson(geom: Any) -> dict[str, Any] | None:
+    if geom is None or getattr(geom, "is_empty", False) or mapping is None:
+        return None
+    try:
+        return dict(mapping(geom))
+    except Exception:
+        return None
 
 
 def _valuation_properties(asset_type: str, *, valuation_method: str, **extra_properties: Any) -> dict[str, Any]:
@@ -772,7 +1003,7 @@ def _hydraulic_line_features(
                 exposure_category="ouvrage_eau",
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom_wgs),
                 properties=_valuation_properties(
                     asset_type,
                     valuation_method="length_times_eur_per_km",
@@ -801,6 +1032,7 @@ def _hydraulic_line_features(
 def _hydraulic_asset_features(
     gdf: gpd.GeoDataFrame,
     *,
+    territory: str,
     water_values: dict[str, float],
     context: str,
 ) -> list[NormalizedFeature]:
@@ -831,7 +1063,12 @@ def _hydraulic_asset_features(
         elif asset_type == "eau_eu_step":
             value_eur = float(water_values["eau_eu_step"])
         else:
-            value_eur = float(get_aep_ouvrage_value(asset_type_code or asset_type.rsplit("_", 1)[-1]))
+            value_eur = float(
+                get_aep_ouvrage_value_for_territory(
+                    territory,
+                    asset_type_code or asset_type.rsplit("_", 1)[-1],
+                )
+            )
         zone_uid = _clean_text(getattr(row, "zone_uid", "")) or None
         network_kind = _clean_text(getattr(row, "network_kind", "")) or None
         criticality = _clean_text(getattr(row, "criticality", "")) or None
@@ -846,7 +1083,7 @@ def _hydraulic_asset_features(
                 exposure_category="ouvrage_eau",
                 lon=float(getattr(centroid, "x", 0.0)),
                 lat=float(getattr(centroid, "y", 0.0)),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom),
                 properties=_valuation_properties(
                     asset_type,
                     valuation_method="hydraulic_asset_role_lookup",
@@ -901,7 +1138,7 @@ def _line_features(
                 exposure_category=exposure_category,
                 lon=float(centroid.x),
                 lat=float(centroid.y),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom_wgs),
                 properties=_valuation_properties(asset_type, valuation_method="length_times_eur_per_km"),
             )
         )
@@ -933,7 +1170,7 @@ def _point_features_fixed_value(
                 exposure_category=exposure_category,
                 lon=float(centroid.x),
                 lat=float(centroid.y),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom),
                 properties=_valuation_properties(asset_type, valuation_method="fixed_unit_value"),
             )
         )
@@ -943,6 +1180,7 @@ def _point_features_fixed_value(
 def _point_features_aep_ouvrages_from_field(
     gdf: gpd.GeoDataFrame,
     *,
+    territory: str,
     feature_prefix: str,
     field_name: str = "ovrg_type",
 ) -> list[NormalizedFeature]:
@@ -961,12 +1199,12 @@ def _point_features_aep_ouvrages_from_field(
             NormalizedFeature(
                 feature_id=f"{feature_prefix}-{idx + 1}",
                 label=f"AEP ouvrage {ovrg_type or 'NA'} {idx + 1}",
-                value_eur=get_aep_ouvrage_value(ovrg_type),
+                value_eur=get_aep_ouvrage_value_for_territory(territory, ovrg_type),
                 geometry_type=str(geom.geom_type),
                 exposure_category="ouvrage_eau",
                 lon=float(centroid.x),
                 lat=float(centroid.y),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom),
                 properties=_valuation_properties(asset_type, valuation_method="ouvrage_type_lookup"),
             )
         )
@@ -976,6 +1214,7 @@ def _point_features_aep_ouvrages_from_field(
 def _point_features_aep_ouvrages_fixed_type(
     gdf: gpd.GeoDataFrame,
     *,
+    territory: str,
     feature_prefix: str,
     ovrg_type: str,
 ) -> list[NormalizedFeature]:
@@ -992,12 +1231,12 @@ def _point_features_aep_ouvrages_fixed_type(
             NormalizedFeature(
                 feature_id=f"{feature_prefix}-{idx + 1}",
                 label=f"AEP ouvrage {code} {idx + 1}",
-                value_eur=get_aep_ouvrage_value(code),
+                value_eur=get_aep_ouvrage_value_for_territory(territory, code),
                 geometry_type=str(geom.geom_type),
                 exposure_category="ouvrage_eau",
                 lon=float(centroid.x),
                 lat=float(centroid.y),
-                geometry_geojson=None,
+                geometry_geojson=_geometry_to_geojson(geom),
                 properties=_valuation_properties(f"eau_aep_ouvrage_{code}", valuation_method="ouvrage_type_lookup"),
             )
         )
@@ -1020,7 +1259,7 @@ def build_complete_exposure(
     )
     valuation_meta = build_valuation_metadata(territory_key)
     water_values = get_water_values(territory_key)
-    elec_values = get_elec_values()
+    elec_values = get_elec_values_for_territory(territory_key)
     features: list[NormalizedFeature] = []
     bbox_polygon = _bbox_polygon_from_cfg(cfg)
 
@@ -1029,7 +1268,10 @@ def build_complete_exposure(
         eur_per_km = float(elec_values[str(src["asset_type"])])
         for p_idx, path in enumerate(src["paths"], start=1):
             try:
-                gdf = _clip_to_bbox(gpd.read_file(path), bbox_polygon)
+                gdf = _clip_to_bbox(
+                    _read_vector(path, source_crs=str(src.get("source_crs", "") or "") or None),
+                    bbox_polygon,
+                )
                 if gdf.empty:
                     continue
                 features.extend(
@@ -1048,7 +1290,7 @@ def build_complete_exposure(
     for src in cfg["hydraulic_zone_sources"]:
         bundle_path = Path(src["path"])
         try:
-            lines_gdf = _clip_to_bbox(gpd.read_file(bundle_path, layer=str(src["line_layer"])), bbox_polygon)
+            lines_gdf = _clip_to_bbox(_read_vector(bundle_path, layer=str(src["line_layer"])), bbox_polygon)
             if not lines_gdf.empty:
                 features.extend(
                     _hydraulic_line_features(
@@ -1061,11 +1303,12 @@ def build_complete_exposure(
             logger.warning(f"Failed to load hydraulic lines from {bundle_path}: {e}")
 
         try:
-            assets_gdf = _clip_to_bbox(gpd.read_file(bundle_path, layer=str(src["asset_layer"])), bbox_polygon)
+            assets_gdf = _clip_to_bbox(_read_vector(bundle_path, layer=str(src["asset_layer"])), bbox_polygon)
             if not assets_gdf.empty:
                 features.extend(
                     _hydraulic_asset_features(
                         assets_gdf,
+                        territory=territory_key,
                         water_values=water_values,
                         context=f"hydraulic bundle {bundle_path.name}:{src['asset_layer']}",
                     )
@@ -1103,6 +1346,7 @@ def run_territory_analysis(
     min_points_per_shard: int,
     allow_degraded_components: bool,
     resume_enabled: bool,
+    resume_dynamic_hazard_point_cap: int | None,
     scenario: SensitivityScenario | None,
 ) -> dict[str, Any] | None:
     """Run complete analysis for a single territory. Returns result dict or None on error."""
@@ -1156,7 +1400,12 @@ def run_territory_analysis(
         logger.info(f"Computing disaggregation...")
         current_phase = "disaggregation"
         run_manifest.set_phase(territory_key, "disaggregation", "running")
-        disagg = summarize_disaggregation(exposure, spacing_m=float(settings.default_sampling_spacing_m))
+        disagg = summarize_disaggregation(
+            exposure,
+            spacing_m=float(settings.default_sampling_spacing_m),
+            metric_crs=settings.climada_metric_crs,
+            max_points_per_feature=int(settings.climada_max_points_per_feature),
+        )
         logger.info(f"✓ Disaggregation complete - {disagg.asset_count_points} sample points")
         run_logger.log_event(
             "disaggregation",
@@ -1215,6 +1464,7 @@ def run_territory_analysis(
             progress_callback=_on_climada_progress,
             checkpoint_dir=checkpoint_dir,
             resume_enabled=resume_enabled,
+            resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
         )
         impact_time = time.time() - impact_start
         
@@ -1241,6 +1491,7 @@ def run_territory_analysis(
             eai_cmcc_eur=eai_cmcc,
             duration_seconds=int(impact_time),
             modeling=comp.modeling,
+            coherence_report=(comp.artifacts.get("coherence_report") if isinstance(comp.artifacts, dict) else None),
         )
         
         # Export results
@@ -1327,20 +1578,19 @@ def run_territory_analysis(
 DEPLOY_VERIFY_RELATIVE_PATHS = (
     "index.html",
     "assets/app.js",
-    "data/guadeloupe-complete-analysis.json",
-    "data/martinique-complete-analysis.json",
-    "data/guadeloupe-wind-maps.json",
-    "data/martinique-wind-maps.json",
-    "data/guadeloupe-landslide-maps.json",
-    "data/martinique-landslide-maps.json",
-    "data/guadeloupe-multi-hazard-proxy.json",
-    "data/martinique-multi-hazard-proxy.json",
-    "data/guadeloupe-page1-analysis.json",
-    "data/martinique-page2-analysis.json",
-    "data/guadeloupe-water-infra.geojson",
-    "data/martinique-water-infra.geojson",
-    "data/guadeloupe-network-states.geojson",
-    "data/martinique-network-states.geojson",
+    *tuple(
+        relative_path
+        for territory in EXPLICIT_TERRITORIES
+        for relative_path in (
+            f"data/{territory}-complete-analysis.json",
+            f"data/{territory}-wind-maps.json",
+            f"data/{territory}-landslide-maps.json",
+            f"data/{territory}-multi-hazard-proxy.json",
+            f"data/{territory}-{territory_page_suffix(territory)}-analysis.json",
+            f"data/{territory}-water-infra.geojson",
+            f"data/{territory}-network-states.geojson",
+        )
+    ),
 )
 
 FRONTEND_PROXY_MAX_POINTS_TOTAL = 600
@@ -1577,6 +1827,10 @@ def rebuild_case_study_frontend_artifacts(
         )
 
 
+def _frontend_artifacts_required(scenario: SensitivityScenario | None) -> bool:
+    return scenario is None
+
+
 def snapshot_frontend_artifacts_for_run(
     run_manifest: RunManifest,
     territories: list[str],
@@ -1625,7 +1879,7 @@ def snapshot_frontend_artifacts_for_run(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Run complete SIB analysis pipeline for Guadeloupe & Martinique"
+        description="Run complete SIB analysis pipeline for Guadeloupe, Martinique, and Saint-Barthélemy"
     )
     parser.add_argument(
         "--dynamic-max-tracks",
@@ -1635,9 +1889,8 @@ def main():
     )
     parser.add_argument(
         "--territories",
-        choices=["gua", "mar", "both"],
         default="both",
-        help="Which territories to analyze (default: both)"
+        help="Which territories to analyze: gua, mar, stb, both, all (default: both)"
     )
     parser.add_argument(
         "--no-deploy",
@@ -1674,6 +1927,11 @@ def main():
         help="Resume a previous sharded run from outputs/complete-analysis-runs/<run_id> (or use 'latest')",
     )
     parser.add_argument(
+        "--abort-on-sighup",
+        action="store_true",
+        help="Treat SIGHUP as a fatal interrupt instead of keeping the run alive after terminal disconnects",
+    )
+    parser.add_argument(
         "--scenario-pack",
         type=str,
         default=None,
@@ -1687,6 +1945,10 @@ def main():
     )
     
     args = parser.parse_args()
+    try:
+        requested_territories = parse_territory_selection(str(args.territories), default="both")
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.allow_degraded_components:
         parser.error("--allow-degraded-components has been removed; scientific runs must remain strict multi-hazard")
     if bool(args.scenario_pack) != bool(args.scenario_id):
@@ -1696,33 +1958,43 @@ def main():
     if args.scenario_pack and args.scenario_id:
         scenario = resolve_scenario_from_pack(args.scenario_pack, args.scenario_id)
 
+    resume_enabled = bool(args.resume_run_id)
+    existing_manifest_payload: dict[str, Any] | None = None
+    if resume_enabled:
+        resume_run_id = _resolve_resume_run_id(str(args.resume_run_id))
+        existing_manifest_payload = _load_existing_run_manifest_payload(resume_run_id)
+    else:
+        resume_run_id = ""
+
+    resolved_args, resume_warnings = _resolve_resume_runtime_parameters(
+        args=args,
+        existing_manifest=existing_manifest_payload,
+        scenario=scenario,
+    )
+
     effective_settings = _build_complete_analysis_settings(
-        dynamic_max_tracks=int(args.dynamic_max_tracks),
-        memory_budget_gb=float(args.memory_budget_gb),
-        max_points_per_shard=int(args.max_points_per_shard),
-        min_points_per_shard=int(args.min_points_per_shard),
+        dynamic_max_tracks=int(resolved_args["dynamic_max_tracks"]),
+        memory_budget_gb=float(resolved_args["memory_budget_gb"]),
+        max_points_per_shard=int(resolved_args["max_points_per_shard"]),
+        min_points_per_shard=int(resolved_args["min_points_per_shard"]),
         allow_degraded_components=bool(args.allow_degraded_components),
         scenario=scenario,
     )
-    
-    # Determine territories
-    if args.territories == "gua":
-        territories = ["guadeloupe"]
-    elif args.territories == "mar":
-        territories = ["martinique"]
-    else:
-        territories = ["guadeloupe", "martinique"]
+
+    territories = list(resolved_args["territories"])
     
     logger.info("=" * 60)
     logger.info(f"SIB Complete Analysis Runner")
+    for warning in resume_warnings:
+        logger.warning("%s", warning)
     logger.info(
         "Parameters: dynamic_max_tracks=%s (requested=%s), territories=%s, memory_budget_gb=%.2f, max_points_per_shard=%s, min_points_per_shard=%s, strict_components=%s, scenario_id=%s",
         int(effective_settings.hazard_dynamic_max_tracks),
-        int(args.dynamic_max_tracks),
+        int(resolved_args["requested_dynamic_max_tracks"]),
         territories,
-        float(args.memory_budget_gb),
-        int(args.max_points_per_shard),
-        int(args.min_points_per_shard),
+        float(resolved_args["memory_budget_gb"]),
+        int(resolved_args["max_points_per_shard"]),
+        int(resolved_args["min_points_per_shard"]),
         not bool(args.allow_degraded_components),
         scenario.scenario_id if scenario is not None else None,
     )
@@ -1730,12 +2002,12 @@ def main():
     
     parameters = {
         "dynamic_max_tracks": int(effective_settings.hazard_dynamic_max_tracks),
-        "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
+        "requested_dynamic_max_tracks": int(resolved_args["requested_dynamic_max_tracks"]),
         "territories": list(territories),
         "no_deploy": bool(args.no_deploy),
-        "memory_budget_gb": float(args.memory_budget_gb),
-        "max_points_per_shard": int(args.max_points_per_shard),
-        "min_points_per_shard": int(args.min_points_per_shard),
+        "memory_budget_gb": float(resolved_args["memory_budget_gb"]),
+        "max_points_per_shard": int(resolved_args["max_points_per_shard"]),
+        "min_points_per_shard": int(resolved_args["min_points_per_shard"]),
         "allow_degraded_components": bool(args.allow_degraded_components),
         "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
         "territory_grid_deg": float(effective_settings.territory_grid_deg),
@@ -1745,15 +2017,26 @@ def main():
     publication_policy = publication_policy_for_requested_tracks(
         parameters.get("requested_dynamic_max_tracks")
     )
-    resume_enabled = bool(args.resume_run_id)
     if resume_enabled:
-        resume_run_id = _resolve_resume_run_id(str(args.resume_run_id))
         run_logger = RunLogger(JOURNAL_MD, JOURNAL_JSONL, run_id=resume_run_id)
         run_manifest = RunManifest.open_existing(RUN_OUTPUTS_DIR, resume_run_id, parameters)
         run_manifest.set_status(
             "running",
             resumed_at=datetime.now(timezone.utc).isoformat(),
-            resume_invocation=parameters,
+            resume_invocation={
+                "dynamic_max_tracks": int(args.dynamic_max_tracks),
+                "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
+                "territories": requested_territories,
+                "no_deploy": bool(args.no_deploy),
+                "memory_budget_gb": float(args.memory_budget_gb),
+                "max_points_per_shard": int(args.max_points_per_shard),
+                "min_points_per_shard": int(args.min_points_per_shard),
+                "allow_degraded_components": bool(args.allow_degraded_components),
+                "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
+                "territory_grid_deg": float(effective_settings.territory_grid_deg),
+                "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
+                **scenario_manifest_fields(scenario),
+            },
             publication=publication_policy,
         )
     else:
@@ -1770,12 +2053,16 @@ def main():
             publication_policy.get("reason"),
             int(MIN_PUBLICATION_DYNAMIC_MAX_TRACKS),
         )
-    termination_guard = RunTerminationGuard(run_logger, run_manifest)
+    termination_guard = RunTerminationGuard(
+        run_logger,
+        run_manifest,
+        abort_on_sighup=bool(args.abort_on_sighup),
+    )
     run_logger.log_event(
         "resume" if resume_enabled else "start",
         status="initiated",
         dynamic_max_tracks=int(effective_settings.hazard_dynamic_max_tracks),
-        requested_dynamic_max_tracks=int(args.dynamic_max_tracks),
+        requested_dynamic_max_tracks=int(resolved_args["requested_dynamic_max_tracks"]),
         territories=territories,
         manifest_path=str(run_manifest.manifest_path),
         sampling_spacing_m=float(effective_settings.default_sampling_spacing_m),
@@ -1789,6 +2076,11 @@ def main():
     results = {}
     rerun_territories: list[str] = []
     for territory in territories:
+        resume_dynamic_hazard_point_cap = (
+            _infer_resume_dynamic_hazard_point_cap(run_manifest, territory)
+            if resume_enabled
+            else None
+        )
         completed_result = run_manifest.completed_territory_result(territory)
         if resume_enabled and completed_result is not None:
             logger.info("Skipping %s: already complete in manifest %s", territory, run_manifest.run_id)
@@ -1802,14 +2094,15 @@ def main():
             continue
         result = run_territory_analysis(
             territory,
-            args.dynamic_max_tracks,
+            int(resolved_args["requested_dynamic_max_tracks"]),
             run_logger,
             run_manifest,
-            memory_budget_gb=float(args.memory_budget_gb),
-            max_points_per_shard=int(args.max_points_per_shard),
-            min_points_per_shard=int(args.min_points_per_shard),
+            memory_budget_gb=float(resolved_args["memory_budget_gb"]),
+            max_points_per_shard=int(resolved_args["max_points_per_shard"]),
+            min_points_per_shard=int(resolved_args["min_points_per_shard"]),
             allow_degraded_components=bool(args.allow_degraded_components),
             resume_enabled=resume_enabled,
+            resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
             scenario=scenario,
         )
         if result:
@@ -1822,7 +2115,8 @@ def main():
     if results and not territories_for_frontend and str(frontend_status or "") != "complete":
         territories_for_frontend = list(results.keys())
 
-    if results and territories_for_frontend:
+    frontend_required = _frontend_artifacts_required(scenario)
+    if results and territories_for_frontend and frontend_required:
         logger.info("Rebuilding case-study frontend artefacts...")
         artefact_start = time.time()
         frontend_supervision_journal = frontend_supervision_journal_path(run_manifest.run_dir)
@@ -1917,6 +2211,22 @@ def main():
                     "supervision_journal": str(frontend_supervision_journal),
                 },
             )
+    elif results and not frontend_required:
+        frontend_artifacts_success = True
+        run_manifest.set_status(
+            "running",
+            frontend_artifacts={
+                "status": "skipped",
+                "territories": list(results.keys()),
+                "reason": "frontend artefact rebuild is skipped for sensitivity scenario runs",
+            },
+        )
+        run_logger.log_event(
+            "frontend_artifacts",
+            territories=list(results.keys()),
+            status="skipped",
+            reason="frontend artefact rebuild is skipped for sensitivity scenario runs",
+        )
     elif results:
         frontend_artifacts_success = str(frontend_status or "") == "complete"
     

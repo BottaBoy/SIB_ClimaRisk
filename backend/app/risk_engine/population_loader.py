@@ -2,7 +2,7 @@
 Population data loading and aggregation module.
 
 Loads WorldPop raster data and aggregates population by territory (0.2° grid cells).
-Supports Guadeloupe and Martinique territories.
+Supports Guadeloupe, Martinique, and Saint-Barthélemy territories.
 """
 
 from __future__ import annotations
@@ -41,6 +41,12 @@ TERRITORY_CONFIG = {
         "raster_filename": "mtq_pop_2020_CN_100m_R2025A_v1.tif",
         "bounds": (-61.24, 14.39, -60.81, 14.88),
     },
+    "BLM": {
+        "name": "Saint-Barthélemy",
+        "iso_code": "BLM",
+        "raster_filename": "blm_pop_2020_CN_100m_R2025A_v1.tif",
+        "bounds": (-62.95, 17.86, -62.78, 17.98),
+    },
 }
 
 TERRITORY_GRID_DEG = 0.2  # Grid cell size in degrees
@@ -66,7 +72,7 @@ def _territory_for_coords(lat: float, lon: float) -> Optional[str]:
         lon: Longitude
 
     Returns:
-        Territory ID ("GUA", "MTQ") or None if not in supported territory
+        Territory ID ("GUA", "MTQ", "BLM") or None if not in supported territory
     """
     for territory_id, config in TERRITORY_CONFIG.items():
         minlon, minlat, maxlon, maxlat = config["bounds"]
@@ -264,7 +270,7 @@ def load_population_data(
 
     Args:
         population_data_dir: Directory containing WorldPop TIF files
-        territories: List of territory codes ("GUA", "MTQ"); if None, loads all available
+        territories: List of territory codes ("GUA", "MTQ", "BLM"); if None, loads all available
 
     Returns:
         Dict mapping territory_id -> {cell_id -> population_count}
@@ -336,7 +342,7 @@ def get_territory_id_from_cell_id(cell_id: str) -> Optional[str]:
         cell_id: Cell ID (e.g., "cell-+16.20_-061.40")
 
     Returns:
-        Territory ID ("GUA", "MTQ") or None
+        Territory ID ("GUA", "MTQ", "BLM") or None
     """
     try:
         # Parse cell ID: "cell-{lat:+05.2f}_{lon:+06.2f}"

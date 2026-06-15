@@ -17,6 +17,7 @@ import sys
 import time
 from pathlib import Path
 
+from case_study_sources import parse_territory
 from run_web_artifacts import (
     build_staging_web_dir_from_run,
     load_run_manifest,
@@ -48,6 +49,8 @@ DEPLOY_VERIFY_RELATIVE_PATHS = (
     "data/martinique-multi-hazard-proxy.json",
     "data/guadeloupe-page1-analysis.json",
     "data/martinique-page2-analysis.json",
+    "data/guadeloupe-water-infra.geojson",
+    "data/martinique-water-infra.geojson",
     "data/guadeloupe-network-states.geojson",
     "data/martinique-network-states.geojson",
 )
@@ -180,12 +183,16 @@ def main():
     parser.add_argument(
         "--territories",
         nargs="+",
-        choices=["guadeloupe", "martinique"],
         default=None,
         help="Optional territory subset to restore from an archived run before deploy (default: all archived territories in the run).",
     )
     
     args = parser.parse_args()
+    try:
+        if args.territories is not None:
+            args.territories = [parse_territory(value) for value in args.territories]
+    except ValueError as exc:
+        parser.error(str(exc))
     
     # Determine vhosts
     vhosts = []

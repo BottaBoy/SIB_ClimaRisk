@@ -52,7 +52,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.config import load_settings, resolve_surge_topo_path_for_territory  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs  # noqa: E402
 from app.risk_engine.hazard_loader import _normalize_frequency_safe, load_storm_hazards_from_parquet_for_points  # noqa: E402
-from case_study_sources import CASE_STUDY_BBOX, normalize_territory  # noqa: E402
+from case_study_sources import CASE_STUDY_BBOX, parse_territory  # noqa: E402
 from journal_guamar_run import encode_track_ids  # noqa: E402
 
 COLUMNS = [
@@ -110,6 +110,7 @@ DEFAULT_ANTILLES_TOPO_PATH = Path(
 TERRITORY_ADMIN_GROUP = {
     "guadeloupe": "FRA",
     "martinique": "FRA",
+    "saint-barthelemy": "FRA",
 }
 
 
@@ -1088,7 +1089,7 @@ def _merge_component_metrics(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build territory hazard map layers from STORM using native CLIMADA rain/surge generation.")
-    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--territory", default="guadeloupe")
     parser.add_argument(
         "--storm-dir",
         default=None,
@@ -1142,7 +1143,7 @@ def main() -> None:
     _require_map_deps()
 
     settings = load_settings()
-    territory = normalize_territory(args.territory)
+    territory = parse_territory(args.territory)
     topo_arg_explicit = any(arg == "--topo-path" or arg.startswith("--topo-path=") for arg in sys.argv[1:])
     case_study_run_id = str(args.case_study_run_id or "").strip()
     if not case_study_run_id:

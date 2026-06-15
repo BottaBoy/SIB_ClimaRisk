@@ -1,10 +1,10 @@
 # SIB Complete Analysis Runner
 
-Script Python pour exécuter la pipeline d'analyse complète du risque cyclonique sur les infrastructures (eau + électricité) en Guadeloupe et Martinique, avec support pour:
+Script Python pour exécuter la pipeline d'analyse complète du risque cyclonique sur les infrastructures (eau + électricité) en Guadeloupe, Martinique et Saint-Barthélemy, avec support pour:
 
 - 🎛️ **Configuration dynamique**: Ajuster `dynamic_max_tracks` pour contrôler la richesse de l'analyse
 - 🧩 **Exécution shardée**: Découpage automatique des points CLIMADA selon un budget mémoire pour éviter les `MemoryError` sur les runs lourds
-- 📊 **Multi-territoire**: Lancer les runs pour Guadeloupe, Martinique, ou les deux
+- 📊 **Multi-territoire**: Lancer les runs pour Guadeloupe, Martinique, Saint-Barthélemy, `both` (GUA+MTQ) ou `all` (GUA+MTQ+BLM)
 - 📝 **Journalisation automatique**: Logs en markdown + JSONL pour suivi et audit
 - 📁 **Manifeste de run**: Suivi détaillé par territoire / aléa / composant / shard dans `outputs/complete-analysis-runs/`
 - 🚀 **Déploiement automatique**: Résultats déployés automatiquement sur le serveur web après succès
@@ -35,8 +35,10 @@ Le script s'attend à trouver les données d'infrastructure aux emplacements sta
 ```
 /home/ubuntu/uploads/Infra_Elec_Guadeloupe/    # Lignes électriques
 /home/ubuntu/uploads/Infra_Elec_Martinique/
+/home/ubuntu/uploads/Infra_elec_Saint_Barthelemy/
 /home/ubuntu/uploads/Infra_Eau_Guadeloupe/     # Réseaux d'eau
 /home/ubuntu/uploads/Infra_Eau_Martinique/
+/home/ubuntu/uploads/Infra_eau_Saint_Barthelemy/
 /home/ubuntu/uploads/Population/                # Données population WorldPop
 ```
 
@@ -50,6 +52,13 @@ Les données de hazard STORM/STORM_CMCC doivent exister selon la configuration d
 /home/ubuntu/sib-work/data/hazards/tc_hazard_martinique.h5
 /home/ubuntu/sib-work/data/hazards/tc_hazard_martinique_CMCC.h5
 ```
+
+Notes Saint-Barthélemy:
+- le runner complet accepte `--territories stb` pour un run dédié;
+- `both` reste strictement `guadeloupe + martinique`;
+- `all` ajoute Saint-Barthélemy au périmètre historique;
+- le zonage AEP Saint-Barthélemy est `best-effort` et le zonage EU est explicitement `heuristic_topological_non_validated`;
+- le bundle hydraulique attendu est `outputs/hydraulic_zoning/Zonage_V2/saint-barthelemy_water_systems_estimate.gpkg`.
 
 ## Utilisation
 
@@ -78,8 +87,6 @@ python3 scripts/run_complete_analysis.py --memory-budget-gb 6
 # Forcer un cap explicite sur le nombre de points par shard
 python3 scripts/run_complete_analysis.py --max-points-per-shard 6000
 
-# Autoriser un run dégradé si un composant multi-aléa éligible échoue
-python3 scripts/run_complete_analysis.py --allow-degraded-components
 ```
 
 Par défaut, le runner complet active un profil `complete-analysis` strict:
@@ -183,6 +190,15 @@ python3 scripts/run_complete_analysis.py --territories gua
 
 # Martinique seulement
 python3 scripts/run_complete_analysis.py --territories mar
+
+# Saint-Barthélemy seulement
+python3 scripts/run_complete_analysis.py --territories stb
+
+# Périmètre historique inchangé
+python3 scripts/run_complete_analysis.py --territories both
+
+# Trois territoires explicites
+python3 scripts/run_complete_analysis.py --territories all
 ```
 
 ### Tester sans déployer
@@ -199,6 +215,9 @@ python3 scripts/run_complete_analysis.py --no-deploy
 ```bash
 # Analyser Guadeloupe avec 1500 tracks, sans déployer
 python3 scripts/run_complete_analysis.py --territories gua --dynamic-max-tracks 1500 --no-deploy
+
+# Dry-run recommandé Saint-Barthélemy
+python3 scripts/run_complete_analysis.py --territories stb --dynamic-max-tracks 150 --no-deploy
 
 # Analyser les deux avec 800 tracks, avec déploiement
 python3 scripts/run_complete_analysis.py --dynamic-max-tracks 800

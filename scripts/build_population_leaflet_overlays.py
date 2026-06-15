@@ -24,6 +24,7 @@ DEFAULT_PALETTE_HEX = [
     "#000000",
 ]
 TERRITORY_NAMES = {
+    "blm": "Saint-Barthelemy",
     "glp": "Guadeloupe",
     "maf": "Saint-Martin",
     "mtq": "Martinique",

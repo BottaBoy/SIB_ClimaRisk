@@ -1,0 +1,932 @@
+{
+  "meta": {
+    "generated_at": "2026-06-15T19:55:30+00:00",
+    "case_study_run_id": "saint-barthelemy_case_20260615T195150Z",
+    "territory": "saint-barthelemy",
+    "territory_label": "Saint-Barthélemy",
+    "sample_point_count": 600,
+    "sampling_spacing_m": 800.0,
+    "max_points_total": 600,
+    "max_points_per_feature": 6,
+    "dynamic_max_tracks": 100,
+    "hazard_map_json": "/home/ubuntu/sib-work/web/data/saint-barthelemy-wind-maps.json",
+    "surge_priority_point_count": 2598,
+    "surge_priority_source": "hazard_map_cells",
+    "storm_years": 10000,
+    "hazard_storm_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe.h5",
+    "hazard_storm_cmcc_path": "/home/ubuntu/sib-work/data/hazards/tc_hazard_guadeloupe_CMCC.h5",
+    "landslide_sources": {
+      "storm": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ],
+      "storm_cmcc": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ]
+    },
+    "notes": [
+      "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
+      "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+      "STORM track winds are converted from 10-minute to 1-minute sustained winds before CLIMADA hazard generation.",
+      "Impact functions: profile=sib_tc_multicurve_v1 with 9 TC curves.",
+      "Execution profile: case-study-proxy.",
+      "Impact execution uses exposure shards capped at 64 points per shard.",
+      "Eligible multi-hazard components run in strict mode: failures stop the complete-analysis territory run.",
+      "Lean result mode enabled: top-events, matching QA, and per-event payloads are compacted before return.",
+      "Hazard selection override enabled: ['storm'].",
+      "Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id=[1], points=600, tracks=100/100).",
+      "Dynamic hazard construction stays on the centroid-scoped execution path before ImpactCalc (10 shards, cap=64 points per shard, estimated full build=0.00 GiB).",
+      "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub).",
+      "storm: dynamic hazard construction sharded across 10 centroid shard(s) with a cap of 64 points per shard.",
+      "storm: surge used pointwise land fractions for exposure-aligned centroid shards (dynamic_exposure_centroids). estimated fraction grid 1382x5408",
+      "Hazard selection override enabled: ['storm_cmcc'].",
+      "storm_cmcc: dynamic hazard construction sharded across 10 centroid shard(s) with a cap of 64 points per shard.",
+      "storm_cmcc: surge used pointwise land fractions for exposure-aligned centroid shards (dynamic_exposure_centroids). estimated fraction grid 1382x5408",
+      "Landslide probabilistic rasters integrated for the case-study proxy (precipitation current / SSP585 + earthquake)."
+    ],
+    "modeling": {
+      "storm_years": 10000,
+      "execution_profile": "case-study-proxy",
+      "strict_required_components": true,
+      "sharding_enabled": true,
+      "sharding_memory_budget_gb": 0.75,
+      "sharding_max_points_per_shard_requested": 64,
+      "sharding_min_points_per_shard": 32,
+      "sharding_max_retry_depth": 4,
+      "sharding_checkpoint_dir": null,
+      "resume_enabled": false,
+      "frequency_normalized": true,
+      "top_events_count": 0,
+      "return_full_impact_data": false,
+      "requested_hazard_keys": [
+        "storm",
+        "storm_cmcc"
+      ],
+      "hazard_zero_intensity": {
+        "storm": false,
+        "storm_cmcc": false
+      },
+      "hazard_source": "dynamic_parquet",
+      "hazard_dynamic_max_tracks_requested": 100,
+      "hazard_basin_ids": [
+        1
+      ],
+      "hazard_point_count": 600,
+      "hazard_track_count_storm": 100,
+      "hazard_track_count_storm_cmcc": 100,
+      "hazard_event_stats_by_hazard": {
+        "storm_cmcc": {
+          "event_count": 0,
+          "nonzero_event_count": 0,
+          "event_frequency_sum": 0.0
+        }
+      },
+      "hazard_global_hazards_built": false,
+      "hazard_build_sharded": true,
+      "hazard_build_planned_shards": 10,
+      "hazard_build_max_points_per_shard": 64,
+      "hazard_build_estimated_full_memory_gb": 0.003,
+      "impact_function_profile": "sib_tc_multicurve_v1",
+      "impact_function_default_curve": {
+        "code": "EBERENZ_2021_TC",
+        "impf_id": 2
+      },
+      "impact_function_mapping": {
+        "elec_bt_aerien": {
+          "code": "W3.10",
+          "impf_id": 310
+        },
+        "elec_hta_aerien": {
+          "code": "W3.14",
+          "impf_id": 314
+        },
+        "elec_bt_souterrain": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "elec_hta_souterrain": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "eau_aep_cana": {
+          "code": "W16.1",
+          "impf_id": 316
+        },
+        "eau_eu_cana": {
+          "code": "W19.1",
+          "impf_id": 319
+        },
+        "eau_eu_pr": {
+          "code": "EBERENZ_2021_TC",
+          "impf_id": 2
+        },
+        "eau_eu_step": {
+          "code": "W21.2",
+          "impf_id": 212
+        },
+        "eau_aep_ouvrage_trait": {
+          "code": "W21.2",
+          "impf_id": 212
+        },
+        "eau_aep_ouvrage_stpmp": {
+          "code": "W21.4",
+          "impf_id": 214
+        },
+        "eau_aep_ouvrage_cap": {
+          "code": "W21.10",
+          "impf_id": 2110
+        },
+        "eau_aep_ouvrage_cuv": {
+          "code": "W21.5",
+          "impf_id": 215
+        },
+        "eau_aep_ouvrage_ouveb": {
+          "code": "W21.5",
+          "impf_id": 215
+        },
+        "eau_aep_ouvrage_na": {
+          "code": "W21.5",
+          "impf_id": 215
+        }
+      },
+      "storm_convert_10min_to_1min": true,
+      "multi_hazard_enabled_requested": true,
+      "multi_hazard_enabled_effective": true,
+      "multi_hazard_components_by_hazard": {
+        "storm": [
+          "wind",
+          "rain",
+          "surge"
+        ],
+        "storm_cmcc": [
+          "wind",
+          "rain",
+          "surge"
+        ]
+      },
+      "multi_hazard_component_status_by_hazard": {
+        "storm": {
+          "wind": "complete",
+          "rain": "complete",
+          "surge": "complete"
+        },
+        "storm_cmcc": {
+          "wind": "complete",
+          "rain": "complete",
+          "surge": "complete"
+        }
+      },
+      "climada_component_sharding": {
+        "storm": {
+          "wind": {
+            "component": "wind",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          },
+          "rain": {
+            "component": "rain",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          },
+          "surge": {
+            "component": "surge",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          }
+        },
+        "storm_cmcc": {
+          "wind": {
+            "component": "wind",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          },
+          "rain": {
+            "component": "rain",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          },
+          "surge": {
+            "component": "surge",
+            "status": "complete",
+            "hazard_sharded": true,
+            "sharded": true,
+            "planned_shards": 10,
+            "completed_shards": 10,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "max_points_per_shard": 64,
+            "estimated_full_memory_gb": 0.003,
+            "inner_sharded": false
+          }
+        }
+      },
+      "multi_hazard_rain_model": "R-CLIPER",
+      "multi_hazard_surge_topo_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintBarthelemy_COP30.tif",
+      "multi_hazard_flood_curve_file": "/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx",
+      "hazard_exposure_matching_qa": {},
+      "multi_hazard_impact_mapping": {
+        "default_curve_code": "F17.5",
+        "curve_codes_used": [
+          "F13.1",
+          "F14.4",
+          "F15.1",
+          "F17.4",
+          "F17.5",
+          "F18.4",
+          "F19.3",
+          "F20.3",
+          "F6.1",
+          "F6.2"
+        ],
+        "asset_type_to_curve_code": {
+          "elec_bt_aerien": "F6.2",
+          "elec_hta_aerien": "F6.2",
+          "elec_bt_souterrain": "F6.1",
+          "elec_hta_souterrain": "F6.1",
+          "eau_aep_cana": "F19.3",
+          "eau_eu_cana": "F19.3",
+          "eau_eu_pr": "F20.3",
+          "eau_eu_step": "F18.4",
+          "eau_aep_ouvrage_trait": "F14.4",
+          "eau_aep_ouvrage_stpmp": "F17.4",
+          "eau_aep_ouvrage_cap": "F15.1",
+          "eau_aep_ouvrage_cuv": "F13.1",
+          "eau_aep_ouvrage_ouveb": "F13.1",
+          "eau_aep_ouvrage_na": "F14.4"
+        },
+        "runoff_coeff_by_infra_class": {
+          "elec_aerien": 0.1,
+          "elec_souterrain": 0.3,
+          "eau_reseau": 0.25,
+          "eau_ouvrage": 0.35,
+          "habitation": 0.2
+        },
+        "effective_runoff_coeff_by_infra_class": {
+          "eau_ouvrage": 0.35,
+          "eau_reseau": 0.25,
+          "elec_aerien": 0.1,
+          "elec_souterrain": 0.3,
+          "habitation": 0.2
+        },
+        "base_rain_coeff_for_curve_construction": 0.25,
+        "rain_impf_id_by_curve_and_infra_class": {
+          "F13.1::eau_ouvrage": 5101,
+          "F13.1::eau_reseau": 5102,
+          "F13.1::elec_aerien": 5103,
+          "F13.1::elec_souterrain": 5104,
+          "F13.1::habitation": 5105,
+          "F14.4::eau_ouvrage": 5106,
+          "F14.4::eau_reseau": 5107,
+          "F14.4::elec_aerien": 5108,
+          "F14.4::elec_souterrain": 5109,
+          "F14.4::habitation": 5110,
+          "F15.1::eau_ouvrage": 5111,
+          "F15.1::eau_reseau": 5112,
+          "F15.1::elec_aerien": 5113,
+          "F15.1::elec_souterrain": 5114,
+          "F15.1::habitation": 5115,
+          "F17.4::eau_ouvrage": 5116,
+          "F17.4::eau_reseau": 5117,
+          "F17.4::elec_aerien": 5118,
+          "F17.4::elec_souterrain": 5119,
+          "F17.4::habitation": 5120,
+          "F17.5::eau_ouvrage": 5121,
+          "F17.5::eau_reseau": 5122,
+          "F17.5::elec_aerien": 5123,
+          "F17.5::elec_souterrain": 5124,
+          "F17.5::habitation": 5125,
+          "F18.4::eau_ouvrage": 5126,
+          "F18.4::eau_reseau": 5127,
+          "F18.4::elec_aerien": 5128,
+          "F18.4::elec_souterrain": 5129,
+          "F18.4::habitation": 5130,
+          "F19.3::eau_ouvrage": 5131,
+          "F19.3::eau_reseau": 5132,
+          "F19.3::elec_aerien": 5133,
+          "F19.3::elec_souterrain": 5134,
+          "F19.3::habitation": 5135,
+          "F20.3::eau_ouvrage": 5136,
+          "F20.3::eau_reseau": 5137,
+          "F20.3::elec_aerien": 5138,
+          "F20.3::elec_souterrain": 5139,
+          "F20.3::habitation": 5140,
+          "F6.1::eau_ouvrage": 5141,
+          "F6.1::eau_reseau": 5142,
+          "F6.1::elec_aerien": 5143,
+          "F6.1::elec_souterrain": 5144,
+          "F6.1::habitation": 5145,
+          "F6.2::eau_ouvrage": 5146,
+          "F6.2::eau_reseau": 5147,
+          "F6.2::elec_aerien": 5148,
+          "F6.2::elec_souterrain": 5149,
+          "F6.2::habitation": 5150
+        },
+        "rain_curve_specs": [
+          {
+            "impf_id": 5101,
+            "code": "F13.1",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5102,
+            "code": "F13.1",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5103,
+            "code": "F13.1",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5104,
+            "code": "F13.1",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5105,
+            "code": "F13.1",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5106,
+            "code": "F14.4",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5107,
+            "code": "F14.4",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5108,
+            "code": "F14.4",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5109,
+            "code": "F14.4",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5110,
+            "code": "F14.4",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5111,
+            "code": "F15.1",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5112,
+            "code": "F15.1",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5113,
+            "code": "F15.1",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5114,
+            "code": "F15.1",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5115,
+            "code": "F15.1",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5116,
+            "code": "F17.4",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5117,
+            "code": "F17.4",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5118,
+            "code": "F17.4",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5119,
+            "code": "F17.4",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5120,
+            "code": "F17.4",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5121,
+            "code": "F17.5",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5122,
+            "code": "F17.5",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5123,
+            "code": "F17.5",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5124,
+            "code": "F17.5",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5125,
+            "code": "F17.5",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5126,
+            "code": "F18.4",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5127,
+            "code": "F18.4",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5128,
+            "code": "F18.4",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5129,
+            "code": "F18.4",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5130,
+            "code": "F18.4",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5131,
+            "code": "F19.3",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5132,
+            "code": "F19.3",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5133,
+            "code": "F19.3",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5134,
+            "code": "F19.3",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5135,
+            "code": "F19.3",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5136,
+            "code": "F20.3",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5137,
+            "code": "F20.3",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5138,
+            "code": "F20.3",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5139,
+            "code": "F20.3",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5140,
+            "code": "F20.3",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5141,
+            "code": "F6.1",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5142,
+            "code": "F6.1",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5143,
+            "code": "F6.1",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5144,
+            "code": "F6.1",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5145,
+            "code": "F6.1",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          },
+          {
+            "impf_id": 5146,
+            "code": "F6.2",
+            "infra_class": "eau_ouvrage",
+            "runoff_coeff": 0.35
+          },
+          {
+            "impf_id": 5147,
+            "code": "F6.2",
+            "infra_class": "eau_reseau",
+            "runoff_coeff": 0.25
+          },
+          {
+            "impf_id": 5148,
+            "code": "F6.2",
+            "infra_class": "elec_aerien",
+            "runoff_coeff": 0.1
+          },
+          {
+            "impf_id": 5149,
+            "code": "F6.2",
+            "infra_class": "elec_souterrain",
+            "runoff_coeff": 0.3
+          },
+          {
+            "impf_id": 5150,
+            "code": "F6.2",
+            "infra_class": "habitation",
+            "runoff_coeff": 0.2
+          }
+        ]
+      },
+      "process_sliced_by_hazard": true
+    },
+    "publication_trace": {
+      "artifact_kind": "multi_hazard_proxy",
+      "source_mode": "lightweight_sampled_climada_proxy",
+      "fallback_active": false,
+      "fallback_reason": null,
+      "complete_analysis_run_id": "20260615_191554",
+      "complete_analysis_generated_at": "2026-06-15T19:43:41+00:00",
+      "complete_analysis_source": "saint-barthelemy_complete_reference",
+      "wind_map_run_id": "saint-barthelemy_case_20260615T195150Z",
+      "wind_map_generated_at": "2026-06-15T19:52:42+00:00"
+    }
+  },
+  "hazards": {
+    "storm": {
+      "scenarios": {
+        "annual": {
+          "global_multiplier": 1.111909,
+          "component_ratios": {
+            "wind": 0.8993538789043136,
+            "rain": 0.10064591859073518,
+            "surge": 2.0250495128481362e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.04241101484273279,
+            "eau_eu": 0.0036525211283543768,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.007944816189242393,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0001515818153026166,
+            "eau_aep_ouvrages": 0.8961726420614341,
+            "eau_eu_pr": 0.049667423962933735,
+            "eau_eu_step": 0.0
+          }
+        },
+        "rp50": {
+          "global_multiplier": 1490.793727,
+          "component_ratios": {
+            "wind": 0.0006731518055851887,
+            "rain": 0.97711251371798,
+            "surge": 0.02221433447643479,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.41509491398131276,
+            "eau_eu": 0.05432145494968994,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 5.94656618298742e-06,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 1.1345653258220191e-07,
+            "eau_aep_ouvrages": 0.5305403957842367,
+            "eau_eu_pr": 3.7175262044954247e-05,
+            "eau_eu_step": 0.0
+          }
+        },
+        "rp100": {
+          "global_multiplier": 1490.793727,
+          "component_ratios": {
+            "wind": 0.0006731518055851887,
+            "rain": 0.97711251371798,
+            "surge": 0.02221433447643479,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.41509491398131276,
+            "eau_eu": 0.05432145494968994,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 5.94656618298742e-06,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 1.1345653258220191e-07,
+            "eau_aep_ouvrages": 0.5305403957842367,
+            "eau_eu_pr": 3.7175262044954247e-05,
+            "eau_eu_step": 0.0
+          }
+        },
+        "event_max": {
+          "global_multiplier": 1.050807,
+          "component_ratios": {
+            "wind": 0.8941116514058763,
+            "rain": 0.10317826403479353,
+            "surge": 0.002710084559330172,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.04388694630026578,
+            "eau_eu": 0.006045468277414655,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.007898506794382146,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.00015069826281112068,
+            "eau_aep_ouvrages": 0.8926404619480988,
+            "eau_eu_pr": 0.04937791841702755,
+            "eau_eu_step": 0.0
+          }
+        },
+        "top10": {
+          "global_multiplier": 1.111909,
+          "component_ratios": {
+            "wind": 0.8993538789043136,
+            "rain": 0.10064591859073518,
+            "surge": 2.0250495128481362e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.04241101484273279,
+            "eau_eu": 0.0036525211283543768,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.007944816189242393,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0001515818153026166,
+            "eau_aep_ouvrages": 0.8961726420614341,
+            "eau_eu_pr": 0.049667423962933735,
+            "eau_eu_step": 0.0
+          }
+        },
+        "top5": {
+          "global_multiplier": 1.111909,
+          "component_ratios": {
+            "wind": 0.8993538789043136,
+            "rain": 0.10064591859073518,
+            "surge": 2.0250495128481362e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.04241101484273279,
+            "eau_eu": 0.0036525211283543768,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.007944816189242393,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0001515818153026166,
+            "eau_aep_ouvrages": 0.8961726420614341,
+            "eau_eu_pr": 0.049667423962933735,
+            "eau_eu_step": 0.0
+          }
+        }
+      }
+    },
+    "storm_cmcc": {
+      "scenarios": {
+        "annual": {
+          "global_multiplier": 1.114924,
+          "component_ratios": {
+            "wind": 0.896922247026011,
+            "rain": 0.10307754912510489,
+            "surge": 2.0384888416287564e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0434295091948952,
+            "eau_eu": 0.0037395521875879063,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.0070772323609879445,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.00017635812110985293,
+            "eau_aep_ouvrages": 0.8979676508547026,
+            "eau_eu_pr": 0.0476096972807165,
+            "eau_eu_step": 0.0
+          }
+        },
+        "rp50": {
+          "global_multiplier": 650.322351,
+          "component_ratios": {
+            "wind": 0.0014743066472183684,
+            "rain": 0.9587745649659729,
+            "surge": 0.03975112838680873,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.4098364958727819,
+            "eau_eu": 0.06865518509381005,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 1.163312733997876e-05,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 2.8988683367518024e-07,
+            "eau_aep_ouvrages": 0.5214181380727894,
+            "eau_eu_pr": 7.825794644491523e-05,
+            "eau_eu_step": 0.0
+          }
+        },
+        "rp100": {
+          "global_multiplier": 650.322351,
+          "component_ratios": {
+            "wind": 0.0014743066472183684,
+            "rain": 0.9587745649659729,
+            "surge": 0.03975112838680873,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.4098364958727819,
+            "eau_eu": 0.06865518509381005,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 1.163312733997876e-05,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 2.8988683367518024e-07,
+            "eau_aep_ouvrages": 0.5214181380727894,
+            "eau_eu_pr": 7.825794644491523e-05,
+            "eau_eu_step": 0.0
+          }
+        },
+        "event_max": {
+          "global_multiplier": 1.05557,
+          "component_ratios": {
+            "wind": 0.9021797531823105,
+            "rain": 0.09507015465033677,
+            "surge": 0.0027500921673527285,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.04046237514648918,
+            "eau_eu": 0.005792346481506984,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.0071187171082230955,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.0001773918828551133,
+            "eau_aep_ouvrages": 0.8985603974341688,
+            "eau_eu_pr": 0.04788877194675683,
+            "eau_eu_step": 0.0
+          }
+        },
+        "top10": {
+          "global_multiplier": 1.114924,
+          "component_ratios": {
+            "wind": 0.896922247026011,
+            "rain": 0.10307754912510489,
+            "surge": 2.0384888416287564e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0434295091948952,
+            "eau_eu": 0.0037395521875879063,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.0070772323609879445,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.00017635812110985293,
+            "eau_aep_ouvrages": 0.8979676508547026,
+            "eau_eu_pr": 0.0476096972807165,
+            "eau_eu_step": 0.0
+          }
+        },
+        "top5": {
+          "global_multiplier": 1.114924,
+          "component_ratios": {
+            "wind": 0.896922247026011,
+            "rain": 0.10307754912510489,
+            "surge": 2.0384888416287564e-07,
+            "landslide": 0.0
+          },
+          "breakdown_shares": {
+            "eau_aep": 0.0434295091948952,
+            "eau_eu": 0.0037395521875879063,
+            "elec_bt_souterrain": 0.0,
+            "elec_bt_aerien": 0.0070772323609879445,
+            "elec_hta_souterrain": 0.0,
+            "elec_hta_aerien": 0.00017635812110985293,
+            "eau_aep_ouvrages": 0.8979676508547026,
+            "eau_eu_pr": 0.0476096972807165,
+            "eau_eu_step": 0.0
+          }
+        }
+      }
+    }
+  }
+}

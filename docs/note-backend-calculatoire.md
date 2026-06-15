@@ -1,6 +1,6 @@
 # Note detaillee - Backend calculatoire des risques cycloniques (CLIMADA)
 
-Derniere mise a jour: 2026-04-29
+Derniere mise a jour: 2026-06-15
 
 ## 1) Objectif
 Cette note explique:
@@ -8,6 +8,27 @@ Cette note explique:
 - comment la dependance electricite -> eau est appliquee (post-traitement prudent),
 - quels champs sont produits dans le JSON final,
 - comment les fichiers Python interagissent.
+
+Perimetre territorial courant du lot "complete analysis":
+- `guadeloupe` (alias CLI `gua`)
+- `martinique` (alias CLI `mar`, `mq`, `mtq`)
+- `saint-barthelemy` (alias CLI `stb`, `blm`, `saintbarth`)
+
+Contrat runtime/web fige pour Saint-Barthélemy:
+- cle runtime/web: `saint-barthelemy`
+- id comparatif partage: `saint_barthelemy`
+- code population: `BLM`
+- bassin d'aléa: `NA`
+- page web statique: `#page7`
+- artefacts web: `web/data/saint-barthelemy-*.json`
+
+Hypotheses Saint-Barthélemy figees:
+- reference SIG effective: `EPSG:32620` (la mention `EPSG:3620` est traitee comme un typo documentaire)
+- courbes de vulnerabilite: reutilisation stricte des types d'infrastructure equivalents Guadeloupe
+- valorisation: profil Guadeloupe majore de `+50%`
+- zonage AEP: `best_effort_attribute_plus_topology`
+- zonage EU: `heuristic_topological_non_validated`
+- aucune STEP exploitable n'est disponible dans les donnees source fournies
 
 Le moteur par defaut est maintenant **CLIMADA complet** (`engine=climada_with_interdependency_v1`).
 La voie scientifique de production est maintenant **fail-closed**:
@@ -72,7 +93,7 @@ Le tableau ci-dessous recense les principales mailles spatiales et pas d'echanti
 
 ### 2.2 Tracks dynamiques: plafond de catalogue et cap conseille
 
-Les chiffres ci-dessous viennent du chargement dynamique STORM/STORM_CMCC sur la fenetre de publication page 5, c'est-à-dire la bbox NA avec le padding spatial du loader. Ils donnent le nombre de tracks réellement disponibles avant tout cap `dynamic_max_tracks`.
+Les chiffres ci-dessous viennent du chargement dynamique STORM/STORM_CMCC sur la fenetre de publication page 5, c'est-a-dire la bbox NA avec le padding spatial du loader. Ils comptent des instances synthetiques distinctes de cyclone, donc une identite physique de type `(Year, track_id)`, avant tout cap `dynamic_max_tracks`.
 
 | Territoire | STORM tracks disponibles | STORM_CMCC tracks disponibles | Plafond reel de sélection | Commentaire |
 |---|---:|---:|---:|---|
@@ -88,6 +109,34 @@ En pratique:
 - `300` est le bon ordre de grandeur pour une visualisation rapide et fluide.
 - `1 200` est le bon ordre de grandeur pour les runs de demonstration fixes.
 - Si l'on cherche une convergence plus forte des RP50/RP100, il faut monter encore le cap, mais le temps de calcul augmente vite et le gain devient de plus en plus marginal.
+
+### 2.3 Analyse comparative des aléas
+
+La chaine comparative hazard-only (lots 2 a 6) n'utilise pas la meme fenetre spatiale que les cartes page 5 historiques. Elle construit une grille comparative par territoire sur `territory_grid_deg = 0.2°`, puis charge les tracks dynamiques dans la fenetre territoriale elargie par `DEFAULT_SPATIAL_PADDING_DEG = 4.0°`.
+
+Audit du 2026-05-22: la premiere version de cette section etait incorrecte. Elle sous-comptait massivement les cyclones en groupant les catalogues comparatifs sur `track_id` seul. Or, dans STORM / STORM_CMCC, le meme `track_id` se repete d'annee en annee a l'interieur d'un bloc synthetique. L'identite physique correcte d'un cyclone est donc au minimum `(Year, track_id)`. Le loader comparatif et la preparation des catalogues ont ete corriges pour utiliser cette identite year-aware.
+
+Les chiffres ci-dessous ont ete re-estimes le 2026-05-22 avec la meme logique que le runner comparatif, mais avec cette identite year-aware correcte (`load_storm_hazards_from_parquet_for_points(..., build_hazards=False, max_tracks=0)`). Ils correspondent donc au nombre de cyclones synthetiques reellement retenus par territoire avant construction des hazards, en mode `full tracks`.
+
+| Territoire | Bassin | Points grille comparative | STORM full tracks | STORM_CMCC full tracks | Lecture operationnelle |
+|---|---|---:|---:|---:|---|
+| Guadeloupe | NA | 30 | 21 846 | 22 832 | `300` et `1 500` restent deux sous-echantillons tres partiels de la fenetre comparative. |
+| Martinique | NA | 20 | 21 530 | 22 599 | Meme lecture: l'ecart de temps entre `300` et `1 500` est attendu. |
+| Guyane | NA | 550 | 6 023 | 6 432 | Le cap reste tres loin du `full tracks`. |
+| Saint-Barthelemy | NA | 6 | 18 931 | 20 070 | Le perimetre est petit, mais la fenetre dynamique elargie reste tres chargee. |
+| Saint-Martin | NA | 6 | 18 736 | 19 863 | Meme lecture que Saint-Barthelemy. |
+| Saint-Pierre-et-Miquelon | NA | 16 | 6 011 | 7 407 | `300` et `1 500` restent des caps numeriques reels. |
+| La Reunion | SI | 20 | 15 571 | 17 257 | `300` ne couvre qu'une petite fraction du catalogue utile. |
+| Mayotte | SI | 12 | 3 779 | 5 706 | `300` et `1 500` restent distincts et physiquement non equivalentes au full. |
+| Nouvelle-Caledonie | SP | 1 846 | 40 227 | 39 112 | C'est le cas comparatif le plus charge du perimetre actuel. |
+
+Consequences pratiques pour les nouvelles taches de comparaison:
+- L'ancienne conclusion "`300` suffit deja" etait fausse car elle reposait sur le sous-comptage legacy de `track_id`.
+- `dynamic_max_tracks = 300`, `1500` et `0` (`full tracks`, donc sans cap) representent bien trois regimes numeriques differents sur le perimetre comparatif actuel.
+- Pour Guadeloupe, `300` represente environ 1,4 % du full STORM et `1 500` environ 6,9 %; pour Martinique on est du meme ordre de grandeur.
+- L'ecart de temps de calcul observe entre un run comparatif `300` et `1 500` sur Guadeloupe/Martinique est donc cohérent avec le volume de tracks reellement traite.
+- Pour la sortie operateur, le point de lecture a ouvrir apres chaque run comparatif est `outputs/hazard-comparison-runs/<run_id>/comparison-exports/index.html`.
+- Le mode `full tracks` de la chaine comparative est declenche explicitement par `--dynamic-max-tracks 0`.
 
 ---
 
@@ -230,6 +279,35 @@ Dans le backend API principal (`interdependency.py`), ce n'est pas une longueur 
 ```text
 n_ligne = min(max_points_per_feature, ceil(longueur_m / spacing_m) + 1)
 ```
+
+### 5.1.4 Couverture population et categorie "non desservie"
+
+Le backend social impact distingue explicitement deux notions:
+
+- etat de service `S0/S1/S2/S3` pour la population couverte par un service,
+- population `uncovered` (non desservie) quand un service n'est pas couvert sur une cellule.
+
+Contrat actuel:
+
+- la base sociale est cellulaire (`cell_service_state_from_native_climada_0p2deg`),
+- l'electricite est agregee par `territory_id` (cellule 0.2 deg),
+- l'eau utilise `zone_component_key` comme unite de service pour l'interdependance et la publication hydraulique,
+- la couverture eau est marquee `covered=true` des qu'un service eau est present sur la cellule (presence hydraulique/service), meme sans actif electrique local,
+- lors de l'agregation sociale, une population non couverte n'est pas forcee en `S3`: elle est comptabilisee dans `uncovered`.
+
+Implications:
+
+- `S3` signifie "service couvert mais hors service",
+- `uncovered` signifie "service non desservi" (hors calcul S0-S3),
+- les metriques `total_without_water_aep` / `total_without_water_eu` ne comptent pas les non desservis; elles comptent uniquement les populations couvertes classees `S3`.
+
+Exemple de payload public:
+
+- `portfolio_results.social_impact_population_state_distribution.<hazard>.<service>.uncovered`
+- `portfolio_results.social_impact_population_state_distribution.<hazard>.<service>.covered_population`
+- `portfolio_results.social_impact_population_state_distribution.<hazard>.<service>.coverage_rate`
+
+Cette categorie "population non desservie" existe donc deja dans le contrat JSON, distincte des etats reseau.
 2. La valeur de l'actif est repartie uniformement:
 
 ```text
@@ -464,29 +542,43 @@ Endpoint sante:
 
 ## 6) Annexes et complements
 
-### 6.1 Valorisation monetaire prudente (OFB)
+### 6.1 Valorisation monetaire prudente (dossiers reseaux + exceptions)
 
-La valeur des reseaux eau est basee sur la moyenne observee par territoire dans le comparateur de couts OFB.
-Pour les reseaux electriques, les quatre classes BT/HTA aerien/souterrain utilisent des valeurs D3 (`Table_D3_Costs_V1.1.0`, ICF 2002).
-Les ouvrages AEP (`ovrg_type`) restent inchanges.
+La valorisation eau n'est plus uniformement basee sur la moyenne observee par territoire dans le comparateur OFB.
+Depuis la mise a jour de mai 2026, les classes EU utilisent un profil partage derive des dossiers gestionnaires transmis pour la Guadeloupe, puis applique par defaut a la Martinique et aux territoires futurs tant qu'aucun override explicite n'est fourni.
+La granularite runtime reste celle des classes metier (`eau_eu_cana`, `eau_eu_pr`, `eau_eu_step`, `eau_aep_cana`, `eau_aep_ouvrage_*`) : les tableaux par diametre, debit ou capacite sont donc agregees en valeurs representatives de classe.
 
-| Territoire | Type d'actif | Regle de valorisation | Valeur initiale retenue | Nouvelle valeur | Provenance geographique / source | Nombre de prix compares |
+| Portee | Type d'actif | Regle de valorisation appliquee | Valeur initiale retenue | Valeur active | Source / hypothese | Nombre de points prix utilises |
 |---|---|---|---|---|---|---|
-| Guadeloupe | AEP canalisations | EUR par km | 280 000 EUR/km | 776 386 EUR/km | Guadeloupe, comparateur OFB | 24 |
-| Guadeloupe | EU canalisations | EUR par km | 340 000 EUR/km | 791 691 EUR/km | Guadeloupe, comparateur OFB | 10 |
-| Guadeloupe | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 523 211 EUR | Guadeloupe, comparateur OFB | 6 |
-| Guadeloupe | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 777 800 EUR | Guadeloupe, comparateur OFB | 1 |
-| Martinique | AEP canalisations | EUR par km | 280 000 EUR/km | 653 445 EUR/km | Martinique, comparateur OFB | 16 |
-| Martinique | EU canalisations | EUR par km | 340 000 EUR/km | 831 815 EUR/km | Martinique, comparateur OFB | 6 |
-| Martinique | EU postes de refoulement (PR) | valeur fixe par unite | 900 000 EUR | 44 257 EUR | Martinique, comparateur OFB | 1 |
-| Martinique | EU stations d'epuration (STEP) | valeur fixe par unite | 6 000 000 EUR | 7 923 344 EUR | Martinique, comparateur OFB | 2 |
+| Guadeloupe | AEP canalisations | EUR par km, exception temporaire conservee | 280 000 EUR/km | 776 386 EUR/km | Valeur OFB Guadeloupe conservee tant que le dossier AEP n'est pas transcrit proprement | 24 |
+| Martinique | AEP canalisations | EUR par km, exception temporaire conservee | 280 000 EUR/km | 653 445 EUR/km | Valeur OFB Martinique conservee tant que le dossier AEP n'est pas transcrit proprement | 16 |
+| Saint-Barthélemy | AEP canalisations | profil Guadeloupe majore +50% | 280 000 EUR/km | 1 164 579 EUR/km | Reutilisation de la valeur active Guadeloupe avec majoration insulaire de cout | 24 |
+| Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU canalisations | EUR par km, moyenne de classe | 340 000 EUR/km | 957 143 EUR/km | Moyenne des 7 points prix documentes dans le dossier EU (3 DN gravitaires + 4 DN refoulement), convertie de EUR/ml en EUR/km | 7 |
+| Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU postes de refoulement (PR) | valeur fixe representative par unite | 900 000 EUR | 397 636 EUR | Moyenne des 11 tranches capacitaires documentees dans le dossier EU | 11 |
+| Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU stations d'epuration (STEP) | valeur fixe representative par unite | 6 000 000 EUR | 8 785 714 EUR | Moyenne de 14 cellules du tableau EUR/EH du dossier EU, converties en valeur unitaire via des milieux de bandes representatifs (2 500 / 7 500 / 17 500 / 30 000 EH) | 14 |
 | Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | 167 060 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 220kV | n/a |
 | Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | 1 336 480 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), derive de 1 994,39 EUR/m * (167 060 / 249 299) * 1000 | n/a |
 | Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | 249 299 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 380kV | n/a |
 | Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | 1 994 390 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), 1 994,39 EUR/m * 1000 | n/a |
-| Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | Hypothese interne SIB | n/a |
+| Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type, exception temporaire conservee | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | Hypothese interne SIB, maintenue tant que les tableaux AEP exploitables ne sont pas disponibles | n/a |
+
+Pour Saint-Barthélemy, les classes electriques et les ouvrages AEP reutilisent ces memes profils avec un multiplicateur `1.5` applique dans `scripts/valuation_ofb.py`.
+
+Choix de modelisation:
+- les valeurs EU sont agregees au niveau classe car les scripts de preparation actuels ne valorisent pas encore segment par segment selon un champ `diametre`, `debit`, `capacite_eh` ou `type_traitement`;
+- le fallback multi-territoire reste Guadeloupe, ce qui signifie qu'un territoire futur sans profil explicite reutilise le profil partage Guadeloupe pour l'EU et la valeur AEP Guadeloupe par defaut;
+- les metadonnees publiees conservent les cles historiques `new_values` et `nb_prix_compares`, mais elles decrivent maintenant un mix dossier gestionnaire + exceptions documentees.
+
+Infrastructures presentes dans l'etude mais non couvertes numeriquement par les dossiers exploitables dans l'etat:
+- `eau_aep_cana` : presente dans l'etude, mais le markdown AEP courant ne restitue pas les tableaux numeriques de DN; la valeur OFB existante est donc maintenue temporairement;
+- `eau_aep_ouvrage_trait`, `eau_aep_ouvrage_stpmp`, `eau_aep_ouvrage_cap`, `eau_aep_ouvrage_cuv`, `eau_aep_ouvrage_ouveb`, `eau_aep_ouvrage_na` : presentes dans l'etude, mais sans table numerique exploitable dans le markdown AEP courant; les hypotheses internes SIB par `ovrg_type` sont conservees;
+- `elec_bt_aerien`, `elec_bt_souterrain`, `elec_hta_aerien`, `elec_hta_souterrain` : presentes dans l'etude mais hors perimetre des dossiers reseaux eau; les valeurs D3 sont conservees;
+- les rubriques AEP mentionnees dans le dossier markdown sans valeurs exploitables a ce stade sont: canalisations par DN, reservoirs, rehabilitation, compteurs, stabilisateurs et organes de regulation.
 
 Details techniques:
+- lineaires EU agregees: les 7 prix unitaires du dossier EU sont moyens au niveau classe puis convertis en EUR/km;
+- PR: les 11 tranches documentees sont moyennes au niveau classe pour conserver un seul `value_eur` par actif dans le runtime actuel;
+- STEP: les couts EUR/EH sont convertis en valeurs unitaires de reference par bande, puis moyens au niveau classe pour respecter le contrat runtime existant.
 - lineaires: `value_eur = max(5000, longueur_km * cout_km)`
 - ouvrages ponctuels: valeur fixe par type d’ouvrage.
 
@@ -601,15 +693,17 @@ Implementation:
 
 #### 6.7.2 bis Topographie de submersion et priorite Copernicus
 Le backend ne pointe plus en priorite vers un unique raster historique pour la submersion. La resolution effective du `topo_path` est centralisee dans `backend/app/config.py::resolve_surge_topo_path_for_territory(...)` et suit l'ordre suivant:
-1. override explicite par territoire via `SIB_RISK_HAZARD_SURGE_TOPO_PATH_GUADELOUPE` ou `SIB_RISK_HAZARD_SURGE_TOPO_PATH_MARTINIQUE`;
+1. override explicite par territoire via `SIB_RISK_HAZARD_SURGE_TOPO_PATH_GUADELOUPE`, `..._MARTINIQUE` ou `..._SAINT_BARTHELEMY`;
 2. DEM Copernicus GLO-30 par defaut:
    - `/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guadeloupe_COP30.tif`
    - `/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Martinique_COP30.tif`
+   - `/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintBarthelemy_COP30.tif`
 3. anciens rasters legacy par territoire (`Guadeloupe.tif`, `Martinique.tif`) si les Copernicus ne sont pas disponibles;
 4. chemin generique `hazard_surge_topo_path` en dernier recours.
 
 Implication operationnelle:
 - les runs complets et les reconstructions frontend Guadeloupe/Martinique utilisent donc par defaut les nouveaux DEM Copernicus GLO-30 des qu'ils existent sur le poste;
+- Saint-Barthélemy suit la meme logique, avec `SaintBarthelemy_COP30.tif` comme cible prioritaire;
 - `scripts/build_guadeloupe_complete_analysis.py`, `scripts/build_guadeloupe_wind_maps.py` et `scripts/rerun_case_studies_light.py` propagent ensuite ce chemin resolu vers la chaine `TCSurgeBathtub`;
 - si un override par territoire est fourni, il remplace explicitement le choix Copernicus sans fallback silencieux vers un autre raster.
 
@@ -1056,7 +1150,7 @@ Objectif:
 Le rerun leger impose une coherence stricte entre:
 - `web/data/{territory}-wind-maps.json`
 - `web/data/{territory}-multi-hazard-proxy.json`
-- `web/data/{territory}-page1-analysis.json` (ou `page2` pour Martinique)
+- `web/data/{territory}-page1-analysis.json` (ou `page2` pour Martinique, `page7` pour Saint-Barthélemy)
 
 Principe:
 1. `scripts/rerun_case_studies_light.py` genere un `run_id` unique (`{territory}_case_YYYYMMDDTHHMMSSZ`).
@@ -1071,7 +1165,7 @@ Effet:
 #### 6.7.12 bis Traceabilite de publication (`meta.publication_trace`)
 Les deux artefacts web les plus sensibles aux fallbacks de publication exposent maintenant un bloc structure `meta.publication_trace`:
 - `web/data/{territory}-multi-hazard-proxy.json`
-- `web/data/{territory}-page1-analysis.json` / `page2-analysis.json`
+- `web/data/{territory}-page1-analysis.json` / `page2-analysis.json` / `page7-analysis.json`
 
 Ce bloc ne change pas la physique du calcul. Il sert a documenter la provenance de publication et contient au minimum:
 - `artifact_kind`

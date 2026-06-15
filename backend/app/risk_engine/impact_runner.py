@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from ..config import Settings, load_settings
 from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
-from .exposure_to_climada import build_climada_exposure
+from .exposure_to_climada import build_climada_exposure, validate_exposure_geometry_contract
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
 from .population_loader import load_population_data, get_population_for_cell
@@ -429,6 +429,169 @@ def _to_float_list(values: Any, expected_len: int) -> list[float]:
     return out
 
 
+def _metric_family_classification() -> dict[str, dict[str, Any]]:
+    return {
+        "direct_physical": {
+            "description": "CLIMADA direct hazard outputs before interdependency post-processing.",
+            "affected_by": [
+                "hazard_dynamic_max_tracks",
+                "runoff_coeff",
+                "max_dist_inland_km",
+                "default_sampling_spacing_m",
+                "climada_max_points_per_feature",
+            ],
+        },
+        "indirect_monetary": {
+            "description": "Indirect monetary uplift is disabled in the current prudent mode.",
+            "affected_by": [],
+            "disabled_by_design": True,
+        },
+        "network_state_social": {
+            "description": "Cell/service states and derived population metrics after dependency post-processing.",
+            "affected_by": [
+                "hazard_dynamic_max_tracks",
+                "runoff_coeff",
+                "max_dist_inland_km",
+                "default_sampling_spacing_m",
+                "climada_max_points_per_feature",
+                "territory_grid_deg",
+                "direct_state_thresholds",
+                "health_weights",
+                "dependency_state_thresholds",
+            ],
+            "not_affected_by": ["uplift_by_state"],
+        },
+    }
+
+
+def _build_climada_coherence_report(
+    *,
+    exposure: NormalizedExposure,
+    disagg: DisaggregationSummary,
+    point_records: list[dict[str, Any]],
+    matching_qa: dict[str, Any],
+    settings: Settings,
+) -> tuple[dict[str, Any], list[str]]:
+    issues: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    geometry_issues = validate_exposure_geometry_contract(exposure)
+    if geometry_issues:
+        issues.append(
+            {
+                "check": "feature_geometry_contract",
+                "status": "failed",
+                "details": geometry_issues[:20],
+                "issue_count": len(geometry_issues),
+            }
+        )
+
+    expected_points = int(disagg.asset_count_points)
+    actual_points = int(len(point_records))
+    point_ratio = (
+        abs(actual_points - expected_points) / float(max(expected_points, actual_points, 1))
+        if max(expected_points, actual_points, 1) > 0
+        else 0.0
+    )
+    point_status = "passed"
+    if max(expected_points, actual_points) >= 1000 and point_ratio > 0.25:
+        point_status = "failed"
+    elif point_ratio > 0.05:
+        point_status = "warning"
+    if point_status != "passed":
+        issues.append(
+            {
+                "check": "disaggregation_point_count_alignment",
+                "status": point_status,
+                "expected_points": expected_points,
+                "actual_points": actual_points,
+                "relative_diff": round(point_ratio, 6),
+            }
+        )
+
+    matching_point_count = matching_qa.get("point_count")
+    if matching_point_count is not None:
+        matching_status = "passed"
+        if int(matching_point_count) != actual_points:
+            matching_status = "failed"
+            issues.append(
+                {
+                    "check": "matching_qa_point_count_alignment",
+                    "status": "failed",
+                    "matching_qa_point_count": int(matching_point_count),
+                    "actual_points": actual_points,
+                }
+            )
+        else:
+            issues.append(
+                {
+                    "check": "matching_qa_point_count_alignment",
+                    "status": "passed",
+                    "matching_qa_point_count": int(matching_point_count),
+                    "actual_points": actual_points,
+                }
+            )
+
+    territory_ids = {str(record.get("territory_id") or "") for record in point_records if record.get("territory_id")}
+    point_count_by_feature: dict[str, int] = defaultdict(int)
+    for record in point_records:
+        point_count_by_feature[str(record.get("feature_id") or "")] += 1
+    capped_feature_count = sum(
+        1 for point_count in point_count_by_feature.values() if point_count >= int(settings.climada_max_points_per_feature)
+    )
+
+    for issue in issues:
+        if issue.get("status") == "warning":
+            warnings.append(
+                f"{issue['check']}: expected={issue.get('expected_points')} actual={issue.get('actual_points')}"
+            )
+
+    report = {
+        "status": "failed" if any(issue.get("status") == "failed" for issue in issues) else "passed",
+        "checks": issues,
+        "stats": {
+            "asset_count_original": int(exposure.asset_count_original),
+            "expected_point_count_from_disaggregation": expected_points,
+            "actual_point_count_for_climada": actual_points,
+            "unique_territory_cell_count": len(territory_ids),
+            "capped_feature_count": int(capped_feature_count),
+            "sampling_spacing_m": float(disagg.spacing_m),
+            "territory_grid_deg": float(settings.territory_grid_deg),
+            "max_points_per_feature": int(settings.climada_max_points_per_feature),
+        },
+    }
+    return report, warnings
+
+
+def _network_state_plausibility_warnings(
+    population_state_distribution_by_hazard: dict[str, dict[str, dict[str, Any]]],
+) -> list[str]:
+    warnings: list[str] = []
+    for hazard, by_service in population_state_distribution_by_hazard.items():
+        if not isinstance(by_service, dict):
+            continue
+        binary_services = 0
+        inspected_services = 0
+        for service, distribution in by_service.items():
+            if not isinstance(distribution, dict):
+                continue
+            inspected_services += 1
+            values = []
+            for key in ("S0", "S1", "S2", "S3"):
+                try:
+                    values.append(float(distribution.get(key, 0.0)))
+                except Exception:
+                    values.append(0.0)
+            positive_values = [value for value in values if value > 0.0]
+            if len(positive_values) <= 1:
+                binary_services += 1
+        if inspected_services and binary_services == inspected_services:
+            warnings.append(
+                f"All published network-state distributions are binary for hazard={hazard}; validate whether this all-or-nothing pattern is expected."
+            )
+    return warnings
+
+
 def _compute_impacts_climada(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
@@ -436,6 +599,7 @@ def _compute_impacts_climada(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    resume_dynamic_hazard_point_cap: int | None = None,
 ) -> ImpactComputationResult:
     wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
     flood_asset_mapping = dict(settings.flood_asset_type_to_curve_code or {}) or None
@@ -505,6 +669,7 @@ def _compute_impacts_climada(
         progress_callback=progress_callback,
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
+        resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
     )
 
     point_count = len(bundle.point_records)
@@ -537,7 +702,7 @@ def _compute_impacts_climada(
         if Path(population_data_dir).exists():
             pop_data = load_population_data(
                 population_data_dir=population_data_dir,
-                territories=["GUA", "MTQ"],
+                territories=["GUA", "MTQ", "BLM"],
                 cell_size_deg=float(settings.territory_grid_deg),
             )
             # Flatten the nested dict: {territory_id -> {cell_id -> pop}} => {cell_id -> pop}
@@ -545,17 +710,17 @@ def _compute_impacts_climada(
                 population_by_territory.update(territory_pop_dict)
             
             # Calculate social impact metrics
-            if population_by_territory and aggregated.cell_service_states_by_territory:
+            if population_by_territory and aggregated.projected_service_states_by_territory:
                 social_metrics = aggregate_social_metrics_by_territory(
                     population_by_territory=population_by_territory,
-                    detailed_states=aggregated.cell_service_states_by_territory,
-                    coverage_by_territory=aggregated.cell_service_coverage_by_territory,
+                    detailed_states=aggregated.projected_service_states_by_territory,
+                    coverage_by_territory=aggregated.projected_service_coverage_by_territory,
                 )
                 social_summary_by_hazard = aggregate_social_summary(social_metrics)
                 population_state_distribution = aggregate_population_state_distribution_by_territory(
                     population_by_territory=population_by_territory,
-                    detailed_states=aggregated.cell_service_states_by_territory,
-                    coverage_by_territory=aggregated.cell_service_coverage_by_territory,
+                    detailed_states=aggregated.projected_service_states_by_territory,
+                    coverage_by_territory=aggregated.projected_service_coverage_by_territory,
                 )
                 population_state_distribution_by_hazard = aggregate_population_state_distribution_summary(
                     population_state_distribution
@@ -606,6 +771,10 @@ def _compute_impacts_climada(
     social_summary_payload = build_social_impact_summary_payload(
         social_summary_by_hazard,
         population_state_distribution_by_hazard,
+        aggregated.state_aggregation_metadata,
+    )
+    network_state_plausibility_notes = _network_state_plausibility_warnings(
+        population_state_distribution_by_hazard
     )
 
     portfolio_results = {
@@ -669,6 +838,10 @@ def _compute_impacts_climada(
         },
         "component_health": aggregated.component_health,
         "interdependency": aggregated.interdependency,
+        "network_states_native": aggregated.native_service_states_by_hazard,
+        "network_states_projected": aggregated.projected_service_states_by_territory,
+        "network_states_projected_coverage": aggregated.projected_service_coverage_by_territory,
+        "state_aggregation_metadata": aggregated.state_aggregation_metadata,
         **social_summary_payload,
         "event_summary": {
             "storm_top_events": _scale_top_events(storm_direct_metrics.top_events, storm_scaler),
@@ -689,9 +862,11 @@ def _compute_impacts_climada(
         "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
         "When enabled, direct multi-hazard uses additive wind+rain+surge losses with per-point capping before interdependency uplift.",
         (
-            "Social impact summaries use canonical cell+service states at 0.2 deg derived from native CLIMADA aggregation; "
-                "canonical key social_impact_summary, legacy alias social_impact_worst_case_summary."
+            "Social impact summaries use population-projected service states derived from aggregated native "
+            "electric 0.1 deg cells and hydraulic zone_component_key water states; canonical key "
+            "social_impact_summary, legacy alias social_impact_worst_case_summary."
         ),
+        *network_state_plausibility_notes,
         *climada.notes,
         *bundle.warnings,
     ]
@@ -706,22 +881,40 @@ def _compute_impacts_climada(
         tr["population_total"] = round(pop_total, 0)
         
         # Add social metrics per hazard if available
-        if social_summary_by_hazard and aggregated.cell_service_states_by_territory:
+        if social_summary_by_hazard and aggregated.projected_service_states_by_territory:
             tr["social_metrics"] = {}
             tr["social_metrics_basis"] = SOCIAL_IMPACT_SUMMARY_BASIS
             tr["social_impact_population_state_distribution"] = {}
-            for hazard in aggregated.cell_service_states_by_territory.keys():
+            tr["network_states_native"] = {}
+            tr["network_states_projected"] = {}
+            tr["network_states_projected_coverage"] = {}
+            for hazard in aggregated.projected_service_states_by_territory.keys():
                 if (
-                    hazard in aggregated.cell_service_states_by_territory
-                    and territory_id in aggregated.cell_service_states_by_territory[hazard]
+                    hazard in aggregated.projected_service_states_by_territory
+                    and territory_id in aggregated.projected_service_states_by_territory[hazard]
                 ):
-                    infra_states = aggregated.cell_service_states_by_territory[hazard][territory_id]
+                    infra_states = aggregated.projected_service_states_by_territory[hazard][territory_id]
                     infra_coverage = {}
-                    if aggregated.cell_service_coverage_by_territory:
-                        infra_coverage = (aggregated.cell_service_coverage_by_territory.get(hazard) or {}).get(
+                    if aggregated.projected_service_coverage_by_territory:
+                        infra_coverage = (aggregated.projected_service_coverage_by_territory.get(hazard) or {}).get(
                             territory_id,
                             {},
                         )
+                    native_units = (aggregated.projected_service_units_by_territory.get(hazard) or {}).get(
+                        territory_id,
+                        {},
+                    )
+                    tr["network_states_projected"][hazard] = dict(infra_states)
+                    tr["network_states_projected_coverage"][hazard] = dict(infra_coverage)
+                    tr["network_states_native"][hazard] = {}
+                    for service_name, service_unit_id in native_units.items():
+                        native_row = (
+                            (aggregated.native_service_states_by_hazard.get(hazard) or {})
+                            .get(service_name, {})
+                            .get(service_unit_id)
+                        )
+                        if native_row:
+                            tr["network_states_native"][hazard][service_name] = dict(native_row)
                     metrics = calculate_social_impact_metrics(
                         hazard=hazard,
                         territory_id=territory_id,
@@ -740,7 +933,8 @@ def _compute_impacts_climada(
                             infra_coverage=infra_coverage,
                         ).items()
                     }
-        
+            tr["state_aggregation_metadata"] = aggregated.state_aggregation_metadata
+
         enriched_territory_results.append(tr)
     
     modeling = {
@@ -757,10 +951,31 @@ def _compute_impacts_climada(
         "health_weights_by_state": health_weights_by_state,
         "dependency_state_thresholds": dependency_state_thresholds,
         "uplift_by_state": uplift_by_state,
+        "indirect_monetary_uplift_enabled": False,
+        "state_aggregation_metadata": aggregated.state_aggregation_metadata,
+        "metric_family_classification": _metric_family_classification(),
         "wind_asset_type_to_curve_code": wind_asset_mapping,
         "flood_asset_type_to_curve_code": flood_asset_mapping,
     }
     matching_qa = dict(climada.modeling.get("hazard_exposure_matching_qa") or {})
+    coherence_report, coherence_warnings = _build_climada_coherence_report(
+        exposure=exposure,
+        disagg=disagg,
+        point_records=bundle.point_records,
+        matching_qa=matching_qa,
+        settings=settings,
+    )
+    if coherence_report["status"] == "failed":
+        failed_checks = [
+            str(check.get("check") or "unknown")
+            for check in coherence_report.get("checks", [])
+            if check.get("status") == "failed"
+        ]
+        raise ValueError(
+            "Complete-analysis coherence checks failed before result export: "
+            + ", ".join(failed_checks)
+        )
+    notes.extend(coherence_warnings)
 
     return ImpactComputationResult(
         engine="climada_with_interdependency_v1",
@@ -771,6 +986,7 @@ def _compute_impacts_climada(
         notes=notes,
         modeling=modeling,
         matching_qa=matching_qa,
+        artifacts={"coherence_report": [coherence_report]},
     )
 
 
@@ -1099,6 +1315,8 @@ def compute_impacts_fallback(
             "dependency_mode": "postprocess_electricity_to_water",
             "scenario_mode": "prudent",
             "fallback_reason": "explicit_fallback_mode",
+            "indirect_monetary_uplift_enabled": False,
+            "metric_family_classification": _metric_family_classification(),
         },
         matching_qa={
             "status": "not_available",
@@ -1114,6 +1332,7 @@ def compute_impacts(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    resume_dynamic_hazard_point_cap: int | None = None,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
     if bool(runtime_settings.allow_climada_fallback):
@@ -1142,4 +1361,5 @@ def compute_impacts(
         progress_callback=progress_callback,
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
+        resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
     )

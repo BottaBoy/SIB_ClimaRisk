@@ -46,6 +46,10 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
+    "saint-barthelemy": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
+    ),
 }
 
 
