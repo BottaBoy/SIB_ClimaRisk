@@ -19,6 +19,7 @@ const state = {
   pollingModeTarget: null,
   currentPage: 'page1',
   caseStudyTerritory: 'guadeloupe',
+  caseStudyLoadSequence: 0,
   caseStudyCache: {
     guadeloupe: null,
     martinique: null,
@@ -249,6 +250,12 @@ const CASE_STUDY_POPULATION_CODES = {
   'saint-barthelemy': 'blm'
 };
 
+const CASE_STUDY_INTERACTIVE_BOUNDS = Object.freeze({
+  guadeloupe: [[15.83250027266999, -61.80916713943], [16.51416693660999, -61.001667142660004]],
+  martinique: [[14.388333611779988, -61.229167141750004], [14.878333609819988, -60.81000047676]],
+  'saint-barthelemy': [[17.849999999999998, -62.949999999999996], [17.98, -62.75]]
+});
+
 const introHazardMapRef = {
   instance: null,
   overlayLayer: null,
@@ -260,54 +267,54 @@ const introHazardMapRef = {
 
 const WATER_LAYER_ORDER = [
   'aep_cana',
-  'aep_ouvrage',
   'eu_cana',
-  'eu_pr',
-  'eu_step',
   'elec_bt_aerien',
-  'elec_bt_souterrain',
   'elec_hta_aerien',
+  'elec_bt_souterrain',
   'elec_hta_souterrain'
 ];
 const WATER_LAYER_LABEL = {
   aep_cana: 'AEP canalisations',
-  aep_ouvrage: 'AEP ouvrages',
   eu_cana: 'EU canalisations',
-  eu_pr: 'EU postes de refoulement',
-  eu_step: 'STEP',
   elec_bt_aerien: 'Basse tension aerien',
-  elec_bt_souterrain: 'Basse tension souterrain',
   elec_hta_aerien: 'Haute tension aerien',
+  elec_bt_souterrain: 'Basse tension souterrain',
   elec_hta_souterrain: 'Haute tension souterrain'
 };
 
-const CASE_STUDY_DISABLED_WATER_LAYER_TYPES = new Set(['aep_ouvrage']);
+const CASE_STUDY_ALLOWED_WATER_LAYER_TYPES = new Set(WATER_LAYER_ORDER);
 
 const NETWORK_LAYER_ORDER = [
   'eau_aep',
   'eau_eu',
-  'elec_grid_0p1deg',
-  'elec_bt_souterrain',
   'elec_bt_aerien',
-  'elec_hta_souterrain',
-  'elec_hta_aerien'
+  'elec_hta_aerien',
+  'elec_bt_souterrain',
+  'elec_hta_souterrain'
 ];
 
 const NETWORK_LAYER_LABEL = {
   eau_aep: 'Reseau eau AEP',
   eau_eu: 'Reseau eau EU',
-  elec_grid_0p1deg: 'Electricite agrégée 0.1°',
-  elec_bt_souterrain: 'Reseau basse tension souterrain',
   elec_bt_aerien: 'Reseau basse tension aerien',
-  elec_hta_souterrain: 'Reseau haute tension souterrain',
-  elec_hta_aerien: 'Reseau haute tension aerien'
+  elec_hta_aerien: 'Reseau haute tension aerien',
+  elec_bt_souterrain: 'Reseau basse tension souterrain',
+  elec_hta_souterrain: 'Reseau haute tension souterrain'
 };
+
+const CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES = new Set(NETWORK_LAYER_ORDER);
 
 const REQUIRED_NETWORK_STATE_METADATA = {
   state_geometry_mode: 'hydraulic_zoning_v2',
   water_state_geometry_mode: 'hydraulic_zoning_v2',
   water_service_unit: 'zone_component_key',
-  electric_state_geometry_mode: 'fixed_grid_0p1deg'
+  electric_state_geometry_mode: 'fixed_grid_0p1deg',
+  schema_version: 'aggregated_service_state_v1',
+  aggregation_method: 'aggregated_service_state',
+  electric_state_unit: 'fixed_grid_0p1deg',
+  water_state_unit: 'zone_component_key',
+  geometry_semantics: 'native_service_geometry',
+  methodology_breaks_comparability: true
 };
 
 const ASSET_TYPE_ADMIN_LABEL = {
@@ -2616,12 +2623,22 @@ function networkStatesUseHydraulicWaterZones(networkStates) {
 
 function validateNetworkStatesMetadata(payload) {
   const metadata = networkStatesMetadata(payload);
+  const issues = [];
   Object.entries(REQUIRED_NETWORK_STATE_METADATA).forEach(([key, expectedValue]) => {
-    const observedValue = String(metadata?.[key] || '').trim();
+    const observedValue = typeof expectedValue === 'boolean'
+      ? Boolean(metadata?.[key])
+      : String(metadata?.[key] || '').trim();
     if (observedValue !== expectedValue) {
-      throw new Error(`metadata ${key}=${observedValue || 'missing'} (expected ${expectedValue})`);
+      issues.push(`metadata ${key}=${observedValue || 'missing'} (expected ${expectedValue})`);
     }
   });
+  return issues;
+}
+
+function networkStatesComparabilityNote(networkStates) {
+  return Boolean(networkStatesMetadata(networkStates).methodology_breaks_comparability)
+    ? ' · methode agregee 2026, non strictement comparable aux anciens runs'
+    : '';
 }
 
 function territoryCellIdFromLatLon(latRaw, lonRaw) {
@@ -3935,6 +3952,21 @@ function normalizeLeafletBounds(boundsLike) {
   }
 }
 
+function caseStudyInteractiveBounds(territoryRaw) {
+  const territory = normalizeCaseStudyTerritory(territoryRaw);
+  return CASE_STUDY_INTERACTIVE_BOUNDS[territory] || null;
+}
+
+function mergeLeafletBounds(...boundsList) {
+  let merged = null;
+  boundsList.forEach((candidate) => {
+    const bounds = normalizeLeafletBounds(candidate);
+    if (!bounds) return;
+    merged = merged ? merged.extend(bounds) : bounds;
+  });
+  return merged;
+}
+
 function clearLeafletViewLock(ref, defaultMinZoom, defaultMaxZoom) {
   const map = ref?.instance;
   if (!map) return;
@@ -3966,6 +3998,19 @@ function constrainLeafletMapView(ref, boundsLike, { maxExtraZoom = 1, padRatio =
 
 function lockStaticLeafletMapView(ref, boundsLike) {
   constrainLeafletMapView(ref, boundsLike, { maxExtraZoom: 0, padRatio: 0.02, lockZoomOut: true });
+}
+
+function fitCaseStudyInteractiveMap(ref, boundsLike, territoryRaw, {
+  padding = [24, 24],
+  maxZoom = 10,
+  maxExtraZoom = 4,
+  padRatio = 0.14
+} = {}) {
+  const territoryBounds = caseStudyInteractiveBounds(territoryRaw);
+  const fitBounds = mergeLeafletBounds(boundsLike, territoryBounds);
+  if (!ref?.instance || !fitBounds || !fitBounds.isValid()) return;
+  ref.instance.fitBounds(fitBounds, { padding, maxZoom });
+  constrainLeafletMapView(ref, fitBounds, { maxExtraZoom, padRatio, lockZoomOut: false });
 }
 
 function ensureWindMap(hazardKey) {
@@ -4326,8 +4371,12 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
   if (!ref.hasFitted) {
     const initialBounds = initialHazardMapBounds(meta, grid);
     if (initialBounds) {
-      ref.instance.fitBounds(initialBounds, { padding: [12, 12], maxZoom: 10 });
-      constrainLeafletMapView(ref, initialBounds, { maxExtraZoom: 1, padRatio: 0.08 });
+      fitCaseStudyInteractiveMap(ref, initialBounds, state.caseStudyTerritory, {
+        padding: [20, 20],
+        maxZoom: 10,
+        maxExtraZoom: 4,
+        padRatio: 0.14
+      });
     }
     ref.hasFitted = true;
   }
@@ -5646,7 +5695,7 @@ function waterInfraStyle(feature) {
 }
 
 function ensureWaterLayerState(typeKey) {
-  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = false;
+  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = true;
 }
 
 function ensureWaterMap() {
@@ -5670,8 +5719,8 @@ function ensureWaterMap() {
 function buildWaterLayerControls(layerCounts) {
   if (!els.waterLayerControls) return;
   const types = [
-    ...WATER_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined && !CASE_STUDY_DISABLED_WATER_LAYER_TYPES.has(k)),
-    ...Object.keys(layerCounts).filter((k) => !WATER_LAYER_ORDER.includes(k) && !CASE_STUDY_DISABLED_WATER_LAYER_TYPES.has(k)).sort()
+    ...WATER_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined && CASE_STUDY_ALLOWED_WATER_LAYER_TYPES.has(k)),
+    ...Object.keys(layerCounts).filter((k) => !WATER_LAYER_ORDER.includes(k) && CASE_STUDY_ALLOWED_WATER_LAYER_TYPES.has(k)).sort()
   ];
 
   els.waterLayerControls.innerHTML = types.map((type) => {
@@ -5706,7 +5755,7 @@ function ensureWaterLayers(payload) {
   const grouped = new Map();
   payload.features.forEach((feature) => {
     const type = String(feature?.properties?.infra_type || 'unknown');
-    if (CASE_STUDY_DISABLED_WATER_LAYER_TYPES.has(type)) return;
+    if (!CASE_STUDY_ALLOWED_WATER_LAYER_TYPES.has(type)) return;
     if (!grouped.has(type)) grouped.set(type, []);
     grouped.get(type).push(feature);
   });
@@ -5799,8 +5848,12 @@ function renderWaterInfraMap() {
 
   const fitBoundsTarget = bounds && bounds.isValid() ? bounds : allBounds;
   if (!ref.hasFitted && fitBoundsTarget && fitBoundsTarget.isValid()) {
-      ref.instance.fitBounds(fitBoundsTarget, { padding: [18, 18], maxZoom: 11 });
-      constrainLeafletMapView(ref, fitBoundsTarget, { maxExtraZoom: 1, padRatio: 0.08 });
+      fitCaseStudyInteractiveMap(ref, fitBoundsTarget, state.caseStudyTerritory, {
+        padding: [24, 24],
+        maxZoom: 10,
+        maxExtraZoom: 4,
+        padRatio: 0.14
+      });
       ref.hasFitted = true;
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
@@ -6061,7 +6114,7 @@ function networkStateStyle(feature) {
 }
 
 function ensureNetworkLayerState(typeKey) {
-  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = false;
+  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = true;
 }
 
 function ensureNetworkMap() {
@@ -6094,8 +6147,8 @@ function ensureNetworkMap() {
 function buildNetworkLayerControls(layerCounts) {
   if (!els.networkLayerControls) return;
   const types = [
-    ...NETWORK_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined),
-    ...Object.keys(layerCounts).filter((k) => !NETWORK_LAYER_ORDER.includes(k)).sort()
+    ...NETWORK_LAYER_ORDER.filter((k) => layerCounts[k] !== undefined && CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES.has(k)),
+    ...Object.keys(layerCounts).filter((k) => !NETWORK_LAYER_ORDER.includes(k) && CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES.has(k)).sort()
   ];
 
   els.networkLayerControls.innerHTML = types.map((type) => {
@@ -6129,6 +6182,7 @@ function ensureNetworkLayers(payload) {
   const grouped = new Map();
   payload.features.forEach((feature) => {
     const type = String(feature?.properties?.layer_key || 'unknown');
+    if (!CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES.has(type)) return;
     if (!grouped.has(type)) grouped.set(type, []);
     grouped.get(type).push(feature);
   });
@@ -6314,7 +6368,8 @@ function renderNetworkStateMap() {
       const extraText = extras.length ? ` · ${extras.join(' + ')} affiche` : '';
       const unitLabel = networkStatesUseHydraulicWaterZones(state.networkStates) ? 'unites visibles' : 'segments visibles';
       const contractText = networkStatesUseHydraulicWaterZones(state.networkStates) ? ' · eau affichee en zones hydrauliques' : '';
-      els.networkStateCaption.textContent = `Affichage ${hz} (${sc}) - ${numberFmt.format(visibleTotal)} ${unitLabel} sur ${numberFmt.format((state.networkStates.features || []).length)}${extraText}${contractText}.`;
+      const comparabilityText = networkStatesComparabilityNote(state.networkStates);
+      els.networkStateCaption.textContent = `Affichage ${hz} (${sc}) - ${numberFmt.format(visibleTotal)} ${unitLabel} sur ${numberFmt.format((state.networkStates.features || []).length)}${extraText}${contractText}${comparabilityText}.`;
     }
   }
 
@@ -6323,8 +6378,12 @@ function renderNetworkStateMap() {
 
   const fitBoundsTarget = bounds && bounds.isValid() ? bounds : allBounds;
   if (!ref.hasFitted && fitBoundsTarget && fitBoundsTarget.isValid()) {
-    ref.instance.fitBounds(fitBoundsTarget, { padding: [18, 18], maxZoom: 11 });
-    constrainLeafletMapView(ref, fitBoundsTarget, { maxExtraZoom: 1, padRatio: 0.08 });
+    fitCaseStudyInteractiveMap(ref, fitBoundsTarget, state.caseStudyTerritory, {
+      padding: [24, 24],
+      maxZoom: 10,
+      maxExtraZoom: 4,
+      padRatio: 0.14
+    });
     ref.hasFitted = true;
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
@@ -7389,7 +7448,7 @@ function selectIntroNetworkMap(networkStates) {
 
   features.forEach((feature) => {
     const layerKey = String(feature?.properties?.layer_key || '').trim().toLowerCase();
-    if (!layerKey) return;
+    if (!layerKey || !CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES.has(layerKey)) return;
     const entry = grouped.get(layerKey) || {
       layerKey,
       label: NETWORK_LAYER_LABEL[layerKey] || String(feature?.properties?.layer_label || layerKey),
@@ -8222,7 +8281,12 @@ function renderCaseStudyVisuCard() {
   }
 
   if (!caseStudyVisuMapRef.hasFitted) {
-    caseStudyVisuMapRef.instance.fitBounds(boundsLeaflet, { padding: [8, 8], maxZoom: 6 });
+    fitCaseStudyInteractiveMap(caseStudyVisuMapRef, boundsLeaflet, state.caseStudyTerritory, {
+      padding: [18, 18],
+      maxZoom: 9,
+      maxExtraZoom: 4,
+      padRatio: 0.14
+    });
     caseStudyVisuMapRef.hasFitted = true;
   }
 
@@ -8380,7 +8444,10 @@ async function fetchNetworkStates(territory = 'guadeloupe') {
   if (!payload || payload.type !== 'FeatureCollection' || !Array.isArray(payload.features)) {
     throw new Error("Payload des états de réseaux invalide");
   }
-  validateNetworkStatesMetadata(payload);
+  const metadataIssues = validateNetworkStatesMetadata(payload);
+  if (metadataIssues.length) {
+    console.warn(`Network states metadata issues for ${base}: ${metadataIssues.join(' | ')}`);
+  }
   return payload;
 }
 
@@ -8487,6 +8554,19 @@ function resetCaseStudyMapLayers() {
   state.caseStudyScenarioSocialSummary = null;
 }
 
+function resolveRequiredCaseStudyArtifact(result, label) {
+  if (result?.status === 'fulfilled') return result.value;
+  throw (result && result.reason) || new Error(`Chargement invalide pour ${label}`);
+}
+
+function resolveOptionalCaseStudyArtifact(result, territory, label) {
+  if (result?.status === 'fulfilled') return result.value;
+  const reason = result?.reason;
+  const detail = reason instanceof Error ? reason.message : String(reason || 'erreur inconnue');
+  console.warn(`Artefact optionnel indisponible pour ${territory} (${label})`, detail);
+  return null;
+}
+
 async function ensureCaseStudyLoaded(territory) {
   const key = normalizeCaseStudyTerritory(territory);
   if (state.caseStudyCache[key]?.ready) {
@@ -8496,15 +8576,23 @@ async function ensureCaseStudyLoaded(territory) {
   if (!state.caseStudyCache[key]) state.caseStudyCache[key] = {};
   const cache = state.caseStudyCache[key];
   if (cache.promise) return cache.promise;
-  cache.promise = Promise.all([
+  cache.promise = Promise.allSettled([
     fetchWindMaps(key),
     fetchLandslideMaps(key),
     fetchWaterInfra(key),
     fetchPage1Analysis(key),
     fetchNetworkStates(key),
     fetchCaseStudyMultiHazardProxy(key)
-  ]).then(([windMaps, landslideMaps, waterInfra, analysis, networkStates, multiHazardProxy]) => {
-    validateCaseStudyArtifactsCoherence(key, windMaps, landslideMaps, analysis, multiHazardProxy);
+  ]).then((results) => {
+    const windMaps = resolveRequiredCaseStudyArtifact(results[0], 'wind-maps');
+    const landslideMaps = resolveRequiredCaseStudyArtifact(results[1], 'landslide-maps');
+    const waterInfra = resolveOptionalCaseStudyArtifact(results[2], key, 'water-infra');
+    const analysis = resolveRequiredCaseStudyArtifact(results[3], 'page-analysis');
+    const networkStates = resolveOptionalCaseStudyArtifact(results[4], key, 'network-states');
+    const multiHazardProxy = resolveOptionalCaseStudyArtifact(results[5], key, 'multi-hazard-proxy');
+    if (multiHazardProxy) {
+      validateCaseStudyArtifactsCoherence(key, windMaps, landslideMaps, analysis, multiHazardProxy);
+    }
     cache.windMaps = windMaps;
     cache.landslideMaps = landslideMaps;
     cache.waterInfra = waterInfra;
@@ -8810,14 +8898,17 @@ function switchDatasetMode(mode) {
 }
 
 async function switchCaseStudyPage(pageKey, territory, { updateHash = true } = {}) {
+  const requestId = ++state.caseStudyLoadSequence;
   setActivePage(pageKey, { updateHash });
   try {
     const payload = await ensureCaseStudyLoaded(territory);
+    if (requestId !== state.caseStudyLoadSequence) return;
     applyCaseStudyState(territory, payload);
     setSelectedHazardComponent('wind');
     resetHazardMapFitState();
     renderAll();
   } catch (err) {
+    if (requestId !== state.caseStudyLoadSequence) return;
     console.warn(`Case-study ${territory} could not be loaded`, err);
     if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
     if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
@@ -9332,11 +9423,12 @@ async function bootstrap() {
     setActivePage(initialPage, { updateHash: false });
     renderDrawPreview();
     const initialTerritory = caseStudyTerritoryForPage(initialPage);
+    const initialCaseStudyRequestId = ++state.caseStudyLoadSequence;
     const initialCasePayload = await ensureCaseStudyLoaded(initialTerritory).catch((err) => {
       console.warn(`Case-study ${initialTerritory} payload could not be loaded`, err);
       return null;
     });
-    if (initialCasePayload) {
+    if (initialCasePayload && initialCaseStudyRequestId === state.caseStudyLoadSequence) {
       applyCaseStudyState(initialTerritory, initialCasePayload);
       Object.keys(CASE_STUDY_TERRITORY_TO_PAGE)
         .filter((territory) => territory !== initialTerritory)
@@ -9345,7 +9437,7 @@ async function bootstrap() {
             console.warn(`Case-study ${territory} preload failed`, err);
           });
         });
-    } else {
+    } else if (initialCaseStudyRequestId === state.caseStudyLoadSequence) {
       if (els.expositionSummaryText) els.expositionSummaryText.textContent = "Donnees d'exposition indisponibles.";
       if (els.hazardSummaryText) els.hazardSummaryText.textContent = "Donnees d'alea indisponibles.";
       if (els.impactSummaryText) els.impactSummaryText.textContent = "Donnees d'impact indisponibles.";
