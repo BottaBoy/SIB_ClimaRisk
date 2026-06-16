@@ -1,6 +1,6 @@
 # Note detaillee - Backend calculatoire des risques cycloniques (CLIMADA)
 
-Derniere mise a jour: 2026-06-15
+Derniere mise a jour: 2026-06-16
 
 ## 1) Objectif
 Cette note explique:
@@ -1191,6 +1191,78 @@ Le toggle `Afficher le quadrillage des cartes` ne modifie pas les valeurs des ce
 - il ajoute seulement une couche vectorielle de quadrillage au-dessus des rectangles d'alea,
 - il reutilise la meme maille que les cellules publiees (`0.02 deg` pour Guadeloupe/Martinique dans le profil courant),
 - il sert a auditer visuellement la resolution de publication et a expliciter que la carte est une restitution par mailles, pas un champ continu.
+
+#### 6.7.12 quater Publication scientifique canonique du site web
+Depuis le lot de bascule web scientifique, le site publie un payload intermediaire dedie:
+- `web/data/{territory}-scientific-web-summary.json`
+
+Ce payload est derive exclusivement du:
+- `web/data/{territory}-complete-analysis.json`
+
+Objectif:
+- separer strictement les chiffres scientifiques publies des artefacts visuels legers,
+- garder un contrat frontend stable,
+- eviter que `app.js` recalcule ou recompose des chiffres monetaires / sociaux a partir du proxy leger.
+
+Artefacts toujours presents cote web:
+- `*-complete-analysis.json`: source scientifique canonique complete du run publie
+- `*-scientific-web-summary.json`: projection web scientifique stable, derivee du `complete-analysis`
+- `*-wind-maps.json`, `*-landslide-maps.json`, `*-multi-hazard-proxy.json`: artefacts visuels/cartographiques
+- `*-page*-analysis.json`: artefact legacy de page, encore utilise pour certains blocs non totalement rebases
+- `*-network-states.geojson`, `*-water-infra.geojson`: couches cartographiques
+
+Sections des pages etude de cas deja cablees sur la chaine scientifique (`complete-analysis` -> `scientific-web-summary`):
+- tableau d'impacts portefeuille / pertes monetaires dans le bloc impact:
+  - totaux `annual`, `rp50`, `rp100`, `p99`
+- tableau de conclusion monetaire:
+  - totaux `annual`, `rp50`, `rp100`, `p99`
+- tableaux / graphiques sociaux quand la donnee scientifique est disponible dans le contrat courant
+- camemberts d'etats reseaux quand la donnee scientifique est disponible dans le contrat courant
+- meta de tracabilite du run web scientifique:
+  - `run_id`
+  - `scientific_source=true`
+  - `schema_version`
+
+Dans l'etat actuel du contrat scientifique web (`scientific_web_summary_v1`), les disponibilites sont les suivantes:
+- monetaire portefeuille:
+  - `annual`, `rp50`, `rp100`, `p99` publies scientifiquement
+- tableaux monetaires par classe reseau:
+  - `annual` publie scientifiquement
+  - `rp50`, `rp100`, `p99` non encore publies scientifiquement par classe
+- impacts sociaux:
+  - `p99` / worst-case publie scientifiquement
+  - `annual`, `rp50`, `rp100` non encore exposes scientifiquement dans le payload web
+- etats reseaux:
+  - `p99` / worst-case publie scientifiquement
+  - `annual`, `rp50`, `rp100` non encore exposes scientifiquement dans le payload web
+
+Sections qui ne sont pas encore totalement cablees sur le `complete-analysis` publie et restent sur la chaine visuelle / legacy:
+- tableau `Comparaison aleas`:
+  - source `wind-maps.json` / `landslide-maps.json`
+  - il reste un indicateur cartographique, pas un resultat portefeuille
+- cartes d'aleas:
+  - source `wind-maps.json` / `landslide-maps.json`
+- cartes d'infrastructures d'eau et d'electricite:
+  - source `water-infra.geojson`
+- carte d'etat des reseaux:
+  - source `network-states.geojson`
+- blocs intro / etude de cas de la page d'accueil:
+  - ils reposent encore principalement sur `page-analysis` et sur les couches cartographiques associees
+- tableaux detail par classe pour `rp50`, `rp100`, `p99`:
+  - faute d'un export scientifique par classe/scenario dans le contrat web actuel
+- pie charts d'etats reseaux et tableaux sociaux pour `annual`, `rp50`, `rp100`:
+  - faute d'un export scientifique scenario-par-scenario dans le contrat web actuel
+
+Consequence pratique:
+- un chiffre affiche comme perte portefeuille globale est maintenant attendu depuis la chaine scientifique.
+- un chiffre affiche comme intensite d'aléa physique ou comme restitution cartographique peut encore venir des artefacts visuels.
+- tant que le `complete-analysis` n'exporte pas davantage de detail par classe/scenario, certaines vues detaillees doivent rester partielles ou legacy.
+
+Validation de publication:
+- `scripts/run_web_artifacts.py` valide maintenant aussi l'alignement strict entre:
+  - `complete-analysis`
+  - `scientific-web-summary`
+- les totaux `annual`, `rp50`, `rp100`, `p99` du payload web scientifique doivent correspondre exactement aux champs canoniques du `complete-analysis`.
 
 #### 6.7.13 Contraintes operationnelles memoire/ressources et recommandations
 Constats operationnels (runs Guadeloupe/Martinique):

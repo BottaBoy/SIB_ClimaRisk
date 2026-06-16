@@ -60,6 +60,13 @@ Notes Saint-Barthélemy:
 - le zonage AEP Saint-Barthélemy est `best-effort` et le zonage EU est explicitement `heuristic_topological_non_validated`;
 - le bundle hydraulique attendu est `outputs/hydraulic_zoning/Zonage_V2/saint-barthelemy_water_systems_estimate.gpkg`.
 
+Publication web scientifique:
+- chaque territoire publie maintenant `web/data/<territory>-scientific-web-summary.json`
+- ce payload est derive uniquement du `complete-analysis.json` publie
+- il sert de source web prioritaire pour les chiffres scientifiques du site
+- les artefacts `wind-maps`, `landslide-maps`, `multi-hazard-proxy`, `page-analysis`, `network-states.geojson` restent necessaires pour les cartes et certains blocs legacy
+- le detail exact de ce qui est deja rebascule ou non est documente dans `docs/note-backend-calculatoire.md`
+
 ## Utilisation
 
 ### Lancer un run complet (par défaut)

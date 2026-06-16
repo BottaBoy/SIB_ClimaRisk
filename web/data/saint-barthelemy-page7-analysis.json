@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-06-15T19:55:41+00:00",
-    "case_study_run_id": "saint-barthelemy_case_20260615T195150Z",
+    "generated_at": "2026-06-16T08:32:16+00:00",
+    "case_study_run_id": "saint-barthelemy_case_20260616T082536Z",
     "source": "saint-barthelemy_case_study_computed",
     "case_study_territory": "saint-barthelemy",
     "case_study_label": "Saint-Barthélemy",
@@ -21,13 +21,13 @@
       "spacing_m": 100.0,
       "max_points_total": 0,
       "max_points_per_feature": 120,
-      "dynamic_max_tracks": 1200
+      "dynamic_max_tracks": 1500
     },
     "multi_hazard_proxy_json": "/home/ubuntu/sib-work/web/data/saint-barthelemy-multi-hazard-proxy.json",
-    "multi_hazard_proxy_run_id": "saint-barthelemy_case_20260615T195150Z",
+    "multi_hazard_proxy_run_id": "saint-barthelemy_case_20260616T082536Z",
     "wind_map_json": "/home/ubuntu/sib-work/web/data/saint-barthelemy-wind-maps.json",
-    "wind_map_generated_at": "2026-06-15T19:52:42+00:00",
-    "wind_map_run_id": "saint-barthelemy_case_20260615T195150Z",
+    "wind_map_generated_at": "2026-06-16T08:26:32+00:00",
+    "wind_map_run_id": "saint-barthelemy_case_20260616T082536Z",
     "complete_analysis_json": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260615_191554/territories/saint-barthelemy/web/data/saint-barthelemy-complete-analysis.json",
     "complete_analysis_source": {
       "run_id": "20260615_191554",
@@ -36,8 +36,34 @@
       "dynamic_max_tracks": {
         "storm": 1500,
         "storm_cmcc": 1500
+      },
+      "network_state_methodology": {
+        "schema_version": "aggregated_service_state_v1",
+        "electric_state_unit": "fixed_grid_0p1deg",
+        "water_state_unit": "zone_component_key",
+        "aggregation_method": "aggregated_service_state",
+        "projection_method": "elec:population_cell_centroid_to_fixed_0p1deg;water:dominant_zone_component_by_exposure_within_population_cell",
+        "state_thresholds_used": {
+          "S0_to_S1_damage_ratio": 0.05,
+          "S1_to_S2_damage_ratio": 0.15,
+          "S2_to_S3_damage_ratio": 0.35
+        }
+      },
+      "network_state_methodology_breaks_comparability": true
+    },
+    "network_state_methodology": {
+      "schema_version": "aggregated_service_state_v1",
+      "electric_state_unit": "fixed_grid_0p1deg",
+      "water_state_unit": "zone_component_key",
+      "aggregation_method": "aggregated_service_state",
+      "projection_method": "elec:population_cell_centroid_to_fixed_0p1deg;water:dominant_zone_component_by_exposure_within_population_cell",
+      "state_thresholds_used": {
+        "S0_to_S1_damage_ratio": 0.05,
+        "S1_to_S2_damage_ratio": 0.15,
+        "S2_to_S3_damage_ratio": 0.35
       }
     },
+    "network_state_methodology_breaks_comparability": true,
     "complete_analysis_calibration": {
       "storm": {
         "annual": {
@@ -102,9 +128,9 @@
       "fallback_reason": null,
       "complete_analysis_run_id": "20260615_191554",
       "complete_analysis_generated_at": "2026-06-15T19:43:41+00:00",
-      "wind_map_run_id": "saint-barthelemy_case_20260615T195150Z",
-      "wind_map_generated_at": "2026-06-15T19:52:42+00:00",
-      "multi_hazard_proxy_run_id": "saint-barthelemy_case_20260615T195150Z",
+      "wind_map_run_id": "saint-barthelemy_case_20260616T082536Z",
+      "wind_map_generated_at": "2026-06-16T08:26:32+00:00",
+      "multi_hazard_proxy_run_id": "saint-barthelemy_case_20260616T082536Z",
       "multi_hazard_proxy_fallback_active": false,
       "multi_hazard_proxy_source_mode": "lightweight_sampled_climada_proxy",
       "multi_hazard_proxy_fallback_reason": null

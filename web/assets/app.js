@@ -71,6 +71,7 @@ const state = {
   waterInfra: null,
   waterLayerVisibility: {},
   page1Analysis: null,
+  scientificWebSummary: null,
   completeAnalysis: null,
   networkStates: null,
   networkStatesPromise: null,
@@ -1614,6 +1615,27 @@ function weightedStateDistribution(rows, hazardKeyRaw, matcher) {
   }, {});
 }
 
+function featureStateDistribution(networkStates, propertyKey, matchesLayerKey) {
+  const features = Array.isArray(networkStates?.features) ? networkStates.features : [];
+  const totals = emptyStateValueMap();
+  let matchedCount = 0;
+
+  features.forEach((feature) => {
+    const layerKey = String(feature?.properties?.layer_key || '').trim();
+    if (typeof matchesLayerKey === 'function' && !matchesLayerKey(layerKey, feature)) return;
+    matchedCount += 1;
+    const stateCode = String(feature?.properties?.[propertyKey] || 'S0').toUpperCase();
+    if (totals[stateCode] === undefined) return;
+    totals[stateCode] += 1;
+  });
+
+  if (matchedCount <= 0) return null;
+  return NETWORK_STATE_ORDER.reduce((acc, stateCode) => {
+    acc[stateCode] = (totals[stateCode] / matchedCount) * 100;
+    return acc;
+  }, {});
+}
+
 function statePieSeriesData(stateValues, stateOrder = NETWORK_STATE_ORDER) {
   const safeValues = stateValues || {};
   return stateOrder
@@ -2444,6 +2466,47 @@ function normalizeImpactTableScenario(raw) {
   return 'annual';
 }
 
+function activeScientificWebSummary() {
+  return state.scientificWebSummary && typeof state.scientificWebSummary === 'object'
+    ? state.scientificWebSummary
+    : null;
+}
+
+function scientificImpactPayloadFallback() {
+  return activeScientificWebSummary()?.frontend?.impact || null;
+}
+
+function activeCaseStudyImpactPayload(analysis) {
+  return scientificImpactPayloadFallback() || analysis?.impact || {};
+}
+
+function scientificScenarioAvailability(scenarioRaw, sectionKey) {
+  const scenario = normalizeImpactTableScenario(scenarioRaw);
+  const availability = activeScientificWebSummary()?.frontend?.scenario_availability?.[scenario];
+  if (!availability || typeof availability !== 'object') return null;
+  return availability?.[sectionKey];
+}
+
+function scientificScenarioSocialSummary(scenarioRaw) {
+  const scenario = normalizeImpactTableScenario(scenarioRaw);
+  const socialImpact = activeScientificWebSummary()?.social_impact || {};
+  const byScenario = socialImpact?.scenario_summary || {};
+  const summary = byScenario?.[scenario];
+  return summary && typeof summary === 'object' && Object.keys(summary).length ? summary : null;
+}
+
+function scientificScenarioServiceStateDistribution(scenarioRaw, hazardKeyRaw, serviceKeyRaw) {
+  const scenario = normalizeImpactTableScenario(scenarioRaw);
+  const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
+  const serviceKey = String(serviceKeyRaw || '').trim().toLowerCase();
+  const networkStates = activeScientificWebSummary()?.network_states || {};
+  const byScenario = networkStates?.scenario_service_state_distribution || {};
+  const scenarioPayload = byScenario?.[scenario];
+  const hazardPayload = scenarioPayload?.[hazardKey];
+  const servicePayload = hazardPayload?.[serviceKey];
+  return servicePayload && typeof servicePayload === 'object' ? servicePayload : null;
+}
+
 function impactTableScenarioMeta(scenarioRaw) {
   const scenario = normalizeImpactTableScenario(scenarioRaw);
   if (scenario === 'rp50') {
@@ -2459,7 +2522,7 @@ function impactTableScenarioMeta(scenarioRaw) {
 }
 
 function renderPage1Impact(analysis) {
-  const impact = withRp50ImpactScenario(analysis?.impact || {});
+  const impact = withRp50ImpactScenario(activeCaseStudyImpactPayload(analysis));
   const componentOrder = impactComponentOrder(impact);
   const tables = impact.state_damage_tables || {};
   const scenarioMeta = impactTableScenarioMeta(state.impactTableScenario);
@@ -2749,6 +2812,10 @@ function aggregateScenarioSocialSummary(analysis, networkStates) {
 }
 
 function ensureScenarioSocialSummary(analysis) {
+  const scientific = activeScientificWebSummary();
+  if (scientific?.social_impact?.scenario_summary) {
+    return scientific.social_impact.scenario_summary;
+  }
   if (state.caseStudyScenarioSocialSummary) return state.caseStudyScenarioSocialSummary;
   const socialSummary = aggregateScenarioSocialSummary(analysis, state.networkStates);
   const worstCaseSummary = worstCaseSocialSummaryFromCompleteAnalysis();
@@ -2816,14 +2883,54 @@ function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, expo
 }
 
 function renderImpactStatePieCharts(rows) {
+  const scenarioKey = impactTableScenarioMeta(state.impactTableScenario).key;
+  const scientificMode = Boolean(activeScientificWebSummary());
+  const scenarioStatePropertyByHazard = {
+    storm: `state_${scenarioKey}_storm`,
+    storm_cmcc: `state_${scenarioKey}_storm_cmcc`
+  };
   const categories = [
-    { refKey: 'impact_state_aep', domId: 'impact-state-pie-aep', matcher: (row) => String(row?.class_key || '') === 'eau_aep' },
-    { refKey: 'impact_state_eu', domId: 'impact-state-pie-eu', matcher: (row) => String(row?.class_key || '') === 'eau_eu' },
-    { refKey: 'impact_state_elec', domId: 'impact-state-pie-elec', matcher: (row) => String(row?.class_key || '').startsWith('elec_') }
+    {
+      refKey: 'impact_state_aep',
+      domId: 'impact-state-pie-aep',
+      matcher: (row) => String(row?.class_key || '') === 'eau_aep',
+      matchesLayerKey: (layerKey) => layerKey === 'eau_aep'
+    },
+    {
+      refKey: 'impact_state_eu',
+      domId: 'impact-state-pie-eu',
+      matcher: (row) => String(row?.class_key || '') === 'eau_eu',
+      matchesLayerKey: (layerKey) => layerKey === 'eau_eu'
+    },
+    {
+      refKey: 'impact_state_elec',
+      domId: 'impact-state-pie-elec',
+      matcher: (row) => String(row?.class_key || '').startsWith('elec_'),
+      matchesLayerKey: (layerKey) => layerKey.startsWith('elec_') || layerKey === 'elec_grid_0p1deg'
+    }
   ];
   categories.forEach((category) => {
-    const stormValues = weightedStateDistribution(rows, 'storm', category.matcher);
-    const cmccValues = weightedStateDistribution(rows, 'storm_cmcc', category.matcher);
+    const serviceKey = category.refKey === 'impact_state_elec'
+      ? 'elec'
+      : (category.refKey === 'impact_state_aep' ? 'water_aep' : 'water_eu');
+    const stormValues = scientificMode
+      ? scientificScenarioServiceStateDistribution(scenarioKey, 'storm', serviceKey)
+      : (
+        featureStateDistribution(
+          state.networkStates,
+          scenarioStatePropertyByHazard.storm,
+          category.matchesLayerKey
+        ) || weightedStateDistribution(rows, 'storm', category.matcher)
+      );
+    const cmccValues = scientificMode
+      ? scientificScenarioServiceStateDistribution(scenarioKey, 'storm_cmcc', serviceKey)
+      : (
+        featureStateDistribution(
+          state.networkStates,
+          scenarioStatePropertyByHazard.storm_cmcc,
+          category.matchesLayerKey
+        ) || weightedStateDistribution(rows, 'storm_cmcc', category.matcher)
+      );
     renderFocusedStateShareChart(category.refKey, category.domId, stormValues, cmccValues, {
       innerLabel: getHazardLabel('storm'),
       outerLabel: getHazardLabel('storm_cmcc'),
@@ -2842,7 +2949,7 @@ function affectedPopulationStateDistribution(summary, serviceKey) {
 
 function currentImpactSocialSummary(analysis) {
   const scenarioKey = impactTableScenarioMeta(state.impactTableScenario).key;
-  return ensureScenarioSocialSummary(analysis)?.[scenarioKey] || {};
+  return scientificScenarioSocialSummary(scenarioKey) || ensureScenarioSocialSummary(analysis)?.[scenarioKey] || {};
 }
 
 function renderSocialImpactPieCharts(analysis) {
@@ -2873,6 +2980,7 @@ function renderSocialImpactTable(analysis) {
   const socialSummary = currentImpactSocialSummary(analysis);
   const stormMetrics = socialSummary.storm || {};
   const cmccMetrics = socialSummary.storm_cmcc || {};
+  const scientificAvailable = scientificScenarioAvailability(state.impactTableScenario, 'social_impact');
   
   const metrics = [
     { label: 'Population totale affectée (S1/S2/S3)', key: 'total_population_affected_any_network' },
@@ -2885,7 +2993,9 @@ function renderSocialImpactTable(analysis) {
   ];
   
   if (!Object.keys(stormMetrics).length) {
-    els.impactSocialTableBody.innerHTML = '<tr><td colspan="4">Aucune donnée d\'impact sociodémographique disponible.</td></tr>';
+    els.impactSocialTableBody.innerHTML = scientificAvailable === false
+      ? '<tr><td colspan="4">Impact social non publie scientifiquement pour ce scenario dans le contrat actuel du run.</td></tr>'
+      : '<tr><td colspan="4">Aucune donnée d\'impact sociodémographique disponible.</td></tr>';
     return;
   }
   
@@ -2908,7 +3018,7 @@ function renderSocialImpactTable(analysis) {
 function renderPage1Conclusion(analysis) {
   if (!els.conclusionText) return;
   const expo = analysis?.exposition || {};
-  const impact = withRp50ImpactScenario(analysis?.impact || {});
+  const impact = withRp50ImpactScenario(activeCaseStudyImpactPayload(analysis));
   const storm = impact?.summary_metrics?.storm || {};
   const cmcc = impact?.summary_metrics?.storm_cmcc || {};
   const totalValue = Number(expo.total_value_all_eur || 0);
@@ -2940,9 +3050,20 @@ function renderPage1Conclusion(analysis) {
 
   if (els.conclusionPopulationTableBody) {
     els.conclusionPopulationTableBody.innerHTML = rows.map((row) => {
+      const socialAvailable = scientificScenarioAvailability(row.key, 'social_impact');
       const social = socialSummaryByScenario[row.key] || {};
       const stormSocial = social.storm || {};
       const cmccSocial = social.storm_cmcc || {};
+      if (socialAvailable === false && !Object.keys(stormSocial).length && !Object.keys(cmccSocial).length) {
+        return `
+          <tr>
+            <td>${escapeHtml(row.label)}</td>
+            <td class="num">—</td>
+            <td class="num">—</td>
+            <td class="num">—</td>
+          </tr>
+        `;
+      }
       return `
         <tr>
           <td>${escapeHtml(row.label)}</td>
@@ -5695,7 +5816,7 @@ function waterInfraStyle(feature) {
 }
 
 function ensureWaterLayerState(typeKey) {
-  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = true;
+  if (state.waterLayerVisibility[typeKey] === undefined) state.waterLayerVisibility[typeKey] = false;
 }
 
 function ensureWaterMap() {
@@ -5725,12 +5846,11 @@ function buildWaterLayerControls(layerCounts) {
 
   els.waterLayerControls.innerHTML = types.map((type) => {
     const style = waterInfraStyle({ properties: { infra_type: type } });
-    const checked = state.waterLayerVisibility[type] !== false ? 'checked' : '';
     const label = WATER_LAYER_LABEL[type] || type;
     const count = layerCounts[type] || 0;
     return `
       <label class="layer-item">
-        <input type="checkbox" data-water-layer="${escapeHtml(type)}" ${checked} />
+        <input type="checkbox" data-water-layer="${escapeHtml(type)}" />
         <span class="layer-dot" style="background:${escapeHtml(style.color)}"></span>
         <span>${escapeHtml(label)} (${escapeHtml(numberFmt.format(count))})</span>
       </label>
@@ -5738,6 +5858,10 @@ function buildWaterLayerControls(layerCounts) {
   }).join('');
 
   Array.from(els.waterLayerControls.querySelectorAll('input[data-water-layer]')).forEach((input) => {
+    const key = input.getAttribute('data-water-layer');
+    const checked = !!(key && state.waterLayerVisibility[key] === true);
+    input.checked = checked;
+    input.defaultChecked = checked;
     input.addEventListener('change', () => {
       const key = input.getAttribute('data-water-layer');
       if (!key) return;
@@ -6114,7 +6238,7 @@ function networkStateStyle(feature) {
 }
 
 function ensureNetworkLayerState(typeKey) {
-  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = true;
+  if (state.networkLayerVisibility[typeKey] === undefined) state.networkLayerVisibility[typeKey] = false;
 }
 
 function ensureNetworkMap() {
@@ -6152,12 +6276,11 @@ function buildNetworkLayerControls(layerCounts) {
   ];
 
   els.networkLayerControls.innerHTML = types.map((type) => {
-    const checked = state.networkLayerVisibility[type] !== false ? 'checked' : '';
     const label = NETWORK_LAYER_LABEL[type] || type;
     const count = layerCounts[type] || 0;
     return `
       <label class="layer-item">
-        <input type="checkbox" data-network-layer="${escapeHtml(type)}" ${checked} />
+        <input type="checkbox" data-network-layer="${escapeHtml(type)}" />
         <span class="layer-dot" style="background:${escapeHtml(STATE_COLORS.S0)}"></span>
         <span>${escapeHtml(label)} (${escapeHtml(numberFmt.format(count))})</span>
       </label>
@@ -6165,6 +6288,10 @@ function buildNetworkLayerControls(layerCounts) {
   }).join('');
 
   Array.from(els.networkLayerControls.querySelectorAll('input[data-network-layer]')).forEach((input) => {
+    const key = input.getAttribute('data-network-layer');
+    const checked = !!(key && state.networkLayerVisibility[key] === true);
+    input.checked = checked;
+    input.defaultChecked = checked;
     input.addEventListener('change', () => {
       const key = input.getAttribute('data-network-layer');
       if (!key) return;
@@ -8451,6 +8578,18 @@ async function fetchNetworkStates(territory = 'guadeloupe') {
   return payload;
 }
 
+async function fetchScientificWebSummary(territory = 'guadeloupe') {
+  const base = caseStudyFileBase(territory);
+  const url = new URL(`/data/${base}-scientific-web-summary.json`, window.location.origin).toString();
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const payload = await res.json();
+  if (!payload?.meta || payload?.meta?.scientific_source !== true || !payload?.portfolio_summary) {
+    throw new Error("Payload scientifique web invalide");
+  }
+  return payload;
+}
+
 function ensureNetworkStatesLoaded() {
   const territory = normalizeCaseStudyTerritory(state.caseStudyTerritory);
   const cached = state.caseStudyCache[territory];
@@ -8551,6 +8690,8 @@ function resetCaseStudyMapLayers() {
   networkMapRef.order = [];
   networkMapRef.hasFitted = false;
   clearLeafletViewLock(networkMapRef, 4, 13);
+  state.waterLayerVisibility = {};
+  state.networkLayerVisibility = {};
   state.caseStudyScenarioSocialSummary = null;
 }
 
@@ -8582,7 +8723,8 @@ async function ensureCaseStudyLoaded(territory) {
     fetchWaterInfra(key),
     fetchPage1Analysis(key),
     fetchNetworkStates(key),
-    fetchCaseStudyMultiHazardProxy(key)
+    fetchCaseStudyMultiHazardProxy(key),
+    fetchScientificWebSummary(key)
   ]).then((results) => {
     const windMaps = resolveRequiredCaseStudyArtifact(results[0], 'wind-maps');
     const landslideMaps = resolveRequiredCaseStudyArtifact(results[1], 'landslide-maps');
@@ -8590,6 +8732,7 @@ async function ensureCaseStudyLoaded(territory) {
     const analysis = resolveRequiredCaseStudyArtifact(results[3], 'page-analysis');
     const networkStates = resolveOptionalCaseStudyArtifact(results[4], key, 'network-states');
     const multiHazardProxy = resolveOptionalCaseStudyArtifact(results[5], key, 'multi-hazard-proxy');
+    const scientificWebSummary = resolveRequiredCaseStudyArtifact(results[6], 'scientific-web-summary');
     if (multiHazardProxy) {
       validateCaseStudyArtifactsCoherence(key, windMaps, landslideMaps, analysis, multiHazardProxy);
     }
@@ -8599,6 +8742,7 @@ async function ensureCaseStudyLoaded(territory) {
     cache.analysis = analysis;
     cache.networkStates = networkStates;
     cache.multiHazardProxy = multiHazardProxy;
+    cache.scientificWebSummary = scientificWebSummary;
     cache.ready = true;
     ensureCaseStudyCompleteAnalysisLoaded(key);
     return cache;
@@ -8610,17 +8754,15 @@ async function ensureCaseStudyLoaded(territory) {
 
 function applyCaseStudyState(territory, payload) {
   const key = normalizeCaseStudyTerritory(territory);
-  const previous = state.caseStudyTerritory;
   state.caseStudyTerritory = key;
-  if (previous !== key) {
-    resetCaseStudyMapLayers();
-  }
+  resetCaseStudyMapLayers();
   state.windMaps = payload?.windMaps || null;
   state.landslideMaps = payload?.landslideMaps || null;
   state.multiHazardProxy = payload?.multiHazardProxy || null;
   state.waterInfra = payload?.waterInfra || null;
   state.completeAnalysis = payload?.completeAnalysis || state.caseStudyCache[key]?.completeAnalysis || null;
   state.page1Analysis = payload?.analysis || null;
+  state.scientificWebSummary = payload?.scientificWebSummary || state.caseStudyCache[key]?.scientificWebSummary || null;
   state.networkStates = payload?.networkStates || null;
   state.caseStudyScenarioSocialSummary = null;
 }

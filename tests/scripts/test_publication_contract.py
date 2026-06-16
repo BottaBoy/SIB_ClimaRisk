@@ -37,6 +37,20 @@ def _write_json(path: Path, payload: dict) -> None:
 def _complete_analysis_payload(*, updated_at: str) -> dict:
     return {
         "updated_at": updated_at,
+        "meta": {
+            "network_state_methodology": {
+                "schema_version": "aggregated_service_state_v1",
+                "aggregation_method": "aggregated_service_state",
+                "electric_state_unit": "fixed_grid_0p1deg",
+                "water_state_unit": "zone_component_key",
+            },
+            "network_state_methodology_breaks_comparability": True,
+            "network_state_payload_contract": {
+                "native_service_states_key": "native_service_states",
+                "population_projected_service_states_key": "population_projected_service_states",
+                "population_projected_service_states_coverage_key": "population_projected_service_states_coverage",
+            },
+        },
         "portfolio_results": {
             "storm": {
                 "eai_eur": 10.0,
@@ -62,7 +76,13 @@ def _network_states_payload(*, metadata: dict | None = None) -> dict:
             "state_geometry_mode": "hydraulic_zoning_v2",
             "water_state_geometry_mode": "hydraulic_zoning_v2",
             "water_service_unit": "zone_component_key",
-            "electric_state_geometry_mode": "native_network_geometry",
+            "electric_state_geometry_mode": "fixed_grid_0p1deg",
+            "schema_version": "aggregated_service_state_v1",
+            "aggregation_method": "aggregated_service_state",
+            "electric_state_unit": "fixed_grid_0p1deg",
+            "water_state_unit": "zone_component_key",
+            "geometry_semantics": "native_service_geometry",
+            "methodology_breaks_comparability": True,
             **(metadata or {}),
         },
     }
@@ -156,6 +176,33 @@ def _page_payload(
     }
 
 
+def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe") -> dict:
+    return {
+        "meta": {
+            "territory": territory,
+            "run_id": run_id,
+            "generated_at": "2026-05-11T18:04:30+00:00",
+            "dynamic_max_tracks": 1500,
+            "scientific_source": True,
+            "schema_version": "scientific_web_summary_v1",
+        },
+        "portfolio_summary": {
+            "storm": {
+                "annual_eur": 10.0,
+                "rp50_eur": 50.0,
+                "rp100_eur": 100.0,
+                "p99_eur": 150.0,
+            },
+            "storm_cmcc": {
+                "annual_eur": 12.0,
+                "rp50_eur": 55.0,
+                "rp100_eur": 110.0,
+                "p99_eur": 160.0,
+            },
+        },
+    }
+
+
 def _landslide_payload(*, case_study_run_id: str) -> dict:
     return {
         "meta": {
@@ -226,6 +273,10 @@ def _write_publication_ready_fixture(
             mismatch_rp100=mismatch_rp100,
         ),
     )
+    _write_json(
+        data_dir / "guadeloupe-scientific-web-summary.json",
+        _scientific_web_summary_payload(run_id=run_id),
+    )
     _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
     _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
     return outputs_dir, web_dir
@@ -255,7 +306,7 @@ def test_validate_territory_web_snapshot_rejects_fallback_publication(monkeypatc
     data_dir = web_dir / "data"
     _write_json(
         data_dir / "guadeloupe-complete-analysis.json",
-        {"updated_at": "2026-05-06T10:00:00+00:00"},
+        _complete_analysis_payload(updated_at="2026-05-06T10:00:00+00:00"),
     )
     _write_json(
         data_dir / "guadeloupe-wind-maps.json",
@@ -298,6 +349,10 @@ def test_validate_territory_web_snapshot_rejects_fallback_publication(monkeypatc
                 },
             }
         },
+    )
+    _write_json(
+        data_dir / "guadeloupe-scientific-web-summary.json",
+        _scientific_web_summary_payload(run_id=run_id),
     )
     _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
     _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
@@ -402,6 +457,11 @@ def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
     assert validation["public_loss_alignment"]["storm"]["rp100"]["abs_diff_eur"] == pytest.approx(0.0)
     assert validation["proxy_breakdown_share_validation"]["storm"]["annual_vs_rp50"]["component_ratios_differ"] is True
     assert validation["geojson_contract"]["data/guadeloupe-network-states.geojson"]["water_service_unit"] == "zone_component_key"
+    assert validation["geojson_contract"]["data/guadeloupe-network-states.geojson"]["schema_version"] == "aggregated_service_state_v1"
+    assert validation["complete_analysis_contract"]["aggregation_method"] == "aggregated_service_state"
+    assert validation["complete_analysis_contract"]["population_projected_service_states_key"] == "population_projected_service_states"
+    assert validation["scientific_web_summary_alignment"]["hazards"]["storm"]["annual_eur"] == pytest.approx(10.0)
+    assert validation["scientific_web_summary_alignment"]["hazards"]["storm_cmcc"]["p99_eur"] == pytest.approx(160.0)
 
 
 def test_extract_run_entry_keeps_wind_map_track_count_when_page_meta_mentions_fallback() -> None:

@@ -38,8 +38,10 @@ except Exception:  # pragma: no cover - optional at import time for CLI --help
 
 try:
     from shapely.geometry import box
+    from shapely.ops import unary_union
 except Exception:  # pragma: no cover - optional at import time for CLI --help
     box = None  # type: ignore[assignment]
+    unary_union = None  # type: ignore[assignment]
 
 try:
     from osgeo import gdal, osr
@@ -136,6 +138,13 @@ GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
 TABLE_SCENARIOS = ("annual", "rp50", "rp100", "p99")
 MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
 PUBLIC_MAP_SCENARIOS = ("annual", "rp50", "rp100", "p99", "top10", "top5")
+WEB_NETWORK_STATE_METHODOLOGY_METADATA = {
+    "schema_version": "aggregated_service_state_v1",
+    "aggregation_method": "aggregated_service_state",
+    "electric_state_unit": "fixed_grid_0p1deg",
+    "water_state_unit": "zone_component_key",
+    "methodology_breaks_comparability": True,
+}
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 WIND_BIN_STEP_MPS = 1.0
 ELECTRIC_NATIVE_GRID_DEG = 0.1
@@ -1149,6 +1158,83 @@ def _hydraulic_native_service_feature_id(feature_id: str) -> str:
     return f"{HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX}:{feature_id}"
 
 
+def _sorted_non_empty_text_values(series: Any) -> list[str]:
+    values: list[str] = []
+    for raw_value in getattr(series, "tolist", lambda: list(series))():
+        text = str(raw_value or "").strip()
+        if text:
+            values.append(text)
+    return sorted(set(values))
+
+
+def _hydraulic_zone_service_ids_align_with_lines(
+    zone_gdf,
+    lines_gdf,
+    *,
+    network_kind: str,
+) -> bool:
+    zone_ids = set(
+        _sorted_non_empty_text_values(
+            zone_gdf.loc[zone_gdf["network_kind"] == network_kind, "zone_component_key"]
+        )
+    )
+    line_ids = set(
+        _sorted_non_empty_text_values(
+            lines_gdf.loc[lines_gdf["network_kind"] == network_kind, "zone_component_key"]
+        )
+    )
+    if not zone_ids or not line_ids:
+        return True
+    return bool(zone_ids & line_ids)
+
+
+def _build_hydraulic_service_features_from_lines(
+    lines_gdf,
+    *,
+    network_kind: str,
+    class_labels: dict[str, str],
+) -> list[dict[str, Any]]:
+    if unary_union is None:
+        raise RuntimeError("shapely.ops.unary_union is required to build hydraulic service geometries")
+
+    groupable = lines_gdf.loc[
+        (lines_gdf["network_kind"] == network_kind)
+        & lines_gdf["zone_component_key"].notna()
+        & (lines_gdf["zone_component_key"].astype(str).str.strip() != "")
+    ].copy()
+    if groupable.empty:
+        return []
+
+    class_key = _hydraulic_zone_class_key(network_kind)
+    features: list[dict[str, Any]] = []
+    for service_unit_id, group in groupable.groupby("zone_component_key", dropna=False):
+        service_key = str(service_unit_id or "").strip()
+        if not service_key:
+            continue
+        geometries = [geom for geom in group.geometry if geom is not None and not getattr(geom, "is_empty", False)]
+        if not geometries:
+            continue
+        zone_uid_values = _sorted_non_empty_text_values(group["zone_uid"])
+        zone_uid = zone_uid_values[0] if zone_uid_values else service_key
+        merged_geometry = unary_union(geometries)
+        features.append(
+            {
+                "feature_id": service_key,
+                "class_key": class_key,
+                "class_label": class_labels.get(class_key, class_key),
+                "geometry": merged_geometry,
+                "state_geometry_mode": "hydraulic_zoning_v2",
+                "service_unit_kind": "hydraulic_zone_component",
+                "service_feature_id": service_key,
+                "zone_component_key": service_key,
+                "zone_uid": zone_uid,
+                "network_kind": network_kind,
+                "feature_role": "canalisation",
+            }
+        )
+    return features
+
+
 def _build_network_geometry_features(
     case_cfg: dict[str, Any],
     *,
@@ -1232,36 +1318,55 @@ def _build_network_geometry_features(
             _read_vector(Path(src["path"]), layer=str(src["zone_layer"])),
             case_cfg,
         ).to_crs(WGS84)
-        if gdf.empty:
-            continue
-        for row in gdf.itertuples(index=False):
-            geom = getattr(row, "geometry", None)
-            if geom is None or getattr(geom, "is_empty", False):
-                continue
-            feature_id = str(getattr(row, "zone_component_key", "") or "").strip()
-            if not feature_id:
-                raise ValueError(f"Hydraulic public state geometry requires zone_component_key in {src['path']}")
-            network_kind = str(getattr(row, "network_kind", "") or "").strip()
-            class_key = _hydraulic_zone_class_key(network_kind)
-            out.append(
-                {
-                    "feature_id": feature_id,
-                    "class_key": class_key,
-                    "class_label": class_labels.get(class_key, class_key),
-                    "geometry": geom,
-                    "state_geometry_mode": "hydraulic_zoning_v2",
-                    "service_unit_kind": "hydraulic_zone_component",
-                    "service_feature_id": feature_id,
-                    "zone_component_key": feature_id,
-                    "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
-                    "network_kind": network_kind,
-                    "feature_role": "canalisation",
-                }
-            )
         lines_gdf = _clip_case_gdf(
             _read_vector(Path(src["path"]), layer=str(src["line_layer"])),
             case_cfg,
         ).to_crs(WGS84)
+        fallback_network_kinds: set[str] = set()
+        if not gdf.empty and not lines_gdf.empty:
+            for network_kind in _sorted_non_empty_text_values(gdf["network_kind"]):
+                if not _hydraulic_zone_service_ids_align_with_lines(
+                    gdf,
+                    lines_gdf,
+                    network_kind=network_kind,
+                ):
+                    fallback_network_kinds.add(network_kind)
+
+        if not gdf.empty:
+            for row in gdf.itertuples(index=False):
+                geom = getattr(row, "geometry", None)
+                if geom is None or getattr(geom, "is_empty", False):
+                    continue
+                network_kind = str(getattr(row, "network_kind", "") or "").strip()
+                if network_kind in fallback_network_kinds:
+                    continue
+                feature_id = str(getattr(row, "zone_component_key", "") or "").strip()
+                if not feature_id:
+                    raise ValueError(f"Hydraulic public state geometry requires zone_component_key in {src['path']}")
+                class_key = _hydraulic_zone_class_key(network_kind)
+                out.append(
+                    {
+                        "feature_id": feature_id,
+                        "class_key": class_key,
+                        "class_label": class_labels.get(class_key, class_key),
+                        "geometry": geom,
+                        "state_geometry_mode": "hydraulic_zoning_v2",
+                        "service_unit_kind": "hydraulic_zone_component",
+                        "service_feature_id": feature_id,
+                        "zone_component_key": feature_id,
+                        "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
+                        "network_kind": network_kind,
+                        "feature_role": "canalisation",
+                    }
+                )
+        for network_kind in sorted(fallback_network_kinds):
+            out.extend(
+                _build_hydraulic_service_features_from_lines(
+                    lines_gdf,
+                    network_kind=network_kind,
+                    class_labels=class_labels,
+                )
+            )
         if not lines_gdf.empty:
             for idx, row in enumerate(lines_gdf.itertuples(index=False), start=1):
                 geom = getattr(row, "geometry", None)
@@ -1395,6 +1500,13 @@ def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[
     meta = payload.get("meta") if isinstance(payload, dict) else None
     meta = meta if isinstance(meta, dict) else {}
     modeling = meta.get("modeling") if isinstance(meta.get("modeling"), dict) else {}
+    state_methodology = (
+        meta.get("network_state_methodology")
+        if isinstance(meta.get("network_state_methodology"), dict)
+        else modeling.get("state_aggregation_metadata")
+    )
+    if not isinstance(state_methodology, dict):
+        state_methodology = {}
     checkpoint_dir = str(modeling.get("sharding_checkpoint_dir") or "")
     match = re.search(r"/complete-analysis-runs/([^/]+)/", checkpoint_dir)
     run_id = match.group(1) if match else ""
@@ -1407,7 +1519,120 @@ def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[
         "generated_at": str(meta.get("updated_at") or "") or None,
         "sampling_spacing_m": float(_safe_float(meta.get("sampling_spacing_m"), 0.0)),
         "dynamic_max_tracks": dynamic_max_tracks,
+        "network_state_methodology": dict(state_methodology),
+        "network_state_methodology_breaks_comparability": bool(
+            meta.get("network_state_methodology_breaks_comparability", bool(state_methodology))
+        ),
     }
+
+
+def _extract_complete_analysis_native_service_state_overlays(
+    payload: dict[str, Any] | None,
+) -> dict[str, dict[str, str]]:
+    overlays: dict[str, dict[str, str]] = {
+        "storm": {},
+        "storm_cmcc": {},
+    }
+    territory_results = payload.get("territory_results") if isinstance(payload, dict) else None
+    if not isinstance(territory_results, list):
+        return overlays
+
+    for territory_row in territory_results:
+        if not isinstance(territory_row, dict):
+            continue
+        network_states_native = (
+            territory_row.get("network_states_native")
+            if isinstance(territory_row.get("network_states_native"), dict)
+            else {}
+        )
+        for hazard_key in ("storm", "storm_cmcc"):
+            hazard_states = (
+                network_states_native.get(hazard_key)
+                if isinstance(network_states_native.get(hazard_key), dict)
+                else {}
+            )
+            for service_name in ("water_aep", "water_eu"):
+                state_row = hazard_states.get(service_name)
+                if not isinstance(state_row, dict):
+                    continue
+                service_unit_id = str(state_row.get("service_unit_id") or "").strip()
+                state_code = str(state_row.get("state") or "").strip().upper()
+                if not service_unit_id or state_code not in STATE_ORDER:
+                    continue
+                current_state = overlays[hazard_key].get(service_unit_id, "S0")
+                if STATE_ORDER[state_code] > STATE_ORDER.get(current_state, 0):
+                    overlays[hazard_key][service_unit_id] = state_code
+    return overlays
+
+
+def _overlay_complete_analysis_service_states_on_public_map(
+    geometry_features: list[dict[str, Any]],
+    hazard_feature_states: dict[str, dict[str, dict[str, str]]],
+    *,
+    complete_analysis_payload: dict[str, Any] | None,
+) -> None:
+    overlays = _extract_complete_analysis_native_service_state_overlays(complete_analysis_payload)
+    if not any(overlays[hazard_key] for hazard_key in overlays):
+        return
+
+    scenario_keys = ("p99", "top10", "top5")
+    service_name_for_class = {
+        "eau_aep": "water_aep",
+        "eau_eu": "water_eu",
+    }
+    fallback_state_by_hazard_and_class: dict[str, dict[str, str]] = {
+        "storm": {},
+        "storm_cmcc": {},
+    }
+    for hazard_key in ("storm", "storm_cmcc"):
+        for class_key, service_name in service_name_for_class.items():
+            service_states: dict[str, str] = {}
+            territory_results = (
+                complete_analysis_payload.get("territory_results")
+                if isinstance(complete_analysis_payload, dict)
+                else None
+            )
+            if not isinstance(territory_results, list):
+                continue
+            for territory_row in territory_results:
+                if not isinstance(territory_row, dict):
+                    continue
+                native_by_hazard = (
+                    territory_row.get("network_states_native")
+                    if isinstance(territory_row.get("network_states_native"), dict)
+                    else {}
+                )
+                hazard_states = native_by_hazard.get(hazard_key) if isinstance(native_by_hazard.get(hazard_key), dict) else {}
+                state_row = hazard_states.get(service_name)
+                if not isinstance(state_row, dict):
+                    continue
+                service_unit_id = str(state_row.get("service_unit_id") or "").strip()
+                state_code = str(state_row.get("state") or "").strip().upper()
+                if service_unit_id and state_code in STATE_ORDER:
+                    service_states[service_unit_id] = state_code
+            if len(service_states) == 1:
+                fallback_state_by_hazard_and_class[hazard_key][class_key] = next(iter(service_states.values()))
+
+    for feature in geometry_features:
+        class_key = str(feature.get("class_key") or "").strip()
+        if class_key not in {"eau_aep", "eau_eu"}:
+            continue
+        service_feature_id = str(feature.get("service_feature_id") or feature.get("feature_id") or "").strip()
+        if not service_feature_id:
+            continue
+        for hazard_key in ("storm", "storm_cmcc"):
+            state_code = overlays.get(hazard_key, {}).get(service_feature_id)
+            if state_code not in STATE_ORDER:
+                state_code = fallback_state_by_hazard_and_class.get(hazard_key, {}).get(class_key, "")
+            if state_code not in STATE_ORDER:
+                continue
+            scenario_map = hazard_feature_states.get(hazard_key)
+            if not isinstance(scenario_map, dict):
+                continue
+            for scenario_key in scenario_keys:
+                feature_states = scenario_map.get(scenario_key)
+                if isinstance(feature_states, dict):
+                    feature_states[service_feature_id] = state_code
 
 
 def _build_publication_trace(
@@ -2968,6 +3193,8 @@ def _build_state_geojson(
             "water_state_geometry_mode": "hydraulic_zoning_v2" if water_rows else "native_network_geometry",
             "water_service_unit": "zone_component_key" if water_rows else "feature_id",
             "electric_state_geometry_mode": "fixed_grid_0p1deg",
+            "geometry_semantics": "native_service_geometry",
+            **WEB_NETWORK_STATE_METHODOLOGY_METADATA,
         },
     }
     out_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -3160,6 +3387,11 @@ def main() -> None:
         case_cfg,
         electric_unit_ids=set(aux.get("electric_unit_ids") or []),
     )
+    _overlay_complete_analysis_service_states_on_public_map(
+        geometry_features,
+        aux["hazard_feature_states"],
+        complete_analysis_payload=complete_analysis_payload,
+    )
     _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
 
     complete_analysis_calibration = aux.get("complete_analysis_calibration") if isinstance(aux, dict) else None
@@ -3197,6 +3429,16 @@ def main() -> None:
             "wind_map_run_id": wind_map_run_id or None,
             "complete_analysis_json": str(complete_analysis_json) if complete_analysis_json.exists() else None,
             "complete_analysis_source": complete_analysis_source if isinstance(complete_analysis_source, dict) else None,
+            "network_state_methodology": (
+                dict(complete_analysis_source.get("network_state_methodology") or {})
+                if isinstance(complete_analysis_source, dict)
+                else {}
+            ),
+            "network_state_methodology_breaks_comparability": bool(
+                complete_analysis_source.get("network_state_methodology_breaks_comparability")
+                if isinstance(complete_analysis_source, dict)
+                else True
+            ),
             "complete_analysis_calibration": complete_analysis_calibration if isinstance(complete_analysis_calibration, dict) else None,
             "valuation_source": SOURCE_LABEL,
             "valuation_territory": str(valuation_metadata["territory_effective"]),

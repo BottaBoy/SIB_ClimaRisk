@@ -1,0 +1,2280 @@
+{
+  "meta": {
+    "territory": "saint-barthelemy",
+    "run_id": "",
+    "generated_at": "2026-06-16T10:12:58.132670+00:00",
+    "dynamic_max_tracks": null,
+    "scientific_source": true,
+    "schema_version": "scientific_web_summary_v1",
+    "source_artifact": "saint-barthelemy-complete-analysis.json"
+  },
+  "portfolio_summary": {
+    "storm": {
+      "annual_eur": 409548.92,
+      "rp50_eur": 6743138.6,
+      "rp100_eur": 8168825.89,
+      "p99_eur": 11562610.03,
+      "pml_1000_eur": 12004936.98,
+      "direct_annual_eur": 409548.92,
+      "indirect_annual_eur": 0.0
+    },
+    "storm_cmcc": {
+      "annual_eur": 416289.51,
+      "rp50_eur": 6884896.04,
+      "rp100_eur": 8750171.59,
+      "p99_eur": 12169948.1,
+      "pml_1000_eur": 12686578.36,
+      "direct_annual_eur": 416289.51,
+      "indirect_annual_eur": 0.0
+    },
+    "delta": {
+      "eai_eur": 6740.59,
+      "eai_pct": 1.65
+    }
+  },
+  "network_damage_tables": {
+    "annual": [
+      {
+        "class_key": "eau_aep",
+        "class_label": "Eau AEP",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 77923207.71,
+          "damage_eur": 66622.89,
+          "direct_damage_eur": 66622.89,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 77923207.71,
+          "damage_eur": 66038.46,
+          "direct_damage_eur": 66038.46,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      },
+      {
+        "class_key": "eau_eu",
+        "class_label": "Eau EU",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 10096191.07,
+          "damage_eur": 8628.49,
+          "direct_damage_eur": 8628.49,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 10096191.07,
+          "damage_eur": 8552.86,
+          "direct_damage_eur": 8552.86,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      },
+      {
+        "class_key": "elec_bt_souterrain",
+        "class_label": "Elec BT souterrain",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 269589020.56,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 269589020.56,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      },
+      {
+        "class_key": "elec_bt_aerien",
+        "class_label": "Elec BT aerien",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 1502324.99,
+          "damage_eur": 13891.72,
+          "direct_damage_eur": 13891.72,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 1502324.99,
+          "damage_eur": 15531.21,
+          "direct_damage_eur": 15531.21,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      },
+      {
+        "class_key": "elec_hta_souterrain",
+        "class_label": "Elec HTA souterrain",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 195533484.16,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 195533484.16,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      },
+      {
+        "class_key": "elec_hta_aerien",
+        "class_label": "Elec HTA aerien",
+        "storm": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 42055.48,
+          "damage_eur": 43.56,
+          "direct_damage_eur": 43.56,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        "storm_cmcc": {
+          "state_pct": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          },
+          "exposure_eur": 42055.48,
+          "damage_eur": 56.38,
+          "direct_damage_eur": 56.38,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      }
+    ],
+    "rp50": [],
+    "rp100": [],
+    "p99": [],
+    "scenario_availability": {
+      "annual": "scientific_complete",
+      "rp50": "portfolio_totals_only",
+      "rp100": "portfolio_totals_only",
+      "p99": "portfolio_totals_only"
+    }
+  },
+  "component_breakdowns": {
+    "annual": {
+      "storm": [
+        {
+          "class_key": "eau_aep",
+          "class_label": "Reseau eau AEP",
+          "exposure_eur": 77923207.71,
+          "damage_eur": 66622.89,
+          "direct_damage_eur": 66622.89,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu",
+          "class_label": "Reseau eau EU",
+          "exposure_eur": 10096191.07,
+          "damage_eur": 8628.49,
+          "direct_damage_eur": 8628.49,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_bt_souterrain",
+          "class_label": "Basse tension souterrain",
+          "exposure_eur": 269589020.56,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_bt_aerien",
+          "class_label": "Basse tension aerien",
+          "exposure_eur": 1502324.99,
+          "damage_eur": 13891.72,
+          "direct_damage_eur": 13891.72,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_hta_souterrain",
+          "class_label": "Haute tension souterrain",
+          "exposure_eur": 195533484.16,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_hta_aerien",
+          "class_label": "Haute tension aerien",
+          "exposure_eur": 42055.48,
+          "damage_eur": 43.56,
+          "direct_damage_eur": 43.56,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_aep_ouvrages",
+          "class_label": "Ouvrages AEP",
+          "exposure_eur": 42750000.0,
+          "damage_eur": 300393.1,
+          "direct_damage_eur": 300393.1,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu_pr",
+          "class_label": "Postes de refoulement",
+          "exposure_eur": 1789362.0,
+          "damage_eur": 19968.63,
+          "direct_damage_eur": 19968.63,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu_step",
+          "class_label": "STEP",
+          "exposure_eur": 0.0,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      ],
+      "storm_cmcc": [
+        {
+          "class_key": "eau_aep",
+          "class_label": "Reseau eau AEP",
+          "exposure_eur": 77923207.71,
+          "damage_eur": 66038.46,
+          "direct_damage_eur": 66038.46,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu",
+          "class_label": "Reseau eau EU",
+          "exposure_eur": 10096191.07,
+          "damage_eur": 8552.86,
+          "direct_damage_eur": 8552.86,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_bt_souterrain",
+          "class_label": "Basse tension souterrain",
+          "exposure_eur": 269589020.56,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_bt_aerien",
+          "class_label": "Basse tension aerien",
+          "exposure_eur": 1502324.99,
+          "damage_eur": 15531.21,
+          "direct_damage_eur": 15531.21,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_hta_souterrain",
+          "class_label": "Haute tension souterrain",
+          "exposure_eur": 195533484.16,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "elec_hta_aerien",
+          "class_label": "Haute tension aerien",
+          "exposure_eur": 42055.48,
+          "damage_eur": 56.38,
+          "direct_damage_eur": 56.38,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_aep_ouvrages",
+          "class_label": "Ouvrages AEP",
+          "exposure_eur": 42750000.0,
+          "damage_eur": 305233.01,
+          "direct_damage_eur": 305233.01,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu_pr",
+          "class_label": "Postes de refoulement",
+          "exposure_eur": 1789362.0,
+          "damage_eur": 20878.61,
+          "direct_damage_eur": 20878.61,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        },
+        {
+          "class_key": "eau_eu_step",
+          "class_label": "STEP",
+          "exposure_eur": 0.0,
+          "damage_eur": 0.0,
+          "direct_damage_eur": 0.0,
+          "indirect_damage_eur": 0.0,
+          "damage_components_eur": {
+            "wind": 0.0,
+            "rain": 0.0,
+            "surge": 0.0,
+            "landslide": 0.0
+          }
+        }
+      ]
+    },
+    "rp50": {
+      "storm": [],
+      "storm_cmcc": []
+    },
+    "rp100": {
+      "storm": [],
+      "storm_cmcc": []
+    },
+    "p99": {
+      "storm": [],
+      "storm_cmcc": []
+    },
+    "portfolio_component_totals": {
+      "annual": {
+        "storm": {
+          "wind": 316882.08,
+          "rain": 92665.8,
+          "surge": 1.03,
+          "combined_capped": 409548.92
+        },
+        "storm_cmcc": {
+          "wind": 324442.86,
+          "rain": 91845.49,
+          "surge": 1.16,
+          "combined_capped": 416289.51
+        }
+      },
+      "p99": {
+        "storm": {
+          "wind": 9697171.96,
+          "rain": 2478850.86,
+          "surge": 818410.28
+        },
+        "storm_cmcc": {
+          "wind": 9723485.36,
+          "rain": 2317053.61,
+          "surge": 847037.63
+        }
+      }
+    }
+  },
+  "network_states": {
+    "scenario_service_state_distribution": {
+      "annual": {},
+      "rp50": {},
+      "rp100": {},
+      "p99": {
+        "storm": {
+          "elec": {
+            "S0": 2,
+            "S1": 0,
+            "S2": 0,
+            "S3": 0,
+            "total_units": 2
+          },
+          "water_aep": {
+            "S0": 12,
+            "S1": 4,
+            "S2": 4,
+            "S3": 4,
+            "total_units": 24
+          },
+          "water_eu": {
+            "S0": 2,
+            "S1": 2,
+            "S2": 0,
+            "S3": 2,
+            "total_units": 6
+          }
+        },
+        "storm_cmcc": {
+          "elec": {
+            "S0": 2,
+            "S1": 0,
+            "S2": 0,
+            "S3": 0,
+            "total_units": 2
+          },
+          "water_aep": {
+            "S0": 12,
+            "S1": 4,
+            "S2": 0,
+            "S3": 8,
+            "total_units": 24
+          },
+          "water_eu": {
+            "S0": 2,
+            "S1": 2,
+            "S2": 0,
+            "S3": 2,
+            "total_units": 6
+          }
+        }
+      }
+    },
+    "worst_case_native_service_states": {
+      "storm": {
+        "elec": {
+          "cell-+17.90_-62.80": {
+            "service_unit_id": "cell-+17.90_-62.80",
+            "service": "elec",
+            "network_metric": "service_state",
+            "degraded_share": 0.002904,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_fixed_grid_0p1deg",
+            "asset_count": 5766,
+            "exposed_asset_count": 163
+          },
+          "cell-+17.90_-62.90": {
+            "service_unit_id": "cell-+17.90_-62.90",
+            "service": "elec",
+            "network_metric": "service_state",
+            "degraded_share": 0.002022,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_fixed_grid_0p1deg",
+            "asset_count": 1916,
+            "exposed_asset_count": 44
+          }
+        },
+        "water_aep": {
+          "AEP_SECT_9725ZS002": {
+            "service_unit_id": "AEP_SECT_9725ZS002",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.056919,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 2183,
+            "exposed_asset_count": 2183
+          },
+          "AEP_COMP_70012429": {
+            "service_unit_id": "AEP_COMP_70012429",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.085834,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 14,
+            "exposed_asset_count": 14
+          },
+          "AEP_COMP_70012434": {
+            "service_unit_id": "AEP_COMP_70012434",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.034169,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_SECT_9725ZS017": {
+            "service_unit_id": "AEP_SECT_9725ZS017",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.033982,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          },
+          "AEP_SECT_9725ZS004": {
+            "service_unit_id": "AEP_SECT_9725ZS004",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.097931,
+            "state": "S2",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 292,
+            "exposed_asset_count": 292
+          },
+          "AEP_SECT_9725ZS015": {
+            "service_unit_id": "AEP_SECT_9725ZS015",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.076635,
+            "state": "S2",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 511,
+            "exposed_asset_count": 511
+          },
+          "AEP_COMP_70012500": {
+            "service_unit_id": "AEP_COMP_70012500",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.298064,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 32,
+            "exposed_asset_count": 32
+          },
+          "AEP_COMP_70012611": {
+            "service_unit_id": "AEP_COMP_70012611",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.083966,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          },
+          "AEP_COMP_70012657": {
+            "service_unit_id": "AEP_COMP_70012657",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.033956,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_COMP_70012672": {
+            "service_unit_id": "AEP_COMP_70012672",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.034143,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 14,
+            "exposed_asset_count": 14
+          },
+          "AEP_COMP_70012683": {
+            "service_unit_id": "AEP_COMP_70012683",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.37352,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 3,
+            "exposed_asset_count": 3
+          },
+          "AEP_COMP_70012685": {
+            "service_unit_id": "AEP_COMP_70012685",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.370058,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 7,
+            "exposed_asset_count": 7
+          },
+          "AEP_SECT_9725ZS001": {
+            "service_unit_id": "AEP_SECT_9725ZS001",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.034092,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 9,
+            "exposed_asset_count": 9
+          },
+          "AEP_SECT_9725ZS006": {
+            "service_unit_id": "AEP_SECT_9725ZS006",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.247908,
+            "state": "S2",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 16,
+            "exposed_asset_count": 16
+          },
+          "AEP_SECT_9725ZS007": {
+            "service_unit_id": "AEP_SECT_9725ZS007",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.069234,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 38,
+            "exposed_asset_count": 38
+          },
+          "AEP_SECT_9725ZS008": {
+            "service_unit_id": "AEP_SECT_9725ZS008",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.208832,
+            "state": "S2",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 32,
+            "exposed_asset_count": 32
+          },
+          "AEP_SECT_9725ZS009": {
+            "service_unit_id": "AEP_SECT_9725ZS009",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.03709,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 24,
+            "exposed_asset_count": 24
+          },
+          "AEP_SECT_9725ZS010": {
+            "service_unit_id": "AEP_SECT_9725ZS010",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.085163,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 7,
+            "exposed_asset_count": 7
+          },
+          "AEP_COMP_70012911": {
+            "service_unit_id": "AEP_COMP_70012911",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.033621,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 9,
+            "exposed_asset_count": 9
+          },
+          "AEP_SECT_9725ZS012": {
+            "service_unit_id": "AEP_SECT_9725ZS012",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.033543,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 15,
+            "exposed_asset_count": 15
+          },
+          "AEP_SECT_9725ZS014": {
+            "service_unit_id": "AEP_SECT_9725ZS014",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.034254,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 26,
+            "exposed_asset_count": 26
+          },
+          "AEP_COMP_70608543": {
+            "service_unit_id": "AEP_COMP_70608543",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.03368,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 44,
+            "exposed_asset_count": 44
+          },
+          "AEP_COMP_70635734": {
+            "service_unit_id": "AEP_COMP_70635734",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.033987,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_COMP_70769331": {
+            "service_unit_id": "AEP_COMP_70769331",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.034185,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          }
+        },
+        "water_eu": {
+          "EU_COMP_70021314": {
+            "service_unit_id": "EU_COMP_70021314",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.201766,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 130,
+            "exposed_asset_count": 130
+          },
+          "EU_COMP_70021350": {
+            "service_unit_id": "EU_COMP_70021350",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.137071,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 357,
+            "exposed_asset_count": 357
+          },
+          "EU_COMP_70025729": {
+            "service_unit_id": "EU_COMP_70025729",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.034828,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 24,
+            "exposed_asset_count": 24
+          },
+          "EU_COMP_70022544": {
+            "service_unit_id": "EU_COMP_70022544",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.056636,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 31,
+            "exposed_asset_count": 31
+          },
+          "EU_COMP_70022130": {
+            "service_unit_id": "EU_COMP_70022130",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.056473,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "EU_COMP_70053313": {
+            "service_unit_id": "EU_COMP_70053313",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.034072,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 20,
+            "exposed_asset_count": 20
+          }
+        }
+      },
+      "storm_cmcc": {
+        "elec": {
+          "cell-+17.90_-62.80": {
+            "service_unit_id": "cell-+17.90_-62.80",
+            "service": "elec",
+            "network_metric": "service_state",
+            "degraded_share": 0.003091,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_fixed_grid_0p1deg",
+            "asset_count": 5766,
+            "exposed_asset_count": 163
+          },
+          "cell-+17.90_-62.90": {
+            "service_unit_id": "cell-+17.90_-62.90",
+            "service": "elec",
+            "network_metric": "service_state",
+            "degraded_share": 0.00211,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_fixed_grid_0p1deg",
+            "asset_count": 1916,
+            "exposed_asset_count": 44
+          }
+        },
+        "water_aep": {
+          "AEP_SECT_9725ZS002": {
+            "service_unit_id": "AEP_SECT_9725ZS002",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.067478,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 2183,
+            "exposed_asset_count": 2183
+          },
+          "AEP_COMP_70012429": {
+            "service_unit_id": "AEP_COMP_70012429",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.092628,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 14,
+            "exposed_asset_count": 14
+          },
+          "AEP_COMP_70012434": {
+            "service_unit_id": "AEP_COMP_70012434",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041876,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_SECT_9725ZS017": {
+            "service_unit_id": "AEP_SECT_9725ZS017",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041507,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          },
+          "AEP_SECT_9725ZS004": {
+            "service_unit_id": "AEP_SECT_9725ZS004",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.10597,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 292,
+            "exposed_asset_count": 292
+          },
+          "AEP_SECT_9725ZS015": {
+            "service_unit_id": "AEP_SECT_9725ZS015",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.086206,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 511,
+            "exposed_asset_count": 511
+          },
+          "AEP_COMP_70012500": {
+            "service_unit_id": "AEP_COMP_70012500",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.307031,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 32,
+            "exposed_asset_count": 32
+          },
+          "AEP_COMP_70012611": {
+            "service_unit_id": "AEP_COMP_70012611",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.091767,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          },
+          "AEP_COMP_70012657": {
+            "service_unit_id": "AEP_COMP_70012657",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041764,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_COMP_70012672": {
+            "service_unit_id": "AEP_COMP_70012672",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041739,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 14,
+            "exposed_asset_count": 14
+          },
+          "AEP_COMP_70012683": {
+            "service_unit_id": "AEP_COMP_70012683",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.382935,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 3,
+            "exposed_asset_count": 3
+          },
+          "AEP_COMP_70012685": {
+            "service_unit_id": "AEP_COMP_70012685",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.379627,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 7,
+            "exposed_asset_count": 7
+          },
+          "AEP_SECT_9725ZS001": {
+            "service_unit_id": "AEP_SECT_9725ZS001",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041654,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 9,
+            "exposed_asset_count": 9
+          },
+          "AEP_SECT_9725ZS006": {
+            "service_unit_id": "AEP_SECT_9725ZS006",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.305222,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 16,
+            "exposed_asset_count": 16
+          },
+          "AEP_SECT_9725ZS007": {
+            "service_unit_id": "AEP_SECT_9725ZS007",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.087006,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 38,
+            "exposed_asset_count": 38
+          },
+          "AEP_SECT_9725ZS008": {
+            "service_unit_id": "AEP_SECT_9725ZS008",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.22053,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 32,
+            "exposed_asset_count": 32
+          },
+          "AEP_SECT_9725ZS009": {
+            "service_unit_id": "AEP_SECT_9725ZS009",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.045537,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 24,
+            "exposed_asset_count": 24
+          },
+          "AEP_SECT_9725ZS010": {
+            "service_unit_id": "AEP_SECT_9725ZS010",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.105595,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 7,
+            "exposed_asset_count": 7
+          },
+          "AEP_COMP_70012911": {
+            "service_unit_id": "AEP_COMP_70012911",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041896,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 9,
+            "exposed_asset_count": 9
+          },
+          "AEP_SECT_9725ZS012": {
+            "service_unit_id": "AEP_SECT_9725ZS012",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041692,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 15,
+            "exposed_asset_count": 15
+          },
+          "AEP_SECT_9725ZS014": {
+            "service_unit_id": "AEP_SECT_9725ZS014",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041962,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 26,
+            "exposed_asset_count": 26
+          },
+          "AEP_COMP_70608543": {
+            "service_unit_id": "AEP_COMP_70608543",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041927,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 44,
+            "exposed_asset_count": 44
+          },
+          "AEP_COMP_70635734": {
+            "service_unit_id": "AEP_COMP_70635734",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041493,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "AEP_COMP_70769331": {
+            "service_unit_id": "AEP_COMP_70769331",
+            "service": "water_aep",
+            "network_metric": "service_state",
+            "degraded_share": 0.041878,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 2,
+            "exposed_asset_count": 2
+          }
+        },
+        "water_eu": {
+          "EU_COMP_70021314": {
+            "service_unit_id": "EU_COMP_70021314",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.217125,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 130,
+            "exposed_asset_count": 130
+          },
+          "EU_COMP_70021350": {
+            "service_unit_id": "EU_COMP_70021350",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.145491,
+            "state": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "asset_count": 357,
+            "exposed_asset_count": 357
+          },
+          "EU_COMP_70025729": {
+            "service_unit_id": "EU_COMP_70025729",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.045138,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 24,
+            "exposed_asset_count": 24
+          },
+          "EU_COMP_70022544": {
+            "service_unit_id": "EU_COMP_70022544",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.064176,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 31,
+            "exposed_asset_count": 31
+          },
+          "EU_COMP_70022130": {
+            "service_unit_id": "EU_COMP_70022130",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.08782,
+            "state": "S1",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 4,
+            "exposed_asset_count": 4
+          },
+          "EU_COMP_70053313": {
+            "service_unit_id": "EU_COMP_70053313",
+            "service": "water_eu",
+            "network_metric": "service_state",
+            "degraded_share": 0.041542,
+            "state": "S0",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key",
+            "asset_count": 20,
+            "exposed_asset_count": 20
+          }
+        }
+      }
+    },
+    "worst_case_projected_service_states": {
+      "storm": {
+        "cell-+17.80_-62.80": {
+          "elec": "S0",
+          "water_aep": "S3",
+          "water_eu": "S3"
+        },
+        "cell-+18.00_-62.80": {
+          "elec": "S0",
+          "water_aep": "S3",
+          "water_eu": "S1"
+        }
+      },
+      "storm_cmcc": {
+        "cell-+17.80_-62.80": {
+          "elec": "S0",
+          "water_aep": "S3",
+          "water_eu": "S3"
+        },
+        "cell-+18.00_-62.80": {
+          "elec": "S0",
+          "water_aep": "S3",
+          "water_eu": "S1"
+        }
+      }
+    },
+    "worst_case_projected_service_coverage": {
+      "storm": {
+        "cell-+17.80_-62.80": {
+          "elec": false,
+          "water_aep": true,
+          "water_eu": true
+        },
+        "cell-+18.00_-62.80": {
+          "elec": false,
+          "water_aep": true,
+          "water_eu": true
+        }
+      },
+      "storm_cmcc": {
+        "cell-+17.80_-62.80": {
+          "elec": false,
+          "water_aep": true,
+          "water_eu": true
+        },
+        "cell-+18.00_-62.80": {
+          "elec": false,
+          "water_aep": true,
+          "water_eu": true
+        }
+      }
+    },
+    "scenario_availability": {
+      "annual": false,
+      "rp50": false,
+      "rp100": false,
+      "p99": true
+    }
+  },
+  "social_impact": {
+    "scenario_summary": {
+      "annual": {},
+      "rp50": {},
+      "rp100": {},
+      "p99": {
+        "storm": {
+          "total_population_affected_any_network": 10403.0,
+          "total_with_degraded_elec": 0.0,
+          "total_with_degraded_water_aep": 0.0,
+          "total_with_degraded_water_eu": 7674.0,
+          "total_without_elec": 0.0,
+          "total_without_water_aep": 10403.0,
+          "total_without_water_eu": 2729.0
+        },
+        "storm_cmcc": {
+          "total_population_affected_any_network": 10403.0,
+          "total_with_degraded_elec": 0.0,
+          "total_with_degraded_water_aep": 0.0,
+          "total_with_degraded_water_eu": 7674.0,
+          "total_without_elec": 0.0,
+          "total_without_water_aep": 10403.0,
+          "total_without_water_eu": 2729.0
+        }
+      }
+    },
+    "scenario_population_state_distribution": {
+      "annual": {},
+      "rp50": {},
+      "rp100": {},
+      "p99": {
+        "storm": {
+          "elec": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0,
+            "uncovered": 10403.0,
+            "covered_population": 0.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 0.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 0.0,
+              "uncovered": 1.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 0.0
+            }
+          },
+          "water_aep": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 10403.0,
+            "uncovered": 0.0,
+            "covered_population": 10403.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 1.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 1.0,
+              "uncovered": 0.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 1.0
+            }
+          },
+          "water_eu": {
+            "S0": 0.0,
+            "S1": 7674.0,
+            "S2": 0.0,
+            "S3": 2729.0,
+            "uncovered": 0.0,
+            "covered_population": 10403.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 1.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.737707,
+              "S2": 0.0,
+              "S3": 0.262293,
+              "uncovered": 0.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.737707,
+              "S2": 0.0,
+              "S3": 0.262293
+            }
+          }
+        },
+        "storm_cmcc": {
+          "elec": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0,
+            "uncovered": 10403.0,
+            "covered_population": 0.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 0.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 0.0,
+              "uncovered": 1.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 0.0
+            }
+          },
+          "water_aep": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 10403.0,
+            "uncovered": 0.0,
+            "covered_population": 10403.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 1.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 1.0,
+              "uncovered": 0.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.0,
+              "S2": 0.0,
+              "S3": 1.0
+            }
+          },
+          "water_eu": {
+            "S0": 0.0,
+            "S1": 7674.0,
+            "S2": 0.0,
+            "S3": 2729.0,
+            "uncovered": 0.0,
+            "covered_population": 10403.0,
+            "island_population_total": 10403.0,
+            "coverage_rate": 1.0,
+            "share_of_island_population": {
+              "S0": 0.0,
+              "S1": 0.737707,
+              "S2": 0.0,
+              "S3": 0.262293,
+              "uncovered": 0.0
+            },
+            "share_of_covered_population": {
+              "S0": 0.0,
+              "S1": 0.737707,
+              "S2": 0.0,
+              "S3": 0.262293
+            }
+          }
+        }
+      }
+    },
+    "worst_case_summary": {
+      "storm": {
+        "total_population_affected_any_network": 10403.0,
+        "total_with_degraded_elec": 0.0,
+        "total_with_degraded_water_aep": 0.0,
+        "total_with_degraded_water_eu": 7674.0,
+        "total_without_elec": 0.0,
+        "total_without_water_aep": 10403.0,
+        "total_without_water_eu": 2729.0
+      },
+      "storm_cmcc": {
+        "total_population_affected_any_network": 10403.0,
+        "total_with_degraded_elec": 0.0,
+        "total_with_degraded_water_aep": 0.0,
+        "total_with_degraded_water_eu": 7674.0,
+        "total_without_elec": 0.0,
+        "total_without_water_aep": 10403.0,
+        "total_without_water_eu": 2729.0
+      }
+    },
+    "worst_case_population_state_distribution": {
+      "storm": {
+        "elec": {
+          "S0": 0.0,
+          "S1": 0.0,
+          "S2": 0.0,
+          "S3": 0.0,
+          "uncovered": 10403.0,
+          "covered_population": 0.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 0.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0,
+            "uncovered": 1.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          }
+        },
+        "water_aep": {
+          "S0": 0.0,
+          "S1": 0.0,
+          "S2": 0.0,
+          "S3": 10403.0,
+          "uncovered": 0.0,
+          "covered_population": 10403.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 1.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 1.0,
+            "uncovered": 0.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 1.0
+          }
+        },
+        "water_eu": {
+          "S0": 0.0,
+          "S1": 7674.0,
+          "S2": 0.0,
+          "S3": 2729.0,
+          "uncovered": 0.0,
+          "covered_population": 10403.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 1.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.737707,
+            "S2": 0.0,
+            "S3": 0.262293,
+            "uncovered": 0.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.737707,
+            "S2": 0.0,
+            "S3": 0.262293
+          }
+        }
+      },
+      "storm_cmcc": {
+        "elec": {
+          "S0": 0.0,
+          "S1": 0.0,
+          "S2": 0.0,
+          "S3": 0.0,
+          "uncovered": 10403.0,
+          "covered_population": 0.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 0.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0,
+            "uncovered": 1.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 0.0
+          }
+        },
+        "water_aep": {
+          "S0": 0.0,
+          "S1": 0.0,
+          "S2": 0.0,
+          "S3": 10403.0,
+          "uncovered": 0.0,
+          "covered_population": 10403.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 1.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 1.0,
+            "uncovered": 0.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.0,
+            "S2": 0.0,
+            "S3": 1.0
+          }
+        },
+        "water_eu": {
+          "S0": 0.0,
+          "S1": 7674.0,
+          "S2": 0.0,
+          "S3": 2729.0,
+          "uncovered": 0.0,
+          "covered_population": 10403.0,
+          "island_population_total": 10403.0,
+          "coverage_rate": 1.0,
+          "share_of_island_population": {
+            "S0": 0.0,
+            "S1": 0.737707,
+            "S2": 0.0,
+            "S3": 0.262293,
+            "uncovered": 0.0
+          },
+          "share_of_covered_population": {
+            "S0": 0.0,
+            "S1": 0.737707,
+            "S2": 0.0,
+            "S3": 0.262293
+          }
+        }
+      }
+    },
+    "scenario_availability": {
+      "annual": false,
+      "rp50": false,
+      "rp100": false,
+      "p99": true
+    }
+  },
+  "frontend": {
+    "impact": {
+      "component_order": [
+        "wind",
+        "rain",
+        "surge",
+        "landslide"
+      ],
+      "summary_metrics": {
+        "storm": {
+          "eai_total_eur": 409548.92,
+          "rp50_total_loss_eur": 6743138.6,
+          "rp100_total_loss_eur": 8168825.89,
+          "p99_total_loss_eur": 11562610.03
+        },
+        "storm_cmcc": {
+          "eai_total_eur": 416289.51,
+          "rp50_total_loss_eur": 6884896.04,
+          "rp100_total_loss_eur": 8750171.59,
+          "p99_total_loss_eur": 12169948.1
+        }
+      },
+      "state_damage_tables": {
+        "annual": [
+          {
+            "class_key": "eau_aep",
+            "class_label": "Eau AEP",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 77923207.71,
+              "damage_eur": 66622.89,
+              "direct_damage_eur": 66622.89,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 77923207.71,
+              "damage_eur": 66038.46,
+              "direct_damage_eur": 66038.46,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          },
+          {
+            "class_key": "eau_eu",
+            "class_label": "Eau EU",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 10096191.07,
+              "damage_eur": 8628.49,
+              "direct_damage_eur": 8628.49,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 10096191.07,
+              "damage_eur": 8552.86,
+              "direct_damage_eur": 8552.86,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          },
+          {
+            "class_key": "elec_bt_souterrain",
+            "class_label": "Elec BT souterrain",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 269589020.56,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 269589020.56,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          },
+          {
+            "class_key": "elec_bt_aerien",
+            "class_label": "Elec BT aerien",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 1502324.99,
+              "damage_eur": 13891.72,
+              "direct_damage_eur": 13891.72,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 1502324.99,
+              "damage_eur": 15531.21,
+              "direct_damage_eur": 15531.21,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          },
+          {
+            "class_key": "elec_hta_souterrain",
+            "class_label": "Elec HTA souterrain",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 195533484.16,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 195533484.16,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          },
+          {
+            "class_key": "elec_hta_aerien",
+            "class_label": "Elec HTA aerien",
+            "storm": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 42055.48,
+              "damage_eur": 43.56,
+              "direct_damage_eur": 43.56,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            "storm_cmcc": {
+              "state_pct": {
+                "S0": 0.0,
+                "S1": 0.0,
+                "S2": 0.0,
+                "S3": 0.0
+              },
+              "exposure_eur": 42055.48,
+              "damage_eur": 56.38,
+              "direct_damage_eur": 56.38,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          }
+        ],
+        "rp50": [],
+        "rp100": [],
+        "p99": []
+      },
+      "damage_breakdown_by_scenario": {
+        "annual": {
+          "storm": [
+            {
+              "class_key": "eau_aep",
+              "class_label": "Reseau eau AEP",
+              "exposure_eur": 77923207.71,
+              "damage_eur": 66622.89,
+              "direct_damage_eur": 66622.89,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu",
+              "class_label": "Reseau eau EU",
+              "exposure_eur": 10096191.07,
+              "damage_eur": 8628.49,
+              "direct_damage_eur": 8628.49,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_bt_souterrain",
+              "class_label": "Basse tension souterrain",
+              "exposure_eur": 269589020.56,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_bt_aerien",
+              "class_label": "Basse tension aerien",
+              "exposure_eur": 1502324.99,
+              "damage_eur": 13891.72,
+              "direct_damage_eur": 13891.72,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_hta_souterrain",
+              "class_label": "Haute tension souterrain",
+              "exposure_eur": 195533484.16,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_hta_aerien",
+              "class_label": "Haute tension aerien",
+              "exposure_eur": 42055.48,
+              "damage_eur": 43.56,
+              "direct_damage_eur": 43.56,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_aep_ouvrages",
+              "class_label": "Ouvrages AEP",
+              "exposure_eur": 42750000.0,
+              "damage_eur": 300393.1,
+              "direct_damage_eur": 300393.1,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu_pr",
+              "class_label": "Postes de refoulement",
+              "exposure_eur": 1789362.0,
+              "damage_eur": 19968.63,
+              "direct_damage_eur": 19968.63,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu_step",
+              "class_label": "STEP",
+              "exposure_eur": 0.0,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          ],
+          "storm_cmcc": [
+            {
+              "class_key": "eau_aep",
+              "class_label": "Reseau eau AEP",
+              "exposure_eur": 77923207.71,
+              "damage_eur": 66038.46,
+              "direct_damage_eur": 66038.46,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu",
+              "class_label": "Reseau eau EU",
+              "exposure_eur": 10096191.07,
+              "damage_eur": 8552.86,
+              "direct_damage_eur": 8552.86,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_bt_souterrain",
+              "class_label": "Basse tension souterrain",
+              "exposure_eur": 269589020.56,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_bt_aerien",
+              "class_label": "Basse tension aerien",
+              "exposure_eur": 1502324.99,
+              "damage_eur": 15531.21,
+              "direct_damage_eur": 15531.21,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_hta_souterrain",
+              "class_label": "Haute tension souterrain",
+              "exposure_eur": 195533484.16,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "elec_hta_aerien",
+              "class_label": "Haute tension aerien",
+              "exposure_eur": 42055.48,
+              "damage_eur": 56.38,
+              "direct_damage_eur": 56.38,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_aep_ouvrages",
+              "class_label": "Ouvrages AEP",
+              "exposure_eur": 42750000.0,
+              "damage_eur": 305233.01,
+              "direct_damage_eur": 305233.01,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu_pr",
+              "class_label": "Postes de refoulement",
+              "exposure_eur": 1789362.0,
+              "damage_eur": 20878.61,
+              "direct_damage_eur": 20878.61,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            },
+            {
+              "class_key": "eau_eu_step",
+              "class_label": "STEP",
+              "exposure_eur": 0.0,
+              "damage_eur": 0.0,
+              "direct_damage_eur": 0.0,
+              "indirect_damage_eur": 0.0,
+              "damage_components_eur": {
+                "wind": 0.0,
+                "rain": 0.0,
+                "surge": 0.0,
+                "landslide": 0.0
+              }
+            }
+          ]
+        },
+        "rp50": {
+          "storm": [],
+          "storm_cmcc": []
+        },
+        "rp100": {
+          "storm": [],
+          "storm_cmcc": []
+        },
+        "p99": {
+          "storm": [],
+          "storm_cmcc": []
+        }
+      },
+      "map_defaults": {
+        "hazard": "storm",
+        "scenario": "p99"
+      }
+    },
+    "scenario_availability": {
+      "annual": {
+        "damage_tables": true,
+        "social_impact": false,
+        "network_states": false
+      },
+      "rp50": {
+        "damage_tables": false,
+        "social_impact": false,
+        "network_states": false
+      },
+      "rp100": {
+        "damage_tables": false,
+        "social_impact": false,
+        "network_states": false
+      },
+      "p99": {
+        "damage_tables": false,
+        "social_impact": true,
+        "network_states": true
+      }
+    }
+  },
+  "notes": [
+    "Ce payload est derive uniquement du complete-analysis publie.",
+    "Les totaux portefeuille sont canoniques pour annual/rp50/rp100/p99.",
+    "Les tableaux monetaires par classe ne sont scientifiquement complets qu en annuel dans le contrat actuel du complete-analysis.",
+    "Les etats reseau et impacts sociaux exposes ici sont disponibles scientifiquement en mode worst-case/p99 uniquement dans le contrat actuel."
+  ]
+}

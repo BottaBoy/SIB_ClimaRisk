@@ -56,14 +56,14 @@ except ImportError:
 from app.risk_engine.analysis_export import build_result_payload
 from app.config import load_settings, Settings, resolve_surge_topo_path_for_territory
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation
-from app.risk_engine.impact_runner import compute_impacts
+from app.risk_engine.impact_runner import compute_impacts, prepare_climada_exposure_bundle
 from app.risk_engine.sensitivity_scenarios import (
     SensitivityScenario,
     apply_settings_overrides,
     resolve_scenario_from_pack,
     scenario_manifest_fields,
 )
-from app.risk_engine.types import NormalizedExposure, NormalizedFeature
+from app.risk_engine.types import DisaggregationSummary, NormalizedExposure, NormalizedFeature
 
 # Case study specific
 sys.path.insert(0, str(SCRIPTS_ROOT))
@@ -474,6 +474,33 @@ def _build_complete_analysis_settings(
     settings_dict["climada_strict_required_components"] = True
     settings = Settings(**settings_dict)
     return apply_settings_overrides(settings, scenario)
+
+
+def _reconcile_disaggregation_with_climada_bundle(
+    *,
+    territory_key: str,
+    disagg: DisaggregationSummary,
+    point_count_exact: int,
+) -> DisaggregationSummary:
+    exact_point_count = int(point_count_exact)
+    if exact_point_count == int(disagg.asset_count_points):
+        return disagg
+
+    logger.warning(
+        "Disaggregation count drift detected for %s: summary=%s exact_bundle=%s. Using exact bundle count.",
+        territory_key.upper(),
+        int(disagg.asset_count_points),
+        exact_point_count,
+    )
+    disagg_warnings = list(disagg.warnings or [])
+    disagg_warnings.append(
+        "Disaggregation summary count was reconciled to the exact CLIMADA exposure bundle point count."
+    )
+    return dataclasses.replace(
+        disagg,
+        asset_count_points=exact_point_count,
+        warnings=disagg_warnings,
+    )
 
 
 class RunLogger:
@@ -1406,6 +1433,12 @@ def run_territory_analysis(
             metric_crs=settings.climada_metric_crs,
             max_points_per_feature=int(settings.climada_max_points_per_feature),
         )
+        climada_bundle = prepare_climada_exposure_bundle(exposure, disagg, settings)
+        disagg = _reconcile_disaggregation_with_climada_bundle(
+            territory_key=territory_key,
+            disagg=disagg,
+            point_count_exact=len(climada_bundle.point_records),
+        )
         logger.info(f"✓ Disaggregation complete - {disagg.asset_count_points} sample points")
         run_logger.log_event(
             "disaggregation",
@@ -1465,6 +1498,7 @@ def run_territory_analysis(
             checkpoint_dir=checkpoint_dir,
             resume_enabled=resume_enabled,
             resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
+            prebuilt_bundle=climada_bundle,
         )
         impact_time = time.time() - impact_start
         
@@ -1583,6 +1617,7 @@ DEPLOY_VERIFY_RELATIVE_PATHS = (
         for territory in EXPLICIT_TERRITORIES
         for relative_path in (
             f"data/{territory}-complete-analysis.json",
+            f"data/{territory}-scientific-web-summary.json",
             f"data/{territory}-wind-maps.json",
             f"data/{territory}-landslide-maps.json",
             f"data/{territory}-multi-hazard-proxy.json",

@@ -39,6 +39,12 @@ REQUIRED_NETWORK_STATES_METADATA = {
     "water_state_geometry_mode": "hydraulic_zoning_v2",
     "water_service_unit": "zone_component_key",
     "electric_state_geometry_mode": "fixed_grid_0p1deg",
+    "schema_version": "aggregated_service_state_v1",
+    "aggregation_method": "aggregated_service_state",
+    "electric_state_unit": "fixed_grid_0p1deg",
+    "water_state_unit": "zone_component_key",
+    "geometry_semantics": "native_service_geometry",
+    "methodology_breaks_comparability": True,
 }
 
 
@@ -230,9 +236,15 @@ def territory_complete_analysis_relative_path(territory: str) -> str:
     return f"data/{normalized}-complete-analysis.json"
 
 
+def territory_scientific_web_summary_relative_path(territory: str) -> str:
+    normalized = str(territory or "").strip().lower()
+    return f"data/{normalized}-scientific-web-summary.json"
+
+
 def territory_frontend_rebuild_relative_paths(territory: str) -> tuple[str, ...]:
     normalized = str(territory or "").strip().lower()
     return (
+        territory_scientific_web_summary_relative_path(normalized),
         f"data/{normalized}-wind-maps.json",
         f"data/{normalized}-landslide-maps.json",
         f"data/{normalized}-multi-hazard-proxy.json",
@@ -566,15 +578,71 @@ def _validate_geojson_feature_collection(relative_path: str, payload: dict[str, 
     return payload
 
 
+def _validate_complete_analysis_network_methodology(
+    relative_path: str,
+    payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{relative_path} is not valid JSON")
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else None
+    if meta is None:
+        raise RuntimeError(f"{relative_path} is missing meta")
+    methodology = (
+        meta.get("network_state_methodology")
+        if isinstance(meta.get("network_state_methodology"), dict)
+        else None
+    )
+    if methodology is None:
+        raise RuntimeError(f"{relative_path} is missing meta.network_state_methodology")
+    comparability_break = meta.get("network_state_methodology_breaks_comparability")
+    if comparability_break is not True:
+        raise RuntimeError(
+            f"{relative_path} has invalid meta.network_state_methodology_breaks_comparability: expected true, got {comparability_break!r}"
+        )
+    contract = (
+        meta.get("network_state_payload_contract")
+        if isinstance(meta.get("network_state_payload_contract"), dict)
+        else None
+    )
+    if contract is None:
+        raise RuntimeError(f"{relative_path} is missing meta.network_state_payload_contract")
+    observed = {
+        "schema_version": methodology.get("schema_version"),
+        "aggregation_method": methodology.get("aggregation_method"),
+        "electric_state_unit": methodology.get("electric_state_unit"),
+        "water_state_unit": methodology.get("water_state_unit"),
+        "native_service_states_key": contract.get("native_service_states_key"),
+        "population_projected_service_states_key": contract.get("population_projected_service_states_key"),
+    }
+    expected = {
+        "schema_version": "aggregated_service_state_v1",
+        "aggregation_method": "aggregated_service_state",
+        "electric_state_unit": "fixed_grid_0p1deg",
+        "water_state_unit": "zone_component_key",
+        "native_service_states_key": "native_service_states",
+        "population_projected_service_states_key": "population_projected_service_states",
+    }
+    for key, expected_value in expected.items():
+        if observed.get(key) != expected_value:
+            raise RuntimeError(
+                f"{relative_path} has invalid {key}: expected {expected_value}, got {observed.get(key)}"
+            )
+    return observed
+
+
 def _validate_network_states_geojson(relative_path: str, payload: dict[str, Any] | None) -> dict[str, str | None]:
     geojson = _validate_geojson_feature_collection(relative_path, payload)
     metadata = geojson.get("metadata") if isinstance(geojson.get("metadata"), dict) else None
     if metadata is None:
         raise RuntimeError(f"{relative_path} is missing hydraulic network-state metadata")
 
-    observed: dict[str, str | None] = {}
+    observed: dict[str, Any] = {}
     for key, expected_value in REQUIRED_NETWORK_STATES_METADATA.items():
-        value = str(metadata.get(key) or "").strip() or None
+        raw_value = metadata.get(key)
+        if isinstance(expected_value, bool):
+            value = bool(raw_value)
+        else:
+            value = str(raw_value or "").strip() or None
         observed[key] = value
         if value != expected_value:
             raise RuntimeError(
@@ -600,6 +668,56 @@ def _manifest_complete_analysis_timestamp(manifest: dict[str, Any], territory: s
         if parsed is not None:
             return parsed
     return None
+
+
+def _validate_scientific_web_summary_alignment(
+    *,
+    run_id: str,
+    territory: str,
+    complete_payload: dict[str, Any],
+    summary_payload: dict[str, Any],
+) -> dict[str, Any]:
+    meta = summary_payload.get("meta") if isinstance(summary_payload.get("meta"), dict) else {}
+    if not bool(meta.get("scientific_source")):
+        raise RuntimeError(f"{territory} scientific web summary must declare meta.scientific_source=true")
+    if str(meta.get("schema_version") or "").strip() != "scientific_web_summary_v1":
+        raise RuntimeError(
+            f"{territory} scientific web summary has invalid meta.schema_version={meta.get('schema_version')}"
+        )
+    summary_run_id = str(meta.get("run_id") or "").strip()
+    if summary_run_id and summary_run_id != run_id:
+        raise RuntimeError(
+            f"{territory} scientific web summary references run_id={summary_run_id}, expected {run_id}"
+        )
+    if str(meta.get("territory") or "").strip().lower() != str(territory).strip().lower():
+        raise RuntimeError(
+            f"{territory} scientific web summary has invalid meta.territory={meta.get('territory')}"
+        )
+
+    portfolio = complete_payload.get("portfolio_results") if isinstance(complete_payload.get("portfolio_results"), dict) else {}
+    published = summary_payload.get("portfolio_summary") if isinstance(summary_payload.get("portfolio_summary"), dict) else {}
+    alignment: dict[str, Any] = {"hazards": {}}
+    field_map = {
+        "annual_eur": "eai_eur",
+        "rp50_eur": "pml_50_eur",
+        "rp100_eur": "pml_100_eur",
+        "p99_eur": "percentile_99_loss_eur",
+    }
+    for hazard_key in ("storm", "storm_cmcc"):
+        source_row = portfolio.get(hazard_key) if isinstance(portfolio.get(hazard_key), dict) else {}
+        published_row = published.get(hazard_key) if isinstance(published.get(hazard_key), dict) else {}
+        checks: dict[str, Any] = {}
+        for public_key, source_key in field_map.items():
+            expected = _coerce_float(source_row.get(source_key))
+            observed = _coerce_float(published_row.get(public_key))
+            if abs(observed - expected) > PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR:
+                raise RuntimeError(
+                    f"{territory} scientific summary mismatch for {hazard_key}.{public_key}: "
+                    f"expected {expected}, observed {observed}"
+                )
+            checks[public_key] = observed
+        alignment["hazards"][hazard_key] = checks
+    return alignment
 
 
 def validate_territory_web_snapshot(
@@ -652,9 +770,14 @@ def validate_territory_web_snapshot(
         "complete_analysis_updated_at": complete_timestamp.isoformat(),
         "manifest_complete_updated_at": manifest_complete_timestamp.isoformat() if manifest_complete_timestamp else None,
         "case_study_run_id": None,
+        "complete_analysis_contract": _validate_complete_analysis_network_methodology(
+            complete_rel,
+            complete_payload,
+        ),
         "frontend_timestamps": {},
         "publication_trace": {},
         "public_loss_alignment": {},
+        "scientific_web_summary_alignment": {},
         "proxy_breakdown_share_validation": {},
         "geojson_contract": {},
     }
@@ -662,6 +785,7 @@ def validate_territory_web_snapshot(
     case_study_run_ids: dict[str, str] = {}
     proxy_payload: dict[str, Any] | None = None
     page_payload: dict[str, Any] | None = None
+    scientific_summary_payload: dict[str, Any] | None = None
     for relative_path in required_frontend:
         path = source_web_dir / relative_path
         payload = _load_json_payload(path)
@@ -688,6 +812,9 @@ def validate_territory_web_snapshot(
                 }
             continue
         if path.suffix.lower() == ".json":
+            if relative_path.endswith("-scientific-web-summary.json"):
+                scientific_summary_payload = payload
+                continue
             case_study_run_id = _payload_case_study_run_id(payload)
             if relative_path.endswith("network-states.geojson"):
                 continue
@@ -770,6 +897,13 @@ def validate_territory_web_snapshot(
             territory=normalized_territory,
             complete_payload=complete_payload,
             page_payload=page_payload,
+        )
+    if scientific_summary_payload is not None:
+        validation["scientific_web_summary_alignment"] = _validate_scientific_web_summary_alignment(
+            run_id=resolved_run_id,
+            territory=normalized_territory,
+            complete_payload=complete_payload,
+            summary_payload=scientific_summary_payload,
         )
     validation["publication_fallback_present"] = any(
         bool(trace.get("fallback_active")) or bool(trace.get("multi_hazard_proxy_fallback_active"))

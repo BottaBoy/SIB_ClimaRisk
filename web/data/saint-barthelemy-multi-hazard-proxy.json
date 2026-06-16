@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at": "2026-06-15T19:55:30+00:00",
-    "case_study_run_id": "saint-barthelemy_case_20260615T195150Z",
+    "generated_at": "2026-06-16T08:29:27+00:00",
+    "case_study_run_id": "saint-barthelemy_case_20260616T082536Z",
     "territory": "saint-barthelemy",
     "territory_label": "Saint-Barthélemy",
     "sample_point_count": 600,
@@ -675,8 +675,8 @@
       "complete_analysis_run_id": "20260615_191554",
       "complete_analysis_generated_at": "2026-06-15T19:43:41+00:00",
       "complete_analysis_source": "saint-barthelemy_complete_reference",
-      "wind_map_run_id": "saint-barthelemy_case_20260615T195150Z",
-      "wind_map_generated_at": "2026-06-15T19:52:42+00:00"
+      "wind_map_run_id": "saint-barthelemy_case_20260616T082536Z",
+      "wind_map_generated_at": "2026-06-16T08:26:32+00:00"
     }
   },
   "hazards": {

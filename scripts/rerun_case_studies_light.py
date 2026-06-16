@@ -569,6 +569,21 @@ def main(*, journal_path: Path | None = None) -> int:
             territory=territory,
             step="build_water_infra_map",
         )
+        _run(
+            [
+                str(PYTHON),
+                str(REPO_ROOT / "scripts" / "build_scientific_web_summary.py"),
+                "--territory",
+                territory,
+                *complete_analysis_args,
+                "--out-json",
+                str(REPO_ROOT / "web" / "data" / f"{territory}-scientific-web-summary.json"),
+            ],
+            env=territory_env,
+            journal_path=journal_path,
+            territory=territory,
+            step="build_scientific_web_summary",
+        )
         _info(f"[{territory}] impacts -> mouvement de terrain (rebuild case-study page analysis)")
         _run(
             [
