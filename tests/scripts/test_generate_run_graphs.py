@@ -92,6 +92,9 @@ def test_build_hazard_metric_scorecard_is_chart():
 
 def test_render_integrated_vincennes_assets_cleans_stale_outputs_and_collects_new_files(tmp_path, monkeypatch):
     output_dir = tmp_path / "graphs"
+    helper_dir = tmp_path / "outputs" / "Graphs" / "presentation-vincennes"
+    helper_dir.mkdir(parents=True)
+    (helper_dir / "export_assets.py").write_text("# helper placeholder\n", encoding="utf-8")
     stale_chart = output_dir / "charts" / "stale.png"
     stale_map = output_dir / "maps" / "stale.png"
     stale_table = output_dir / "tables" / "stale.png"
@@ -110,17 +113,29 @@ def test_render_integrated_vincennes_assets_cleans_stale_outputs_and_collects_ne
         (output_dir / "maps" / "fresh.png").write_text("new", encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
+    monkeypatch.setattr(generate_run_graphs, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(generate_run_graphs.subprocess, "run", _fake_run)
 
-    paths = generate_run_graphs._render_integrated_vincennes_assets(_run_record(), output_dir)
+    paths, warning = generate_run_graphs._render_integrated_vincennes_assets(_run_record(), output_dir)
 
     assert sorted(Path(path).relative_to(output_dir).as_posix() for path in paths) == [
         "charts/fresh.png",
         "maps/fresh.png",
     ]
+    assert warning is None
     assert not stale_chart.exists()
     assert not stale_map.exists()
     assert not stale_table.exists()
+
+
+def test_render_integrated_vincennes_assets_skips_when_helper_is_missing(tmp_path, monkeypatch):
+    missing_helper = tmp_path / "outputs" / "Graphs" / "presentation-vincennes" / "export_assets.py"
+    monkeypatch.setattr(generate_run_graphs, "REPO_ROOT", tmp_path)
+
+    paths, warning = generate_run_graphs._render_integrated_vincennes_assets(_run_record(), tmp_path / "graphs")
+
+    assert paths == []
+    assert str(missing_helper) in warning
 
 
 def test_generated_output_records_count_technical_types_and_families(tmp_path):

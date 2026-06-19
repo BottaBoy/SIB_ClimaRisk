@@ -178,8 +178,14 @@ _DYNAMIC_HAZARD_BUNDLE_CACHE: dict[tuple[str, str, int], Any] = {}
 _BACKEND_RUNTIME: tuple[Any, Any] | None = None
 
 
-def _render_integrated_vincennes_assets(record: RunRecord, output_dir: Path) -> list[str]:
+def _render_integrated_vincennes_assets(record: RunRecord, output_dir: Path) -> tuple[list[str], str | None]:
     helper_script = REPO_ROOT / "outputs" / "Graphs" / "presentation-vincennes" / "export_assets.py"
+    if not helper_script.exists():
+        warning = (
+            "Skipping integrated charts/maps/tables export because helper script is missing: "
+            f"{helper_script}"
+        )
+        return [], warning
     for category in ("charts", "maps", "tables"):
         category_dir = output_dir / category
         if category_dir.exists():
@@ -208,7 +214,7 @@ def _render_integrated_vincennes_assets(record: RunRecord, output_dir: Path) -> 
             continue
         for path in sorted(candidate for candidate in category_dir.rglob("*") if candidate.is_file()):
             generated_paths.append(str(path))
-    return generated_paths
+    return generated_paths, None
 
 
 def _count_outputs_by_category(output_dir: Path, paths: list[str]) -> dict[str, int]:
@@ -2730,7 +2736,10 @@ def main(argv: list[str] | None = None) -> int:
         if png_dir.exists():
             shutil.rmtree(png_dir)
         png_paths = render_png_graphs(graphs, png_dir)
-        auxiliary_output_paths = _render_integrated_vincennes_assets(selected_record, run_output_dir)
+        auxiliary_output_paths, auxiliary_warning = _render_integrated_vincennes_assets(selected_record, run_output_dir)
+        if auxiliary_warning:
+            warnings.append(auxiliary_warning)
+            print(f"[warn] {auxiliary_warning}", file=sys.stderr)
         print(f"[ok] PNG graphs written to {png_dir}")
         if auxiliary_output_paths:
             print(f"[ok] Integrated charts/maps/tables written to {run_output_dir}")
