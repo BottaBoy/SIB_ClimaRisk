@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-20T13:42:46.403702+00:00",
+  "generated_at": "2026-06-15T13:25:53.976809+00:00",
   "scenario_pack_id": "guadeloupe-sensitivity-default-v1",
   "territories": [
     "guadeloupe"
@@ -137,12 +137,9 @@
         "0% / 20% / 50% / 100%",
         "0% / 5% / 10% / 15%"
       ],
-      "default_pack_test_values": [
-        "0% / 20% / 50% / 100%",
-        "0% / 5% / 10% / 15%"
-      ],
+      "default_pack_test_values": [],
       "run_count": 2,
-      "default_pack_run_count": 2,
+      "default_pack_run_count": 0,
       "execution_tier": "postprocess_rerun"
     },
     {
@@ -421,40 +418,6 @@
       "notes": []
     },
     {
-      "scenario_id": "uplift_by_state-0-20-50-100",
-      "label": "uplift_by_state = 0% / 20% / 50% / 100%",
-      "parameter_key": "uplift_by_state",
-      "execution_tier": "postprocess_rerun",
-      "supported": true,
-      "candidate_value": "0% / 20% / 50% / 100%",
-      "overrides": {
-        "settings": {
-          "interdependency_uplift_s0": 0.0,
-          "interdependency_uplift_s1": 0.2,
-          "interdependency_uplift_s2": 0.5,
-          "interdependency_uplift_s3": 1.0
-        }
-      },
-      "notes": []
-    },
-    {
-      "scenario_id": "uplift_by_state-0-5-10-15",
-      "label": "uplift_by_state = 0% / 5% / 10% / 15%",
-      "parameter_key": "uplift_by_state",
-      "execution_tier": "postprocess_rerun",
-      "supported": true,
-      "candidate_value": "0% / 5% / 10% / 15%",
-      "overrides": {
-        "settings": {
-          "interdependency_uplift_s0": 0.0,
-          "interdependency_uplift_s1": 0.05,
-          "interdependency_uplift_s2": 0.1,
-          "interdependency_uplift_s3": 0.15
-        }
-      },
-      "notes": []
-    },
-    {
       "scenario_id": "max_dist_inland_km-200",
       "label": "max_dist_inland_km = 200",
       "parameter_key": "max_dist_inland_km",
@@ -637,6 +600,6 @@
       "notes": []
     }
   ],
-  "scenario_count": 25,
-  "matches_workbook_total_runs": true
+  "scenario_count": 23,
+  "matches_workbook_total_runs": false
 }

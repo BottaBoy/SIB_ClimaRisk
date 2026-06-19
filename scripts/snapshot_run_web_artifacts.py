@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from case_study_sources import parse_territory
 from run_web_artifacts import snapshot_run_web_artifacts
 
 
@@ -30,11 +31,15 @@ def main() -> int:
     parser.add_argument(
         "--territories",
         nargs="+",
-        choices=["guadeloupe", "martinique"],
         default=None,
         help="Optional subset of territories to snapshot from the current web workspace.",
     )
     args = parser.parse_args()
+    try:
+        if args.territories is not None:
+            args.territories = [parse_territory(value) for value in args.territories]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     resolved_run_id, archived, validation = snapshot_run_web_artifacts(args.run_id, args.territories)
     print(f"[ok] archived web artefacts for run {resolved_run_id}")

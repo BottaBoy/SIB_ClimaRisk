@@ -1019,6 +1019,7 @@ def snapshot_run_web_artifacts(
             "archived_at": archived_at,
         }
     )
+    frontend_artifacts.pop("error", None)
     manifest["frontend_artifacts"] = frontend_artifacts
     manifest["frontend_artifacts_success"] = True
     _repair_manifest_status_after_frontend_snapshot(manifest, archived_at)

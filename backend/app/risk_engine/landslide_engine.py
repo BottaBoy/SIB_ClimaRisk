@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from contextlib import contextmanager
 import hashlib
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 from shapely.geometry import box
 
 from .climada_engine import HazardImpactResult, _build_exposure_with_impf_column, _compute_component_impact
+from .climada_petals_loader import load_climada_petals_hazard_symbols
 from .errors import DependencyMissingError
 from .impact_functions_landslide import (
     LANDSLIDE_HAZ_TYPE,
@@ -24,7 +26,7 @@ def _require_runtime() -> dict[str, Any]:
         from climada.entity.impact_funcs import ImpactFuncSet  # type: ignore
         from climada.hazard import Centroids  # type: ignore
         from climada.util import coordinates as u_coord  # type: ignore
-        from climada_petals.hazard.landslide import Landslide, sample_events  # type: ignore
+        petals_symbols = load_climada_petals_hazard_symbols("landslide", "Landslide", "sample_events")
     except Exception as exc:  # pragma: no cover - runtime dependency
         raise DependencyMissingError("CLIMADA Petals landslide runtime dependencies are required") from exc
     return {
@@ -34,8 +36,8 @@ def _require_runtime() -> dict[str, Any]:
         "ImpactFuncSet": ImpactFuncSet,
         "Centroids": Centroids,
         "u_coord": u_coord,
-        "Landslide": Landslide,
-        "sample_events": sample_events,
+        "Landslide": petals_symbols["Landslide"],
+        "sample_events": petals_symbols["sample_events"],
     }
 
 
@@ -63,6 +65,7 @@ def build_landslide_hazard_from_prob(
     n_years: int = 200,
     dist: str = "poisson",
     random_seed: int | None = None,
+    target_centroids: Any | None = None,
 ) -> Any:
     runtime = _require_runtime()
     np = runtime["np"]
@@ -81,12 +84,19 @@ def build_landslide_hazard_from_prob(
         raise ValueError("n_years must be positive")
 
     bbox_tuple = tuple(float(v) for v in bbox)
-    geometry = [box(*bbox_tuple, ccw=True)]
-    meta, prob_matrix = u_coord.read_raster(str(path), geometry=geometry)
+    if target_centroids is not None:
+        sample_lat = np.asarray(getattr(target_centroids, "lat", []), dtype=float).reshape(-1)
+        sample_lon = np.asarray(getattr(target_centroids, "lon", []), dtype=float).reshape(-1)
+        if sample_lat.size == 0 or sample_lon.size == 0 or sample_lat.size != sample_lon.size:
+            raise ValueError("target_centroids must expose matching lat/lon arrays for landslide sampling")
+        prob_arr = np.asarray(u_coord.read_raster_sample(str(path), sample_lat, sample_lon), dtype=float).reshape(-1)
+    else:
+        geometry = [box(*bbox_tuple, ccw=True)]
+        meta, prob_matrix = u_coord.read_raster(str(path), geometry=geometry)
+        prob_arr = np.asarray(prob_matrix, dtype=float).squeeze()
 
-    prob_arr = np.asarray(prob_matrix, dtype=float).squeeze()
     if prob_arr.size == 0:
-        raise ValueError(f"Empty landslide raster after clipping bbox={bbox_tuple}: {path}")
+        raise ValueError(f"Empty landslide raster after sampling bbox={bbox_tuple}: {path}")
     prob_arr = np.nan_to_num(prob_arr, nan=0.0, posinf=0.0, neginf=0.0)
 
     # Raster classes 0/1 represent zero probability. Classes 2..5 are sampled
@@ -97,6 +107,12 @@ def build_landslide_hazard_from_prob(
     seed = int(random_seed) if random_seed is not None else _stable_seed(
         path.resolve(strict=False),
         bbox_tuple,
+        tuple(round(float(value), 5) for value in np.asarray(getattr(target_centroids, "lat", []), dtype=float).reshape(-1))
+        if target_centroids is not None
+        else (),
+        tuple(round(float(value), 5) for value in np.asarray(getattr(target_centroids, "lon", []), dtype=float).reshape(-1))
+        if target_centroids is not None
+        else (),
         float(corr_fact),
         int(n_years),
         str(dist).strip().lower(),
@@ -111,7 +127,7 @@ def build_landslide_hazard_from_prob(
     intensity = (sampled @ class_diag).tocsr()
 
     haz = Landslide()
-    haz.centroids = Centroids.from_meta(meta)
+    haz.centroids = copy.deepcopy(target_centroids) if target_centroids is not None else Centroids.from_meta(meta)
     haz.intensity = intensity
     haz.fraction = sampled.copy()
     if getattr(haz.fraction, "nnz", 0) > 0:

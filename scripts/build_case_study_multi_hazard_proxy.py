@@ -1047,13 +1047,17 @@ def _run_proxy_climada(sample_bundle: Any, climada_kwargs: dict[str, Any]) -> An
         output_file = Path(output_path)
         if output_file.exists():
             try:
-                output_payload = json.loads(output_file.read_text(encoding="utf-8"))
+                output_text = output_file.read_text(encoding="utf-8")
+                if output_text.strip():
+                    output_payload = json.loads(output_text)
             finally:
                 output_file.unlink(missing_ok=True)
 
         if process.exitcode != 0:
             detail = str(output_payload.get("error") or f"child process exited with code {process.exitcode}")
             raise RuntimeError(f"Strict CLIMADA slice failed for {hazard_key}: {detail}")
+        if not output_payload:
+            raise RuntimeError(f"Strict CLIMADA slice produced no payload for {hazard_key}")
         if str(output_payload.get("hazard_key") or "") != hazard_key:
             raise RuntimeError(f"Strict CLIMADA slice returned an unexpected hazard payload for {hazard_key}")
 

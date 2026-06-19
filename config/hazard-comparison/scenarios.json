@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "scenario_version": 1,
+    "purpose": "hazard_only_comparison_scenarios",
+    "notes": [
+      "Each scenario is strict fail-closed and must provide wind, rain, surge, and landslide components.",
+      "Landslide scenarios are defined as a concatenation of two native CLIMADA hazards: earthquake plus one climate raster."
+    ]
+  },
+  "scenarios": {
+    "storm": {
+      "label": "STORM",
+      "track_catalog_provider": "storm",
+      "components": {
+        "wind": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TC"
+        },
+        "rain": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TCRain"
+        },
+        "surge": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TCSurgeBathtub",
+          "topography_source": "canonical_copernicus"
+        },
+        "landslide": {
+          "enabled": true,
+          "source": "native_raster_pair",
+          "hazard_class": "LS",
+          "combination_mode": "concatenate_native_hazards",
+          "raster_fields": [
+            "earthquake_path",
+            "precip_current_path"
+          ]
+        }
+      }
+    },
+    "storm_cmcc": {
+      "label": "STORM_CMCC",
+      "track_catalog_provider": "storm_cmcc",
+      "components": {
+        "wind": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TC"
+        },
+        "rain": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TCRain"
+        },
+        "surge": {
+          "enabled": true,
+          "source": "track_catalog",
+          "hazard_class": "TCSurgeBathtub",
+          "topography_source": "canonical_copernicus"
+        },
+        "landslide": {
+          "enabled": true,
+          "source": "native_raster_pair",
+          "hazard_class": "LS",
+          "combination_mode": "concatenate_native_hazards",
+          "raster_fields": [
+            "earthquake_path",
+            "precip_ssp585_path"
+          ]
+        }
+      }
+    }
+  }
+}

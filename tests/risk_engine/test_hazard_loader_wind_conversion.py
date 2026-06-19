@@ -1,11 +1,13 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from backend.app.risk_engine.hazard_loader import (
     HazardBundle,
     STORM_10MIN_TO_1MIN_WIND_FACTOR,
+    _count_tracks_from_parquet,
     _convert_storm_wind_to_climada_mps,
     load_storm_hazards_from_parquet_for_points,
     release_hazard_bundle_tracks,
@@ -119,3 +121,25 @@ def test_resolve_hazard_bundle_tracks_loads_requested_provider_only(monkeypatch:
     cmcc_tracks = resolve_hazard_bundle_tracks(bundle, "storm_cmcc")
     assert cmcc_tracks.provider == "STORM_CMCC"
     assert load_calls == [("STORM", 0), ("STORM_CMCC", 0)]
+
+
+def test_count_tracks_from_parquet_uses_year_aware_track_identity(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "storm.parquet"
+    pd.DataFrame(
+        {
+            "Basin ID": [1, 1, 1, 1],
+            "Year": [0, 0, 1, 1],
+            "track_id": ["storm:NA:0:10", "storm:NA:0:10", "storm:NA:1:10", "storm:NA:1:10"],
+            "lat": [15.0, 15.1, 15.0, 15.1],
+            "lon": [-61.0, -61.1, -61.0, -61.1],
+        }
+    ).to_parquet(parquet_path, index=False)
+
+    track_count = _count_tracks_from_parquet(
+        parquet_path,
+        basin_ids=(1,),
+        spatial_window=None,
+        max_tracks=0,
+    )
+
+    assert track_count == 2

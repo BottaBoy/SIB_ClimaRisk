@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import atexit
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import re
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -20,7 +21,11 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.risk_engine.sensitivity_scenarios import SensitivityScenario, list_scenarios_from_pack
+from app.risk_engine.sensitivity_scenarios import (
+    SensitivityScenario,
+    build_parameter_traceability_matrix,
+    list_scenarios_from_pack,
+)
 from export_sensitivity_matrix import export_sensitivity_run
 
 
@@ -36,8 +41,14 @@ COMPLETE_ANALYSIS_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
 COMPLETE_ANALYSIS_LATEST_MANIFEST = REPO_ROOT / "outputs" / "complete-analysis-runs" / "latest-manifest.json"
 DEFAULT_SCENARIO_PACK = REPO_ROOT / "config" / "sensitivity" / "default-scenario-pack.json"
 CHILD_SCRIPT = REPO_ROOT / "scripts" / "run_complete_analysis.py"
+RUN_PIDFILE_NAME = "resume.pid"
 COMPLETE_ANALYSIS_MANIFEST_RE = re.compile(
     r"(?P<path>/home/ubuntu/sib-work/outputs/complete-analysis-runs/[^\s\"']+/manifest\.json)"
+)
+OOM_JOURNAL_PATTERNS = (
+    "Out of memory: Killed process",
+    "invoked oom-killer",
+    "has been killed by the OOM killer",
 )
 
 
@@ -80,6 +91,13 @@ def _resolve_resume_run_id(raw_value: str) -> str:
     if not run_id:
         raise ValueError(f"Latest sensitivity manifest does not contain a run_id: {latest_manifest}")
     return run_id
+
+
+def _write_run_pidfile(run_id: str, pid: int) -> Path:
+    pidfile_path = SENSITIVITY_OUTPUTS_DIR / str(run_id) / RUN_PIDFILE_NAME
+    pidfile_path.parent.mkdir(parents=True, exist_ok=True)
+    pidfile_path.write_text(f"{int(pid)}\n", encoding="utf-8")
+    return pidfile_path
 
 
 def _scenario_entry_from_scenario(scenario: SensitivityScenario) -> dict[str, Any]:
@@ -131,6 +149,7 @@ class SensitivityRunManifest:
                 "updated_at": _utcnow(),
                 "manifest_path": str(self.manifest_path),
                 "parameters": parameters,
+                "parameter_traceability": build_parameter_traceability_matrix(scenarios),
                 "scenario_count": len(scenarios),
                 "completed_count": 0,
                 "failed_count": 0,
@@ -240,6 +259,42 @@ def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario
     return command
 
 
+def _journalctl_text(*, since: datetime, until: datetime) -> str:
+    try:
+        result = subprocess.run(
+            [
+                "journalctl",
+                "--since",
+                since.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "--until",
+                until.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "--no-pager",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception:
+        return ""
+    return str(result.stdout or "")
+
+
+def _detect_probable_oom_failure(
+    *,
+    return_code: int | None,
+    started_at: datetime,
+    finished_at: datetime,
+) -> bool:
+    if int(return_code or 0) != -9:
+        return False
+    journal_text = _journalctl_text(
+        since=started_at - timedelta(minutes=2),
+        until=finished_at + timedelta(minutes=2),
+    )
+    return any(pattern in journal_text for pattern in OOM_JOURNAL_PATTERNS)
+
+
 def _print_scenarios(scenarios: list[SensitivityScenario]) -> None:
     for scenario in scenarios:
         marker = "supported" if scenario.supported else "unsupported"
@@ -271,6 +326,7 @@ def main() -> int:
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--fail-on-unsupported", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
+    parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--list-scenarios", action="store_true")
     args = parser.parse_args()
     if args.allow_degraded_components:
@@ -285,10 +341,15 @@ def main() -> int:
         raise ValueError(f"No scenarios selected from {args.scenario_pack}")
 
     existing_data: dict[str, Any] | None = None
+    requested_run_id = str(args.run_id).strip() if args.run_id else ""
     if args.resume_run_id:
         resolved_run_id = _resolve_resume_run_id(args.resume_run_id)
+        if requested_run_id and requested_run_id != resolved_run_id:
+            raise ValueError(
+                f"Explicit run-id {requested_run_id} does not match resume target {resolved_run_id}"
+            )
         existing_data = _load_existing_parent_manifest(resolved_run_id)
-        run_id = resolved_run_id
+        run_id = requested_run_id or resolved_run_id
         existing_ids = [str(item.get("scenario_id") or "") for item in existing_data.get("scenarios") or []]
         requested_ids = [scenario.scenario_id for scenario in scenarios]
         if existing_ids != requested_ids:
@@ -296,7 +357,7 @@ def main() -> int:
                 "Resume run scenario order does not match the requested scenario pack selection"
             )
     else:
-        run_id = datetime.now(timezone.utc).strftime("sensitivity_%Y%m%d_%H%M%S")
+        run_id = requested_run_id or datetime.now(timezone.utc).strftime("sensitivity_%Y%m%d_%H%M%S")
 
     parameters = {
         "scenario_pack": str(args.scenario_pack),
@@ -316,6 +377,7 @@ def main() -> int:
         scenarios=scenarios,
         existing_data=existing_data,
     )
+    _write_run_pidfile(run_id, os.getpid())
     manifest.record_event("start", scenario_count=len(scenarios))
 
     active_process: subprocess.Popen[str] | None = None
@@ -383,10 +445,11 @@ def main() -> int:
         command = _build_child_command(args, scenario)
         log_path = manifest.scenario_log_path(scenario_id)
         logger.info("Running scenario %s", scenario_id)
+        scenario_started_at = datetime.now(timezone.utc)
         manifest.update_scenario(
             scenario_id,
             status="running",
-            started_at=_utcnow(),
+            started_at=scenario_started_at.isoformat(),
             completed_at=None,
             duration_seconds=None,
             error=None,
@@ -429,6 +492,7 @@ def main() -> int:
                     break
                 time.sleep(max(1.0, float(args.poll_seconds)))
 
+        scenario_finished_at = datetime.now(timezone.utc)
         duration_seconds = int(max(0.0, time.time() - start_time))
         child_manifest = _child_manifest_for_scenario(scenario_id)
         if child_manifest is None:
@@ -455,7 +519,7 @@ def main() -> int:
             manifest.update_scenario(
                 scenario_id,
                 status="complete",
-                completed_at=_utcnow(),
+                completed_at=scenario_finished_at.isoformat(),
                 duration_seconds=duration_seconds,
                 error=None,
             )
@@ -471,10 +535,16 @@ def main() -> int:
             f"Scenario failed with returncode={return_code}, child_status={child_status or 'unknown'}; "
             f"see {log_path}"
         )
+        if _detect_probable_oom_failure(
+            return_code=return_code,
+            started_at=scenario_started_at,
+            finished_at=scenario_finished_at,
+        ):
+            error += " Probable cause: host OOM killer (kernel out-of-memory kill), not a Python exception in the scenario code."
         manifest.update_scenario(
             scenario_id,
             status="failed",
-            completed_at=_utcnow(),
+            completed_at=scenario_finished_at.isoformat(),
             duration_seconds=duration_seconds,
             error=error,
         )

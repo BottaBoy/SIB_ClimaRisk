@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  launch_babysit_tmux.sh --kind {complete|hazard-comparison} --run-id RUN_ID
+  launch_babysit_tmux.sh --kind {complete|hazard-comparison|sensitivity} --run-id RUN_ID
 
 Options:
   --poll-seconds SECONDS
@@ -77,6 +77,11 @@ case "$kind" in
     babysit_script="$repo_root/scripts/babysit_hazard_comparison_run.py"
     session_prefix="babysit-hazard-comparison"
     log_file="$repo_root/logs/babysit_hazard_comparison_${run_id}.log"
+    ;;
+  sensitivity)
+    babysit_script="$repo_root/scripts/babysit_sensitivity_analysis_run.py"
+    session_prefix="babysit-sensitivity"
+    log_file="$repo_root/logs/babysit_sensitivity_analysis_${run_id}.log"
     ;;
   *)
     echo "Unsupported kind: $kind" >&2

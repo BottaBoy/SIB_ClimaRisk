@@ -470,12 +470,13 @@ def _count_tracks_from_parquet(
         parquet_path,
         basin_ids=basin_ids,
         spatial_window=spatial_window,
-        columns=["Basin ID", "track_id", "lat", "Latitude", "lon", "Longitude"],
+        columns=["Basin ID", "Year", "track_id", "lat", "Latitude", "lon", "Longitude"],
     )
-    if "track_id" not in df.columns:
-        raise ValueError(f"Missing required columns in {parquet_path}: ['track_id']")
+    missing = sorted({"Year", "track_id"} - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
 
-    track_count = int(df["track_id"].nunique(dropna=True))
+    track_count = int(df[["Year", "track_id"]].drop_duplicates().shape[0])
     max_tracks_int = _resolve_max_tracks(max_tracks)
     if max_tracks_int > 0:
         return min(track_count, max_tracks_int)
@@ -532,9 +533,15 @@ def _build_tracks_from_parquet(
     if missing:
         raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
 
+    df["_track_instance_id"] = (
+        df["Year"].astype(int).astype(str)
+        + "|"
+        + df["track_id"].astype(str)
+    )
+
     max_tracks_int = _resolve_max_tracks(max_tracks)
     if max_tracks_int > 0:
-        track_count = int(df["track_id"].nunique(dropna=True))
+        track_count = int(df["_track_instance_id"].nunique(dropna=True))
         if track_count > max_tracks_int:
             lat_center = float(spatial_window.center_lat if spatial_window is not None else df["lat"].astype(float).mean())
             lon_center = float(spatial_window.center_lon if spatial_window is not None else df["lon"].astype(float).mean())
@@ -544,12 +551,12 @@ def _build_tracks_from_parquet(
             dist2 = (dlat * dlat) + (dlon * dlon)
             ranked_tracks = (
                 df.assign(_dist2=dist2)
-                .groupby("track_id", sort=False)["_dist2"]
+                .groupby("_track_instance_id", sort=False)["_dist2"]
                 .min()
                 .nsmallest(max_tracks_int)
             )
             keep_track_ids = set(ranked_tracks.index.tolist())
-            df = df[df["track_id"].isin(keep_track_ids)].copy()
+            df = df[df["_track_instance_id"].isin(keep_track_ids)].copy()
 
     df["wind_max"] = _convert_storm_wind_to_climada_mps(
         df["wind_max"],
@@ -558,11 +565,11 @@ def _build_tracks_from_parquet(
     )
     df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
 
-    df = df.sort_values(["track_id", "time_step"]).reset_index(drop=True)
-    groups = df.groupby("track_id", sort=False)
+    df = df.sort_values(["_track_instance_id", "time_step"]).reset_index(drop=True)
+    groups = df.groupby("_track_instance_id", sort=False)
 
     track_list: list[Any] = []
-    for idx, (track_id, grp) in enumerate(groups, start=1):
+    for idx, (track_instance_id, grp) in enumerate(groups, start=1):
         grp = grp.sort_values("time_step").drop_duplicates(subset=["time_step"], keep="first")
         if grp.empty:
             continue
@@ -583,6 +590,7 @@ def _build_tracks_from_parquet(
             elapsed_hours[1:] = np.cumsum(time_step_hours[1:])
         times = pd.Timestamp("2000-01-01") + pd.to_timedelta(elapsed_hours, unit="h")
         year = int(grp["Year"].iloc[0])
+        track_id = str(grp["track_id"].iloc[0])
         category_raw = float(grp["Category"].max()) if "Category" in grp.columns else 0.0
         category = int(category_raw) if np.isfinite(category_raw) else 0
         central_pressure_hpa = grp["p_c"].to_numpy(dtype=float)
@@ -605,8 +613,8 @@ def _build_tracks_from_parquet(
                 "max_sustained_wind_averaging_period_minutes": 1 if convert_10min_to_1min else 10,
                 "radius_max_wind_unit": "nm",
                 "central_pressure_unit": "hPa",
-                "sid": f"{provider_name}_{year}_{track_id}",
-                "name": f"synthetic_{provider_name}_{year}_{track_id}",
+                "sid": f"{provider_name}_{track_instance_id}",
+                "name": f"synthetic_{provider_name}_{track_instance_id}",
                 "orig_event_flag": False,
                 "data_provider": provider_name,
                 "id_no": int(idx),
@@ -914,3 +922,13 @@ def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> H
         track_count_storm=int(len(getattr(storm, "event_id", []))),
         track_count_storm_cmcc=int(len(getattr(storm_cmcc, "event_id", []))),
     )
+
+
+def load_storm_hazard(hazard_path: Path, storm_years: int) -> Any:
+    try:
+        from climada.hazard import Hazard  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional at scaffold stage
+        raise DependencyMissingError("CLIMADA is required to load STORM hazards") from exc
+
+    hazard = Hazard.from_hdf5(str(hazard_path))
+    return _normalize_frequency_safe(hazard, storm_years)

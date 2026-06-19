@@ -22,6 +22,7 @@ import argparse
 import json
 import math
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,11 @@ from matplotlib.patches import Patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.risk_engine.sensitivity_scenarios import parameter_traceability
 
 DEFAULT_MANIFEST = REPO_ROOT / "outputs" / "sensitivity-runs" / "latest-manifest.json"
 
@@ -54,6 +60,12 @@ METRIC_LABELS = {
     "annual": "Impact annuel moyen",
     "rp50": "Impact RP50",
     "rp100": "Impact RP100",
+}
+
+NETWORK_SERVICES = ("elec", "water_aep", "water_eu")
+NETWORK_METRICS = {
+    "non_nominal_pct": "Population hors S0 (%)",
+    "outage_pct": "Population en S3 (%)",
 }
 
 COMPLETE_ANALYSIS_JSON_RE = re.compile(
@@ -86,6 +98,10 @@ def safe_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return math.nan
+
+
+def safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def slug_value_to_number(raw_value: str) -> float | None:
@@ -307,6 +323,50 @@ def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[st
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, float]] = set()
 
+    def _append_row(
+        *,
+        hazard: str,
+        metric: str,
+        return_period: str,
+        value: float,
+        service: str = "",
+        network_metric: str = "",
+    ) -> None:
+        if math.isnan(value):
+            return
+        dedup_key = (
+            scenario_payload.scenario_id,
+            territory,
+            hazard,
+            metric,
+            return_period,
+            service,
+            network_metric,
+            value,
+        )
+        if dedup_key in seen:
+            return
+        seen.add(dedup_key)
+        rows.append(
+            {
+                "scenario_id": scenario_payload.scenario_id,
+                "scenario_label": scenario_payload.scenario_label,
+                "scenario_status": scenario_payload.status,
+                "parameter_key": scenario_payload.parameter_key,
+                "parameter_value": parameter_raw_value,
+                "parameter_value_num": parameter_numeric_value,
+                "territory": territory,
+                "hazard": hazard,
+                "metric": metric,
+                "return_period": return_period,
+                "value": value,
+                "service": service,
+                "network_metric": network_metric,
+                "payload_path": str(scenario_payload.payload_path),
+                "child_manifest_path": str(scenario_payload.child_manifest_path or ""),
+            }
+        )
+
     for path, block in iter_metric_blocks(payload):
         hazard = guess_hazard_from_path(path, block)
 
@@ -317,30 +377,56 @@ def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[st
 
         for return_period, source_key in METRIC_MAP.items():
             value = safe_float(block.get(source_key))
-            if math.isnan(value):
-                continue
+            _append_row(
+                hazard=hazard,
+                metric="impact_eur",
+                return_period=return_period,
+                value=value,
+            )
 
-            dedup_key = (scenario_payload.scenario_id, territory, hazard, return_period, value)
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
+    portfolio_results = safe_dict(payload.get("portfolio_results"))
+    network_distribution_by_hazard = safe_dict(portfolio_results.get("social_impact_population_state_distribution"))
+    if not network_distribution_by_hazard:
+        network_distribution_by_hazard = safe_dict(payload.get("social_impact_population_state_distribution"))
+    if not network_distribution_by_hazard:
+        territory_results = payload.get("territory_results")
+        if isinstance(territory_results, list):
+            for territory_row in territory_results:
+                if not isinstance(territory_row, dict):
+                    continue
+                candidate = safe_dict(territory_row.get("social_impact_population_state_distribution"))
+                if candidate:
+                    network_distribution_by_hazard = candidate
+                    break
 
-            rows.append(
-                {
-                    "scenario_id": scenario_payload.scenario_id,
-                    "scenario_label": scenario_payload.scenario_label,
-                    "scenario_status": scenario_payload.status,
-                    "parameter_key": scenario_payload.parameter_key,
-                    "parameter_value": parameter_raw_value,
-                    "parameter_value_num": parameter_numeric_value,
-                    "territory": territory,
-                    "hazard": hazard,
-                    "metric": "impact_eur",
-                    "return_period": return_period,
-                    "value": value,
-                    "payload_path": str(scenario_payload.payload_path),
-                    "child_manifest_path": str(scenario_payload.child_manifest_path or ""),
-                }
+    for hazard, service_map in network_distribution_by_hazard.items():
+        if not isinstance(service_map, dict):
+            continue
+        for service in NETWORK_SERVICES:
+            distribution = safe_dict(service_map.get(service))
+            island_total = safe_float(distribution.get("island_population_total"))
+            if math.isnan(island_total) or island_total <= 0.0:
+                continue
+            s1 = max(0.0, safe_float(distribution.get("S1")))
+            s2 = max(0.0, safe_float(distribution.get("S2")))
+            s3 = max(0.0, safe_float(distribution.get("S3")))
+            non_nominal_pct = ((s1 + s2 + s3) / island_total) * 100.0
+            outage_pct = (s3 / island_total) * 100.0
+            _append_row(
+                hazard=str(hazard),
+                metric="network_state_pct",
+                return_period="network_state",
+                value=non_nominal_pct,
+                service=service,
+                network_metric="non_nominal_pct",
+            )
+            _append_row(
+                hazard=str(hazard),
+                metric="network_state_pct",
+                return_period="network_state",
+                value=outage_pct,
+                service=service,
+                network_metric="outage_pct",
             )
 
     return rows
@@ -368,6 +454,12 @@ def build_normalized_dataframe(parent_manifest: dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+def baseline_join_columns(metric: str) -> list[str]:
+    if str(metric) == "network_state_pct":
+        return ["territory", "hazard", "metric", "return_period", "service", "network_metric"]
+    return ["territory", "hazard", "metric", "return_period"]
+
+
 def add_baseline_deltas(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -379,15 +471,13 @@ def add_baseline_deltas(df: pd.DataFrame) -> pd.DataFrame:
         df["delta_pct"] = math.nan
         return df
 
-    baseline = baseline[
-        ["territory", "hazard", "metric", "return_period", "value"]
-    ].rename(columns={"value": "baseline_value"})
-
-    merged = df.merge(
-        baseline,
-        on=["territory", "hazard", "metric", "return_period"],
-        how="left",
-    )
+    merged_parts: list[pd.DataFrame] = []
+    for metric, metric_df in df.groupby("metric", dropna=False):
+        join_cols = baseline_join_columns(str(metric))
+        baseline_metric = baseline[baseline["metric"] == metric].copy()
+        baseline_metric = baseline_metric[join_cols + ["value"]].rename(columns={"value": "baseline_value"})
+        merged_parts.append(metric_df.merge(baseline_metric, on=join_cols, how="left"))
+    merged = pd.concat(merged_parts, ignore_index=True) if merged_parts else df.copy()
 
     merged["delta_abs"] = merged["value"] - merged["baseline_value"]
     merged["delta_pct"] = merged.apply(
@@ -398,6 +488,143 @@ def add_baseline_deltas(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return merged
+
+
+def _stringify_key(row: pd.Series, cols: list[str]) -> str:
+    parts = []
+    for col in cols:
+        parts.append(f"{col}={row.get(col)}")
+    return ", ".join(parts)
+
+
+def build_quality_report(df: pd.DataFrame) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "status": "passed",
+        "checks": [],
+        "flat_parameters": [],
+        "top_sensitive_scenarios": [],
+        "alerts": [],
+    }
+    if df.empty:
+        report["status"] = "warning"
+        report["alerts"].append("Normalized sensitivity table is empty.")
+        return report
+
+    check_statuses: list[str] = []
+    for metric in sorted(df["metric"].dropna().astype(str).unique().tolist()):
+        join_cols = baseline_join_columns(metric)
+        baseline = df[df["scenario_id"] == "all-default"].copy()
+        baseline = baseline[baseline["metric"] == metric]
+        duplicate_counts = (
+            baseline.groupby(join_cols, dropna=False).size().reset_index(name="count")
+        )
+        duplicates = duplicate_counts[duplicate_counts["count"] > 1].copy()
+        status = "passed" if duplicates.empty else "failed"
+        check_statuses.append(status)
+        report["checks"].append(
+            {
+                "check": f"baseline_uniqueness::{metric}",
+                "status": status,
+                "join_columns": join_cols,
+                "duplicate_key_count": int(len(duplicates)),
+                "examples": duplicates.head(10).to_dict(orient="records"),
+            }
+        )
+
+    rows_missing_baseline = df[df["baseline_value"].isna()].copy()
+    missing_status = "passed" if rows_missing_baseline.empty else "warning"
+    check_statuses.append(missing_status)
+    report["checks"].append(
+        {
+            "check": "baseline_value_presence",
+            "status": missing_status,
+            "row_count": int(len(rows_missing_baseline)),
+            "examples": rows_missing_baseline.head(10).to_dict(orient="records"),
+        }
+    )
+
+    recomputed_delta_abs = df["value"] - df["baseline_value"]
+    mismatch_delta_abs = df[
+        df["baseline_value"].notna()
+        & ((df["delta_abs"] - recomputed_delta_abs).abs() > 1e-9)
+    ].copy()
+    delta_abs_status = "passed" if mismatch_delta_abs.empty else "failed"
+    check_statuses.append(delta_abs_status)
+    report["checks"].append(
+        {
+            "check": "delta_abs_recomputable",
+            "status": delta_abs_status,
+            "row_count": int(len(mismatch_delta_abs)),
+            "examples": mismatch_delta_abs.head(10).to_dict(orient="records"),
+        }
+    )
+
+    non_default = df[df["scenario_id"] != "all-default"].copy()
+    if not non_default.empty:
+        flat_summary = (
+            non_default.groupby(["metric", "parameter_key"], dropna=False)["delta_abs"]
+            .apply(lambda values: float(pd.Series(values).abs().max(skipna=True)))
+            .reset_index(name="max_abs_delta")
+        )
+        flat_rows = flat_summary[flat_summary["max_abs_delta"].fillna(0.0) <= 1e-9]
+        report["flat_parameters"] = flat_rows.to_dict(orient="records")
+
+        sensitivity_summary = (
+            non_default.groupby(["metric", "scenario_id", "parameter_key"], dropna=False)["delta_abs"]
+            .apply(lambda values: float(pd.Series(values).abs().mean(skipna=True)))
+            .reset_index(name="mean_abs_delta")
+            .sort_values("mean_abs_delta", ascending=False)
+        )
+        report["top_sensitive_scenarios"] = sensitivity_summary.head(20).to_dict(orient="records")
+
+        network_rows = non_default[non_default["metric"] == "network_state_pct"].copy()
+        if not network_rows.empty:
+            scenario_flatness = (
+                network_rows.groupby("scenario_id")["delta_abs"]
+                .apply(lambda values: float(pd.Series(values).abs().max(skipna=True)))
+                .reset_index(name="max_abs_delta")
+            )
+            nearly_flat = scenario_flatness[scenario_flatness["max_abs_delta"].fillna(0.0) <= 1e-9]
+            if len(nearly_flat) >= max(3, int(len(scenario_flatness) * 0.8)):
+                report["alerts"].append(
+                    "Most network-state scenarios are flat after baseline merge; review whether the chosen scenarios truly affect service states."
+                )
+
+            binary_rows = network_rows[
+                network_rows["value"].fillna(-1).isin([0.0, 100.0])
+                & network_rows["baseline_value"].fillna(-1).isin([0.0, 100.0])
+            ]
+            if len(binary_rows) >= max(10, int(len(network_rows) * 0.8)):
+                report["alerts"].append(
+                    "Most network-state rows are binary (0 or 100%); validate whether the hazard/service state contract is expected to be all-or-nothing."
+                )
+
+    if any(status == "failed" for status in check_statuses):
+        report["status"] = "failed"
+    elif any(status == "warning" for status in check_statuses) or report["alerts"]:
+        report["status"] = "warning"
+
+    return report
+
+
+def summarize_parameter_traceability(parent_manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [parameter_traceability(None)]
+    seen: set[str] = set()
+    for scenario in parent_manifest.get("scenarios", []):
+        if not isinstance(scenario, dict):
+            continue
+        parameter_key = str(scenario.get("parameter_key") or "").strip()
+        if not parameter_key or parameter_key in seen:
+            continue
+        seen.add(parameter_key)
+        row = parameter_traceability(parameter_key)
+        row["scenario_ids"] = sorted(
+            str(item.get("scenario_id") or "")
+            for item in parent_manifest.get("scenarios", [])
+            if isinstance(item, dict) and str(item.get("parameter_key") or "").strip() == parameter_key
+        )
+        rows.append(row)
+    return rows
 
 
 def safe_filename(value: str) -> str:
@@ -464,6 +691,10 @@ def plot_curves(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     curves_dir = output_dir / "curves"
     curves_dir.mkdir(parents=True, exist_ok=True)
 
+    if df.empty:
+        return output_paths
+
+    df = df[df["metric"] == "impact_eur"].copy()
     if df.empty:
         return output_paths
 
@@ -605,7 +836,8 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     tornado_dir.mkdir(parents=True, exist_ok=True)
 
     scenario_df = df[
-        (df["scenario_id"] != "all-default")
+        (df["metric"] == "impact_eur")
+        & (df["scenario_id"] != "all-default")
         & df["delta_pct"].notna()
         & df["parameter_key"].notna()
         & (df["parameter_key"].astype(str) != "")
@@ -708,12 +940,114 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     return output_paths
 
 
+def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
+    output_paths: list[Path] = []
+    tornado_dir = output_dir / "tornado-network-states"
+    tornado_dir.mkdir(parents=True, exist_ok=True)
+
+    scenario_df = df[
+        (df["metric"] == "network_state_pct")
+        & (df["scenario_id"] != "all-default")
+        & df["delta_abs"].notna()
+        & df["parameter_key"].notna()
+        & (df["parameter_key"].astype(str) != "")
+    ].copy()
+
+    if scenario_df.empty:
+        return output_paths
+
+    scenario_df["scenario_display_label"] = scenario_df.apply(short_scenario_label, axis=1)
+
+    for (territory, hazard, service, network_metric), group in scenario_df.groupby(
+        ["territory", "hazard", "service", "network_metric"],
+        dropna=False,
+    ):
+        territory = str(territory or "unknown_territory")
+        hazard = str(hazard or "unknown_hazard")
+        service = str(service or "unknown_service")
+        network_metric = str(network_metric or "unknown_metric")
+
+        summary = (
+            group.groupby("scenario_id", as_index=False)
+            .agg(
+                scenario_display_label=("scenario_display_label", "first"),
+                delta_abs=("delta_abs", "mean"),
+            )
+        )
+        if summary.empty:
+            continue
+
+        summary["amplitude"] = summary["delta_abs"].abs()
+        summary = summary.sort_values("amplitude", ascending=True).tail(25)
+        y_positions = list(range(len(summary)))
+
+        fig, ax = plt.subplots(figsize=(12, max(4, 0.45 * len(summary) + 1)))
+        colors = [
+            "tab:blue" if value < 0 else "tab:orange"
+            for value in summary["delta_abs"]
+        ]
+
+        ax.barh(
+            y_positions,
+            summary["delta_abs"],
+            color=colors,
+        )
+
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(summary["scenario_display_label"])
+        ax.axvline(0, color="black", linewidth=0.8)
+        ax.set_xlabel("Variation vs baseline (points de pourcentage)")
+        ax.set_title(f"{service} | {NETWORK_METRICS.get(network_metric, network_metric)}")
+        ax.grid(True, axis="x", alpha=0.3)
+
+        for y_pos, (_, row) in zip(y_positions, summary.iterrows()):
+            delta_abs = float(row["delta_abs"])
+            label = f"{delta_abs:+.1f} pts"
+            if delta_abs >= 0:
+                ha = "left"
+                x_offset = 5
+            else:
+                ha = "right"
+                x_offset = -5
+
+            ax.annotate(
+                label,
+                xy=(delta_abs, y_pos),
+                xytext=(x_offset, 0),
+                textcoords="offset points",
+                va="center",
+                ha=ha,
+                fontsize=8,
+            )
+
+        legend_handles = [
+            Patch(color="tab:blue", label="Diminution"),
+            Patch(color="tab:orange", label="Augmentation"),
+        ]
+        ax.legend(
+            handles=legend_handles,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1),
+            borderaxespad=0,
+        )
+
+        fig.tight_layout(rect=[0, 0, 0.82, 1])
+        filename = safe_filename(f"tornado_network_states_{territory}_{hazard}_{service}_{network_metric}.png")
+        out_path = tornado_dir / filename
+        fig.savefig(out_path, dpi=160)
+        plt.close(fig)
+        output_paths.append(out_path)
+
+    return output_paths
+
+
 def write_run_summary(
     output_dir: Path,
     manifest_path: Path,
     parent_manifest: dict[str, Any],
     df: pd.DataFrame,
     graph_paths: list[Path],
+    quality_report: dict[str, Any],
 ) -> Path:
     summary_path = output_dir / "sensitivity-graphs-summary.json"
 
@@ -727,10 +1061,15 @@ def write_run_summary(
         "hazards": sorted(df["hazard"].dropna().unique().tolist()) if not df.empty else [],
         "return_periods": sorted(df["return_period"].dropna().unique().tolist()) if not df.empty else [],
         "excluded_scenario_ids": sorted(EXCLUDED_SCENARIO_IDS),
+        "quality_report": quality_report,
+        "parameter_traceability": summarize_parameter_traceability(parent_manifest),
         "graphs": [str(path) for path in graph_paths],
     }
 
-    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
     return summary_path
 
 
@@ -786,7 +1125,8 @@ def main() -> int:
     if df.empty:
         print("[warning] No scientific payload could be resolved from the sensitivity manifest/logs.")
         print("[warning] Check log_path, child_manifest_path, and complete-analysis JSON paths.")
-        summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, [])
+        quality_report = build_quality_report(df)
+        summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, [], quality_report)
         print(f"[info] Wrote summary: {summary_path}")
         return 2
 
@@ -799,12 +1139,21 @@ def main() -> int:
     graph_paths: list[Path] = []
     graph_paths.extend(plot_curves(df, output_dir))
     graph_paths.extend(plot_tornado(df, output_dir))
+    graph_paths.extend(plot_network_state_tornado(df, output_dir))
 
-    summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, graph_paths)
+    quality_report = build_quality_report(df)
+    summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, graph_paths, quality_report)
 
     print(f"[info] Graphs generated: {len(graph_paths)}")
     for path in graph_paths:
         print(f"[info]   {path}")
+    if quality_report.get("alerts"):
+        for alert in quality_report["alerts"]:
+            print(f"[warning] {alert}")
+    if quality_report.get("status") == "failed":
+        print("[error] Sensitivity graph quality checks failed. Review sensitivity-graphs-summary.json.")
+        print(f"[info] Wrote summary: {summary_path}")
+        return 3
 
     print(f"[info] Wrote summary: {summary_path}")
 

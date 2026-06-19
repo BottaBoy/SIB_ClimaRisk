@@ -21,19 +21,24 @@ except Exception:  # pragma: no cover
 from build_guadeloupe_hydraulic_zones import (
     GRAY_COLOR,
     METRIC_CRS,
+    _assign_zone_components,
     _build_zone_polygons,
     _categorized_qml,
     _clean_text,
     _embed_qml_styles_in_gpkg,
     _fill_symbol_xml,
     _line_symbol_xml,
+    _load_population_areas,
     _marker_symbol_xml,
     _normalize_text,
+    _refresh_combined_rework_registry,
+    _rework_registry_table,
     _representative_point,
     _require_geo_deps,
     _stable_color,
     _summary_table,
     _valid_geometries,
+    _write_rework_registry,
     _zone_style_categories,
 )
 
@@ -44,10 +49,13 @@ OUTPUT_DIR = REPO_ROOT / "outputs" / "hydraulic_zoning"
 AEP_OUTPUT_GPKG = OUTPUT_DIR / "martinique_aep_hydraulic_zones_estimate.gpkg"
 AEP_OUTPUT_SUMMARY = OUTPUT_DIR / "martinique_aep_hydraulic_zones_estimate.md"
 AEP_OUTPUT_CSV = OUTPUT_DIR / "martinique_aep_hydraulic_zones_estimate_summary.csv"
+AEP_OUTPUT_REWORK_REGISTRY = OUTPUT_DIR / "martinique_aep_hydraulic_zones_estimate_rework_registry.csv"
 
 MIXED_OUTPUT_GPKG = OUTPUT_DIR / "martinique_water_systems_estimate.gpkg"
 MIXED_OUTPUT_SUMMARY = OUTPUT_DIR / "martinique_water_systems_estimate.md"
 MIXED_OUTPUT_CSV = OUTPUT_DIR / "martinique_water_systems_estimate_summary.csv"
+MIXED_OUTPUT_REWORK_REGISTRY = OUTPUT_DIR / "martinique_water_systems_estimate_rework_registry.csv"
+MTQ_POPULATION_RASTER = Path("/home/ubuntu/uploads/Population/mtq_pop_2020_CN_100m_R2025A_v1.tif")
 
 AEP_LINE_SOURCES = [
     {
@@ -129,13 +137,13 @@ EU_LINE_SOURCES = [
     },
 ]
 
-MAX_AEP_NEAREST_MANAGER_COMMUNE_M = 2500.0
-MAX_AEP_NEAREST_MANAGER_M = 6000.0
-MAX_AEP_NEAREST_ANY_M = 12000.0
+MAX_AEP_NEAREST_MANAGER_COMMUNE_M = 1800.0
+MAX_AEP_NEAREST_MANAGER_M = 3500.0
+MAX_AEP_NEAREST_ANY_M = 7000.0
 
-MAX_EU_NEAREST_COMMUNE_M = 5000.0
-MAX_EU_NEAREST_TERRITORY_M = 15000.0
-MAX_EU_NEAREST_ANY_M = 30000.0
+MAX_EU_NEAREST_COMMUNE_M = 3500.0
+MAX_EU_NEAREST_TERRITORY_M = 8000.0
+MAX_EU_NEAREST_ANY_M = 12000.0
 
 
 def _existing_path(primary: Path, fallback: Path | None = None) -> Path:
@@ -843,6 +851,9 @@ def _line_columns() -> list[str]:
         "commune",
         "commune_code",
         "zone_uid",
+        "geometry_part_id",
+        "zone_component_key",
+        "zone_component_label",
         "zone_name",
         "zone_label",
         "zone_color",
@@ -888,6 +899,9 @@ def _shared_asset_columns(gdf: gpd.GeoDataFrame) -> list[str]:
             "asset_type_code",
             "asset_subtype_code",
             "zone_uid",
+            "geometry_part_id",
+            "zone_component_key",
+            "zone_component_label",
             "zone_name",
             "zone_label",
             "zone_color",
@@ -906,7 +920,11 @@ def _shared_asset_columns(gdf: gpd.GeoDataFrame) -> list[str]:
 
 def _polygon_columns() -> list[str]:
     return [
+        "zone_fid",
         "zone_uid",
+        "geometry_part_id",
+        "zone_component_key",
+        "zone_component_label",
         "zone_name",
         "zone_label",
         "zone_color",
@@ -934,20 +952,21 @@ def _write_qgis_styles(base_output_gpkg: Path, layer_defs: dict[str, tuple[gpd.G
     qml_map: dict[str, str] = {}
     for layer_name, (gdf, style_kind) in layer_defs.items():
         categories = _zone_style_categories(gdf)
+        style_attr = "zone_component_key" if "zone_component_key" in gdf.columns and gdf["zone_component_key"].notna().any() else "zone_uid"
         if style_kind == "fill":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=2, categories=categories, symbol_xml_builder=_fill_symbol_xml)
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=2, categories=categories, symbol_xml_builder=_fill_symbol_xml)
         elif style_kind == "line":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=1, categories=categories, symbol_xml_builder=_line_symbol_xml)
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=1, categories=categories, symbol_xml_builder=_line_symbol_xml)
         elif style_kind == "captage":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="cross_fill", size_mm=7.5))
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="cross_fill", size_mm=7.5))
         elif style_kind == "upep":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="triangle", size_mm=6.0))
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="triangle", size_mm=6.0))
         elif style_kind == "pr":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="diamond", size_mm=5.5))
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="diamond", size_mm=5.5))
         elif style_kind == "step":
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="square", size_mm=5.8))
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="square", size_mm=5.8))
         else:
-            qml_map[layer_name] = _categorized_qml(attr="zone_uid", geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="circle", size_mm=4.0))
+            qml_map[layer_name] = _categorized_qml(attr=style_attr, geometry_type=0, categories=categories, symbol_xml_builder=lambda name, color: _marker_symbol_xml(name, color, marker_name="circle", size_mm=4.0))
         style_paths[layer_name].write_text(qml_map[layer_name] + "\n", encoding="utf-8")
     _embed_qml_styles_in_gpkg(base_output_gpkg, qml_map)
     return style_paths
@@ -957,6 +976,7 @@ def _write_bundle(
     output_gpkg: Path,
     output_summary: Path,
     output_csv: Path,
+    output_registry: Path,
     lines: gpd.GeoDataFrame,
     assets: gpd.GeoDataFrame,
     polygons: gpd.GeoDataFrame,
@@ -984,6 +1004,9 @@ def _write_bundle(
 
     zone_summary = _summary_table(lines, assets, polygons)
     zone_summary.to_csv(output_csv, index=False, quoting=csv.QUOTE_MINIMAL)
+    rework_registry = _rework_registry_table("martinique", output_gpkg.stem, zone_summary)
+    _write_rework_registry(output_registry, rework_registry)
+    _refresh_combined_rework_registry()
 
     method_counts = (
         assets.groupby(["network_kind", "method"], dropna=False)
@@ -1063,19 +1086,32 @@ def _write_bundle(
     output_summary.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
 
 
-def build_outputs(mode: str) -> None:
+def build_outputs(mode: str, output_dir: Path = OUTPUT_DIR) -> None:
     _require_geo_deps()
     warnings.filterwarnings("ignore", message="GeoSeries.notna", category=UserWarning)
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+    aep_output_gpkg = output_dir / AEP_OUTPUT_GPKG.name
+    aep_output_summary = output_dir / AEP_OUTPUT_SUMMARY.name
+    aep_output_csv = output_dir / AEP_OUTPUT_CSV.name
+    mixed_output_gpkg = output_dir / MIXED_OUTPUT_GPKG.name
+    mixed_output_summary = output_dir / MIXED_OUTPUT_SUMMARY.name
+    mixed_output_csv = output_dir / MIXED_OUTPUT_CSV.name
+
     aep_lines, aep_lines_metric, aep_lookup = _load_martinique_aep_lines()
     aep_assets, aep_captages, aep_upep = _load_martinique_aep_assets(aep_lookup)
-    aep_polygons = _build_zone_polygons(aep_lines_metric, aep_assets)
+    aep_lines, aep_assets, _ = _assign_zone_components(aep_lines, aep_assets)
+    aep_captages = aep_assets[aep_assets["feature_role"] == "captage_aep"].copy()
+    aep_upep = aep_assets[aep_assets["feature_role"] == "upep_aep"].copy()
+    aep_population_areas = _load_population_areas(MTQ_POPULATION_RASTER, aep_lines)
+    aep_polygons = _build_zone_polygons(aep_lines, aep_assets, population_areas=aep_population_areas)
 
     if mode in {"aep", "both"}:
         _write_bundle(
-            AEP_OUTPUT_GPKG,
-            AEP_OUTPUT_SUMMARY,
-            AEP_OUTPUT_CSV,
+            aep_output_gpkg,
+            aep_output_summary,
+            aep_output_csv,
+            AEP_OUTPUT_REWORK_REGISTRY,
             aep_lines,
             aep_assets,
             aep_polygons,
@@ -1108,22 +1144,24 @@ def build_outputs(mode: str) -> None:
         eu_lines = _load_eu_lines(eu_system_assets)
 
         mixed_lines = gpd.GeoDataFrame(pd.concat([aep_lines, eu_lines], ignore_index=True), geometry="geometry", crs=METRIC_CRS)
-        mixed_lines_metric = mixed_lines.to_crs(METRIC_CRS)
         mixed_assets = gpd.GeoDataFrame(pd.concat([aep_assets, step_public, pr_assets], ignore_index=True), geometry="geometry", crs=METRIC_CRS)
-        mixed_polygons = _build_zone_polygons(mixed_lines_metric, mixed_assets)
+        mixed_lines, mixed_assets, _ = _assign_zone_components(mixed_lines, mixed_assets)
+        mixed_population_areas = _load_population_areas(MTQ_POPULATION_RASTER, mixed_lines)
+        mixed_polygons = _build_zone_polygons(mixed_lines, mixed_assets, population_areas=mixed_population_areas)
 
         _write_bundle(
-            MIXED_OUTPUT_GPKG,
-            MIXED_OUTPUT_SUMMARY,
-            MIXED_OUTPUT_CSV,
+            mixed_output_gpkg,
+            mixed_output_summary,
+            mixed_output_csv,
+            MIXED_OUTPUT_REWORK_REGISTRY,
             mixed_lines,
             mixed_assets,
             mixed_polygons,
             {
-                "hydraulic_captages": aep_captages,
-                "hydraulic_upep": aep_upep,
-                "hydraulic_pr": pr_assets[pr_assets["zone_uid"].notna()].copy(),
-                "hydraulic_step": step_public.copy(),
+                "hydraulic_captages": mixed_assets[mixed_assets["feature_role"] == "captage_aep"].copy(),
+                "hydraulic_upep": mixed_assets[mixed_assets["feature_role"] == "upep_aep"].copy(),
+                "hydraulic_pr": mixed_assets[(mixed_assets["feature_role"] == "poste_refoulement") & mixed_assets["zone_uid"].notna()].copy(),
+                "hydraulic_step": mixed_assets[mixed_assets["feature_role"] == "step"].copy(),
             },
             {
                 "hydraulic_captages": "captage",
@@ -1150,9 +1188,10 @@ def build_outputs(mode: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build Martinique AEP and mixed water zoning estimates for QGIS.")
     parser.add_argument("--mode", choices=["aep", "mixed", "both"], default="both")
+    parser.add_argument("--output-subdir", type=str, default="", help="Optional subdirectory under outputs/hydraulic_zoning for GPKG/QML/summary outputs")
     args = parser.parse_args()
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    build_outputs(args.mode)
+    output_dir = OUTPUT_DIR / args.output_subdir if args.output_subdir else OUTPUT_DIR
+    build_outputs(args.mode, output_dir=output_dir)
 
 
 if __name__ == "__main__":

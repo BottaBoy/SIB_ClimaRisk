@@ -399,6 +399,7 @@ class TestSocialImpactSummaryPayload:
         assert payload["social_impact_summary_key"] == SOCIAL_IMPACT_SUMMARY_KEY
         assert payload["social_impact_summary_legacy_aliases"] == ["social_impact_worst_case_summary"]
         assert payload[SOCIAL_IMPACT_POPULATION_STATE_DISTRIBUTION_KEY] == distribution
+        assert payload["state_aggregation_metadata"] == {}
 
 
 if __name__ == "__main__":

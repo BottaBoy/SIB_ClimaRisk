@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-20T13:42:46.403702+00:00",
+  "generated_at": "2026-06-15T13:25:53.976809+00:00",
   "source_workbook": "/home/ubuntu/uploads/Sensibility analysis/Analyses sensibilité_2.xlsx",
   "source_sheet": "Variable to modify for sensibil",
   "variables": [
@@ -28,12 +28,12 @@
       "category": "Vulnerabilite",
       "parameter_key": "runoff_coeff",
       "parameter_label": "runoff_coeff",
-      "current_value": "profil par classe, echelle globale 0.25",
-      "role": "Pluie : convertit la profondeur D2 en courbe pluie proxy en mm_proxy avec un profil de ruissellement par classe d'infrastructure",
+      "current_value": "0.25 unique",
+      "role": "Pluie : convertit la profondeur D2 en courbe pluie proxy en mm_proxy",
       "priority": "Tres haute",
       "robustness": "Faible",
-      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py",
-      "recommended_action": "sensibilite prioritaire sur le facteur global et calage terrain du profil par classe",
+      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py:217",
+      "recommended_action": "sensibilite prioritaire et calage terrain",
       "test_values_raw": "0,1-0,5",
       "test_values": [
         "0,1",
@@ -131,12 +131,9 @@
         "0% / 20% / 50% / 100%",
         "0% / 5% / 10% / 15%"
       ],
-      "default_pack_test_values": [
-        "0% / 20% / 50% / 100%",
-        "0% / 5% / 10% / 15%"
-      ],
+      "default_pack_test_values": [],
       "run_count": 2,
-      "default_pack_run_count": 2,
+      "default_pack_run_count": 0,
       "execution_tier": "postprocess_rerun"
     },
     {

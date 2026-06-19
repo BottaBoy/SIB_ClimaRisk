@@ -10,7 +10,9 @@ server {
         auth_basic off;
     }
 
-    return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    location / {
+        return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    }
 }
 
 server {
@@ -39,7 +41,9 @@ server {
         auth_basic off;
     }
 
-    return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    location / {
+        return 301 https://visu.sib.dev.elio.bottagisio.com$request_uri;
+    }
 
     location ~ /\.ht {
         deny all;

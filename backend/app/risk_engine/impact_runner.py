@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from ..config import Settings, load_settings
 from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
-from .exposure_to_climada import build_climada_exposure, validate_exposure_geometry_contract
+from .exposure_to_climada import ClimadaExposureBundle, build_climada_exposure, validate_exposure_geometry_contract
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
 from .population_loader import load_population_data, get_population_for_cell
@@ -592,6 +592,38 @@ def _network_state_plausibility_warnings(
     return warnings
 
 
+def _attach_service_state_aliases(payload: dict[str, Any]) -> dict[str, Any]:
+    native_states = payload.get("network_states_native")
+    projected_states = payload.get("network_states_projected")
+    projected_coverage = payload.get("network_states_projected_coverage")
+    if isinstance(native_states, dict):
+        payload["native_service_states"] = native_states
+    if isinstance(projected_states, dict):
+        payload["population_projected_service_states"] = projected_states
+    if isinstance(projected_coverage, dict):
+        payload["population_projected_service_states_coverage"] = projected_coverage
+    return payload
+
+
+def prepare_climada_exposure_bundle(
+    exposure: NormalizedExposure,
+    disagg: DisaggregationSummary,
+    settings: Settings,
+) -> ClimadaExposureBundle:
+    wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
+    return build_climada_exposure(
+        exposure,
+        spacing_m=float(disagg.spacing_m),
+        metric_crs=settings.climada_metric_crs,
+        max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
+        territory_grid_deg=float(settings.territory_grid_deg),
+        impact_func_id_resolver=lambda asset_type: resolve_tc_impact_func_id(
+            asset_type,
+            asset_type_to_curve_code=wind_asset_mapping,
+        ),
+    )
+
+
 def _compute_impacts_climada(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
@@ -600,6 +632,7 @@ def _compute_impacts_climada(
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
     resume_dynamic_hazard_point_cap: int | None = None,
+    prebuilt_bundle: ClimadaExposureBundle | None = None,
 ) -> ImpactComputationResult:
     wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
     flood_asset_mapping = dict(settings.flood_asset_type_to_curve_code or {}) or None
@@ -625,17 +658,7 @@ def _compute_impacts_climada(
         "S3": float(settings.interdependency_uplift_s3),
     }
 
-    bundle = build_climada_exposure(
-        exposure,
-        spacing_m=float(disagg.spacing_m),
-        metric_crs=settings.climada_metric_crs,
-        max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
-        territory_grid_deg=float(settings.territory_grid_deg),
-        impact_func_id_resolver=lambda asset_type: resolve_tc_impact_func_id(
-            asset_type,
-            asset_type_to_curve_code=wind_asset_mapping,
-        ),
-    )
+    bundle = prebuilt_bundle or prepare_climada_exposure_bundle(exposure, disagg, settings)
     climada = run_climada_direct_impacts(
         bundle,
         hazard_storm_path=settings.hazard_storm_path,
@@ -848,6 +871,7 @@ def _compute_impacts_climada(
             "storm_cmcc_top_events": _scale_top_events(cmcc_direct_metrics.top_events, cmcc_scaler),
         },
     }
+    portfolio_results = _attach_service_state_aliases(portfolio_results)
 
     graphs = _build_climada_graphs(climada, aggregated.dependency_scaler_by_hazard, portfolio_results)
     notes = [
@@ -934,6 +958,7 @@ def _compute_impacts_climada(
                         ).items()
                     }
             tr["state_aggregation_metadata"] = aggregated.state_aggregation_metadata
+            _attach_service_state_aliases(tr)
 
         enriched_territory_results.append(tr)
     
@@ -1333,6 +1358,7 @@ def compute_impacts(
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
     resume_dynamic_hazard_point_cap: int | None = None,
+    prebuilt_bundle: ClimadaExposureBundle | None = None,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
     if bool(runtime_settings.allow_climada_fallback):
@@ -1362,4 +1388,5 @@ def compute_impacts(
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
         resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
+        prebuilt_bundle=prebuilt_bundle,
     )

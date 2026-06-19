@@ -506,6 +506,55 @@ def test_overlay_complete_analysis_service_states_on_public_map_promotes_p99_wat
     assert hazard_feature_states["storm"]["annual"]["AEP_SECT_001"] == "S0"
 
 
+def test_aggregate_native_service_states_keeps_hydraulic_native_step_assets() -> None:
+    bundle = build_guadeloupe_page1_data.ClimadaExposureBundle(
+        exposures=None,
+        point_records=[
+            {
+                "asset_type": "eau_eu_step",
+                "feature_id": "eu-step-43",
+                "service_feature_id": "hydraulic-native:eu-step-43",
+                "territory_id": "cell-+16.00_-61.80",
+                "lat": 16.0,
+                "lon": -61.8,
+                "infra_class": "eau_ouvrage",
+                "feature_role": "step",
+            }
+        ],
+        metric_crs="EPSG:3857",
+        warnings=[],
+    )
+    hazard_outputs = {
+        hazard_key: {
+            "scenario_results": {
+                scenario: {
+                    "total_loss": np.array([20.0]),
+                    "direct_state": np.array(["S2"], dtype=object),
+                    "final_state": np.array(["S2"], dtype=object),
+                }
+                for scenario in build_guadeloupe_page1_data.MAP_SCENARIOS
+            }
+        }
+        for hazard_key in ("storm", "storm_cmcc")
+    }
+
+    native_states, electric_unit_ids = build_guadeloupe_page1_data._aggregate_native_service_states_for_public_map(
+        bundle=bundle,
+        values=np.array([100.0]),
+        class_keys=[None],
+        water_service_classes=["eau_eu"],
+        service_feature_ids=["hydraulic-native:eu-step-43"],
+        is_blocking_asset=[True],
+        weights_km=np.array([0.0]),
+        hazard_outputs=hazard_outputs,
+    )
+
+    assert electric_unit_ids == set()
+    for hazard_key in ("storm", "storm_cmcc"):
+        for scenario in build_guadeloupe_page1_data.PUBLIC_MAP_SCENARIOS:
+            assert native_states[hazard_key][scenario]["hydraulic-native:eu-step-43"] == "S2"
+
+
 def test_public_state_feature_id_uses_hydraulic_service_key_for_water() -> None:
     assert build_guadeloupe_page1_data._public_state_feature_id(
         {

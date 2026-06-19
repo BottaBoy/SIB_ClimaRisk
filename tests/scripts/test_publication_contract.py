@@ -532,6 +532,38 @@ def test_repair_manifest_status_after_frontend_snapshot_promotes_complete_run() 
     assert "reconcile_reason" not in manifest
 
 
+def test_snapshot_run_web_artifacts_clears_stale_frontend_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+    )
+    manifest_path = outputs_dir / run_id / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["frontend_artifacts"] = {
+        "status": "failed",
+        "territories": ["guadeloupe"],
+        "error": "stale frontend failure",
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    run_web_artifacts.snapshot_run_web_artifacts(
+        run_id,
+        ["guadeloupe"],
+        source_web_dir=web_dir,
+    )
+
+    repaired_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frontend_artifacts = repaired_manifest["frontend_artifacts"]
+    assert frontend_artifacts["status"] == "complete"
+    assert "error" not in frontend_artifacts
+
+
 def test_build_staging_web_dir_rejects_low_track_run_for_publication(monkeypatch, tmp_path: Path) -> None:
     run_id = "20260512_080434"
     outputs_dir = tmp_path / "outputs" / "complete-analysis-runs"

@@ -16,6 +16,11 @@ HEALTH_WEIGHTS_BY_STATE = {"S1": 0.3, "S2": 0.7, "S3": 1.0}
 DEPENDENCY_STATE_THRESHOLDS = {"S1": 0.75, "S2": 0.55, "S3": 0.35}
 UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
 SERVICE_NAMES = ("elec", "water_aep", "water_eu")
+ELECTRIC_NATIVE_GRID_DEG = 0.1
+WATER_BLOCKING_ROLES_BY_SERVICE = {
+    "water_aep": frozenset({"captage_aep", "upep_aep", "pompage_aep"}),
+    "water_eu": frozenset({"step", "poste_refoulement"}),
+}
 
 
 @dataclass
@@ -29,6 +34,11 @@ class InterdependencyAggregationResult:
     detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = None  # [hazard][territory][infra_classname] -> state
     cell_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = None
     cell_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = None
+    native_service_states_by_hazard: dict[str, dict[str, dict[str, dict[str, Any]]]] = None
+    projected_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = None
+    projected_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = None
+    projected_service_units_by_territory: dict[str, dict[str, dict[str, str]]] = None
+    state_aggregation_metadata: dict[str, Any] = None
 
 
 def _new_state_bucket() -> dict[str, float]:
@@ -49,6 +59,38 @@ def _new_service_state_map() -> dict[str, str]:
 
 def _new_service_coverage_map() -> dict[str, bool]:
     return {service: False for service in SERVICE_NAMES}
+
+
+def _new_native_service_metric_bucket() -> dict[str, float]:
+    return {
+        "exposure": 0.0,
+        "direct_max_loss": 0.0,
+        "asset_count": 0.0,
+        "exposed_asset_count": 0.0,
+    }
+
+
+def _new_native_service_metric_map() -> dict[str, dict[str, float]]:
+    return {service: _new_native_service_metric_bucket() for service in SERVICE_NAMES}
+
+
+def _grid_cell_id(lat: Any, lon: Any, step_deg: float) -> str | None:
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return None
+    lat_bin = round(float(lat) / step_deg) * step_deg
+    lon_bin = round(float(lon) / step_deg) * step_deg
+    return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}"
+
+
+def _parse_cell_id_center(cell_id: str) -> tuple[float | None, float | None]:
+    text = str(cell_id or "").strip()
+    if not text.startswith("cell-") or "_" not in text:
+        return None, None
+    try:
+        lat_txt, lon_txt = text[5:].split("_", 1)
+        return float(lat_txt), float(lon_txt)
+    except ValueError:
+        return None, None
 
 
 def _bucket_add_state(bucket: dict[str, float], *, state: str, weight: float) -> None:
@@ -181,6 +223,39 @@ def _infra_class_to_standardized_name(infra_class: str, *, asset_type: str | Non
     return "other"
 
 
+def _water_service_feature_id(rec: dict[str, Any]) -> str | None:
+    for key in ("service_feature_id", "zone_component_key"):
+        value = str(rec.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _water_feature_role(rec: dict[str, Any]) -> str:
+    return str(rec.get("feature_role") or "").strip().lower()
+
+
+def _is_water_network_record(rec: dict[str, Any], *, infra_class: str) -> bool:
+    infra_class_lower = str(infra_class or "").strip().lower()
+    if infra_class_lower == "eau_reseau":
+        return True
+    if _water_feature_role(rec) == "canalisation":
+        return True
+    asset_type = str(rec.get("asset_type") or "").strip().lower()
+    return asset_type in {"eau_aep_cana", "eau_eu_cana"}
+
+
+def _is_blocking_water_asset(
+    rec: dict[str, Any],
+    *,
+    infra_standardized_name: str,
+    infra_class: str,
+) -> bool:
+    if str(infra_class or "").strip().lower() != "eau_ouvrage":
+        return False
+    return _water_feature_role(rec) in WATER_BLOCKING_ROLES_BY_SERVICE.get(infra_standardized_name, frozenset())
+
+
 def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     r = 6371.0088
     lat1r = math.radians(lat1)
@@ -247,6 +322,28 @@ def _summarize_component_health(
     return out
 
 
+def _build_native_service_state_row(
+    *,
+    service: str,
+    service_unit_id: str,
+    degraded_share: float,
+    state: str,
+    state_basis: str,
+    asset_count: float,
+    exposed_asset_count: float,
+) -> dict[str, Any]:
+    return {
+        "service_unit_id": str(service_unit_id),
+        "service": str(service),
+        "network_metric": "service_state",
+        "degraded_share": round(max(0.0, degraded_share), 6),
+        "state": str(state),
+        "state_basis": str(state_basis),
+        "asset_count": int(asset_count),
+        "exposed_asset_count": int(exposed_asset_count),
+    }
+
+
 def aggregate_impacts_with_interdependency(
     *,
     point_records: list[dict[str, Any]],
@@ -262,6 +359,7 @@ def aggregate_impacts_with_interdependency(
     effective_health_weights = _coerce_health_weights(health_weights_by_state)
     effective_dependency_thresholds = _coerce_dependency_state_thresholds(dependency_state_thresholds)
     effective_uplift = _coerce_uplift_by_state(uplift_by_state)
+    disabled_uplift = {state: 0.0 for state in effective_uplift}
     elec_classes = {"elec_aerien", "elec_souterrain"}
     water_classes = {"eau_reseau", "eau_ouvrage"}
 
@@ -270,16 +368,26 @@ def aggregate_impacts_with_interdependency(
     }
     elec_global_bucket: dict[str, dict[str, float]] = {hazard: _new_state_bucket() for hazard in hazard_keys}
     elec_territory_loc_acc: dict[str, dict[str, float]] = {}
-    service_loss_by_hazard: dict[str, dict[str, dict[str, dict[str, float]]]] = {
-        hazard: defaultdict(_new_service_loss_map) for hazard in hazard_keys
+    native_service_metrics_by_hazard: dict[str, dict[str, dict[str, dict[str, float]]]] = {
+        hazard: defaultdict(_new_native_service_metric_map) for hazard in hazard_keys
     }
+    native_service_loc_acc_by_hazard: dict[str, dict[str, dict[str, dict[str, float]]]] = {
+        hazard: defaultdict(lambda: defaultdict(lambda: {"lat_sum": 0.0, "lon_sum": 0.0, "count": 0.0}))
+        for hazard in hazard_keys
+    }
+    dominant_water_unit_by_territory: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(float))
+    )
+    dominant_elec_unit_by_territory: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
     for idx, rec in enumerate(point_records):
         value = max(0.0, float(rec.get("value_eur", 0.0)))
         infra_class = str(rec.get("infra_class") or "habitation")
         if infra_class not in elec_classes:
             continue
-        territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
+        territory_id = _grid_cell_id(rec.get("lat"), rec.get("lon"), ELECTRIC_NATIVE_GRID_DEG) or str(
+            rec.get("territory_id") or "uploaded-aggregate"
+        )
         lat = rec.get("lat")
         lon = rec.get("lon")
         if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
@@ -333,6 +441,78 @@ def aggregate_impacts_with_interdependency(
         for hazard in hazard_keys
     }
 
+    point_state_rows_by_hazard: dict[str, list[dict[str, Any]]] = {
+        hazard: [{} for _ in point_records]
+        for hazard in hazard_keys
+    }
+    blocking_service_state_by_hazard: dict[str, dict[str, str]] = {
+        hazard: {}
+        for hazard in hazard_keys
+    }
+
+    for idx, rec in enumerate(point_records):
+        territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
+        lat = rec.get("lat")
+        lon = rec.get("lon")
+        infra_class = str(rec.get("infra_class") or "habitation")
+        value = max(0.0, float(rec.get("value_eur", 0.0)))
+        infra_std_name = _infra_class_to_standardized_name(
+            infra_class,
+            asset_type=str(rec.get("asset_type") or ""),
+        )
+        service_feature_id = _water_service_feature_id(rec) if infra_class in water_classes else None
+        is_service_network = _is_water_network_record(rec, infra_class=infra_class) if infra_class in water_classes else False
+        is_blocking_asset = _is_blocking_water_asset(
+            rec,
+            infra_standardized_name=infra_std_name,
+            infra_class=infra_class,
+        ) if infra_class in water_classes else False
+        electric_native_unit_id = _grid_cell_id(lat, lon, ELECTRIC_NATIVE_GRID_DEG) or territory_id
+        if infra_std_name == "elec":
+            dominant_elec_unit_by_territory[territory_id][electric_native_unit_id] += value
+        elif infra_std_name in {"water_aep", "water_eu"}:
+            dominant_water_unit_id = str(service_feature_id or territory_id)
+            dominant_water_unit_by_territory[territory_id][infra_std_name][dominant_water_unit_id] += value
+
+        for hazard in hazard_keys:
+            direct_eai = min(value, max(0.0, float(hazard_direct_eai[hazard][idx])))
+            direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
+            direct_ratio = direct_max_loss / max(value, 1.0)
+            direct_state = _state_from_damage_ratio(direct_ratio, state_thresholds=effective_state_thresholds)
+            final_state = direct_state
+
+            if infra_class in water_classes:
+                elec_health, source = _resolve_electric_health(
+                    hazard=hazard,
+                    territory_id=territory_id,
+                    lat=lat,
+                    lon=lon,
+                    elec_health_by_territory=elec_health_by_territory,
+                    elec_health_global=elec_health_global,
+                    elec_territory_centroids=elec_territory_centroids,
+                )
+                health_resolution_by_hazard[hazard][source] += 1
+                dependency_state = _dependency_state_from_elec_health(
+                    elec_health,
+                    dependency_state_thresholds=effective_dependency_thresholds,
+                )
+                if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
+                    final_state = dependency_state
+
+            point_state_rows_by_hazard[hazard][idx] = {
+                "direct_eai": direct_eai,
+                "direct_max_loss": direct_max_loss,
+                "direct_state": direct_state,
+                "final_state": final_state,
+                "infra_standardized_name": infra_std_name,
+                "service_feature_id": service_feature_id,
+                "is_service_network": is_service_network,
+                "electric_native_unit_id": electric_native_unit_id,
+            }
+
+            if is_blocking_asset and service_feature_id and STATE_ORDER[final_state] > STATE_ORDER[blocking_service_state_by_hazard[hazard].get(service_feature_id, "S0")]:
+                blocking_service_state_by_hazard[hazard][service_feature_id] = final_state
+
     for idx, rec in enumerate(point_records):
         territory_id = str(rec.get("territory_id") or "uploaded-aggregate")
         territory_label = str(rec.get("territory_label") or "Uploaded Exposure (aggregate)")
@@ -372,6 +552,12 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": str(rec.get("label") or feature_id),
                 "geometry_type": str(rec.get("geometry_type") or "Unknown"),
                 "asset_type": str(rec.get("asset_type") or ""),
+                "service_feature_id": str(rec.get("service_feature_id") or rec.get("zone_component_key") or ""),
+                "zone_component_key": str(rec.get("zone_component_key") or rec.get("service_feature_id") or ""),
+                "zone_uid": str(rec.get("zone_uid") or ""),
+                "network_kind": str(rec.get("network_kind") or ""),
+                "feature_role": str(rec.get("feature_role") or ""),
+                "criticality": str(rec.get("criticality") or ""),
                 "uses_default_value": bool(rec.get("uses_default_value")),
                 "valuation_source": str(rec.get("valuation_source") or ""),
                 "valuation_version": str(rec.get("valuation_version") or ""),
@@ -392,44 +578,54 @@ def aggregate_impacts_with_interdependency(
             asset_row["valuation_version"] = str(rec.get("valuation_version") or "")
         if asset_row.get("default_value_eur") is None and rec.get("default_value_eur") is not None:
             asset_row["default_value_eur"] = rec.get("default_value_eur")
+        if not asset_row.get("service_feature_id") and (rec.get("service_feature_id") or rec.get("zone_component_key")):
+            asset_row["service_feature_id"] = str(rec.get("service_feature_id") or rec.get("zone_component_key") or "")
+        if not asset_row.get("zone_component_key") and (rec.get("zone_component_key") or rec.get("service_feature_id")):
+            asset_row["zone_component_key"] = str(rec.get("zone_component_key") or rec.get("service_feature_id") or "")
+        if not asset_row.get("zone_uid") and rec.get("zone_uid"):
+            asset_row["zone_uid"] = str(rec.get("zone_uid") or "")
+        if not asset_row.get("network_kind") and rec.get("network_kind"):
+            asset_row["network_kind"] = str(rec.get("network_kind") or "")
+        if not asset_row.get("feature_role") and rec.get("feature_role"):
+            asset_row["feature_role"] = str(rec.get("feature_role") or "")
+        if not asset_row.get("criticality") and rec.get("criticality"):
+            asset_row["criticality"] = str(rec.get("criticality") or "")
         asset_row["exposure_eur"] += value
 
         for hazard in hazard_keys:
-            direct_eai = min(value, max(0.0, float(hazard_direct_eai[hazard][idx])))
-            direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
-            direct_ratio = direct_max_loss / max(value, 1.0)
-            direct_state = _state_from_damage_ratio(direct_ratio, state_thresholds=effective_state_thresholds)
-            final_state = direct_state
+            state_row = point_state_rows_by_hazard[hazard][idx]
+            direct_eai = float(state_row["direct_eai"])
+            direct_max_loss = float(state_row["direct_max_loss"])
+            direct_state = str(state_row["direct_state"])
+            final_state = str(state_row["final_state"])
             indirect_eai = 0.0
-            infra_std_name = _infra_class_to_standardized_name(
-                infra_class,
-                asset_type=str(rec.get("asset_type") or ""),
-            )
+            infra_std_name = str(state_row["infra_standardized_name"])
+            service_feature_id = state_row.get("service_feature_id")
 
             if infra_std_name != "other":
-                service_loss_bucket = service_loss_by_hazard[hazard][territory_id][infra_std_name]
+                if infra_std_name == "elec":
+                    native_unit_id = str(state_row.get("electric_native_unit_id") or territory_id)
+                else:
+                    native_unit_id = str(service_feature_id or territory_id)
+                service_loss_bucket = native_service_metrics_by_hazard[hazard][native_unit_id][infra_std_name]
                 service_loss_bucket["exposure"] += value
                 service_loss_bucket["direct_max_loss"] += direct_max_loss
+                service_loss_bucket["asset_count"] += 1.0
+                if direct_max_loss > 0.0:
+                    service_loss_bucket["exposed_asset_count"] += 1.0
+                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                    loc_acc = native_service_loc_acc_by_hazard[hazard][infra_std_name][native_unit_id]
+                    loc_acc["lat_sum"] += float(lat)
+                    loc_acc["lon_sum"] += float(lon)
+                    loc_acc["count"] += 1.0
 
-            if infra_class in water_classes:
-                elec_health, source = _resolve_electric_health(
-                    hazard=hazard,
-                    territory_id=territory_id,
-                    lat=lat,
-                    lon=lon,
-                    elec_health_by_territory=elec_health_by_territory,
-                    elec_health_global=elec_health_global,
-                    elec_territory_centroids=elec_territory_centroids,
-                )
-                health_resolution_by_hazard[hazard][source] += 1
-                dependency_state = _dependency_state_from_elec_health(
-                    elec_health,
-                    dependency_state_thresholds=effective_dependency_thresholds,
-                )
-                if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
-                    dependency_impacted_feature_hazard.add((feature_id, hazard))
-                    final_state = dependency_state
-                indirect_eai = max(0.0, direct_eai * effective_uplift[dependency_state])
+            if bool(state_row.get("is_service_network")) and service_feature_id:
+                blocker_state = blocking_service_state_by_hazard[hazard].get(str(service_feature_id))
+                if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[final_state]:
+                    final_state = blocker_state
+
+            if STATE_ORDER[final_state] > STATE_ORDER[direct_state]:
+                dependency_impacted_feature_hazard.add((feature_id, hazard))
 
             total_eai = min(value, direct_eai + indirect_eai)
             indirect_eai = max(0.0, total_eai - direct_eai)
@@ -518,6 +714,12 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "service_feature_id": str(row.get("service_feature_id") or ""),
+                "zone_component_key": str(row.get("zone_component_key") or ""),
+                "zone_uid": str(row.get("zone_uid") or ""),
+                "network_kind": str(row.get("network_kind") or ""),
+                "feature_role": str(row.get("feature_role") or ""),
+                "criticality": str(row.get("criticality") or ""),
                 "uses_default_value": bool(row.get("uses_default_value")),
                 "valuation_source": str(row.get("valuation_source") or ""),
                 "valuation_version": str(row.get("valuation_version") or ""),
@@ -561,53 +763,128 @@ def aggregate_impacts_with_interdependency(
         for hazard, class_buckets in component_buckets_by_hazard.items()
     }
 
-    cell_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = {
+    native_service_states_by_hazard: dict[str, dict[str, dict[str, dict[str, Any]]]] = {
+        hazard: {service: {} for service in SERVICE_NAMES}
+        for hazard in hazard_keys
+    }
+    projected_service_states_by_territory: dict[str, dict[str, dict[str, str]]] = {
         hazard: defaultdict(_new_service_state_map) for hazard in hazard_keys
     }
-    cell_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = {
+    projected_service_coverage_by_territory: dict[str, dict[str, dict[str, bool]]] = {
         hazard: defaultdict(_new_service_coverage_map) for hazard in hazard_keys
+    }
+    projected_service_units_by_territory: dict[str, dict[str, dict[str, str]]] = {
+        hazard: defaultdict(dict) for hazard in hazard_keys
     }
     for hazard in hazard_keys:
         local_elec_health = elec_health_by_territory.get(hazard, {})
-        for territory_id, service_loss_map in service_loss_by_hazard[hazard].items():
-            state_row = cell_service_states_by_territory[hazard][territory_id]
-            coverage_row = cell_service_coverage_by_territory[hazard][territory_id]
-
+        native_units = native_service_metrics_by_hazard[hazard]
+        for native_unit_id, service_loss_map in native_units.items():
             elec_loss = service_loss_map["elec"]
             if float(elec_loss["exposure"]) > 0.0:
                 elec_ratio = float(elec_loss["direct_max_loss"]) / max(float(elec_loss["exposure"]), 1.0)
-                state_row["elec"] = _state_from_damage_ratio(
-                    elec_ratio,
-                    state_thresholds=effective_state_thresholds,
+                native_service_states_by_hazard[hazard]["elec"][native_unit_id] = _build_native_service_state_row(
+                    service="elec",
+                    service_unit_id=native_unit_id,
+                    degraded_share=elec_ratio,
+                    state=_state_from_damage_ratio(elec_ratio, state_thresholds=effective_state_thresholds),
+                    state_basis="aggregated_damage_ratio_on_fixed_grid_0p1deg",
+                    asset_count=elec_loss["asset_count"],
+                    exposed_asset_count=elec_loss["exposed_asset_count"],
                 )
-                coverage_row["elec"] = True
-
             for water_service in ("water_aep", "water_eu"):
                 water_loss = service_loss_map[water_service]
                 if float(water_loss["exposure"]) <= 0.0:
                     continue
-
                 water_ratio = float(water_loss["direct_max_loss"]) / max(float(water_loss["exposure"]), 1.0)
                 water_state = _state_from_damage_ratio(
                     water_ratio,
                     state_thresholds=effective_state_thresholds,
                 )
-                state_row[water_service] = water_state
-
-                if territory_id not in local_elec_health:
-                    continue
-
+                loc_acc = native_service_loc_acc_by_hazard[hazard][water_service].get(native_unit_id, {})
+                unit_lat = None
+                unit_lon = None
+                if float(loc_acc.get("count", 0.0)) > 0.0:
+                    unit_lat = float(loc_acc["lat_sum"]) / float(loc_acc["count"])
+                    unit_lon = float(loc_acc["lon_sum"]) / float(loc_acc["count"])
+                elec_health, _ = _resolve_electric_health(
+                    hazard=hazard,
+                    territory_id=_grid_cell_id(unit_lat, unit_lon, ELECTRIC_NATIVE_GRID_DEG) or native_unit_id,
+                    lat=unit_lat,
+                    lon=unit_lon,
+                    elec_health_by_territory=elec_health_by_territory,
+                    elec_health_global=elec_health_global,
+                    elec_territory_centroids=elec_territory_centroids,
+                )
                 dependency_state = _dependency_state_from_elec_health(
-                    float(local_elec_health[territory_id]),
+                    elec_health,
                     dependency_state_thresholds=effective_dependency_thresholds,
                 )
+                final_state = water_state
+                state_basis = "aggregated_damage_ratio_on_zone_component_key"
                 if STATE_ORDER[dependency_state] > STATE_ORDER[water_state]:
-                    state_row[water_service] = dependency_state
+                    final_state = dependency_state
+                    state_basis = "aggregated_damage_ratio_plus_electric_dependency_on_zone_component_key"
+                blocker_state = blocking_service_state_by_hazard[hazard].get(native_unit_id)
+                if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[final_state]:
+                    final_state = blocker_state
+                    state_basis = f"{state_basis}_plus_blocking_asset"
+                native_service_states_by_hazard[hazard][water_service][native_unit_id] = _build_native_service_state_row(
+                    service=water_service,
+                    service_unit_id=native_unit_id,
+                    degraded_share=water_ratio,
+                    state=final_state,
+                    state_basis=state_basis,
+                    asset_count=water_loss["asset_count"],
+                    exposed_asset_count=water_loss["exposed_asset_count"],
+                )
+
+        for territory_id in {str(rec.get("territory_id") or "uploaded-aggregate") for rec in point_records}:
+            state_row = projected_service_states_by_territory[hazard][territory_id]
+            coverage_row = projected_service_coverage_by_territory[hazard][territory_id]
+
+            territory_lat, territory_lon = _parse_cell_id_center(territory_id)
+            electric_native_unit_id = _grid_cell_id(territory_lat, territory_lon, ELECTRIC_NATIVE_GRID_DEG)
+            if not electric_native_unit_id:
+                elec_weights = dominant_elec_unit_by_territory.get(territory_id, {})
+                if elec_weights:
+                    electric_native_unit_id = max(
+                        elec_weights.items(),
+                        key=lambda item: (float(item[1]), str(item[0])),
+                    )[0]
+            if electric_native_unit_id and electric_native_unit_id in native_service_states_by_hazard[hazard]["elec"]:
+                coverage_row["elec"] = True
+                state_row["elec"] = str(
+                    native_service_states_by_hazard[hazard]["elec"][electric_native_unit_id]["state"]
+                )
+                projected_service_units_by_territory[hazard][territory_id]["elec"] = str(electric_native_unit_id)
+
+            for water_service in ("water_aep", "water_eu"):
+                water_weights = dominant_water_unit_by_territory.get(territory_id, {}).get(water_service, {})
+                if not water_weights:
+                    continue
+                service_unit_id = max(
+                    water_weights.items(),
+                    key=lambda item: (float(item[1]), str(item[0])),
+                )[0]
+                native_state = native_service_states_by_hazard[hazard][water_service].get(service_unit_id)
+                if not native_state:
+                    continue
                 coverage_row[water_service] = True
+                state_row[water_service] = str(native_state["state"])
+                projected_service_units_by_territory[hazard][territory_id][water_service] = str(service_unit_id)
 
     interdependency = {
         "electricity_to_water_enabled": True,
+        "electricity_to_water_monetary_uplift_enabled": False,
+        "water_service_outage_enabled": True,
+        "water_service_unit": "zone_component_key",
+        "electric_state_unit": "fixed_grid_0p1deg",
         "water_assets_dependency_assumption": "all_water_assets_dependent",
+        "water_service_blocking_roles": {
+            service_name: sorted(roles)
+            for service_name, roles in WATER_BLOCKING_ROLES_BY_SERVICE.items()
+        },
         "dependency_impacted_assets": int(sum(dependency_impacted_assets_by_hazard.values())),
         "dependency_impacted_assets_by_hazard": {k: int(v) for k, v in dependency_impacted_assets_by_hazard.items()},
         "electric_health_global": {hazard: round(elec_health_global[hazard], 4) for hazard in hazard_keys},
@@ -619,7 +896,18 @@ def aggregate_impacts_with_interdependency(
         "state_thresholds": effective_state_thresholds,
         "health_weights_by_state": effective_health_weights,
         "dependency_state_thresholds": effective_dependency_thresholds,
-        "uplift_by_state": effective_uplift,
+        "uplift_by_state": disabled_uplift,
+    }
+    state_aggregation_metadata = {
+        "schema_version": "aggregated_service_state_v1",
+        "electric_state_unit": "fixed_grid_0p1deg",
+        "water_state_unit": "zone_component_key",
+        "aggregation_method": "aggregated_service_state",
+        "projection_method": (
+            "elec:population_cell_centroid_to_fixed_0p1deg;"
+            "water:dominant_zone_component_by_exposure_within_population_cell"
+        ),
+        "state_thresholds_used": effective_state_thresholds,
     }
 
     return InterdependencyAggregationResult(
@@ -633,9 +921,20 @@ def aggregate_impacts_with_interdependency(
             hazard: dict(states_dict) for hazard, states_dict in detailed_states_by_territory.items()
         },
         cell_service_states_by_territory={
-            hazard: dict(states_dict) for hazard, states_dict in cell_service_states_by_territory.items()
+            hazard: dict(states_dict) for hazard, states_dict in projected_service_states_by_territory.items()
         },
         cell_service_coverage_by_territory={
-            hazard: dict(states_dict) for hazard, states_dict in cell_service_coverage_by_territory.items()
+            hazard: dict(states_dict) for hazard, states_dict in projected_service_coverage_by_territory.items()
         },
+        native_service_states_by_hazard=native_service_states_by_hazard,
+        projected_service_states_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in projected_service_states_by_territory.items()
+        },
+        projected_service_coverage_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in projected_service_coverage_by_territory.items()
+        },
+        projected_service_units_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in projected_service_units_by_territory.items()
+        },
+        state_aggregation_metadata=state_aggregation_metadata,
     )

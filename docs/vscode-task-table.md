@@ -39,6 +39,7 @@ La tache `SIB: Run Complete Analysis (Default)` a ete retiree du workspace racin
 | `SIB: Run Hazard Comparison (1500 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine comparative hazard-only avec `dynamic_max_tracks=1500` |
 | `SIB: Run Hazard Comparison (Full Tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine comparative hazard-only avec `--dynamic-max-tracks 0`, donc sans cap de tracks |
 | `SIB: Monitor Hazard Comparison Run` | `build` | `Ctrl+Shift+B` | Suit `outputs/hazard-comparison-runs/latest-manifest.json` et affiche la progression du run comparatif en cours |
+| `SIB: Babysit Hazard Comparison Run` | `build` | `Ctrl+Shift+B` | Suit le run hazard-comparison et le relance si besoin via `tmux`, avec la session `babysit-hazard-comparison-<run_id>` |
 
 Notes d'audit:
 
@@ -116,6 +117,8 @@ Semantique des identifiants apres un rebuild frontend:
 | `SIB: Export Run Graphs (Selected Run - PNG)` | `build` | `Ctrl+Shift+B` | Exporte uniquement les sorties PNG pour le `run_id` saisi dans l'invite. La tache echoue explicitement si le run choisi n'expose pas tous les artefacts frontend archives requis. |
 | `SIB: Export Validation Layout Graphs (Selected Run - Guadeloupe)` | `build` | `Ctrl+Shift+B` | Exporte uniquement le sous-ensemble Vincennes utile a la revue de layout pour la Guadeloupe vers `outputs/Graphs/Validation graphs`, avec le profil reduit `validation_layout`. |
 
+Custom id exemple : all-default,hazard_dynamic_max_tracks-100,default_sampling_spacing_m-50,default_sampling_spacing_m-250,climada_max_points_per_feature-100,climada_max_points_per_feature-1000
+
 Ces taches ne s'appliquent pas aux runs de comparaison d'aleas. Pour ces derniers, les graphes sont deja produits pendant le run comparatif lui-meme.
 
 Choisir le run depuis VS Code:
@@ -149,6 +152,13 @@ Notes operateur:
 | `SIB: Run Sensitivity Analysis (Custom Scenario IDs)` | `build` | `Ctrl+Shift+B` | Lance seulement les scenarios saisis dans l'invite `sibSensitivityScenarioIds` |
 | `SIB: Resume Latest Sensitivity Analysis` | `build` | `Ctrl+Shift+B` | Reprend le dernier parent run de sensibilite archive |
 | `SIB: Monitor Sensitivity Analysis Run` | `build` | `Ctrl+Shift+B` | Suit l'avancement du parent manifest de sensibilite |
+| `SIB: Babysit Sensitivity Analysis Run` | `build` | `Ctrl+Shift+B` | Suit le parent sensitivity, attend les child complete-analysis actifs si besoin, puis relance via `tmux` avec `babysit-sensitivity-<run_id>` |
+
+Commandes de suivi utiles pour les babysitters:
+
+- `tmux attach -t babysit-<run_id>` pour `SIB: Babysit Complete Analysis Run`
+- `tmux attach -t babysit-hazard-comparison-<run_id>` pour `SIB: Babysit Hazard Comparison Run`
+- `tmux attach -t babysit-sensitivity-<run_id>` pour `SIB: Babysit Sensitivity Analysis Run`
 
 ## Points de vigilance
 

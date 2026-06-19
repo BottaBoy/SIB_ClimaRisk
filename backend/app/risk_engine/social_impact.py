@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 SOCIAL_IMPACT_SUMMARY_KEY = "social_impact_summary"
 SOCIAL_IMPACT_SUMMARY_LEGACY_ALIASES = ("social_impact_worst_case_summary",)
-SOCIAL_IMPACT_SUMMARY_BASIS = "cell_service_state_from_native_climada_0p2deg"
+SOCIAL_IMPACT_SUMMARY_BASIS = "population_projected_service_state_from_aggregated_native_service_state_v1"
 SOCIAL_IMPACT_POPULATION_STATE_DISTRIBUTION_KEY = "social_impact_population_state_distribution"
 SERVICE_NAMES = ("elec", "water_aep", "water_eu")
 VALID_STATES = {"S0", "S1", "S2", "S3"}
@@ -263,6 +263,7 @@ def aggregate_social_summary(
 def build_social_impact_summary_payload(
     social_summary_by_hazard: dict[str, dict[str, float]],
     population_state_distribution_by_hazard: dict[str, dict[str, dict[str, Any]]] | None = None,
+    state_aggregation_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Package social summaries with the canonical cell+service basis and legacy aliases."""
     summary = social_summary_by_hazard if isinstance(social_summary_by_hazard, dict) else {}
@@ -277,6 +278,7 @@ def build_social_impact_summary_payload(
         "social_impact_summary_basis": SOCIAL_IMPACT_SUMMARY_BASIS,
         "social_impact_summary_key": SOCIAL_IMPACT_SUMMARY_KEY,
         "social_impact_summary_legacy_aliases": list(SOCIAL_IMPACT_SUMMARY_LEGACY_ALIASES),
+        "state_aggregation_metadata": state_aggregation_metadata if isinstance(state_aggregation_metadata, dict) else {},
     }
     for alias in SOCIAL_IMPACT_SUMMARY_LEGACY_ALIASES:
         payload[alias] = summary

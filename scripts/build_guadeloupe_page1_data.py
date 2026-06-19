@@ -1067,9 +1067,8 @@ def _aggregate_native_service_states_for_public_map(
 
             for idx, rec in enumerate(point_records):
                 class_key = class_keys[idx]
-                if class_key is None:
-                    continue
-                if str(class_key).startswith("elec_"):
+                water_service_class = water_service_classes[idx]
+                if isinstance(class_key, str) and class_key.startswith("elec_"):
                     unit_id = electric_units[idx]
                     if not unit_id:
                         continue
@@ -1079,7 +1078,6 @@ def _aggregate_native_service_states_for_public_map(
                     elec_loss[unit_id] += float(direct_loss[idx])
                     continue
 
-                water_service_class = water_service_classes[idx]
                 if water_service_class not in {"eau_aep", "eau_eu"}:
                     continue
                 service_unit_id = str(service_feature_ids[idx] or "").strip() or str(rec.get("territory_id") or "")

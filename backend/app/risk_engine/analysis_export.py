@@ -92,6 +92,7 @@ def build_result_payload(
         "artifacts": {
             "plots_png": [],
             "downloads": [],
+            **(dict(comp.artifacts) if isinstance(comp.artifacts, dict) else {}),
         },
         "notes": _dedupe_non_empty(notes),
     }
@@ -99,6 +100,19 @@ def build_result_payload(
         payload["input_features_geojson"] = input_features_geojson
     if comp.modeling:
         payload["meta"]["modeling"] = comp.modeling
+        state_methodology = (
+            comp.modeling.get("state_aggregation_metadata")
+            if isinstance(comp.modeling.get("state_aggregation_metadata"), dict)
+            else None
+        )
+        if isinstance(state_methodology, dict):
+            payload["meta"]["network_state_methodology"] = dict(state_methodology)
+            payload["meta"]["network_state_methodology_breaks_comparability"] = True
+            payload["meta"]["network_state_payload_contract"] = {
+                "native_service_states_key": "native_service_states",
+                "population_projected_service_states_key": "population_projected_service_states",
+                "population_projected_service_states_coverage_key": "population_projected_service_states_coverage",
+            }
     return payload
 
 

@@ -1159,6 +1159,85 @@ def _save_shard_checkpoint(
     return result_path
 
 
+def _summary_checkpoint_path(checkpoint_dir: Path | None) -> Path | None:
+    if checkpoint_dir is None:
+        return None
+    path = Path(checkpoint_dir) / "summary.npz"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _save_summary_checkpoint(
+    np: Any,
+    *,
+    checkpoint_dir: Path | None,
+    point_records: list[dict[str, Any]],
+    metrics: HazardImpactResult,
+) -> Path | None:
+    result_path = _summary_checkpoint_path(checkpoint_dir)
+    if result_path is None:
+        return None
+
+    raw_event_ids = getattr(metrics, "event_id", None)
+    raw_event_names = getattr(metrics, "event_name", None)
+    event_ids = np.asarray([str(value) for value in ([] if raw_event_ids is None else list(raw_event_ids))], dtype=str)
+    event_names = np.asarray(
+        ["" if value is None else str(value) for value in ([] if raw_event_names is None else list(raw_event_names))],
+        dtype=str,
+    )
+    point_ids = np.asarray(_point_id_values(point_records), dtype=str)
+    np.savez_compressed(
+        result_path,
+        eai_direct_by_point=_as_1d_float(np, metrics.eai_direct_by_point),
+        max_loss_by_point=_as_1d_float(np, metrics.max_loss_by_point),
+        at_event_loss=_as_1d_float(np, metrics.at_event_loss),
+        event_frequency=_as_1d_float(np, metrics.event_frequency),
+        event_id=event_ids,
+        event_name=event_names,
+        point_id=point_ids,
+    )
+    return result_path
+
+
+def _load_summary_checkpoint(
+    np: Any,
+    *,
+    checkpoint_dir: Path | None,
+    point_records: list[dict[str, Any]],
+    top_n_events: int,
+) -> HazardImpactResult | None:
+    result_path = _summary_checkpoint_path(checkpoint_dir)
+    if result_path is None or not result_path.exists():
+        return None
+
+    expected_point_ids = _point_id_values(point_records)
+    try:
+        with np.load(result_path, allow_pickle=False) as payload:
+            stored_point_ids = [str(value) for value in list(payload.get("point_id", []))]
+            if stored_point_ids != expected_point_ids:
+                return None
+            if "max_loss_by_point" not in payload.files:
+                return None
+            return _rebuild_component_result(
+                np,
+                eai_by_point=payload["eai_direct_by_point"],
+                max_loss_by_point=payload["max_loss_by_point"],
+                at_event_loss=payload["at_event_loss"],
+                event_frequency=payload["event_frequency"],
+                event_id=[str(value) for value in list(payload.get("event_id", []))],
+                event_name=[(str(value) if str(value) else None) for value in list(payload.get("event_name", []))],
+                top_n_events=top_n_events,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Ignoring unreadable summary checkpoint %s (%s: %s)",
+            result_path,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+
 def _load_shard_checkpoint(
     np: Any,
     *,
@@ -1323,10 +1402,11 @@ def _resolve_component_point_cap(
 ) -> int:
     if total_points <= 0:
         return 0
-    if max_points_per_shard > 0:
-        return max(1, min(total_points, int(max_points_per_shard)))
+    requested_point_cap = max(0, int(max_points_per_shard))
     effective_memory_budget_gb = _resolve_effective_memory_budget_gb(memory_budget_gb)
     if effective_memory_budget_gb <= 0.0 or event_count <= 0:
+        if requested_point_cap > 0:
+            return max(1, min(total_points, requested_point_cap))
         return total_points
 
     min_points = max(1, int(min_points_per_shard))
@@ -1343,6 +1423,8 @@ def _resolve_component_point_cap(
     )
     point_cap = int(budget_bytes / per_point_bytes)
     point_cap = max(min_points, point_cap)
+    if requested_point_cap > 0:
+        point_cap = min(point_cap, requested_point_cap)
     return max(1, min(total_points, point_cap))
 
 
@@ -1367,10 +1449,11 @@ def _resolve_dynamic_hazard_point_cap(
 ) -> int:
     if total_points <= 0:
         return 0
-    if max_points_per_shard > 0:
-        return max(1, min(total_points, int(max_points_per_shard)))
+    requested_point_cap = max(0, int(max_points_per_shard))
     effective_memory_budget_gb = _resolve_effective_memory_budget_gb(memory_budget_gb)
     if effective_memory_budget_gb <= 0.0 or event_count <= 0:
+        if requested_point_cap > 0:
+            return max(1, min(total_points, requested_point_cap))
         return total_points
 
     min_points = max(1, int(min_points_per_shard))
@@ -1386,6 +1469,8 @@ def _resolve_dynamic_hazard_point_cap(
     )
     point_cap = int(budget_bytes / per_point_bytes)
     point_cap = max(min_points, point_cap)
+    if requested_point_cap > 0:
+        point_cap = min(point_cap, requested_point_cap)
     return max(1, min(total_points, point_cap))
 
 
@@ -2226,6 +2311,7 @@ def _compute_dynamic_hazard_sharded_results(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    resume_dynamic_hazard_point_cap: int | None = None,
     return_full_impact_data: bool = True,
 ) -> tuple[HazardImpactResult, dict[str, HazardImpactResult], dict[str, str], dict[str, dict[str, Any]], list[str]]:
     point_records = list(exposure_bundle.point_records or [])
@@ -2312,9 +2398,22 @@ def _compute_dynamic_hazard_sharded_results(
     for component_name in ("wind", "rain", "surge"):
         if not component_enabled.get(component_name):
             continue
+        resumed_completed_shards = 0
+        if resume_enabled and checkpoint_dir is not None:
+            for hazard_shard in hazard_shards:
+                summary_path = (
+                    Path(checkpoint_dir)
+                    / "dynamic-hazard-shards"
+                    / hazard_key
+                    / component_name
+                    / hazard_shard.shard_id
+                    / "summary.npz"
+                )
+                if summary_path.exists():
+                    resumed_completed_shards += 1
         component_accumulators[component_name] = _init_component_result_accumulator(np, total_points=total_points)
-        component_completed_shards[component_name] = 0
-        component_resumed_shards[component_name] = 0
+        component_completed_shards[component_name] = int(resumed_completed_shards)
+        component_resumed_shards[component_name] = int(resumed_completed_shards)
         component_retry_splits[component_name] = 0
         component_inner_sharded[component_name] = False
         component_plan_payloads[component_name] = {
@@ -2341,9 +2440,9 @@ def _compute_dynamic_hazard_sharded_results(
             ),
             "max_points_per_shard": int(max(1, hazard_point_cap)),
             "planned_shards": int(planned_shards),
-            "completed_shards": 0,
+            "completed_shards": int(resumed_completed_shards),
             "retry_splits": 0,
-            "resumed_shards": 0,
+            "resumed_shards": int(resumed_completed_shards),
             "sharded": bool(planned_shards > 1),
             "hazard_sharded": True,
         }
@@ -2367,16 +2466,6 @@ def _compute_dynamic_hazard_sharded_results(
         if not shard_coords:
             continue
 
-        centroids = _build_centroids_from_points(shard_coords)
-        wind_hazard = _normalize_frequency_on_copy(
-            _build_hazard_from_tracks(tracks, centroids),
-            storm_years,
-        )
-        scoped_progress_callback = _scoped_dynamic_progress_callback(
-            progress_callback,
-            hazard_shard_id=hazard_shard.shard_id,
-        )
-
         for component_name in ("wind", "surge", "rain"):
             if not component_enabled.get(component_name):
                 continue
@@ -2391,6 +2480,50 @@ def _compute_dynamic_hazard_sharded_results(
                 Path(checkpoint_dir) / "dynamic-hazard-shards" / hazard_key / component_name / hazard_shard.shard_id
                 if checkpoint_dir is not None
                 else None
+            )
+
+            cached_shard_metrics = None
+            if resume_enabled:
+                cached_shard_metrics = _load_summary_checkpoint(
+                    np,
+                    checkpoint_dir=inner_checkpoint_dir,
+                    point_records=shard_point_records,
+                    top_n_events=top_n_events,
+                )
+            if cached_shard_metrics is not None:
+                _merge_component_result_accumulator(
+                    np,
+                    accumulator=component_accumulators[component_name],
+                    shard=hazard_shard,
+                    metrics=cached_shard_metrics,
+                )
+                component_inner_sharded[component_name] = True
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "shard_complete",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        "shard_id": hazard_shard.shard_id,
+                        "retry_depth": int(hazard_shard.retry_depth),
+                        "point_count": int(hazard_shard.point_count),
+                        "completed_shards": int(component_completed_shards.get(component_name, 0)),
+                        "planned_shards": int(planned_shards),
+                        "territory_id": hazard_shard.territory_id,
+                        "infra_class": hazard_shard.infra_class,
+                        "resumed": True,
+                    },
+                )
+                continue
+
+            centroids = _build_centroids_from_points(shard_coords)
+            wind_hazard = _normalize_frequency_on_copy(
+                _build_hazard_from_tracks(tracks, centroids),
+                storm_years,
+            )
+            scoped_progress_callback = _scoped_dynamic_progress_callback(
+                progress_callback,
+                hazard_shard_id=hazard_shard.shard_id,
             )
 
             _emit_progress(
@@ -2577,6 +2710,12 @@ def _compute_dynamic_hazard_sharded_results(
                 shard=hazard_shard,
                 metrics=shard_metrics,
             )
+            _save_summary_checkpoint(
+                np,
+                checkpoint_dir=inner_checkpoint_dir,
+                point_records=shard_point_records,
+                metrics=shard_metrics,
+            )
             component_completed_shards[component_name] = int(component_completed_shards.get(component_name, 0)) + 1
             component_resumed_shards[component_name] = int(component_resumed_shards.get(component_name, 0)) + int(inner_sharding.get("resumed_shards") or 0)
             component_retry_splits[component_name] = int(component_retry_splits.get(component_name, 0)) + int(inner_sharding.get("retry_splits") or 0)
@@ -2723,6 +2862,7 @@ def run_climada_direct_impacts(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     checkpoint_dir: Path | None = None,
     resume_enabled: bool = False,
+    resume_dynamic_hazard_point_cap: int | None = None,
     return_full_impact_data: bool = True,
     hazard_keys: tuple[str, ...] | None = None,
 ) -> ClimadaRunResult:
@@ -2817,7 +2957,7 @@ def run_climada_direct_impacts(
                     convert_10min_to_1min=convert_10min_to_1min,
                     radius_unit_in=radius_unit_in,
                     env_pressure_hpa=env_pressure_hpa,
-                    max_tracks=max(100, int(dynamic_max_tracks)),
+                    max_tracks=max(0, int(dynamic_max_tracks)),
                     track_cache_max_entries=track_cache_max_entries,
                     build_hazards=False,
                 )
@@ -2839,17 +2979,24 @@ def run_climada_direct_impacts(
                         f"tracks={dynamic_hazard_event_count}, memory_budget_gb={float(memory_budget_gb):.2f}"
                     )
 
-                dynamic_hazard_budget_cap = _resolve_dynamic_hazard_point_cap(
-                    total_points=len(point_coords),
-                    event_count=dynamic_hazard_event_count,
-                    memory_budget_gb=float(memory_budget_gb),
-                    max_points_per_shard=0,
-                    min_points_per_shard=1,
-                )
-                if int(max_points_per_shard) > 0:
-                    dynamic_hazard_point_cap = max(1, min(int(max_points_per_shard), int(dynamic_hazard_budget_cap)))
+                if resume_enabled and int(resume_dynamic_hazard_point_cap or 0) > 0:
+                    dynamic_hazard_point_cap = max(1, int(resume_dynamic_hazard_point_cap or 0))
+                    notes.append(
+                        "Resume mode reuses the recorded hazard shard cap of "
+                        f"{int(dynamic_hazard_point_cap)} points per shard."
+                    )
                 else:
-                    dynamic_hazard_point_cap = max(1, int(dynamic_hazard_budget_cap))
+                    dynamic_hazard_budget_cap = _resolve_dynamic_hazard_point_cap(
+                        total_points=len(point_coords),
+                        event_count=dynamic_hazard_event_count,
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=0,
+                        min_points_per_shard=1,
+                    )
+                    if int(max_points_per_shard) > 0:
+                        dynamic_hazard_point_cap = max(1, min(int(max_points_per_shard), int(dynamic_hazard_budget_cap)))
+                    else:
+                        dynamic_hazard_point_cap = max(1, int(dynamic_hazard_budget_cap))
 
                 dynamic_hazard_shards = _plan_hazard_shards(
                     list(exposure_bundle.point_records or []),
@@ -2973,6 +3120,7 @@ def run_climada_direct_impacts(
                     progress_callback=progress_callback,
                     checkpoint_dir=checkpoint_dir,
                     resume_enabled=resume_enabled,
+                    resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
                     return_full_impact_data=bool(return_full_impact_data),
                 )
             finally:

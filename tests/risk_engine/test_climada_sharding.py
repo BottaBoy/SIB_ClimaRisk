@@ -126,6 +126,24 @@ def test_resolve_component_point_cap_uses_memory_budget(monkeypatch: pytest.Monk
     assert 512 <= cap < 60_000
 
 
+def test_resolve_component_point_cap_treats_explicit_max_as_upper_bound(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._resolve_effective_memory_budget_gb",
+        lambda value: 0.01,
+    )
+
+    cap = _resolve_component_point_cap(
+        total_points=60_000,
+        event_count=79_321,
+        component_name="surge",
+        memory_budget_gb=6.0,
+        max_points_per_shard=1_500,
+        min_points_per_shard=512,
+    )
+
+    assert 512 <= cap < 1_500
+
+
 def test_resolve_dynamic_hazard_point_cap_uses_budget(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "backend.app.risk_engine.climada_engine._resolve_effective_memory_budget_gb",
@@ -141,6 +159,23 @@ def test_resolve_dynamic_hazard_point_cap_uses_budget(monkeypatch: pytest.Monkey
     )
 
     assert 1 <= cap < 110_315
+
+
+def test_resolve_dynamic_hazard_point_cap_treats_explicit_max_as_upper_bound(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._resolve_effective_memory_budget_gb",
+        lambda value: 0.01,
+    )
+
+    cap = _resolve_dynamic_hazard_point_cap(
+        total_points=110_315,
+        event_count=1_500,
+        memory_budget_gb=6.0,
+        max_points_per_shard=1_500,
+        min_points_per_shard=1,
+    )
+
+    assert 1 <= cap < 1_500
 
 
 def test_resolve_dynamic_hazard_point_cap_reserves_headroom_for_800_track_builds(monkeypatch: pytest.MonkeyPatch):
@@ -511,6 +546,148 @@ def test_run_climada_direct_impacts_keeps_single_shard_dynamic_input_on_sharded_
             "event_frequency_sum": 0.01,
         },
     }
+
+
+def test_run_climada_direct_impacts_forwards_zero_dynamic_tracks_to_loader(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    point_records = [
+        {
+            "point_id": "pt-1",
+            "territory_id": "gua",
+            "infra_class": "mixed",
+            "asset_type": "habitation",
+            "lat": 16.2,
+            "lon": -61.6,
+            "value_eur": 100.0,
+        }
+    ]
+    exposure_bundle = SimpleNamespace(
+        exposures=SimpleNamespace(),
+        point_records=point_records,
+    )
+    bundle = SimpleNamespace(
+        storm=None,
+        storm_cmcc=None,
+        storm_years=100,
+        normalized_on_copy=True,
+        source="dynamic_parquet",
+        basin_ids=(1,),
+        point_count=len(point_records),
+        tracks_storm=None,
+        tracks_storm_cmcc=None,
+        track_count_storm=0,
+        track_count_storm_cmcc=0,
+        centroids=None,
+        global_hazards_built=False,
+        storm_track_load_spec=object(),
+        storm_cmcc_track_load_spec=object(),
+    )
+
+    def _dummy_metrics(scale: float) -> HazardImpactResult:
+        return HazardImpactResult(
+            eai_direct_by_point=np.array([1.0, 2.0], dtype=float) * scale,
+            max_loss_by_point=np.array([3.0, 4.0], dtype=float) * scale,
+            at_event_loss=np.array([5.0], dtype=float) * scale,
+            event_frequency=np.array([0.01], dtype=float),
+            event_id=np.array([101]),
+            event_name=np.array([f"evt-{int(scale)}"]),
+            aai_agg_eur=3.0 * scale,
+            max_event_loss_eur=5.0 * scale,
+            pml_eur={10: 5.0 * scale, 20: 5.0 * scale, 50: 5.0 * scale, 100: 5.0 * scale, 200: 5.0 * scale, 1000: 5.0 * scale},
+            tvar_95_eur=5.0 * scale,
+            top_events=[{"event_id": 101, "event_name": f"evt-{int(scale)}", "loss_eur": 5.0 * scale}],
+        )
+
+    load_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.get_tc_vulnerability_payload",
+        lambda **kwargs: {
+            "profile": "test-profile",
+            "default_curve": "curve-a",
+            "explicit_asset_type_mapping": {},
+        },
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.try_build_climada_impact_funcs",
+        lambda: [object()],
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._require_runtime",
+        lambda: {
+            "np": np,
+            "ImpactCalc": object(),
+            "ImpactFuncSet": lambda impact_funcs: impact_funcs,
+        },
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.load_storm_hazards_from_parquet_for_points",
+        lambda **kwargs: load_calls.append(dict(kwargs)) or bundle,
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.resolve_hazard_bundle_tracks",
+        lambda bundle_obj, hazard_key: SimpleNamespace(data=[{"track_id": hazard_key}]),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.release_hazard_bundle_tracks",
+        lambda bundle_obj, hazard_key: None,
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine.load_storm_hazards",
+        lambda *args, **kwargs: pytest.fail("dynamic parquet path should not fall back to precomputed hazards"),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._estimate_dynamic_hazard_memory_bytes",
+        lambda **kwargs: 1024,
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._dynamic_hazard_budget_exceeded_at_min_shard",
+        lambda **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._resolve_dynamic_hazard_point_cap",
+        lambda **kwargs: len(point_records),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._build_hazard_from_tracks",
+        lambda *args, **kwargs: pytest.fail("single-shard dynamic setup should not prebuild global hazards"),
+    )
+    monkeypatch.setattr(
+        "backend.app.risk_engine.climada_engine._compute_dynamic_hazard_sharded_results",
+        lambda *args, **kwargs: (
+            _dummy_metrics(1.0),
+            {"wind": _dummy_metrics(1.0)},
+            {"wind": "complete"},
+            {
+                "wind": {
+                    "status": "complete",
+                    "completed_shards": 1,
+                    "resumed_shards": 0,
+                    "retry_splits": 0,
+                    "sharded": False,
+                }
+            },
+            ["storm: test note"],
+        ),
+    )
+
+    run_climada_direct_impacts(
+        exposure_bundle,
+        hazard_storm_path=Path("storm.h5"),
+        hazard_storm_cmcc_path=Path("storm_cmcc.h5"),
+        storm_years=100,
+        fallback_to_precomputed_hazards=False,
+        strict_required_components=True,
+        multi_hazard_enabled=False,
+        storm_parquet_path=Path("storm.parquet"),
+        storm_cmcc_parquet_path=Path("storm_cmcc.parquet"),
+        dynamic_max_tracks=0,
+        memory_budget_gb=6.0,
+    )
+
+    assert load_calls
+    assert load_calls[0]["max_tracks"] == 0
 
 
 def test_rebuild_component_result_recomputes_metrics_from_arrays():

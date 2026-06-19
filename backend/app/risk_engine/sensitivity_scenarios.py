@@ -11,6 +11,114 @@ from ..config import Settings
 
 SUPPORTED_SCENARIO_PACK_VERSION = 1
 
+SENSITIVITY_PARAMETER_SPECS: dict[str, dict[str, Any]] = {
+    "vulnerability_curves_profile": {
+        "setting_keys": [],
+        "consumed_by": ["manual_profile_selection"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "requires_manual_profile",
+        "default_pack_behavior": "manual_only",
+    },
+    "runoff_coeff": {
+        "setting_keys": ["multi_hazard_rain_base_runoff_coeff"],
+        "consumed_by": ["hazard_rain_proxy"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "monetary_driver",
+        "default_pack_behavior": "include",
+    },
+    "direct_state_thresholds": {
+        "setting_keys": [
+            "interdependency_state_threshold_s0_to_s1",
+            "interdependency_state_threshold_s1_to_s2",
+            "interdependency_state_threshold_s2_to_s3",
+        ],
+        "consumed_by": ["interdependency_state_mapping"],
+        "expected_metric_families": ["network_state", "social"],
+        "non_effect_metric_families": ["monetary"],
+        "parameter_class": "network_state_driver",
+        "default_pack_behavior": "include_if_network_graphs",
+    },
+    "health_weights": {
+        "setting_keys": [
+            "interdependency_health_weight_s1",
+            "interdependency_health_weight_s2",
+            "interdependency_health_weight_s3",
+        ],
+        "consumed_by": ["interdependency_electric_health"],
+        "expected_metric_families": ["network_state", "social"],
+        "non_effect_metric_families": ["monetary"],
+        "parameter_class": "network_state_driver",
+        "default_pack_behavior": "include_if_network_graphs",
+    },
+    "dependency_state_thresholds": {
+        "setting_keys": [
+            "interdependency_dependency_state_threshold_s1",
+            "interdependency_dependency_state_threshold_s2",
+            "interdependency_dependency_state_threshold_s3",
+        ],
+        "consumed_by": ["interdependency_dependency_state"],
+        "expected_metric_families": ["network_state", "social"],
+        "non_effect_metric_families": ["monetary"],
+        "parameter_class": "network_state_driver",
+        "default_pack_behavior": "include_if_network_graphs",
+    },
+    "uplift_by_state": {
+        "setting_keys": [
+            "interdependency_uplift_s0",
+            "interdependency_uplift_s1",
+            "interdependency_uplift_s2",
+            "interdependency_uplift_s3",
+        ],
+        "consumed_by": ["interdependency_uplift_disabled"],
+        "expected_metric_families": [],
+        "non_effect_metric_families": ["monetary", "network_state", "social"],
+        "parameter_class": "inactive_by_design",
+        "default_pack_behavior": "exclude",
+    },
+    "max_dist_inland_km": {
+        "setting_keys": ["hazard_rain_max_dist_inland_km"],
+        "consumed_by": ["hazard_rain_proxy"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "monetary_driver",
+        "default_pack_behavior": "include",
+    },
+    "hazard_dynamic_max_tracks": {
+        "setting_keys": ["hazard_dynamic_max_tracks"],
+        "consumed_by": ["hazard_dynamic_tracks"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "monetary_driver",
+        "default_pack_behavior": "include",
+    },
+    "territory_grid_deg": {
+        "setting_keys": ["territory_grid_deg"],
+        "consumed_by": ["climada_territory_binning", "population_grid_alignment"],
+        "expected_metric_families": ["network_state", "social"],
+        "non_effect_metric_families": ["monetary_total_should_be_stable"],
+        "parameter_class": "spatial_aggregation_driver",
+        "default_pack_behavior": "include_if_network_graphs",
+    },
+    "default_sampling_spacing_m": {
+        "setting_keys": ["default_sampling_spacing_m"],
+        "consumed_by": ["exposure_disaggregation", "climada_exposure_sampling"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "disaggregation_driver",
+        "default_pack_behavior": "include",
+    },
+    "climada_max_points_per_feature": {
+        "setting_keys": ["climada_max_points_per_feature"],
+        "consumed_by": ["climada_exposure_sampling"],
+        "expected_metric_families": ["monetary", "network_state", "social"],
+        "non_effect_metric_families": [],
+        "parameter_class": "disaggregation_driver",
+        "default_pack_behavior": "include",
+    },
+}
+
 
 @dataclass(frozen=True)
 class SensitivityScenario:
@@ -103,6 +211,50 @@ def resolve_scenario_from_pack(pack_path: str | Path, scenario_id: str) -> Sensi
         )
 
     raise ValueError(f"Scenario '{requested_id}' was not found in {pack_path}")
+
+
+def parameter_traceability(parameter_key: str | None) -> dict[str, Any]:
+    key = str(parameter_key or "").strip()
+    if not key:
+        return {
+            "parameter_key": None,
+            "setting_keys": [],
+            "consumed_by": [],
+            "expected_metric_families": ["monetary", "network_state", "social"],
+            "non_effect_metric_families": [],
+            "parameter_class": "baseline_reference",
+            "default_pack_behavior": "include",
+        }
+    spec = dict(SENSITIVITY_PARAMETER_SPECS.get(key) or {})
+    spec["parameter_key"] = key
+    if not spec:
+        spec = {
+            "parameter_key": key,
+            "setting_keys": [],
+            "consumed_by": [],
+            "expected_metric_families": [],
+            "non_effect_metric_families": [],
+            "parameter_class": "unclassified",
+            "default_pack_behavior": "review",
+        }
+    return spec
+
+
+def build_parameter_traceability_matrix(scenarios: list[SensitivityScenario]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    rows.append(parameter_traceability(None))
+    for scenario in scenarios:
+        key = str(scenario.parameter_key or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        row = parameter_traceability(key)
+        row["scenario_ids"] = sorted(
+            s.scenario_id for s in scenarios if str(s.parameter_key or "").strip() == key
+        )
+        rows.append(row)
+    return rows
 
 
 def apply_settings_overrides(settings: Settings, scenario: SensitivityScenario | None) -> Settings:

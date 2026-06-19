@@ -12,8 +12,16 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+import sys
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.risk_engine.sensitivity_scenarios import parameter_traceability
+
 DEFAULT_WORKBOOK_PATH = Path("/home/ubuntu/uploads/Sensibility analysis/Analyses sensibilité_2.xlsx")
 DEFAULT_SHEET_NAME = "Variable to modify for sensibil"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "config" / "sensitivity"
@@ -21,6 +29,9 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "config" / "sensitivity"
 RAW_CSV_NAME = "workbook-variable-sheet.csv"
 RAW_JSON_NAME = "workbook-variable-sheet.json"
 PACK_JSON_NAME = "default-scenario-pack.json"
+DEFAULT_PACK_EXCLUDED_PARAMETERS = {
+    "uplift_by_state",
+}
 
 
 def _clean_text(value: Any) -> str:
@@ -251,6 +262,8 @@ def build_outputs(workbook_path: Path, sheet_name: str) -> tuple[list[dict[str, 
             for candidate_value in test_values
             if not _candidate_matches_current(parameter_key, current_value, candidate_value)
         ]
+        if parameter_key in DEFAULT_PACK_EXCLUDED_PARAMETERS:
+            default_pack_test_values = []
         run_count = raw_row.get("Nombre de run")
         variable_entry = {
             "category": _clean_text(raw_row.get("Categorie")),
@@ -268,6 +281,7 @@ def build_outputs(workbook_path: Path, sheet_name: str) -> tuple[list[dict[str, 
             "run_count": None if run_count is None else int(run_count),
             "default_pack_run_count": len(default_pack_test_values),
             "execution_tier": _execution_tier_for_parameter(parameter_key),
+            "traceability": parameter_traceability(parameter_key),
         }
         variables.append(variable_entry)
 

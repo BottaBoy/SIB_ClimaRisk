@@ -72,6 +72,14 @@ def test_build_result_payload_includes_valuation_audit_and_feature_metadata():
         portfolio_results={},
         graphs={},
         notes=[],
+        modeling={
+            "state_aggregation_metadata": {
+                "schema_version": "aggregated_service_state_v1",
+                "aggregation_method": "aggregated_service_state",
+                "electric_state_unit": "fixed_grid_0p1deg",
+                "water_state_unit": "zone_component_key",
+            }
+        },
     )
 
     payload = build_result_payload(
@@ -89,6 +97,9 @@ def test_build_result_payload_includes_valuation_audit_and_feature_metadata():
     assert payload["valuation_audit"]["default_value_asset_preview"][0]["asset_id"] == "asset-1"
     assert payload["input_features_geojson"]["features"][0]["properties"]["uses_default_value"] is True
     assert payload["input_features_geojson"]["features"][0]["properties"]["valuation_source"] == "drawn_geojson:default_1000000_eur"
+    assert payload["meta"]["network_state_methodology"]["aggregation_method"] == "aggregated_service_state"
+    assert payload["meta"]["network_state_methodology_breaks_comparability"] is True
+    assert payload["meta"]["network_state_payload_contract"]["native_service_states_key"] == "native_service_states"
 
 
 def test_infer_default_valuation_asset_count_reads_explicit_asset_flags():

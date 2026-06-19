@@ -1,0 +1,168 @@
+
+#######################
+Reboot system 
+
+sudo systemctl reboot
+
+#######################
+Vérifier l’état exact du run sensitivity en cours:
+
+cd /home/ubuntu/sib-work
+cat outputs/sensitivity-runs/latest-manifest.json
+
+
+#######################
+
+Pour voir seulement le scénario actif et son child:
+
+cd /home/ubuntu/sib-work
+python - <<'PY'
+import json
+from pathlib import Path
+
+m = json.loads(Path("outputs/sensitivity-runs/latest-manifest.json").read_text())
+running = next((s for s in m.get("scenarios", []) if s.get("status") == "running"), None)
+print("run_status:", m.get("status"))
+print("active_scenario:", running.get("scenario_id") if running else None)
+print("child_status:", running.get("child_status") if running else None)
+print("child_manifest:", running.get("child_manifest_path") if running else None)
+PY
+
+#######################
+
+Éviter de lancer un deuxième monitor:
+pgrep -af "monitor_sensitivity_run.py"
+Si un monitor tourne déjà, relance juste celui-ci une seule fois:
+
+cd /home/ubuntu/sib-work
+./backend/.venv/bin/python scripts/monitor_sensitivity_run.py
+
+#######################
+
+Tuer les anciens monitors et n’en garder qu’un seul:
+pkill -f "monitor_sensitivity_run.py"
+Puis relancer un seul monitor:
+
+cd /home/ubuntu/sib-work
+./backend/.venv/bin/python scripts/monitor_sensitivity_run.py
+
+
+Le dernier run de sensibilité est `sensitivity_20260602_110051`.
+
+Statut:
+- `failed`
+- Il n’est pas allé jusqu’au bout
+- Le premier scénario `all-default` a échoué après `9580` secondes, puis le run s’est arrêté
+
+Références:
+- [Manifeste du dernier run](/home/ubuntu/sib-work/outputs/sensitivity-runs/latest-manifest.json)
+- [Manifeste du run](/home/ubuntu/sib-work/outputs/sensitivity-runs/sensitivity_20260602_110051/manifest.json)
+
+Commande pour vérifier l’état d’un run à partir de son ID:
+```bash
+cd /home/ubuntu/sib-work
+cat outputs/sensitivity-runs/<run_id>/manifest.json
+```
+
+Exemple:
+```bash
+cd /home/ubuntu/sib-work
+cat outputs/sensitivity-runs/sensitivity_20260602_110051/manifest.json
+```
+
+Où sont stockés les résultats d’un run de sensibilité:
+- `outputs/sensitivity-runs/<run_id>/manifest.json` pour l’état du run
+- `outputs/sensitivity-runs/<run_id>/logs/` pour les logs de chaque scénario
+- `outputs/sensitivity-runs/<run_id>/artifacts/` pour les artefacts exportés, quand l’export a pu aller au bout
+- Le `latest-manifest.json` pointe vers le dernier run lancé
+
+#######################
+
+Relancer un run qui ne s'est pas terminé, avec le bon nombre de tracks
+
+KILL THE RUN 
+#1 find PYD number
+
+ps -ef | rg "run_complete_analysis.py .*--resume-run-id xxx"
+#then find the PYD number, it is the first number after unbuntu on the second line, ex ubuntu  2495532
+
+#2 kill process based on PYD number 
+kill pyd ex kill 
+
+#3 Version robuste, qui force un nombre de point par shard pou reprendre les shard deja calculé: 
+cd /home/ubuntu/sib-work
+nohup /home/ubuntu/sib-work/backend/.venv/bin/python scripts/run_complete_analysis.py \
+  --resume-run-id xxx \
+  --dynamic-max-tracks 0 \
+  --max-points-per-shard xxx \
+  --memory-budget-gb 6.0 \
+  --no-deploy \
+  > /home/ubuntu/sib-work/logs/run_complete_analysis_xxx.log 2>&1 &
+
+Relance robuste run sensitivity
+cd /home/ubuntu/sib-work
+nohup /home/ubuntu/sib-work/backend/.venv/bin/python scripts/run_sensitivity_analysis.py \
+  --resume-run-id sensitivity_20260609_140911 \
+  --scenario-pack /home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json \
+  --dynamic-max-tracks 1200 \
+  --memory-budget-gb 6.0 \
+  --child-max-points-per-shard 1500 \
+  --min-points-per-shard 512 \
+  --continue-on-error \
+  > /home/ubuntu/sib-work/logs/run_sensitivity_analysis_sensitivity_20260609_140911.log 2>&1 &
+
+
+Version de base: 
+cd /home/ubuntu/sib-work
+/home/ubuntu/sib-work/backend/.venv/bin/python scripts/run_complete_analysis.py \
+  --resume-run-id 20260608_045328 \
+  --dynamic-max-tracks 0 \
+  --no-deploy
+
+
+
+#####
+rouvrir un babysitter un babysitter apres avoir fermé vs code
+tmux attach -t babysit-xxx
+
+verifier le nom des sessions disponibles
+tmux ls
+
+suivre le log sans se rattacher à tmux 
+tail -f /home/ubuntu/sib-work/logs/babysit_complete_analysis_20260611_075636.log
+
+Pour les babysitters hazard-comparison et sensitivity:
+
+tmux attach -t babysit-hazard-comparison-<run_id>
+tail -f /home/ubuntu/sib-work/logs/babysit_hazard_comparison_<run_id>.log
+
+tmux attach -t babysit-sensitivity-<run_id>
+tail -f /home/ubuntu/sib-work/logs/babysit_sensitivity_analysis_<run_id>.log
+
+########### Kill all process
+
+# Check active babysitters and active runs
+tmux ls || true
+echo '---'
+ps -eo pid,ppid,stat,args | awk '
+  /\/home\/ubuntu\/sib-work\/scripts\/(babysit_.*_run|run_.*analysis|run_.*comparison|run_.*sensitivity)\.py/ {
+    print
+  }
+'
+# Kill babysitters first, then kill any matching runs
+tmux ls 2>/dev/null | awk -F: '/^babysit-/ {print $1}' | xargs -r -n1 tmux kill-session -t
+
+ps -eo pid=,args= | awk '
+  /\/home\/ubuntu\/sib-work\/scripts\/(babysit_.*_run|run_.*analysis|run_.*comparison|run_.*sensitivity)\.py/ {
+    print $1
+  }
+' | xargs -r kill -TERM
+
+sleep 2
+
+ps -eo pid=,args= | awk '
+  /\/home\/ubuntu\/sib-work\/scripts\/(babysit_.*_run|run_.*analysis|run_.*comparison|run_.*sensitivity)\.py/ {
+    print $1
+  }
+' | xargs -r kill -KILL
+

@@ -26,6 +26,8 @@ Core audit files:
 - `docs/expert-review/note-backend-calculatoire.en.md`
 - `docs/expert-review/expert-review-delta-2026-05-05.md`
 - `docs/expert-review/expert-followup-plan-2026-05-05.md`
+- `docs/expert-review/expert-part3-implementation-status-2026-05-20.md`
+- `docs/expert-review/expert-part3-rp-semantics-2026-05-20.md`
 - `docs/expert-review/expert-last-review-focus-2026-05-05.md`
 - `docs/expert-review/climate-signal-check-2026-05-05.md`
 - `docs/expert-review/methodology-code-crosswalk.md`

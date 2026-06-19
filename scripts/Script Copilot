@@ -1,0 +1,21 @@
+cd /home/ubuntu/sib-work
+python - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("outputs/sensitivity-runs/latest-manifest.json")
+data = json.loads(path.read_text())
+
+print("run_id:", data.get("run_id"))
+print("status:", data.get("status"))
+print("scenario_count:", data.get("scenario_count"))
+print("completed_count:", data.get("completed_count"))
+print("failed_count:", data.get("failed_count"))
+
+scenarios = data.get("scenarios", [])
+print("scenarios:", len(scenarios))
+
+for i, s in enumerate(scenarios[:3]):
+    print("\n--- SCENARIO", i, "---")
+    print(json.dumps(s, indent=2, ensure_ascii=False)[:5000])
+PY
