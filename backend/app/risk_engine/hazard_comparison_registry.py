@@ -35,25 +35,36 @@ class HazardComparisonRegistry:
             if isinstance(value, dict)
         }
 
+    def _flagged_ids(self, *, included: bool) -> tuple[str, ...]:
+        return tuple(
+            territory_id
+            for territory_id, entry in self.territories.items()
+            if bool(entry.get("include_in_comparison")) is included
+        )
+
+    def _ordered_meta_ids(self, meta_key: str, *, included: bool) -> tuple[str, ...]:
+        flagged_ids = self._flagged_ids(included=included)
+        declared = self.meta.get(meta_key)
+        if not isinstance(declared, list):
+            return flagged_ids
+
+        ordered: list[str] = []
+        for value in declared:
+            territory_id = str(value).strip()
+            if territory_id in flagged_ids and territory_id not in ordered:
+                ordered.append(territory_id)
+        for territory_id in flagged_ids:
+            if territory_id not in ordered:
+                ordered.append(territory_id)
+        return tuple(ordered)
+
     @property
     def included_ids(self) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                territory_id
-                for territory_id, entry in self.territories.items()
-                if bool(entry.get("include_in_comparison"))
-            )
-        )
+        return self._ordered_meta_ids("included_territories", included=True)
 
     @property
     def excluded_ids(self) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                territory_id
-                for territory_id, entry in self.territories.items()
-                if not bool(entry.get("include_in_comparison"))
-            )
-        )
+        return self._ordered_meta_ids("excluded_territories", included=False)
 
 
 @dataclass(frozen=True)
@@ -96,21 +107,23 @@ def validate_hazard_comparison_registry(
     if not territories:
         errors.append("territories map is empty")
 
-    declared_included = tuple(sorted(str(value) for value in meta.get("included_territories") or []))
-    declared_excluded = tuple(sorted(str(value) for value in meta.get("excluded_territories") or []))
+    declared_included = tuple(str(value) for value in meta.get("included_territories") or [])
+    declared_excluded = tuple(str(value) for value in meta.get("excluded_territories") or [])
 
+    flag_included_ids = registry._flagged_ids(included=True)
+    flag_excluded_ids = registry._flagged_ids(included=False)
     included_ids = registry.included_ids
     excluded_ids = registry.excluded_ids
 
-    if declared_included != included_ids:
+    if set(declared_included) != set(flag_included_ids):
         errors.append(
             "meta.included_territories does not match territory flags: "
-            f"declared={declared_included} actual={included_ids}"
+            f"declared={declared_included} actual={flag_included_ids}"
         )
-    if declared_excluded != excluded_ids:
+    if set(declared_excluded) != set(flag_excluded_ids):
         errors.append(
             "meta.excluded_territories does not match territory flags: "
-            f"declared={declared_excluded} actual={excluded_ids}"
+            f"declared={declared_excluded} actual={flag_excluded_ids}"
         )
     if set(included_ids) & set(excluded_ids):
         errors.append("a territory cannot be both included and excluded")

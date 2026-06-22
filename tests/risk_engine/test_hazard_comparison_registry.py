@@ -16,14 +16,14 @@ def test_load_hazard_comparison_registry_exposes_expected_perimeter() -> None:
     assert registry.path == DEFAULT_HAZARD_COMPARISON_REGISTRY_PATH
     assert registry.included_ids == (
         "guadeloupe",
-        "guyane",
-        "la_reunion",
         "martinique",
-        "mayotte",
-        "nouvelle_caledonie",
         "saint_barthelemy",
         "saint_martin",
         "saint_pierre_et_miquelon",
+        "la_reunion",
+        "mayotte",
+        "nouvelle_caledonie",
+        "guyane",
     )
     assert registry.excluded_ids == (
         "polynesie_francaise",

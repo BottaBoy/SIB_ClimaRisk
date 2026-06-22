@@ -6,13 +6,13 @@
     "included_territories": [
       "guadeloupe",
       "martinique",
-      "guyane",
       "saint_barthelemy",
       "saint_martin",
       "saint_pierre_et_miquelon",
       "la_reunion",
       "mayotte",
-      "nouvelle_caledonie"
+      "nouvelle_caledonie",
+      "guyane"
     ],
     "excluded_territories": [
       "polynesie_francaise",
