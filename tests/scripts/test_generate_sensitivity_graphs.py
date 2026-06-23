@@ -20,6 +20,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from scripts.generate_sensitivity_graphs import (
     ScenarioPayload,
     add_baseline_deltas,
+    build_impact_legend_spec,
     build_quality_report,
     clean_legacy_outputs,
     extract_rows_from_payload,
@@ -206,6 +207,15 @@ def test_summarize_network_state_distribution_handles_nested_service_units() -> 
     )
 
     assert summary == (22.0, 18.0)
+
+
+def test_build_impact_legend_spec_includes_decrease_and_increase_swatches() -> None:
+    handles, labels, title = build_impact_legend_spec()
+
+    assert labels == ["Impact annuel moyen", "Impact RP50", "Impact RP100"]
+    assert "diminution | augmentation" in title
+    assert len(handles) == 3
+    assert all(len(handle) == 2 for handle in handles)
 
 
 def test_clean_legacy_outputs_removes_curves_and_legacy_pngs(tmp_path: Path) -> None:

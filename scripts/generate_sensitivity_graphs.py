@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import numpy as np
+from matplotlib.legend_handler import HandlerTuple
 from matplotlib.patches import Patch
 
 
@@ -834,6 +835,19 @@ def _set_symmetric_xlim(ax: plt.Axes, values: list[float]) -> None:
     ax.set_xlim(-max_abs * 1.18, max_abs * 1.18)
 
 
+def build_impact_legend_spec() -> tuple[list[tuple[Patch, Patch]], list[str], str]:
+    handles = [
+        (
+            Patch(color=IMPACT_NEGATIVE_COLORS[return_period]),
+            Patch(color=IMPACT_POSITIVE_COLORS[return_period]),
+        )
+        for return_period in IMPACT_PERIOD_ORDER
+    ]
+    labels = [METRIC_LABELS[return_period] for return_period in IMPACT_PERIOD_ORDER]
+    title = "Temps de retour\n(diminution | augmentation)"
+    return handles, labels, title
+
+
 def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     output_paths: list[Path] = []
     tornado_dir = output_dir / "tornado"
@@ -920,17 +934,15 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
         ax.grid(True, axis="x", alpha=0.3)
         _set_symmetric_xlim(ax, all_values)
 
-        legend_handles = [
-            Patch(color=IMPACT_POSITIVE_COLORS[return_period], label=METRIC_LABELS[return_period])
-            for return_period in IMPACT_PERIOD_ORDER
-        ]
-
+        legend_handles, legend_labels, legend_title = build_impact_legend_spec()
         ax.legend(
             handles=legend_handles,
+            labels=legend_labels,
             loc="upper left",
             bbox_to_anchor=(1.02, 1),
             borderaxespad=0,
-            title="Temps de retour",
+            title=legend_title,
+            handler_map={tuple: HandlerTuple(ndivide=None, pad=0.6)},
         )
 
         fig.tight_layout(rect=[0, 0, 0.8, 1])
@@ -1050,7 +1062,7 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
         ax.grid(True, axis="x", alpha=0.3)
         _set_symmetric_xlim(ax, all_values)
 
-        legend_handles = [
+        series_legend_handles = [
             Patch(
                 color=NETWORK_SERIES_COLORS[series_key],
                 label=f"{series_key[0].upper()} {SERVICE_LABELS[series_key[1]]}",
@@ -1059,11 +1071,11 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
             if series_column_names[series_key] in summary.columns
         ]
         ax.legend(
-            handles=legend_handles,
+            handles=series_legend_handles,
             loc="upper left",
             bbox_to_anchor=(1.02, 1),
             borderaxespad=0,
-            title="Séries",
+            title="Séries\n(couleur fixe)",
         )
 
         fig.tight_layout(rect=[0, 0, 0.8, 1])
