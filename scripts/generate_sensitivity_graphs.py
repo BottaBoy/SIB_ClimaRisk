@@ -8,7 +8,6 @@ and complete-analysis JSON payloads.
 
 Main outputs:
 - normalized CSV table
-- sensitivity curves
 - tornado charts
 
 Typical usage:
@@ -22,6 +21,7 @@ import argparse
 import json
 import math
 import re
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,9 +63,45 @@ METRIC_LABELS = {
 }
 
 NETWORK_SERVICES = ("elec", "water_aep", "water_eu")
+SERVICE_LABELS = {
+    "elec": "Elec",
+    "water_aep": "AEP",
+    "water_eu": "EU",
+}
 NETWORK_METRICS = {
-    "non_nominal_pct": "Population hors S0 (%)",
-    "outage_pct": "Population en S3 (%)",
+    "non_nominal_pct": "% réseaux hors S0",
+    "outage_pct": "% réseaux S3",
+}
+NETWORK_METRIC_FILENAME_SUFFIXES = {
+    "non_nominal_pct": "combined_pct_reseaux_hors_s0",
+    "outage_pct": "combined_pct_reseaux_s3",
+}
+IMPACT_PERIOD_ORDER = ("annual", "rp50", "rp100")
+IMPACT_NEGATIVE_COLORS = {
+    "annual": "#1d4ed8",
+    "rp50": "#3b82f6",
+    "rp100": "#93c5fd",
+}
+IMPACT_POSITIVE_COLORS = {
+    "annual": "#ea580c",
+    "rp50": "#f97316",
+    "rp100": "#fdba74",
+}
+NETWORK_SERIES_ORDER = (
+    ("storm", "elec"),
+    ("storm", "water_aep"),
+    ("storm", "water_eu"),
+    ("storm_cmcc", "elec"),
+    ("storm_cmcc", "water_aep"),
+    ("storm_cmcc", "water_eu"),
+)
+NETWORK_SERIES_COLORS = {
+    ("storm", "elec"): "#eab308",
+    ("storm_cmcc", "elec"): "#fde047",
+    ("storm", "water_aep"): "#38bdf8",
+    ("storm_cmcc", "water_aep"): "#7dd3fc",
+    ("storm", "water_eu"): "#1d4ed8",
+    ("storm_cmcc", "water_eu"): "#60a5fa",
 }
 
 COMPLETE_ANALYSIS_JSON_RE = re.compile(
@@ -311,7 +347,67 @@ def guess_hazard_from_path(path: tuple[str, ...], block: dict[str, Any]) -> str:
     return "unknown"
 
 
-def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[str, Any]]:
+def extract_network_states_native(payload: dict[str, Any]) -> dict[str, Any]:
+    candidates = [
+        safe_dict(payload.get("network_states_native")),
+        safe_dict(safe_dict(payload.get("portfolio_results")).get("network_states_native")),
+    ]
+
+    territory_results = payload.get("territory_results")
+    if isinstance(territory_results, list):
+        for territory_row in territory_results:
+            if not isinstance(territory_row, dict):
+                continue
+            candidates.append(safe_dict(territory_row.get("network_states_native")))
+
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return {}
+
+
+def summarize_network_state_distribution(distribution: dict[str, Any]) -> tuple[float, float] | None:
+    degraded_share = safe_float(distribution.get("degraded_share"))
+    state = str(distribution.get("state") or "").strip().upper()
+    if not math.isnan(degraded_share):
+        degraded_share = max(0.0, degraded_share)
+        non_nominal_pct = degraded_share * 100.0 if state != "S0" else 0.0
+        outage_pct = degraded_share * 100.0 if state == "S3" else 0.0
+        return non_nominal_pct, outage_pct
+
+    weighted_non_nominal = 0.0
+    weighted_outage = 0.0
+    total_weight = 0.0
+    for service_unit in distribution.values():
+        service_unit_dict = safe_dict(service_unit)
+        unit_share = safe_float(service_unit_dict.get("degraded_share"))
+        unit_state = str(service_unit_dict.get("state") or "").strip().upper()
+        if math.isnan(unit_share):
+            continue
+        weight = safe_float(service_unit_dict.get("asset_count"))
+        if math.isnan(weight) or weight <= 0.0:
+            weight = safe_float(service_unit_dict.get("exposed_asset_count"))
+        if math.isnan(weight) or weight <= 0.0:
+            weight = 1.0
+        unit_share = max(0.0, unit_share)
+        total_weight += weight
+        if unit_state != "S0":
+            weighted_non_nominal += weight * unit_share
+        if unit_state == "S3":
+            weighted_outage += weight * unit_share
+
+    if total_weight <= 0.0:
+        return None
+
+    return (
+        weighted_non_nominal / total_weight * 100.0,
+        weighted_outage / total_weight * 100.0,
+    )
+
+
+def extract_rows_from_payload(
+    scenario_payload: ScenarioPayload,
+) -> tuple[list[dict[str, Any]], list[str]]:
     payload = load_json(scenario_payload.payload_path)
     territory = infer_territory_from_payload_path(scenario_payload.payload_path)
 
@@ -321,6 +417,7 @@ def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[st
     )
 
     rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
     seen: set[tuple[str, str, str, float]] = set()
 
     def _append_row(
@@ -384,34 +481,22 @@ def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[st
                 value=value,
             )
 
-    portfolio_results = safe_dict(payload.get("portfolio_results"))
-    network_distribution_by_hazard = safe_dict(portfolio_results.get("social_impact_population_state_distribution"))
-    if not network_distribution_by_hazard:
-        network_distribution_by_hazard = safe_dict(payload.get("social_impact_population_state_distribution"))
-    if not network_distribution_by_hazard:
-        territory_results = payload.get("territory_results")
-        if isinstance(territory_results, list):
-            for territory_row in territory_results:
-                if not isinstance(territory_row, dict):
-                    continue
-                candidate = safe_dict(territory_row.get("social_impact_population_state_distribution"))
-                if candidate:
-                    network_distribution_by_hazard = candidate
-                    break
+    network_states_native = extract_network_states_native(payload)
+    if not network_states_native:
+        warnings.append(
+            "Missing network_states_native; skipping network-state rows for "
+            f"{scenario_payload.scenario_id} ({scenario_payload.payload_path})."
+        )
 
-    for hazard, service_map in network_distribution_by_hazard.items():
+    for hazard, service_map in network_states_native.items():
         if not isinstance(service_map, dict):
             continue
         for service in NETWORK_SERVICES:
             distribution = safe_dict(service_map.get(service))
-            island_total = safe_float(distribution.get("island_population_total"))
-            if math.isnan(island_total) or island_total <= 0.0:
+            summarized = summarize_network_state_distribution(distribution)
+            if summarized is None:
                 continue
-            s1 = max(0.0, safe_float(distribution.get("S1")))
-            s2 = max(0.0, safe_float(distribution.get("S2")))
-            s3 = max(0.0, safe_float(distribution.get("S3")))
-            non_nominal_pct = ((s1 + s2 + s3) / island_total) * 100.0
-            outage_pct = (s3 / island_total) * 100.0
+            non_nominal_pct, outage_pct = summarized
             _append_row(
                 hazard=str(hazard),
                 metric="network_state_pct",
@@ -429,20 +514,23 @@ def extract_rows_from_payload(scenario_payload: ScenarioPayload) -> list[dict[st
                 network_metric="outage_pct",
             )
 
-    return rows
+    return rows, warnings
 
 
-def build_normalized_dataframe(parent_manifest: dict[str, Any]) -> pd.DataFrame:
+def build_normalized_dataframe(parent_manifest: dict[str, Any]) -> tuple[pd.DataFrame, list[str]]:
     scenario_payloads = resolve_scenario_payloads(parent_manifest)
 
     rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
     for scenario_payload in scenario_payloads:
-        rows.extend(extract_rows_from_payload(scenario_payload))
+        scenario_rows, scenario_warnings = extract_rows_from_payload(scenario_payload)
+        rows.extend(scenario_rows)
+        warnings.extend(scenario_warnings)
 
     df = pd.DataFrame(rows)
 
     if df.empty:
-        return df
+        return df, warnings
 
     # Keep obvious useful hazard rows first. This does not delete unknown rows automatically,
     # because schemas may evolve.
@@ -451,7 +539,7 @@ def build_normalized_dataframe(parent_manifest: dict[str, Any]) -> pd.DataFrame:
         kind="stable",
     ).reset_index(drop=True)
 
-    return df
+    return df, warnings
 
 
 def baseline_join_columns(metric: str) -> list[str]:
@@ -686,148 +774,64 @@ def short_scenario_label(row: pd.Series) -> str:
     return unique_labels[0]
 
 
-def plot_curves(df: pd.DataFrame, output_dir: Path) -> list[Path]:
-    output_paths: list[Path] = []
+def clean_legacy_outputs(output_dir: Path) -> None:
     curves_dir = output_dir / "curves"
-    curves_dir.mkdir(parents=True, exist_ok=True)
+    if curves_dir.exists():
+        shutil.rmtree(curves_dir)
 
-    if df.empty:
-        return output_paths
+    tornado_dir = output_dir / "tornado"
+    if tornado_dir.exists():
+        legacy_patterns = (
+            "tornado_*_storm_annual.png",
+            "tornado_*_storm_rp50.png",
+            "tornado_*_storm_rp100.png",
+            "tornado_*_storm_cmcc_annual.png",
+            "tornado_*_storm_cmcc_rp50.png",
+            "tornado_*_storm_cmcc_rp100.png",
+            "tornado_*_delta_annual.png",
+            "tornado_*_delta_annual_rp50_rp100.png",
+        )
+        for pattern in legacy_patterns:
+            for path in tornado_dir.glob(pattern):
+                path.unlink(missing_ok=True)
 
-    df = df[df["metric"] == "impact_eur"].copy()
-    if df.empty:
-        return output_paths
+    tornado_network_dir = output_dir / "tornado-network-states"
+    if tornado_network_dir.exists():
+        for path in tornado_network_dir.glob("tornado_network_states_*.png"):
+            path.unlink(missing_ok=True)
 
-    non_default_df = df[
-        (df["scenario_id"] != "all-default")
-        & df["parameter_key"].notna()
-        & (df["parameter_key"].astype(str) != "")
-    ].copy()
 
-    if non_default_df.empty:
-        return output_paths
-
-    for (parameter_key, hazard, return_period), group in non_default_df.groupby(
-        ["parameter_key", "hazard", "return_period"],
-        dropna=False,
-    ):
-        parameter_key = str(parameter_key or "unknown_parameter")
-        hazard = str(hazard or "unknown_hazard")
-        return_period = str(return_period or "unknown_return_period")
-
-        baseline_group = df[
-            (df["scenario_id"] == "all-default")
-            & (df["hazard"] == hazard)
-            & (df["return_period"] == return_period)
-        ].copy()
-
-        if not baseline_group.empty:
-            baseline_group["parameter_key"] = parameter_key
-            baseline_group["parameter_value"] = "default"
-            baseline_group["parameter_value_num"] = pd.NA
-
-        plot_group = pd.concat([baseline_group, group], ignore_index=True)
-
-        if plot_group.empty:
+def _annotate_horizontal_bars(
+    ax: plt.Axes,
+    values: np.ndarray,
+    y_positions: np.ndarray,
+    *,
+    suffix: str,
+    fontsize: int = 8,
+) -> None:
+    for value, y_pos in zip(values, y_positions):
+        if pd.isna(value):
             continue
-
-        # Avoid duplicated bars.
-        plot_group = plot_group.drop_duplicates(
-            subset=[
-                "scenario_id",
-                "territory",
-                "hazard",
-                "return_period",
-                "value",
-            ]
-        ).copy()
-
-        plot_group["is_default"] = plot_group["scenario_id"].eq("all-default")
-        plot_group["sort_num"] = pd.to_numeric(
-            plot_group["parameter_value_num"],
-            errors="coerce",
+        numeric_value = float(value)
+        ha = "left" if numeric_value >= 0 else "right"
+        x_offset = 5 if numeric_value >= 0 else -5
+        ax.annotate(
+            f"{numeric_value:+.1f}{suffix}",
+            xy=(numeric_value, y_pos),
+            xytext=(x_offset, 0),
+            textcoords="offset points",
+            va="center",
+            ha=ha,
+            fontsize=fontsize,
         )
 
-        plot_group = plot_group.sort_values(
-            by=["is_default", "sort_num", "scenario_id", "territory"],
-            ascending=[False, True, True, True],
-            kind="stable",
-        ).reset_index(drop=True)
 
-        scenario_order = plot_group["scenario_id"].drop_duplicates().tolist()
-        territories = plot_group["territory"].drop_duplicates().tolist()
-
-        if not scenario_order or not territories:
-            continue
-
-        x_positions = np.arange(len(scenario_order))
-        bar_width = 0.8 / max(1, len(territories))
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        legend_handles: list[Patch] = []
-
-        for territory_idx, territory in enumerate(territories):
-            territory_data = plot_group[plot_group["territory"] == territory].copy()
-
-            offset = (territory_idx - (len(territories) - 1) / 2) * bar_width
-
-            for scenario_idx, scenario_id in enumerate(scenario_order):
-                row = territory_data[territory_data["scenario_id"] == scenario_id]
-
-                if row.empty:
-                    continue
-
-                row = row.iloc[0]
-                value = row["value"]
-                is_default = bool(row["scenario_id"] == "all-default")
-
-                if is_default:
-                    color = "tab:gray"
-                    legend_label = f"{territory} - défaut"
-                else:
-                    color = "tab:blue"
-                    legend_label = f"{territory} - scénario"
-
-                ax.bar(
-                    x_positions[scenario_idx] + offset,
-                    value,
-                    width=bar_width,
-                    color=color,
-                )
-
-                if not any(handle.get_label() == legend_label for handle in legend_handles):
-                    legend_handles.append(Patch(color=color, label=legend_label))
-
-        # Labels only on x axis.
-        x_labels = []
-        for scenario_id in scenario_order:
-            row = plot_group[plot_group["scenario_id"] == scenario_id].iloc[0]
-            x_labels.append(short_scenario_label(row))
-
-        ax.set_xticks(x_positions)
-        ax.set_xticklabels(x_labels, rotation=30, ha="right")
-
-        ax.set_ylabel("Impact estimé (€)")
-        ax.grid(True, axis="y", alpha=0.3)
-
-        # Legend outside graph.
-        ax.legend(
-            handles=legend_handles,
-            loc="upper left",
-            bbox_to_anchor=(1.02, 1),
-            borderaxespad=0,
-        )
-
-        fig.tight_layout(rect=[0, 0, 0.82, 1])
-
-        filename = safe_filename(f"curve_{parameter_key}_{hazard}_{return_period}.png")
-        out_path = curves_dir / filename
-        fig.savefig(out_path, dpi=160)
-        plt.close(fig)
-        output_paths.append(out_path)
-
-    return output_paths
+def _set_symmetric_xlim(ax: plt.Axes, values: list[float]) -> None:
+    finite_values = [abs(float(value)) for value in values if not pd.isna(value)]
+    max_abs = max(finite_values, default=0.0)
+    if max_abs <= 0.0:
+        max_abs = 1.0
+    ax.set_xlim(-max_abs * 1.18, max_abs * 1.18)
 
 
 def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
@@ -837,6 +841,7 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
 
     scenario_df = df[
         (df["metric"] == "impact_eur")
+        & df["hazard"].isin(["storm", "storm_cmcc"])
         & (df["scenario_id"] != "all-default")
         & df["delta_pct"].notna()
         & df["parameter_key"].notna()
@@ -848,78 +853,76 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
 
     scenario_df["scenario_display_label"] = scenario_df.apply(short_scenario_label, axis=1)
 
-    for (territory, hazard, return_period), group in scenario_df.groupby(
-        ["territory", "hazard", "return_period"],
+    for (territory, hazard), group in scenario_df.groupby(
+        ["territory", "hazard"],
         dropna=False,
     ):
         territory = str(territory or "unknown_territory")
         hazard = str(hazard or "unknown_hazard")
-        return_period = str(return_period or "unknown_return_period")
-
-        # One row per scenario to avoid repeated labels/bars.
         summary = (
-            group.groupby("scenario_id", as_index=False)
-            .agg(
-                scenario_display_label=("scenario_display_label", "first"),
-                parameter_key=("parameter_key", "first"),
-                parameter_value=("parameter_value", "first"),
-                delta_pct=("delta_pct", "mean"),
+            group.pivot_table(
+                index="scenario_id",
+                columns="return_period",
+                values="delta_pct",
+                aggfunc="mean",
             )
+            .reindex(columns=list(IMPACT_PERIOD_ORDER))
+            .reset_index()
         )
-
         if summary.empty:
             continue
 
-        summary["amplitude"] = summary["delta_pct"].abs()
-        summary = summary.sort_values("amplitude", ascending=True).tail(25)
-
-        y_positions = list(range(len(summary)))
-
-        fig, ax = plt.subplots(figsize=(12, max(4, 0.45 * len(summary) + 1)))
-
-        colors = [
-            "tab:blue" if value < 0 else "tab:orange"
-            for value in summary["delta_pct"]
-        ]
-
-        ax.barh(
-            y_positions,
-            summary["delta_pct"],
-            color=colors,
+        label_map = group.groupby("scenario_id", as_index=False).agg(
+            scenario_display_label=("scenario_display_label", "first")
         )
+        summary = summary.merge(label_map, on="scenario_id", how="left")
+        summary["amplitude"] = summary[list(IMPACT_PERIOD_ORDER)].abs().max(axis=1, skipna=True)
+        summary = (
+            summary[summary["amplitude"].notna()]
+            .sort_values("amplitude", ascending=True)
+            .tail(25)
+            .reset_index(drop=True)
+        )
+        if summary.empty:
+            continue
+
+        y_positions = np.arange(len(summary), dtype=float)
+        bar_height = 0.22
+        offsets = {"annual": -bar_height, "rp50": 0.0, "rp100": bar_height}
+
+        fig, ax = plt.subplots(figsize=(13, max(4.5, 0.52 * len(summary) + 1)))
+        all_values: list[float] = []
+
+        for return_period in IMPACT_PERIOD_ORDER:
+            values = summary[return_period].to_numpy(dtype=float)
+            valid_mask = ~pd.isna(values)
+            if not valid_mask.any():
+                continue
+            bar_positions = y_positions[valid_mask] + offsets[return_period]
+            valid_values = values[valid_mask]
+            colors = [
+                IMPACT_NEGATIVE_COLORS[return_period] if value < 0 else IMPACT_POSITIVE_COLORS[return_period]
+                for value in valid_values
+            ]
+            ax.barh(
+                bar_positions,
+                valid_values,
+                height=bar_height * 0.9,
+                color=colors,
+            )
+            _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix="%")
+            all_values.extend(valid_values.tolist())
 
         ax.set_yticks(y_positions)
         ax.set_yticklabels(summary["scenario_display_label"])
-
         ax.axvline(0, color="black", linewidth=0.8)
         ax.set_xlabel("Variation vs baseline (%)")
         ax.grid(True, axis="x", alpha=0.3)
-
-        # Label each bar once, with only the % value.
-        for y_pos, (_, row) in zip(y_positions, summary.iterrows()):
-            delta_pct = float(row["delta_pct"])
-            label = f"{delta_pct:+.1f}%"
-
-            if delta_pct >= 0:
-                ha = "left"
-                x_offset = 5
-            else:
-                ha = "right"
-                x_offset = -5
-
-            ax.annotate(
-                label,
-                xy=(delta_pct, y_pos),
-                xytext=(x_offset, 0),
-                textcoords="offset points",
-                va="center",
-                ha=ha,
-                fontsize=8,
-            )
+        _set_symmetric_xlim(ax, all_values)
 
         legend_handles = [
-            Patch(color="tab:blue", label="Diminution"),
-            Patch(color="tab:orange", label="Augmentation"),
+            Patch(color=IMPACT_POSITIVE_COLORS[return_period], label=METRIC_LABELS[return_period])
+            for return_period in IMPACT_PERIOD_ORDER
         ]
 
         ax.legend(
@@ -927,11 +930,12 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
             loc="upper left",
             bbox_to_anchor=(1.02, 1),
             borderaxespad=0,
+            title="Temps de retour",
         )
 
-        fig.tight_layout(rect=[0, 0, 0.82, 1])
+        fig.tight_layout(rect=[0, 0, 0.8, 1])
 
-        filename = safe_filename(f"tornado_{territory}_{hazard}_{return_period}.png")
+        filename = safe_filename(f"tornado_{territory}_{hazard}_annual_rp50_rp100.png")
         out_path = tornado_dir / filename
         fig.savefig(out_path, dpi=160)
         plt.close(fig)
@@ -957,82 +961,114 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
         return output_paths
 
     scenario_df["scenario_display_label"] = scenario_df.apply(short_scenario_label, axis=1)
+    series_column_names = {
+        series_key: f"{series_key[0]}::{series_key[1]}"
+        for series_key in NETWORK_SERIES_ORDER
+    }
 
-    for (territory, hazard, service, network_metric), group in scenario_df.groupby(
-        ["territory", "hazard", "service", "network_metric"],
+    for (territory, network_metric), group in scenario_df.groupby(
+        ["territory", "network_metric"],
         dropna=False,
     ):
         territory = str(territory or "unknown_territory")
-        hazard = str(hazard or "unknown_hazard")
-        service = str(service or "unknown_service")
         network_metric = str(network_metric or "unknown_metric")
 
         summary = (
-            group.groupby("scenario_id", as_index=False)
-            .agg(
-                scenario_display_label=("scenario_display_label", "first"),
-                delta_abs=("delta_abs", "mean"),
+            group.pivot_table(
+                index="scenario_id",
+                columns=["hazard", "service"],
+                values="delta_abs",
+                aggfunc="mean",
             )
+            .reset_index()
         )
         if summary.empty:
             continue
 
-        summary["amplitude"] = summary["delta_abs"].abs()
-        summary = summary.sort_values("amplitude", ascending=True).tail(25)
-        y_positions = list(range(len(summary)))
-
-        fig, ax = plt.subplots(figsize=(12, max(4, 0.45 * len(summary) + 1)))
-        colors = [
-            "tab:blue" if value < 0 else "tab:orange"
-            for value in summary["delta_abs"]
+        summary.columns = [
+            "scenario_id"
+            if column == ("scenario_id", "")
+            else series_column_names.get(column, str(column))
+            for column in summary.columns
         ]
 
-        ax.barh(
-            y_positions,
-            summary["delta_abs"],
-            color=colors,
+        label_map = group.groupby("scenario_id", as_index=False).agg(
+            scenario_display_label=("scenario_display_label", "first")
         )
+        summary = summary.merge(label_map, on="scenario_id", how="left")
+        series_columns = [
+            series_key
+            for series_key in NETWORK_SERIES_ORDER
+            if series_column_names[series_key] in summary.columns
+        ]
+        if not series_columns:
+            continue
+
+        summary["amplitude"] = summary[
+            [series_column_names[series_key] for series_key in series_columns]
+        ].abs().max(axis=1, skipna=True)
+        summary = (
+            summary[summary["amplitude"].notna()]
+            .sort_values("amplitude", ascending=True)
+            .tail(25)
+            .reset_index(drop=True)
+        )
+        if summary.empty:
+            continue
+
+        y_positions = np.arange(len(summary), dtype=float)
+        bar_height = 0.11
+        center_offset = (len(NETWORK_SERIES_ORDER) - 1) / 2
+
+        fig, ax = plt.subplots(figsize=(14, max(4.5, 0.54 * len(summary) + 1)))
+        all_values: list[float] = []
+
+        for series_idx, series_key in enumerate(NETWORK_SERIES_ORDER):
+            series_column = series_column_names[series_key]
+            if series_column not in summary.columns:
+                continue
+            values = summary[series_column].to_numpy(dtype=float)
+            valid_mask = ~pd.isna(values)
+            if not valid_mask.any():
+                continue
+            bar_positions = y_positions[valid_mask] + (series_idx - center_offset) * bar_height
+            valid_values = values[valid_mask]
+            ax.barh(
+                bar_positions,
+                valid_values,
+                height=bar_height * 0.9,
+                color=NETWORK_SERIES_COLORS[series_key],
+            )
+            _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix=" pts", fontsize=7)
+            all_values.extend(valid_values.tolist())
 
         ax.set_yticks(y_positions)
         ax.set_yticklabels(summary["scenario_display_label"])
         ax.axvline(0, color="black", linewidth=0.8)
-        ax.set_xlabel("Variation vs baseline (points de pourcentage)")
-        ax.set_title(f"{service} | {NETWORK_METRICS.get(network_metric, network_metric)}")
+        ax.set_xlabel("Variation vs baseline (points de pourcentage de réseau)")
+        ax.set_title(NETWORK_METRICS.get(network_metric, network_metric))
         ax.grid(True, axis="x", alpha=0.3)
-
-        for y_pos, (_, row) in zip(y_positions, summary.iterrows()):
-            delta_abs = float(row["delta_abs"])
-            label = f"{delta_abs:+.1f} pts"
-            if delta_abs >= 0:
-                ha = "left"
-                x_offset = 5
-            else:
-                ha = "right"
-                x_offset = -5
-
-            ax.annotate(
-                label,
-                xy=(delta_abs, y_pos),
-                xytext=(x_offset, 0),
-                textcoords="offset points",
-                va="center",
-                ha=ha,
-                fontsize=8,
-            )
+        _set_symmetric_xlim(ax, all_values)
 
         legend_handles = [
-            Patch(color="tab:blue", label="Diminution"),
-            Patch(color="tab:orange", label="Augmentation"),
+            Patch(
+                color=NETWORK_SERIES_COLORS[series_key],
+                label=f"{series_key[0].upper()} {SERVICE_LABELS[series_key[1]]}",
+            )
+            for series_key in NETWORK_SERIES_ORDER
+            if series_column_names[series_key] in summary.columns
         ]
         ax.legend(
             handles=legend_handles,
             loc="upper left",
             bbox_to_anchor=(1.02, 1),
             borderaxespad=0,
+            title="Séries",
         )
 
-        fig.tight_layout(rect=[0, 0, 0.82, 1])
-        filename = safe_filename(f"tornado_network_states_{territory}_{hazard}_{service}_{network_metric}.png")
+        fig.tight_layout(rect=[0, 0, 0.8, 1])
+        filename_suffix = NETWORK_METRIC_FILENAME_SUFFIXES.get(network_metric, network_metric)
+        filename = safe_filename(f"tornado_network_states_{territory}_{filename_suffix}.png")
         out_path = tornado_dir / filename
         fig.savefig(out_path, dpi=160)
         plt.close(fig)
@@ -1110,11 +1146,12 @@ def main() -> int:
             output_dir = REPO_ROOT / output_dir
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    clean_legacy_outputs(output_dir)
 
     print(f"[info] Reading sensitivity manifest: {manifest_path}")
     print(f"[info] Writing outputs to: {output_dir}")
 
-    df = build_normalized_dataframe(parent_manifest)
+    df, extraction_warnings = build_normalized_dataframe(parent_manifest)
     df = add_baseline_deltas(df)
 
     normalized_csv = output_dir / "sensitivity-results-normalized.csv"
@@ -1126,6 +1163,7 @@ def main() -> int:
         print("[warning] No scientific payload could be resolved from the sensitivity manifest/logs.")
         print("[warning] Check log_path, child_manifest_path, and complete-analysis JSON paths.")
         quality_report = build_quality_report(df)
+        quality_report.setdefault("alerts", []).extend(extraction_warnings)
         summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, [], quality_report)
         print(f"[info] Wrote summary: {summary_path}")
         return 2
@@ -1133,15 +1171,15 @@ def main() -> int:
     scenario_count = df["scenario_id"].nunique()
     if scenario_count <= 1:
         print("[warning] Only one scenario found in the normalized table.")
-        print("[warning] Curves and tornado charts need at least one non-baseline scenario.")
+        print("[warning] Combined tornado charts need at least one non-baseline scenario.")
         print("[warning] The extraction works, but your current run probably only contains all-default.")
 
     graph_paths: list[Path] = []
-    graph_paths.extend(plot_curves(df, output_dir))
     graph_paths.extend(plot_tornado(df, output_dir))
     graph_paths.extend(plot_network_state_tornado(df, output_dir))
 
     quality_report = build_quality_report(df)
+    quality_report.setdefault("alerts", []).extend(extraction_warnings)
     summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, graph_paths, quality_report)
 
     print(f"[info] Graphs generated: {len(graph_paths)}")
