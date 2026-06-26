@@ -26,6 +26,11 @@ def test_page_suffix_and_frontend_paths_support_saint_barthelemy() -> None:
     assert case_study_sources.territory_page_suffix("saint-barthelemy") == "page7"
     assert run_web_artifacts.case_study_page_suffix("saint-barthelemy") == "page7"
     assert run_web_artifacts.territory_frontend_rebuild_relative_paths("saint-barthelemy") == (
+        "data/vulnerability-curves-wind.json",
+        "data/vulnerability-curves-rain.json",
+        "data/vulnerability-curves-surge.json",
+        "data/vulnerability-curves-landslide.json",
+        "data/saint-barthelemy-scientific-web-summary.json",
         "data/saint-barthelemy-wind-maps.json",
         "data/saint-barthelemy-landslide-maps.json",
         "data/saint-barthelemy-multi-hazard-proxy.json",

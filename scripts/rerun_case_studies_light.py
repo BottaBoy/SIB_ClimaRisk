@@ -584,6 +584,22 @@ def main(*, journal_path: Path | None = None) -> int:
             territory=territory,
             step="build_scientific_web_summary",
         )
+        _run(
+            [
+                str(PYTHON),
+                str(REPO_ROOT / "scripts" / "build_vulnerability_curve_artifacts.py"),
+                "--components",
+                "all",
+                "--out-dir",
+                str(REPO_ROOT / "web" / "data"),
+                "--case-study-run-id",
+                run_id,
+            ],
+            env=territory_env,
+            journal_path=journal_path,
+            territory=territory,
+            step="build_vulnerability_curve_artifacts",
+        )
         _info(f"[{territory}] impacts -> mouvement de terrain (rebuild case-study page analysis)")
         _run(
             [

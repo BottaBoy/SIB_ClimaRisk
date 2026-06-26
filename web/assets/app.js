@@ -305,6 +305,13 @@ const NETWORK_LAYER_LABEL = {
 
 const CASE_STUDY_ALLOWED_NETWORK_LAYER_TYPES = new Set(NETWORK_LAYER_ORDER);
 
+function buildLayerVisibilityDefaults(keys) {
+  return Object.fromEntries((Array.isArray(keys) ? keys : []).map((key) => [key, false]));
+}
+
+state.waterLayerVisibility = buildLayerVisibilityDefaults(WATER_LAYER_ORDER);
+state.networkLayerVisibility = buildLayerVisibilityDefaults(NETWORK_LAYER_ORDER);
+
 const REQUIRED_NETWORK_STATE_METADATA = {
   state_geometry_mode: 'hydraulic_zoning_v2',
   water_state_geometry_mode: 'hydraulic_zoning_v2',
@@ -2472,12 +2479,88 @@ function activeScientificWebSummary() {
     : null;
 }
 
+function scientificImpactPayload() {
+  const payload = activeScientificWebSummary()?.frontend?.impact;
+  return payload && typeof payload === 'object' ? payload : null;
+}
+
 function scientificImpactPayloadFallback() {
-  return activeScientificWebSummary()?.frontend?.impact || null;
+  return scientificImpactPayload();
+}
+
+function fallbackCaseStudyImpactPayload(analysis) {
+  return analysis?.impact && typeof analysis.impact === 'object' ? analysis.impact : {};
+}
+
+function scenarioValueFromSources(scenarioRaw, sectionKey, scientificValue, fallbackValue) {
+  const publishedScientifically = scientificScenarioAvailability(scenarioRaw, sectionKey);
+  if (publishedScientifically === true) {
+    return scientificValue ?? fallbackValue;
+  }
+  return fallbackValue ?? scientificValue;
+}
+
+function mergedCaseStudyImpactPayload(analysis) {
+  const scientific = scientificImpactPayload();
+  const fallback = fallbackCaseStudyImpactPayload(analysis);
+  if (!scientific) return fallback;
+
+  const mergedTables = {};
+  const mergedBreakdowns = {};
+  const scientificTables = scientific?.state_damage_tables || {};
+  const fallbackTables = fallback?.state_damage_tables || {};
+  const scientificBreakdowns = scientific?.damage_breakdown_by_scenario || {};
+  const fallbackBreakdowns = fallback?.damage_breakdown_by_scenario || {};
+
+  ['annual', 'rp50', 'rp100', 'p99'].forEach((scenario) => {
+    mergedTables[scenario] = scenarioValueFromSources(
+      scenario,
+      'damage_tables',
+      Array.isArray(scientificTables?.[scenario]) ? scientificTables[scenario] : null,
+      Array.isArray(fallbackTables?.[scenario]) ? fallbackTables[scenario] : null
+    ) || [];
+    mergedBreakdowns[scenario] = scenarioValueFromSources(
+      scenario,
+      'damage_tables',
+      scientificBreakdowns?.[scenario] || null,
+      fallbackBreakdowns?.[scenario] || null
+    ) || { storm: [], storm_cmcc: [] };
+  });
+
+  return {
+    ...fallback,
+    ...scientific,
+    component_order: Array.isArray(scientific?.component_order) && scientific.component_order.length
+      ? scientific.component_order
+      : (Array.isArray(fallback?.component_order) ? fallback.component_order : IMPACT_COMPONENT_ORDER),
+    summary_metrics: {
+      ...(fallback?.summary_metrics || {}),
+      ...(scientific?.summary_metrics || {}),
+      storm: {
+        ...((fallback?.summary_metrics || {}).storm || {}),
+        ...((scientific?.summary_metrics || {}).storm || {})
+      },
+      storm_cmcc: {
+        ...((fallback?.summary_metrics || {}).storm_cmcc || {}),
+        ...((scientific?.summary_metrics || {}).storm_cmcc || {})
+      }
+    },
+    map_defaults: scientific?.map_defaults || fallback?.map_defaults || {},
+    state_damage_tables: {
+      ...(fallback?.state_damage_tables || {}),
+      ...(scientific?.state_damage_tables || {}),
+      ...mergedTables
+    },
+    damage_breakdown_by_scenario: {
+      ...(fallback?.damage_breakdown_by_scenario || {}),
+      ...(scientific?.damage_breakdown_by_scenario || {}),
+      ...mergedBreakdowns
+    },
+  };
 }
 
 function activeCaseStudyImpactPayload(analysis) {
-  return scientificImpactPayloadFallback() || analysis?.impact || {};
+  return mergedCaseStudyImpactPayload(analysis);
 }
 
 function scientificScenarioAvailability(scenarioRaw, sectionKey) {
@@ -2489,14 +2572,34 @@ function scientificScenarioAvailability(scenarioRaw, sectionKey) {
 
 function scientificScenarioSocialSummary(scenarioRaw) {
   const scenario = normalizeImpactTableScenario(scenarioRaw);
+  if (scientificScenarioAvailability(scenario, 'social_impact') !== true) return null;
   const socialImpact = activeScientificWebSummary()?.social_impact || {};
   const byScenario = socialImpact?.scenario_summary || {};
   const summary = byScenario?.[scenario];
   return summary && typeof summary === 'object' && Object.keys(summary).length ? summary : null;
 }
 
+function normalizeScientificServiceStateDistribution(raw) {
+  const payload = raw && typeof raw === 'object' ? raw : null;
+  if (!payload) return null;
+  const totalUnits = Number(payload.total_units || 0);
+  if (totalUnits > 0) {
+    return NETWORK_STATE_ORDER.reduce((acc, stateCode) => {
+      acc[stateCode] = (Number(payload[stateCode] || 0) / totalUnits) * 100;
+      return acc;
+    }, {});
+  }
+  const sum = NETWORK_STATE_ORDER.reduce((acc, stateCode) => acc + Number(payload[stateCode] || 0), 0);
+  if (sum <= 0) return null;
+  return NETWORK_STATE_ORDER.reduce((acc, stateCode) => {
+    acc[stateCode] = (Number(payload[stateCode] || 0) / sum) * 100;
+    return acc;
+  }, {});
+}
+
 function scientificScenarioServiceStateDistribution(scenarioRaw, hazardKeyRaw, serviceKeyRaw) {
   const scenario = normalizeImpactTableScenario(scenarioRaw);
+  if (scientificScenarioAvailability(scenario, 'network_states') !== true) return null;
   const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
   const serviceKey = String(serviceKeyRaw || '').trim().toLowerCase();
   const networkStates = activeScientificWebSummary()?.network_states || {};
@@ -2504,7 +2607,7 @@ function scientificScenarioServiceStateDistribution(scenarioRaw, hazardKeyRaw, s
   const scenarioPayload = byScenario?.[scenario];
   const hazardPayload = scenarioPayload?.[hazardKey];
   const servicePayload = hazardPayload?.[serviceKey];
-  return servicePayload && typeof servicePayload === 'object' ? servicePayload : null;
+  return normalizeScientificServiceStateDistribution(servicePayload);
 }
 
 function impactTableScenarioMeta(scenarioRaw) {
@@ -2811,13 +2914,46 @@ function aggregateScenarioSocialSummary(analysis, networkStates) {
   return summary;
 }
 
-function ensureScenarioSocialSummary(analysis) {
-  const scientific = activeScientificWebSummary();
-  if (scientific?.social_impact?.scenario_summary) {
-    return scientific.social_impact.scenario_summary;
+function mergeSocialHazardMetrics(baseRaw, overlayRaw) {
+  const base = baseRaw && typeof baseRaw === 'object' ? baseRaw : {};
+  const overlay = overlayRaw && typeof overlayRaw === 'object' ? overlayRaw : {};
+  const merged = {
+    ...base,
+    ...overlay,
+    state_breakdown: {
+      ...(base.state_breakdown || {}),
+      ...(overlay.state_breakdown || {})
+    }
+  };
+  if (
+    Object.prototype.hasOwnProperty.call(merged, 'total_without_water_aep')
+    || Object.prototype.hasOwnProperty.call(merged, 'total_without_water_eu')
+  ) {
+    merged.total_without_water =
+      Number(merged.total_without_water_aep || 0) + Number(merged.total_without_water_eu || 0);
   }
+  return merged;
+}
+
+function mergeScenarioSocialSummary(baseRaw, overlayRaw) {
+  const base = baseRaw && typeof baseRaw === 'object' ? baseRaw : {};
+  const overlay = overlayRaw && typeof overlayRaw === 'object' ? overlayRaw : {};
+  return {
+    ...base,
+    ...overlay,
+    storm: mergeSocialHazardMetrics(base.storm, overlay.storm),
+    storm_cmcc: mergeSocialHazardMetrics(base.storm_cmcc, overlay.storm_cmcc)
+  };
+}
+
+function ensureScenarioSocialSummary(analysis) {
   if (state.caseStudyScenarioSocialSummary) return state.caseStudyScenarioSocialSummary;
   const socialSummary = aggregateScenarioSocialSummary(analysis, state.networkStates);
+  ['annual', 'rp50', 'rp100', 'p99'].forEach((scenario) => {
+    const scientificScenario = scientificScenarioSocialSummary(scenario);
+    if (!scientificScenario) return;
+    socialSummary[scenario] = mergeScenarioSocialSummary(socialSummary[scenario], scientificScenario);
+  });
   const worstCaseSummary = worstCaseSocialSummaryFromCompleteAnalysis();
   if (worstCaseSummary) {
     socialSummary.worst_case = {
@@ -2884,7 +3020,6 @@ function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, expo
 
 function renderImpactStatePieCharts(rows) {
   const scenarioKey = impactTableScenarioMeta(state.impactTableScenario).key;
-  const scientificMode = Boolean(activeScientificWebSummary());
   const scenarioStatePropertyByHazard = {
     storm: `state_${scenarioKey}_storm`,
     storm_cmcc: `state_${scenarioKey}_storm_cmcc`
@@ -2913,23 +3048,19 @@ function renderImpactStatePieCharts(rows) {
     const serviceKey = category.refKey === 'impact_state_elec'
       ? 'elec'
       : (category.refKey === 'impact_state_aep' ? 'water_aep' : 'water_eu');
-    const stormValues = scientificMode
-      ? scientificScenarioServiceStateDistribution(scenarioKey, 'storm', serviceKey)
-      : (
-        featureStateDistribution(
-          state.networkStates,
-          scenarioStatePropertyByHazard.storm,
-          category.matchesLayerKey
-        ) || weightedStateDistribution(rows, 'storm', category.matcher)
+    const stormValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm', serviceKey)
+      || weightedStateDistribution(rows, 'storm', category.matcher)
+      || featureStateDistribution(
+        state.networkStates,
+        scenarioStatePropertyByHazard.storm,
+        category.matchesLayerKey
       );
-    const cmccValues = scientificMode
-      ? scientificScenarioServiceStateDistribution(scenarioKey, 'storm_cmcc', serviceKey)
-      : (
-        featureStateDistribution(
-          state.networkStates,
-          scenarioStatePropertyByHazard.storm_cmcc,
-          category.matchesLayerKey
-        ) || weightedStateDistribution(rows, 'storm_cmcc', category.matcher)
+    const cmccValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm_cmcc', serviceKey)
+      || weightedStateDistribution(rows, 'storm_cmcc', category.matcher)
+      || featureStateDistribution(
+        state.networkStates,
+        scenarioStatePropertyByHazard.storm_cmcc,
+        category.matchesLayerKey
       );
     renderFocusedStateShareChart(category.refKey, category.domId, stormValues, cmccValues, {
       innerLabel: getHazardLabel('storm'),
@@ -2949,7 +3080,7 @@ function affectedPopulationStateDistribution(summary, serviceKey) {
 
 function currentImpactSocialSummary(analysis) {
   const scenarioKey = impactTableScenarioMeta(state.impactTableScenario).key;
-  return scientificScenarioSocialSummary(scenarioKey) || ensureScenarioSocialSummary(analysis)?.[scenarioKey] || {};
+  return ensureScenarioSocialSummary(analysis)?.[scenarioKey] || {};
 }
 
 function renderSocialImpactPieCharts(analysis) {
@@ -2980,7 +3111,6 @@ function renderSocialImpactTable(analysis) {
   const socialSummary = currentImpactSocialSummary(analysis);
   const stormMetrics = socialSummary.storm || {};
   const cmccMetrics = socialSummary.storm_cmcc || {};
-  const scientificAvailable = scientificScenarioAvailability(state.impactTableScenario, 'social_impact');
   
   const metrics = [
     { label: 'Population totale affectée (S1/S2/S3)', key: 'total_population_affected_any_network' },
@@ -2993,9 +3123,7 @@ function renderSocialImpactTable(analysis) {
   ];
   
   if (!Object.keys(stormMetrics).length) {
-    els.impactSocialTableBody.innerHTML = scientificAvailable === false
-      ? '<tr><td colspan="4">Impact social non publie scientifiquement pour ce scenario dans le contrat actuel du run.</td></tr>'
-      : '<tr><td colspan="4">Aucune donnée d\'impact sociodémographique disponible.</td></tr>';
+    els.impactSocialTableBody.innerHTML = '<tr><td colspan="4">Aucune donnée d\'impact sociodémographique disponible.</td></tr>';
     return;
   }
   
@@ -4121,7 +4249,22 @@ function lockStaticLeafletMapView(ref, boundsLike) {
   constrainLeafletMapView(ref, boundsLike, { maxExtraZoom: 0, padRatio: 0.02, lockZoomOut: true });
 }
 
+function caseStudyMapZoomPolicy(mapFamilyRaw, territoryRaw) {
+  if (runtime.hostname !== 'visu.sib.dev.elio.bottagisio.com') return null;
+
+  const territory = normalizeCaseStudyTerritory(territoryRaw);
+  const mapFamily = String(mapFamilyRaw || '').trim().toLowerCase();
+  if (territory === 'guadeloupe' || territory === 'martinique') {
+    return { maxExtraZoom: 0 };
+  }
+  if (territory === 'saint-barthelemy' && (mapFamily === 'water' || mapFamily === 'network')) {
+    return { maxExtraZoom: 2 };
+  }
+  return null;
+}
+
 function fitCaseStudyInteractiveMap(ref, boundsLike, territoryRaw, {
+  mapFamily = '',
   padding = [24, 24],
   maxZoom = 10,
   maxExtraZoom = 4,
@@ -4130,8 +4273,10 @@ function fitCaseStudyInteractiveMap(ref, boundsLike, territoryRaw, {
   const territoryBounds = caseStudyInteractiveBounds(territoryRaw);
   const fitBounds = mergeLeafletBounds(boundsLike, territoryBounds);
   if (!ref?.instance || !fitBounds || !fitBounds.isValid()) return;
+  const zoomPolicy = caseStudyMapZoomPolicy(mapFamily, territoryRaw);
+  const resolvedMaxExtraZoom = Number.isFinite(zoomPolicy?.maxExtraZoom) ? zoomPolicy.maxExtraZoom : maxExtraZoom;
   ref.instance.fitBounds(fitBounds, { padding, maxZoom });
-  constrainLeafletMapView(ref, fitBounds, { maxExtraZoom, padRatio, lockZoomOut: false });
+  constrainLeafletMapView(ref, fitBounds, { maxExtraZoom: resolvedMaxExtraZoom, padRatio, lockZoomOut: false });
 }
 
 function ensureWindMap(hazardKey) {
@@ -4493,6 +4638,7 @@ function renderHazardComponentMapLayer(hazardKey, componentRaw, payload, meta, o
     const initialBounds = initialHazardMapBounds(meta, grid);
     if (initialBounds) {
       fitCaseStudyInteractiveMap(ref, initialBounds, state.caseStudyTerritory, {
+        mapFamily: 'hazard',
         padding: [20, 20],
         maxZoom: 10,
         maxExtraZoom: 4,
@@ -5972,13 +6118,14 @@ function renderWaterInfraMap() {
 
   const fitBoundsTarget = bounds && bounds.isValid() ? bounds : allBounds;
   if (!ref.hasFitted && fitBoundsTarget && fitBoundsTarget.isValid()) {
-      fitCaseStudyInteractiveMap(ref, fitBoundsTarget, state.caseStudyTerritory, {
-        padding: [24, 24],
-        maxZoom: 10,
-        maxExtraZoom: 4,
-        padRatio: 0.14
-      });
-      ref.hasFitted = true;
+    fitCaseStudyInteractiveMap(ref, fitBoundsTarget, state.caseStudyTerritory, {
+      mapFamily: 'water',
+      padding: [24, 24],
+      maxZoom: 10,
+      maxExtraZoom: 4,
+      padRatio: 0.14
+    });
+    ref.hasFitted = true;
   }
   setTimeout(() => ref.instance && ref.instance.invalidateSize(), 0);
 }
@@ -6506,6 +6653,7 @@ function renderNetworkStateMap() {
   const fitBoundsTarget = bounds && bounds.isValid() ? bounds : allBounds;
   if (!ref.hasFitted && fitBoundsTarget && fitBoundsTarget.isValid()) {
     fitCaseStudyInteractiveMap(ref, fitBoundsTarget, state.caseStudyTerritory, {
+      mapFamily: 'network',
       padding: [24, 24],
       maxZoom: 10,
       maxExtraZoom: 4,
@@ -8409,6 +8557,7 @@ function renderCaseStudyVisuCard() {
 
   if (!caseStudyVisuMapRef.hasFitted) {
     fitCaseStudyInteractiveMap(caseStudyVisuMapRef, boundsLeaflet, state.caseStudyTerritory, {
+      mapFamily: 'case-study-visu',
       padding: [18, 18],
       maxZoom: 9,
       maxExtraZoom: 4,
@@ -8469,6 +8618,11 @@ async function fetchAdminPopulationMaps() {
   throw lastErr || new Error('Impossible de charger les couches population');
 }
 
+function publishedVulnerabilityCurvesUrl(hazardComponent = 'wind') {
+  const component = normalizeHazardComponent(hazardComponent);
+  return new URL(`/data/vulnerability-curves-${component}.json`, window.location.origin).toString();
+}
+
 function ensureAdminPopulationMapsLoaded() {
   if (state.adminPopulationMaps) return Promise.resolve(state.adminPopulationMaps);
   if (state.adminPopulationMapsPromise) return state.adminPopulationMapsPromise;
@@ -8485,13 +8639,23 @@ function ensureAdminPopulationMapsLoaded() {
 
 async function fetchAdminVulnerabilityCurves(hazardComponent = 'wind') {
   const component = normalizeHazardComponent(hazardComponent);
-  const url = new URL('/api/v1/vulnerability/curves', window.location.origin);
-  url.searchParams.set('hazard_component', component);
-  const targetUrl = url.toString();
-  const res = await fetch(targetUrl, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const payload = await res.json();
-  return normalizeAdminVulnerabilityPayload(payload);
+  const urls = [publishedVulnerabilityCurvesUrl(component)];
+  const apiUrl = new URL('/api/v1/vulnerability/curves', window.location.origin);
+  apiUrl.searchParams.set('hazard_component', component);
+  urls.push(apiUrl.toString());
+
+  let lastErr = null;
+  for (const targetUrl of urls) {
+    try {
+      const res = await fetch(targetUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      return normalizeAdminVulnerabilityPayload(payload);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error(`Impossible de charger les courbes de vulnerabilite (${component})`);
 }
 
 function ensureAdminVulnerabilityCurvesLoaded() {
@@ -8690,8 +8854,8 @@ function resetCaseStudyMapLayers() {
   networkMapRef.order = [];
   networkMapRef.hasFitted = false;
   clearLeafletViewLock(networkMapRef, 4, 13);
-  state.waterLayerVisibility = {};
-  state.networkLayerVisibility = {};
+  state.waterLayerVisibility = buildLayerVisibilityDefaults(WATER_LAYER_ORDER);
+  state.networkLayerVisibility = buildLayerVisibilityDefaults(NETWORK_LAYER_ORDER);
   state.caseStudyScenarioSocialSummary = null;
 }
 

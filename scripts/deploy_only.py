@@ -39,6 +39,10 @@ WEB_DIR = SCRIPTS_ROOT.parent / "web"
 DEPLOY_VERIFY_RELATIVE_PATHS = (
     "index.html",
     "assets/app.js",
+    "data/vulnerability-curves-wind.json",
+    "data/vulnerability-curves-rain.json",
+    "data/vulnerability-curves-surge.json",
+    "data/vulnerability-curves-landslide.json",
     "data/guadeloupe-complete-analysis.json",
     "data/martinique-complete-analysis.json",
     "data/saint-barthelemy-complete-analysis.json",

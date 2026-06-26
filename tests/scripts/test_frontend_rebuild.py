@@ -306,10 +306,15 @@ def test_main_passes_archived_complete_analysis_json_to_proxy_and_page(monkeypat
     assert exit_code == 0
     proxy_cmd = next(item["cmd"] for item in recorded_runs if item.get("step") == "build_multi_hazard_proxy")
     page_cmd = next(item["cmd"] for item in recorded_runs if item.get("step") == "build_page_analysis")
+    vulnerability_cmd = next(
+        item["cmd"] for item in recorded_runs if item.get("step") == "build_vulnerability_curve_artifacts"
+    )
     assert "--complete-analysis-json" in proxy_cmd
     assert proxy_cmd[proxy_cmd.index("--complete-analysis-json") + 1] == str(archived_path)
     assert "--complete-analysis-json" in page_cmd
     assert page_cmd[page_cmd.index("--complete-analysis-json") + 1] == str(archived_path)
+    assert "--components" in vulnerability_cmd
+    assert vulnerability_cmd[vulnerability_cmd.index("--components") + 1] == "all"
 
 
 def test_resolve_local_requested_dynamic_max_tracks_reads_complete_analysis_payloads(monkeypatch, tmp_path) -> None:

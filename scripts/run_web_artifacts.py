@@ -241,9 +241,19 @@ def territory_scientific_web_summary_relative_path(territory: str) -> str:
     return f"data/{normalized}-scientific-web-summary.json"
 
 
+def vulnerability_curve_relative_paths() -> tuple[str, ...]:
+    return (
+        "data/vulnerability-curves-wind.json",
+        "data/vulnerability-curves-rain.json",
+        "data/vulnerability-curves-surge.json",
+        "data/vulnerability-curves-landslide.json",
+    )
+
+
 def territory_frontend_rebuild_relative_paths(territory: str) -> tuple[str, ...]:
     normalized = str(territory or "").strip().lower()
     return (
+        *vulnerability_curve_relative_paths(),
         territory_scientific_web_summary_relative_path(normalized),
         f"data/{normalized}-wind-maps.json",
         f"data/{normalized}-landslide-maps.json",
@@ -326,6 +336,11 @@ def _load_json_payload(path: Path) -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _is_vulnerability_curve_artifact(relative_path: str) -> bool:
+    normalized = str(relative_path or "").strip().lower()
+    return normalized in set(vulnerability_curve_relative_paths())
 
 
 def _parse_iso_datetime(raw_value: object) -> datetime | None:
@@ -812,6 +827,10 @@ def validate_territory_web_snapshot(
                 }
             continue
         if path.suffix.lower() == ".json":
+            if _is_vulnerability_curve_artifact(relative_path):
+                if not isinstance(payload, dict) or not isinstance(payload.get("curves"), list) or not payload.get("profile"):
+                    raise RuntimeError(f"{relative_path} is not a valid vulnerability curve artefact")
+                continue
             if relative_path.endswith("-scientific-web-summary.json"):
                 scientific_summary_payload = payload
                 continue

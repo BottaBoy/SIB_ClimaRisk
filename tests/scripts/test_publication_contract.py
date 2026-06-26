@@ -203,6 +203,35 @@ def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe
     }
 
 
+def _vulnerability_curve_payload(*, component: str, case_study_run_id: str = "guadeloupe_case_20260511T180200Z") -> dict:
+    return {
+        "meta": {
+            "generated_at": "2026-05-11T18:03:00+00:00",
+            "schema_version": "vulnerability_curve_artifact_v1",
+            "hazard_component": component,
+            "artifact_kind": "vulnerability_curves",
+            "case_study_run_id": case_study_run_id,
+        },
+        "profile": f"test_{component}_profile",
+        "haz_type": component.upper(),
+        "hazard_component": component,
+        "intensity_unit": "unit",
+        "curves": [
+            {
+                "impf_id": 1,
+                "code": f"{component.upper()}_1",
+                "name": f"{component} curve",
+                "source": "test",
+                "geography": "test",
+                "sib_asset_types": ["elec_bt_aerien"],
+                "intensity": [0.0, 1.0],
+                "mdd": [0.0, 1.0],
+                "paa": [1.0, 1.0],
+            }
+        ],
+    }
+
+
 def _landslide_payload(*, case_study_run_id: str) -> dict:
     return {
         "meta": {
@@ -277,6 +306,11 @@ def _write_publication_ready_fixture(
         data_dir / "guadeloupe-scientific-web-summary.json",
         _scientific_web_summary_payload(run_id=run_id),
     )
+    for component in ("wind", "rain", "surge", "landslide"):
+        _write_json(
+            data_dir / f"vulnerability-curves-{component}.json",
+            _vulnerability_curve_payload(component=component, case_study_run_id=case_study_run_id),
+        )
     _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
     _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
     return outputs_dir, web_dir
@@ -354,6 +388,11 @@ def test_validate_territory_web_snapshot_rejects_fallback_publication(monkeypatc
         data_dir / "guadeloupe-scientific-web-summary.json",
         _scientific_web_summary_payload(run_id=run_id),
     )
+    for component in ("wind", "rain", "surge", "landslide"):
+        _write_json(
+            data_dir / f"vulnerability-curves-{component}.json",
+            _vulnerability_curve_payload(component=component, case_study_run_id="guadeloupe_case_20260506T101000Z"),
+        )
     _write_json(data_dir / "guadeloupe-water-infra.geojson", _water_infra_payload())
     _write_json(data_dir / "guadeloupe-network-states.geojson", _network_states_payload())
 
