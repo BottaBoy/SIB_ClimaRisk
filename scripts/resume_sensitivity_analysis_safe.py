@@ -281,6 +281,12 @@ def _launch_resume(run_id: str, manifest: dict[str, Any]) -> tuple[bool, int | N
     return True, proc.pid
 
 
+def _finalize_terminal_run(run_id: str) -> str:
+    import run_sensitivity_analysis as sensitivity_runner
+
+    return str(sensitivity_runner.finalize_existing_sensitivity_run(run_id))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Safely resume a sensitivity run.")
     parser.add_argument("--run-id", required=True, help="Run ID to resume, or 'latest'")
@@ -296,12 +302,19 @@ def main() -> int:
     manifest = _load_manifest(run_id)
     status = str(manifest.get("status") or "").strip().lower()
     has_pending_work = _has_pending_or_running_scenarios(manifest)
+    parent_running = _parent_process_running(run_id)
 
     if status == "success":
         raise SystemExit(f"Run {run_id} is already successful; no resume needed.")
     if status in {"partial", "failed", "aborted"} and not has_pending_work:
         raise SystemExit(f"Run {run_id} is terminal with status={status}; no resume needed.")
-    if _parent_process_running(run_id):
+    if status == "running" and not has_pending_work:
+        if parent_running:
+            raise SystemExit(f"Run {run_id} already has a live parent process; let it finish.")
+        final_status = _finalize_terminal_run(run_id)
+        print(f"[{_human_ts()}] finalized terminal sensitivity run {run_id} with status={final_status}")
+        return 0 if final_status == "success" else 1
+    if parent_running:
         raise SystemExit(f"Run {run_id} already has a live parent process; stop it first.")
 
     manifest = _wait_for_child_completion(run_id, manifest, poll_seconds=float(args.poll_seconds))

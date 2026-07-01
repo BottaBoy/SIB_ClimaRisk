@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import os
 import sys
 from pathlib import Path
@@ -118,3 +119,119 @@ def test_detect_probable_oom_failure_only_flags_sigkill_with_oom_journal(monkeyp
         started_at=started_at,
         finished_at=finished_at,
     ) is False
+
+
+def test_finalize_existing_sensitivity_run_marks_terminal_success(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "sib-work"
+    run_outputs = repo_root / "outputs" / "sensitivity-runs"
+    run_id = "sensitivity_20260619_073544"
+    manifest_path = run_outputs / run_id / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": "running",
+                "parameters": {
+                    "scenario_pack": "/home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json",
+                    "continue_on_error": False,
+                },
+                "completed_count": 1,
+                "failed_count": 0,
+                "skipped_count": 0,
+                "scenarios": [
+                    {
+                        "scenario_id": "all-default",
+                        "status": "complete",
+                    }
+                ],
+                "artifacts": {},
+                "latest_event": {"event": "start"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(run, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(run, "SENSITIVITY_OUTPUTS_DIR", run_outputs)
+    monkeypatch.setattr(run, "DEFAULT_SCENARIO_PACK", repo_root / "config" / "default-pack.json")
+    monkeypatch.setattr(
+        run,
+        "export_sensitivity_run",
+        lambda run_id, scenario_pack: {
+            "artifacts": {"scenario_summary": "ok"},
+            "completed_scenario_count": 1,
+            "warning_count": 0,
+        },
+    )
+
+    final_status = run.finalize_existing_sensitivity_run(run_id)
+    updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert final_status == "success"
+    assert updated_manifest["status"] == "success"
+    assert updated_manifest["latest_event"]["event"] == "complete"
+    assert updated_manifest["artifacts"] == {"scenario_summary": "ok"}
+
+
+def test_finalize_existing_sensitivity_run_reuses_existing_artifacts(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "sib-work"
+    run_outputs = repo_root / "outputs" / "sensitivity-runs"
+    run_id = "sensitivity_20260619_073544"
+    run_dir = run_outputs / run_id
+    manifest_path = run_dir / "manifest.json"
+    (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    (run_dir / "graphs").mkdir(parents=True, exist_ok=True)
+    for relative_path in (
+        "artifacts/scenario-summary.csv",
+        "artifacts/scenario-summary.parquet",
+        "artifacts/portfolio-metrics.parquet",
+        "artifacts/territory-metrics.parquet",
+        "graphs/sensitivity-graphs-summary.json",
+        "graphs/sensitivity-results-normalized.csv",
+    ):
+        (run_dir / relative_path).write_text("ok\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": "running",
+                "parameters": {
+                    "scenario_pack": "/home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json",
+                    "continue_on_error": False,
+                },
+                "completed_count": 1,
+                "failed_count": 0,
+                "skipped_count": 0,
+                "scenarios": [
+                    {
+                        "scenario_id": "all-default",
+                        "status": "complete",
+                    }
+                ],
+                "artifacts": {},
+                "latest_event": {"event": "start"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(run, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(run, "SENSITIVITY_OUTPUTS_DIR", run_outputs)
+    monkeypatch.setattr(
+        run,
+        "export_sensitivity_run",
+        lambda run_id, scenario_pack: (_ for _ in ()).throw(AssertionError("export should not run")),
+    )
+
+    final_status = run.finalize_existing_sensitivity_run(run_id)
+    updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert final_status == "partial"
+    assert updated_manifest["status"] == "partial"
+    assert "asset_metrics_parquet" not in updated_manifest["artifacts"]
+    assert updated_manifest["latest_event"]["event"] == "complete"

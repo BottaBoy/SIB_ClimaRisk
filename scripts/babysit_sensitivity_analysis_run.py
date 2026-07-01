@@ -474,6 +474,8 @@ def _format_restart_reason(state: RunState, *, stale_after_seconds: float, silen
             return False, f"status={state.status} but process still alive", False
         return True, f"status={state.status}", False
     if state.status == "running":
+        if not state.has_pending_work:
+            return False, "status=running but no pending work", False
         if state.process_alive:
             if state.age_seconds is not None and state.age_seconds >= silent_hang_after_seconds:
                 return True, f"status=running but silent for {_human_duration(state.age_seconds)}", True
@@ -564,6 +566,17 @@ def _launch_resume(run_id: str) -> tuple[bool, int | None]:
     if pid is not None:
         print(f"[{_human_ts()}] relaunch started pid={pid}", flush=True)
     return True, pid
+
+
+def _finalize_terminal_run(run_id: str) -> str:
+    import run_sensitivity_analysis as sensitivity_runner
+
+    final_status = str(sensitivity_runner.finalize_existing_sensitivity_run(run_id))
+    print(
+        f"[{_human_ts()}] finalized terminal sensitivity run {run_id} with status={final_status}",
+        flush=True,
+    )
+    return final_status
 
 
 def _restart_delay_seconds(base_delay_seconds: float, restart_count: int) -> float:
@@ -689,6 +702,17 @@ def babysit_sensitivity_analysis_run(
         if state.status in {"partial", "failed", "aborted"} and not state.has_pending_work and not state.child_alive:
             print(
                 f"[{_human_ts()}] run {run_id} reached terminal status={state.status}; babysitter exiting",
+                flush=True,
+            )
+            return 1
+
+        if state.status == "running" and not state.process_alive and not state.has_pending_work and not state.child_alive:
+            final_status = _finalize_terminal_run(run_id)
+            if final_status == "success":
+                print(f"[{_human_ts()}] run {run_id} completed successfully; babysitter exiting", flush=True)
+                return 0
+            print(
+                f"[{_human_ts()}] run {run_id} reached terminal status={final_status}; babysitter exiting",
                 flush=True,
             )
             return 1

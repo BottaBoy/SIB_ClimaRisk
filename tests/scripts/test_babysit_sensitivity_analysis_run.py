@@ -243,7 +243,7 @@ def test_babysitter_exits_cleanly_on_success(monkeypatch) -> None:
     assert exit_code == 0
 
 
-def test_babysitter_restarts_when_parent_running_but_no_scenarios_left(monkeypatch) -> None:
+def test_babysitter_finalizes_when_parent_dead_and_no_scenarios_left(monkeypatch) -> None:
     run_id = "sensitivity_20260609_140911"
     running_manifest = {
         "run_id": run_id,
@@ -269,19 +269,16 @@ def test_babysitter_restarts_when_parent_running_but_no_scenarios_left(monkeypat
             }
         ],
     }
-    states = iter(
-        [
-            _make_state(status="running", process_alive=False, child_alive=False, has_pending_work=False),
-            _make_state(status="success", process_alive=False, child_alive=False, has_pending_work=False),
-        ]
-    )
+    states = iter([_make_state(status="running", process_alive=False, child_alive=False, has_pending_work=False)])
     launches: list[str] = []
+    finalized: list[str] = []
 
     monkeypatch.setattr(babysit, "_take_babysitter_ownership", lambda run_id, self_pid: Path("/tmp/babysitter.pid"))
     monkeypatch.setattr(babysit, "_is_superseded_babysitter", lambda run_id, self_pid: (False, None))
     monkeypatch.setattr(babysit, "_load_manifest", lambda _run_id: running_manifest)
     monkeypatch.setattr(babysit, "_inspect_run", lambda _run_id, manifest=None, now=None: next(states))
     monkeypatch.setattr(babysit, "_launch_resume", lambda restarted_run_id: launches.append(restarted_run_id) or (True, 2222))
+    monkeypatch.setattr(babysit, "_finalize_terminal_run", lambda finalized_run_id: finalized.append(finalized_run_id) or "success")
     monkeypatch.setattr(babysit, "_human_ts", lambda moment=None: "2026-06-15T08:46:37+00:00")
     monkeypatch.setattr(babysit, "_human_duration", lambda seconds: "6h 59m 16s")
     monkeypatch.setattr(babysit, "_snapshot_key", lambda manifest, state=None: manifest["status"])
@@ -298,4 +295,5 @@ def test_babysitter_restarts_when_parent_running_but_no_scenarios_left(monkeypat
     )
 
     assert exit_code == 0
-    assert launches == [run_id]
+    assert launches == []
+    assert finalized == [run_id]

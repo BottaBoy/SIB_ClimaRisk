@@ -50,6 +50,17 @@ OOM_JOURNAL_PATTERNS = (
     "invoked oom-killer",
     "has been killed by the OOM killer",
 )
+EXPECTED_SENSITIVITY_ARTIFACTS = {
+    "scenario_summary_csv": ("artifacts", "scenario-summary.csv"),
+    "scenario_summary_parquet": ("artifacts", "scenario-summary.parquet"),
+    "portfolio_metrics_parquet": ("artifacts", "portfolio-metrics.parquet"),
+    "territory_metrics_parquet": ("artifacts", "territory-metrics.parquet"),
+    "asset_metrics_parquet": ("artifacts", "asset-metrics.parquet"),
+    "matching_metrics_parquet": ("artifacts", "matching-metrics.parquet"),
+    "sensitivity_matrix_netcdf": ("artifacts", "sensitivity-matrix.nc"),
+    "sensitivity_graphs_summary_json": ("graphs", "sensitivity-graphs-summary.json"),
+    "sensitivity_results_normalized_csv": ("graphs", "sensitivity-results-normalized.csv"),
+}
 
 
 def _utcnow() -> str:
@@ -257,6 +268,103 @@ def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario
         scenario.scenario_id,
     ]
     return command
+
+
+def _existing_artifacts_for_run(run_id: str) -> dict[str, str]:
+    run_dir = SENSITIVITY_OUTPUTS_DIR / str(run_id)
+    artifacts: dict[str, str] = {}
+    for key, relative_parts in EXPECTED_SENSITIVITY_ARTIFACTS.items():
+        path = run_dir.joinpath(*relative_parts)
+        if path.exists():
+            artifacts[key] = str(path)
+    return artifacts
+
+
+def _finalize_manifest(
+    manifest: SensitivityRunManifest,
+    *,
+    run_id: str,
+    scenario_pack: Path,
+    continue_on_error: bool,
+) -> str:
+    export_error: str | None = None
+    if int(manifest.data.get("completed_count") or 0) > 0:
+        try:
+            export_summary = export_sensitivity_run(run_id=run_id, scenario_pack=scenario_pack)
+            manifest.data["artifacts"] = dict(export_summary.get("artifacts") or {})
+            manifest.record_event(
+                "matrix_export_completed",
+                completed_scenario_count=int(export_summary.get("completed_scenario_count") or 0),
+                warning_count=int(export_summary.get("warning_count") or 0),
+                artifacts=manifest.data["artifacts"],
+            )
+        except Exception as exc:
+            export_error = f"Sensitivity matrix export failed ({type(exc).__name__}): {exc}"
+            manifest.record_event("matrix_export_failed", error=export_error)
+
+    final_status = "success"
+    if int(manifest.data.get("failed_count") or 0) > 0:
+        final_status = "partial" if continue_on_error else "failed"
+    if export_error and final_status == "success":
+        final_status = "partial"
+    manifest.set_status(final_status, error=export_error)
+    manifest.record_event("complete", status=final_status)
+    logger.info("Sensitivity run %s finished with status=%s", run_id, final_status)
+    return final_status
+
+
+def finalize_existing_sensitivity_run(run_id: str) -> str:
+    existing_data = _load_existing_parent_manifest(run_id)
+    parameters = existing_data.get("parameters") if isinstance(existing_data.get("parameters"), dict) else {}
+    scenario_pack_raw = str(parameters.get("scenario_pack") or "").strip()
+    scenario_pack = Path(scenario_pack_raw) if scenario_pack_raw else DEFAULT_SCENARIO_PACK
+    manifest = SensitivityRunManifest(
+        run_id=run_id,
+        parameters=parameters,
+        scenarios=[],
+        existing_data=existing_data,
+    )
+    existing_artifacts = _existing_artifacts_for_run(run_id)
+    if existing_artifacts:
+        manifest.data["artifacts"] = existing_artifacts
+        missing_required = sorted(
+            key
+            for key in (
+                "scenario_summary_csv",
+                "scenario_summary_parquet",
+                "portfolio_metrics_parquet",
+                "territory_metrics_parquet",
+                "asset_metrics_parquet",
+                "matching_metrics_parquet",
+                "sensitivity_matrix_netcdf",
+            )
+            if key not in existing_artifacts
+        )
+        export_error = None
+        if missing_required:
+            export_error = (
+                "Sensitivity export recovery reused existing artifacts but is missing: "
+                + ", ".join(missing_required)
+            )
+            manifest.record_event("matrix_export_reused_partial", missing_artifacts=missing_required)
+        else:
+            manifest.record_event("matrix_export_reused", artifact_count=len(existing_artifacts))
+
+        final_status = "success"
+        if int(manifest.data.get("failed_count") or 0) > 0:
+            final_status = "partial" if bool(parameters.get("continue_on_error")) else "failed"
+        if export_error and final_status == "success":
+            final_status = "partial"
+        manifest.set_status(final_status, error=export_error)
+        manifest.record_event("complete", status=final_status)
+        logger.info("Sensitivity run %s finished with status=%s via artifact recovery", run_id, final_status)
+        return final_status
+    return _finalize_manifest(
+        manifest,
+        run_id=run_id,
+        scenario_pack=scenario_pack,
+        continue_on_error=bool(parameters.get("continue_on_error")),
+    )
 
 
 def _journalctl_text(*, since: datetime, until: datetime) -> str:
@@ -553,29 +661,12 @@ def main() -> int:
             manifest.set_status("failed", error=error)
             return 1
 
-    export_error: str | None = None
-    if int(manifest.data.get("completed_count") or 0) > 0:
-        try:
-            export_summary = export_sensitivity_run(run_id=run_id, scenario_pack=Path(args.scenario_pack))
-            manifest.data["artifacts"] = dict(export_summary.get("artifacts") or {})
-            manifest.record_event(
-                "matrix_export_completed",
-                completed_scenario_count=int(export_summary.get("completed_scenario_count") or 0),
-                warning_count=int(export_summary.get("warning_count") or 0),
-                artifacts=manifest.data["artifacts"],
-            )
-        except Exception as exc:
-            export_error = f"Sensitivity matrix export failed ({type(exc).__name__}): {exc}"
-            manifest.record_event("matrix_export_failed", error=export_error)
-
-    final_status = "success"
-    if int(manifest.data.get("failed_count") or 0) > 0:
-        final_status = "partial" if args.continue_on_error else "failed"
-    if export_error and final_status == "success":
-        final_status = "partial"
-    manifest.set_status(final_status, error=export_error)
-    manifest.record_event("complete", status=final_status)
-    logger.info("Sensitivity run %s finished with status=%s", run_id, final_status)
+    final_status = _finalize_manifest(
+        manifest,
+        run_id=run_id,
+        scenario_pack=Path(args.scenario_pack),
+        continue_on_error=bool(args.continue_on_error),
+    )
     return 0 if final_status == "success" else 1
 
 

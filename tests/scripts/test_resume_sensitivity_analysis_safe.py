@@ -154,3 +154,47 @@ def test_main_waits_for_active_child_before_launching(monkeypatch, tmp_path: Pat
     assert sleep_calls
     assert recorded["cmd"][1].endswith("run_sensitivity_analysis.py")
     assert (run_outputs / run_id / "resume.pid").read_text(encoding="utf-8").strip() == "98765"
+
+
+def test_main_finalizes_running_manifest_without_pending_work(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "sib-work"
+    run_outputs = repo_root / "outputs" / "sensitivity-runs"
+    log_root = repo_root / "logs"
+    run_id = "sensitivity_20260609_140911"
+    manifest_path = run_outputs / run_id / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": "running",
+                "parameters": {
+                    "scenario_pack": "/home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json",
+                    "continue_on_error": False,
+                },
+                "scenarios": [
+                    {
+                        "scenario_id": "all-default",
+                        "status": "complete",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(safe, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(safe, "RUN_OUTPUTS_DIR", run_outputs)
+    monkeypatch.setattr(safe, "LOGS_DIR", log_root)
+    monkeypatch.setattr(safe, "_find_parent_pids", lambda run_id: [])
+
+    finalized: list[str] = []
+    monkeypatch.setattr(safe, "_finalize_terminal_run", lambda finalized_run_id: finalized.append(finalized_run_id) or "success")
+    monkeypatch.setattr(sys, "argv", ["resume_sensitivity_analysis_safe.py", "--run-id", run_id])
+
+    exit_code = safe.main()
+
+    assert exit_code == 0
+    assert finalized == [run_id]
