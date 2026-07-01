@@ -140,8 +140,72 @@ def test_find_pgrep_pids_parses_matching_processes(monkeypatch) -> None:
 
     monkeypatch.setattr(babysit.subprocess, "run", lambda *args, **kwargs: _Result())
     monkeypatch.setattr(babysit, "_pid_is_alive", lambda pid: pid in {12345, 67890})
+    monkeypatch.setattr(
+        babysit,
+        "_read_process_cmdline",
+        lambda pid: (
+            ["/home/ubuntu/sib-work/backend/.venv/bin/python", "scripts/run_complete_analysis.py", "--resume-run-id", "20260611_075636"]
+            if pid == 12345
+            else ["/home/ubuntu/sib-work/backend/.venv/bin/python", "run_complete_analysis_20260611_075636.log"]
+        ),
+    )
 
-    assert babysit._find_pgrep_pids("20260611_075636") == [12345, 67890]
+    assert babysit._find_pgrep_pids("20260611_075636") == [12345]
+
+
+def test_find_pgrep_pids_matches_normal_launch_from_manifest_created_at(monkeypatch) -> None:
+    class _Result:
+        stdout = (
+            "12345 /home/ubuntu/sib-work/backend/.venv/bin/python "
+            "scripts/run_complete_analysis.py --dynamic-max-tracks 1500 --memory-budget-gb 6\n"
+            "54321 /home/ubuntu/sib-work/backend/.venv/bin/python "
+            "scripts/run_complete_analysis.py --dynamic-max-tracks 1500 --memory-budget-gb 6\n"
+        )
+
+    manifest = {"created_at": "2026-06-11T07:56:36+00:00"}
+
+    monkeypatch.setattr(babysit.subprocess, "run", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(babysit, "_pid_is_alive", lambda pid: pid in {12345, 54321})
+    monkeypatch.setattr(
+        babysit,
+        "_read_process_cmdline",
+        lambda pid: ["/home/ubuntu/sib-work/backend/.venv/bin/python", "scripts/run_complete_analysis.py", "--dynamic-max-tracks", "1500", "--memory-budget-gb", "6"],
+    )
+    monkeypatch.setattr(
+        babysit,
+        "_read_process_started_at",
+        lambda pid: (
+            datetime.fromisoformat("2026-06-11T07:56:35+00:00")
+            if pid == 12345
+            else datetime.fromisoformat("2026-06-11T08:20:00+00:00")
+        ),
+    )
+
+    assert babysit._find_pgrep_pids("20260611_075636", manifest=manifest) == [12345]
+
+
+def test_find_babysitter_pids_ignores_shell_wrappers(monkeypatch) -> None:
+    class _Result:
+        stdout = (
+            "11111 timeout 8s /home/ubuntu/sib-work/backend/.venv/bin/python "
+            "/home/ubuntu/sib-work/scripts/babysit_complete_analysis_run.py --run-id 20260611_075636\n"
+            "22222 /home/ubuntu/sib-work/backend/.venv/bin/python "
+            "/home/ubuntu/sib-work/scripts/babysit_complete_analysis_run.py --run-id 20260611_075636\n"
+        )
+
+    monkeypatch.setattr(babysit.subprocess, "run", lambda *args, **kwargs: _Result())
+    monkeypatch.setattr(babysit, "_pid_is_alive", lambda pid: pid in {11111, 22222})
+    monkeypatch.setattr(
+        babysit,
+        "_read_process_cmdline",
+        lambda pid: (
+            ["timeout", "8s", "/home/ubuntu/sib-work/backend/.venv/bin/python", "/home/ubuntu/sib-work/scripts/babysit_complete_analysis_run.py", "--run-id", "20260611_075636"]
+            if pid == 11111
+            else ["/home/ubuntu/sib-work/backend/.venv/bin/python", "/home/ubuntu/sib-work/scripts/babysit_complete_analysis_run.py", "--run-id", "20260611_075636"]
+        ),
+    )
+
+    assert babysit._find_babysitter_pids("20260611_075636") == [22222]
 
 
 def test_take_babysitter_ownership_stops_previous_babysitter(monkeypatch) -> None:

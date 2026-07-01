@@ -22,6 +22,7 @@ PYTHON = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
 MAX_BACKOFF_SECONDS = 15 * 60
 BABYSITTER_PIDFILE_NAME = "babysitter.pid"
 BABYSITTER_CHECK_INTERVAL_SECONDS = 5.0
+GENERIC_PROCESS_START_GRACE_SECONDS = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -163,12 +164,63 @@ def _pid_is_alive(pid: int | None) -> bool:
     return True
 
 
-def _find_pgrep_pid(run_id: str) -> int | None:
-    pids = _find_pgrep_pids(run_id)
+def _read_process_cmdline(pid: int) -> list[str]:
+    if pid <= 0:
+        return []
+    try:
+        raw = Path(f"/proc/{int(pid)}/cmdline").read_bytes()
+    except (FileNotFoundError, OSError, ValueError):
+        return []
+    return [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+
+
+def _argv_has_flag(args: list[str], flag: str, value: str) -> bool:
+    expected_value = str(value)
+    for index, arg in enumerate(args):
+        if arg == flag and index + 1 < len(args) and args[index + 1] == expected_value:
+            return True
+        if arg.startswith(f"{flag}=") and arg.split("=", 1)[1] == expected_value:
+            return True
+    return False
+
+
+def _argv_invokes_python_script(args: list[str], script_name: str) -> bool:
+    if len(args) < 2:
+        return False
+    executable_name = Path(args[0]).name.lower()
+    if executable_name not in {"python", "python3"} and not executable_name.startswith("python"):
+        return False
+    return Path(args[1]).name == script_name
+
+
+def _find_pgrep_pid(run_id: str, *, manifest: dict[str, Any] | None = None) -> int | None:
+    pids = _find_pgrep_pids(run_id, manifest=manifest)
     return pids[0] if pids else None
 
 
-def _find_pgrep_pids(run_id: str) -> list[int]:
+def _read_process_started_at(pid: int) -> datetime | None:
+    if pid <= 0:
+        return None
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    raw_value = (result.stdout or "").strip()
+    if not raw_value:
+        return None
+    try:
+        started_at = datetime.strptime(raw_value, "%a %b %d %H:%M:%S %Y")
+    except ValueError:
+        return None
+    local_tz = datetime.now().astimezone().tzinfo
+    if local_tz is None:
+        return started_at.replace(tzinfo=timezone.utc)
+    return started_at.replace(tzinfo=local_tz).astimezone(timezone.utc)
+
+
+def _find_pgrep_pids(run_id: str, *, manifest: dict[str, Any] | None = None) -> list[int]:
     result = subprocess.run(
         ["pgrep", "-af", "run_complete_analysis.py"],
         capture_output=True,
@@ -180,10 +232,9 @@ def _find_pgrep_pids(run_id: str) -> list[int]:
         f"--resume-run-id={run_id}",
         f"run_complete_analysis_{run_id}.log",
     )
-    pids: list[int] = []
+    explicit_pids: list[int] = []
+    generic_pids: list[int] = []
     for raw_line in result.stdout.splitlines():
-        if not any(needle in raw_line for needle in exact_needles):
-            continue
         parts = raw_line.split(maxsplit=1)
         if not parts:
             continue
@@ -192,8 +243,33 @@ def _find_pgrep_pids(run_id: str) -> list[int]:
         except ValueError:
             continue
         if _pid_is_alive(pid):
-            pids.append(pid)
-    return pids
+            argv = _read_process_cmdline(pid)
+            if not _argv_invokes_python_script(argv, "run_complete_analysis.py"):
+                continue
+            if any(needle in raw_line for needle in exact_needles) or _argv_has_flag(argv, "--resume-run-id", run_id):
+                explicit_pids.append(pid)
+                continue
+            if any(arg == "--resume-run-id" or arg.startswith("--resume-run-id=") for arg in argv):
+                continue
+            generic_pids.append(pid)
+    if explicit_pids:
+        return explicit_pids
+    if not generic_pids:
+        return []
+    created_at = _parse_iso_datetime((manifest or {}).get("created_at")) if isinstance(manifest, dict) else None
+    if created_at is None:
+        return generic_pids[:1] if len(generic_pids) == 1 else []
+    matching_pids: list[int] = []
+    for pid in generic_pids:
+        started_at = _read_process_started_at(pid)
+        if started_at is None:
+            continue
+        age_delta_seconds = abs((started_at - created_at).total_seconds())
+        if age_delta_seconds <= GENERIC_PROCESS_START_GRACE_SECONDS:
+            matching_pids.append(pid)
+    if len(matching_pids) == 1:
+        return matching_pids
+    return []
 
 
 def _find_babysitter_pids(run_id: str) -> list[int]:
@@ -209,8 +285,6 @@ def _find_babysitter_pids(run_id: str) -> list[int]:
     )
     pids: list[int] = []
     for raw_line in result.stdout.splitlines():
-        if not any(needle in raw_line for needle in exact_needles):
-            continue
         parts = raw_line.split(maxsplit=1)
         if not parts:
             continue
@@ -219,6 +293,11 @@ def _find_babysitter_pids(run_id: str) -> list[int]:
         except ValueError:
             continue
         if _pid_is_alive(pid):
+            argv = _read_process_cmdline(pid)
+            if not _argv_invokes_python_script(argv, "babysit_complete_analysis_run.py"):
+                continue
+            if not _argv_has_flag(argv, "--run-id", run_id):
+                continue
             pids.append(pid)
     return pids
 
@@ -303,7 +382,7 @@ def _inspect_run(run_id: str, *, manifest: dict[str, Any] | None = None, now: da
     manifest_path = RUN_OUTPUTS_DIR / str(run_id) / "manifest.json"
     pidfile_path, pidfile_pid = _read_pidfile(run_id)
     pidfile_alive = _pid_is_alive(pidfile_pid)
-    pgrep_pid = _find_pgrep_pid(run_id)
+    pgrep_pid = _find_pgrep_pid(run_id, manifest=manifest)
     pgrep_alive = _pid_is_alive(pgrep_pid)
 
     status = str((manifest or {}).get("status") or "").strip().lower()
