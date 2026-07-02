@@ -69,9 +69,23 @@ SERVICE_LABELS = {
     "water_aep": "AEP",
     "water_eu": "EU",
 }
+TERRITORY_LABELS = {
+    "guadeloupe": "Guadeloupe",
+    "martinique": "Martinique",
+    "unknown": "Territoire inconnu",
+}
+HAZARD_LABELS = {
+    "storm": "STORM",
+    "storm_cmcc": "STORM_CMCC",
+    "wind": "Vent",
+    "rain": "Pluie",
+    "surge": "Submersion cotiere",
+    "landslide": "Mouvement de terrain",
+    "unknown": "Alea inconnu",
+}
 NETWORK_METRICS = {
-    "non_nominal_pct": "% réseaux hors S0",
-    "outage_pct": "% réseaux S3",
+    "non_nominal_pct": "% réseaux hors Opérationnel (S0)",
+    "outage_pct": "% réseaux Hors service (S3)",
 }
 NETWORK_METRIC_FILENAME_SUFFIXES = {
     "non_nominal_pct": "combined_pct_reseaux_hors_s0",
@@ -103,6 +117,41 @@ NETWORK_SERIES_COLORS = {
     ("storm_cmcc", "water_aep"): "#7dd3fc",
     ("storm", "water_eu"): "#1d4ed8",
     ("storm_cmcc", "water_eu"): "#60a5fa",
+}
+HAZARD_SERIES_ORDER = ("delta", "storm", "storm_cmcc")
+HAZARD_SERIES_COLORS = {
+    "delta": "#7c3aed",
+    "storm": "#ea580c",
+    "storm_cmcc": "#2563eb",
+}
+PORTFOLIO_HAZARD_SERIES_ORDER = ("storm", "storm_cmcc")
+PORTFOLIO_HAZARD_SERIES_COLORS = {
+    "storm": "#f97316",
+    "storm_cmcc": "#3b82f6",
+}
+PORTFOLIO_RISK_METRICS = {
+    "percentile_99_loss_eur": {"slug": "percentile_99_loss", "label": "Perte percentile 99"},
+    "pml_10_eur": {"slug": "pml_10", "label": "PML 10 ans"},
+    "pml_20_eur": {"slug": "pml_20", "label": "PML 20 ans"},
+    "pml_200_eur": {"slug": "pml_200", "label": "PML 200 ans"},
+    "pml_1000_eur": {"slug": "pml_1000", "label": "PML 1000 ans"},
+    "tvar_95_eur": {"slug": "tvar_95", "label": "TVaR 95"},
+}
+SOCIAL_METRIC_SPECS = {
+    "population_without_water_aep": {"slug": "without_water_aep", "label": "Population sans eau AEP"},
+    "population_without_water_eu": {"slug": "without_water_eu", "label": "Population sans eau EU"},
+    "population_with_degraded_elec": {"slug": "degraded_elec", "label": "Population avec électricité dégradée"},
+}
+SOCIAL_STATE_SPECS = {
+    ("elec", "S0"): {"slug": "elec_s0", "label": "Population électricité en Opérationnel (S0)"},
+    ("elec", "S1"): {"slug": "elec_s1", "label": "Population électricité en Dégradé (S1)"},
+    ("water_aep", "S2"): {"slug": "water_aep_s2", "label": "Population eau AEP en Critique (S2)"},
+    ("water_aep", "S3"): {"slug": "water_aep_s3", "label": "Population eau AEP en Hors service (S3)"},
+    ("water_eu", "S3"): {"slug": "water_eu_s3", "label": "Population eau EU en Hors service (S3)"},
+}
+RISK_INDEX_GRAPH_SPECS = {
+    "mean": {"slug": "risk_index_mean", "label": "Indice de risque moyen"},
+    "max": {"slug": "risk_index_max", "label": "Indice de risque maximal"},
 }
 
 COMPLETE_ANALYSIS_JSON_RE = re.compile(
@@ -722,12 +771,38 @@ def safe_filename(value: str) -> str:
     return value or "graph"
 
 
+def display_territory(territory: str) -> str:
+    normalized = str(territory or "").strip().lower()
+    return TERRITORY_LABELS.get(normalized, normalized.replace("-", " ").title() or TERRITORY_LABELS["unknown"])
+
+
+def display_hazard(hazard: str) -> str:
+    normalized = str(hazard or "").strip().lower()
+    return HAZARD_LABELS.get(normalized, normalized.replace("_", " ").title() or HAZARD_LABELS["unknown"])
+
+
 def short_scenario_label(row: pd.Series) -> str:
     """Build a compact, non-duplicated label for graph axes."""
-    scenario_id = str(row.get("scenario_id") or "").strip()
-    scenario_label = str(row.get("scenario_label") or "").strip()
-    parameter_key = str(row.get("parameter_key") or "").strip()
-    parameter_value = str(row.get("parameter_value") or "").strip()
+    return short_scenario_label_from_values(
+        scenario_id=row.get("scenario_id"),
+        scenario_label=row.get("scenario_label"),
+        parameter_key=row.get("parameter_key"),
+        parameter_value=row.get("parameter_value"),
+    )
+
+
+def short_scenario_label_from_values(
+    *,
+    scenario_id: Any,
+    scenario_label: Any,
+    parameter_key: Any,
+    parameter_value: Any,
+) -> str:
+    """Build a compact, non-duplicated label for graph axes."""
+    scenario_id = str(scenario_id or "").strip()
+    scenario_label = str(scenario_label or "").strip()
+    parameter_key = str(parameter_key or "").strip()
+    parameter_value = str(parameter_value or "").strip()
 
     if scenario_id == "all-default":
         return "défaut"
@@ -775,6 +850,47 @@ def short_scenario_label(row: pd.Series) -> str:
     return unique_labels[0]
 
 
+def display_scope_label(df: pd.DataFrame) -> str:
+    if df.empty or "territory" not in df.columns:
+        return "Sensibilité"
+
+    territories = sorted(
+        {
+            str(value).strip()
+            for value in df["territory"].dropna().tolist()
+            if str(value).strip()
+        }
+    )
+    if not territories:
+        return "Sensibilité"
+    if len(territories) == 1:
+        return display_territory(territories[0])
+    return "Multi-territoires"
+
+
+def build_scenario_metadata(df: pd.DataFrame) -> pd.DataFrame:
+    columns = ["scenario_id", "scenario_label", "parameter_key", "parameter_value"]
+    if df.empty or any(column not in df.columns for column in columns):
+        return pd.DataFrame(columns=columns + ["scenario_display_label"])
+
+    metadata = (
+        df[columns]
+        .drop_duplicates(subset=["scenario_id"], keep="first")
+        .reset_index(drop=True)
+        .copy()
+    )
+    metadata["scenario_display_label"] = metadata.apply(
+        lambda row: short_scenario_label_from_values(
+            scenario_id=row.get("scenario_id"),
+            scenario_label=row.get("scenario_label"),
+            parameter_key=row.get("parameter_key"),
+            parameter_value=row.get("parameter_value"),
+        ),
+        axis=1,
+    )
+    return metadata
+
+
 def clean_legacy_outputs(output_dir: Path) -> None:
     curves_dir = output_dir / "curves"
     if curves_dir.exists():
@@ -799,6 +915,19 @@ def clean_legacy_outputs(output_dir: Path) -> None:
     tornado_network_dir = output_dir / "tornado-network-states"
     if tornado_network_dir.exists():
         for path in tornado_network_dir.glob("tornado_network_states_*.png"):
+            path.unlink(missing_ok=True)
+
+    for directory_name, pattern in (
+        ("tornado-annual-hazards", "tornado_*.png"),
+        ("tornado-portfolio-risk", "tornado_*.png"),
+        ("tornado-social-impacts", "tornado_*.png"),
+        ("tornado-social-states", "tornado_*.png"),
+        ("tornado-territory-risk", "tornado_*.png"),
+    ):
+        directory = output_dir / directory_name
+        if not directory.exists():
+            continue
+        for path in directory.glob(pattern):
             path.unlink(missing_ok=True)
 
 
@@ -848,6 +977,481 @@ def build_impact_legend_spec() -> tuple[list[tuple[Patch, Patch]], list[str], st
     return handles, labels, title
 
 
+def load_artifact_table(run_dir: Path, filename: str) -> pd.DataFrame:
+    path = run_dir / "artifacts" / filename
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(path)
+
+
+def plot_series_tornado_table(
+    table: pd.DataFrame,
+    output_dir: Path,
+    *,
+    series_order: tuple[str, ...],
+    series_colors: dict[str, str],
+    series_labels: dict[str, str],
+    xlabel: str,
+    value_suffix: str,
+) -> list[Path]:
+    output_paths: list[Path] = []
+    if table.empty:
+        return output_paths
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    scenario_df = table[
+        (table["scenario_id"] != "all-default")
+        & table["delta_value"].notna()
+        & table["scenario_display_label"].notna()
+    ].copy()
+    if scenario_df.empty:
+        return output_paths
+
+    for (graph_slug, graph_title), group in scenario_df.groupby(
+        ["graph_slug", "graph_title"],
+        dropna=False,
+    ):
+        summary = (
+            group.pivot_table(
+                index="scenario_id",
+                columns="series_key",
+                values="delta_value",
+                aggfunc="mean",
+            )
+            .reset_index()
+        )
+        if summary.empty:
+            continue
+
+        label_map = group.groupby("scenario_id", as_index=False).agg(
+            scenario_display_label=("scenario_display_label", "first")
+        )
+        summary = summary.merge(label_map, on="scenario_id", how="left")
+        available_series = [series_key for series_key in series_order if series_key in summary.columns]
+        if not available_series:
+            continue
+
+        summary["amplitude"] = summary[available_series].abs().max(axis=1, skipna=True)
+        summary = (
+            summary[summary["amplitude"].notna()]
+            .sort_values("amplitude", ascending=True)
+            .tail(25)
+            .reset_index(drop=True)
+        )
+        if summary.empty:
+            continue
+
+        y_positions = np.arange(len(summary), dtype=float)
+        bar_height = 0.22 if len(available_series) <= 3 else 0.12
+        center_offset = (len(available_series) - 1) / 2
+        fig, ax = plt.subplots(figsize=(14, max(4.5, 0.54 * len(summary) + 1)))
+        all_values: list[float] = []
+
+        for series_idx, series_key in enumerate(available_series):
+            values = summary[series_key].to_numpy(dtype=float)
+            valid_mask = ~pd.isna(values)
+            if not valid_mask.any():
+                continue
+            bar_positions = y_positions[valid_mask] + (series_idx - center_offset) * bar_height
+            valid_values = values[valid_mask]
+            ax.barh(
+                bar_positions,
+                valid_values,
+                height=bar_height * 0.9,
+                color=series_colors[series_key],
+            )
+            _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix=value_suffix, fontsize=7)
+            all_values.extend(valid_values.tolist())
+
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(summary["scenario_display_label"])
+        ax.axvline(0, color="black", linewidth=0.8)
+        ax.set_xlabel(xlabel)
+        ax.set_title(str(graph_title))
+        ax.grid(True, axis="x", alpha=0.3)
+        _set_symmetric_xlim(ax, all_values)
+
+        ax.legend(
+            handles=[
+                Patch(color=series_colors[series_key], label=series_labels.get(series_key, series_key))
+                for series_key in available_series
+            ],
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1),
+            borderaxespad=0,
+            title="Séries",
+        )
+
+        fig.tight_layout(rect=[0, 0, 0.8, 1])
+        out_path = output_dir / safe_filename(f"{graph_slug}.png")
+        fig.savefig(out_path, dpi=160)
+        plt.close(fig)
+        output_paths.append(out_path)
+
+    return output_paths
+
+
+def build_delta_annual_tornado_table(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    scenario_df = df[
+        (df["metric"] == "impact_eur")
+        & (df["return_period"] == "annual")
+        & (df["scenario_id"] != "all-default")
+        & df["delta_pct"].notna()
+        & df["parameter_key"].notna()
+        & (df["parameter_key"].astype(str) != "")
+        & df["hazard"].isin(HAZARD_SERIES_ORDER)
+    ].copy()
+    if scenario_df.empty:
+        return pd.DataFrame()
+
+    scenario_df["scenario_display_label"] = scenario_df.apply(short_scenario_label, axis=1)
+    scenario_df["graph_slug"] = scenario_df["territory"].apply(
+        lambda territory: f"tornado_{territory}_annual_all_hazards"
+    )
+    scenario_df["graph_title"] = scenario_df["territory"].apply(
+        lambda territory: f"{display_territory(str(territory))} - Impact annuel moyen par aléa"
+    )
+    scenario_df["series_key"] = scenario_df["hazard"].astype(str)
+    scenario_df["delta_value"] = scenario_df["delta_pct"]
+    return scenario_df[
+        ["graph_slug", "graph_title", "scenario_id", "scenario_display_label", "series_key", "delta_value"]
+    ].copy()
+
+
+def build_portfolio_risk_tornado_table(
+    portfolio_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+) -> pd.DataFrame:
+    if portfolio_df.empty:
+        return pd.DataFrame()
+
+    baseline = portfolio_df[portfolio_df["scenario_id"] == "all-default"].copy()
+    if baseline.empty:
+        return pd.DataFrame()
+    baseline = baseline.set_index("hazard")
+
+    rows: list[dict[str, Any]] = []
+    for _, row in portfolio_df[portfolio_df["scenario_id"] != "all-default"].iterrows():
+        hazard = str(row.get("hazard") or "").strip()
+        if hazard not in baseline.index:
+            continue
+        baseline_row = baseline.loc[hazard]
+        for metric_name, spec in PORTFOLIO_RISK_METRICS.items():
+            baseline_value = safe_float(baseline_row.get(metric_name))
+            value = safe_float(row.get(metric_name))
+            if math.isnan(value) or math.isnan(baseline_value) or baseline_value == 0.0:
+                continue
+            rows.append(
+                {
+                    "scenario_id": row.get("scenario_id"),
+                    "graph_slug": f"tornado_portfolio_{spec['slug']}",
+                    "graph_title": f"{scope_label} - Portefeuille - {spec['label']}",
+                    "series_key": hazard,
+                    "delta_value": (value - baseline_value) / baseline_value * 100.0,
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame()
+
+    table = pd.DataFrame(rows).merge(
+        scenario_metadata[["scenario_id", "scenario_display_label"]],
+        on="scenario_id",
+        how="left",
+    )
+    table["scenario_display_label"] = table["scenario_display_label"].fillna(table["scenario_id"])
+    return table
+
+
+def build_social_metric_tornado_table(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+) -> pd.DataFrame:
+    if territory_df.empty or "social_metrics" not in territory_df.columns:
+        return pd.DataFrame()
+
+    raw_rows: list[dict[str, Any]] = []
+    for _, row in territory_df.iterrows():
+        social_metrics = row.get("social_metrics")
+        if not isinstance(social_metrics, dict):
+            continue
+        for hazard, hazard_metrics in social_metrics.items():
+            if not isinstance(hazard_metrics, dict):
+                continue
+            for metric_name in SOCIAL_METRIC_SPECS:
+                value = safe_float(hazard_metrics.get(metric_name))
+                if math.isnan(value):
+                    continue
+                raw_rows.append(
+                    {
+                        "scenario_id": row.get("scenario_id"),
+                        "hazard": str(hazard),
+                        "metric_name": metric_name,
+                        "value": value,
+                    }
+                )
+
+    if not raw_rows:
+        return pd.DataFrame()
+
+    aggregated = (
+        pd.DataFrame(raw_rows)
+        .groupby(["scenario_id", "hazard", "metric_name"], dropna=False)["value"]
+        .sum()
+        .reset_index()
+    )
+    baseline = aggregated[aggregated["scenario_id"] == "all-default"].set_index(["hazard", "metric_name"])
+    rows: list[dict[str, Any]] = []
+    for _, row in aggregated[aggregated["scenario_id"] != "all-default"].iterrows():
+        key = (row["hazard"], row["metric_name"])
+        if key not in baseline.index:
+            continue
+        baseline_value = safe_float(baseline.loc[key]["value"])
+        value = safe_float(row["value"])
+        spec = SOCIAL_METRIC_SPECS[str(row["metric_name"])]
+        rows.append(
+            {
+                "scenario_id": row["scenario_id"],
+                "graph_slug": f"tornado_social_{spec['slug']}",
+                "graph_title": f"{scope_label} - {spec['label']}",
+                "series_key": str(row["hazard"]),
+                "delta_value": value - baseline_value,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    table = pd.DataFrame(rows).merge(
+        scenario_metadata[["scenario_id", "scenario_display_label"]],
+        on="scenario_id",
+        how="left",
+    )
+    table["scenario_display_label"] = table["scenario_display_label"].fillna(table["scenario_id"])
+    return table
+
+
+def build_social_state_tornado_table(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+) -> pd.DataFrame:
+    if territory_df.empty or "social_impact_population_state_distribution" not in territory_df.columns:
+        return pd.DataFrame()
+
+    raw_rows: list[dict[str, Any]] = []
+    for _, row in territory_df.iterrows():
+        distribution = row.get("social_impact_population_state_distribution")
+        if not isinstance(distribution, dict):
+            continue
+        for hazard, service_map in distribution.items():
+            if not isinstance(service_map, dict):
+                continue
+            for (service, state), spec in SOCIAL_STATE_SPECS.items():
+                service_distribution = safe_dict(service_map.get(service))
+                value = safe_float(service_distribution.get(state))
+                if math.isnan(value):
+                    continue
+                raw_rows.append(
+                    {
+                        "scenario_id": row.get("scenario_id"),
+                        "hazard": str(hazard),
+                        "service": service,
+                        "state": state,
+                        "metric_slug": spec["slug"],
+                        "metric_label": spec["label"],
+                        "value": value,
+                    }
+                )
+
+    if not raw_rows:
+        return pd.DataFrame()
+
+    aggregated = (
+        pd.DataFrame(raw_rows)
+        .groupby(["scenario_id", "hazard", "service", "state", "metric_slug", "metric_label"], dropna=False)["value"]
+        .sum()
+        .reset_index()
+    )
+    baseline = aggregated[aggregated["scenario_id"] == "all-default"].set_index(["hazard", "service", "state"])
+    rows: list[dict[str, Any]] = []
+    for _, row in aggregated[aggregated["scenario_id"] != "all-default"].iterrows():
+        key = (row["hazard"], row["service"], row["state"])
+        if key not in baseline.index:
+            continue
+        baseline_value = safe_float(baseline.loc[key]["value"])
+        value = safe_float(row["value"])
+        rows.append(
+            {
+                "scenario_id": row["scenario_id"],
+                "graph_slug": f"tornado_social_state_{row['metric_slug']}",
+                "graph_title": f"{scope_label} - {row['metric_label']}",
+                "series_key": str(row["hazard"]),
+                "delta_value": value - baseline_value,
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    table = pd.DataFrame(rows).merge(
+        scenario_metadata[["scenario_id", "scenario_display_label"]],
+        on="scenario_id",
+        how="left",
+    )
+    table["scenario_display_label"] = table["scenario_display_label"].fillna(table["scenario_id"])
+    return table
+
+
+def build_risk_index_tornado_table(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+) -> pd.DataFrame:
+    if territory_df.empty:
+        return pd.DataFrame()
+
+    aggregated = (
+        territory_df.groupby("scenario_id", dropna=False)
+        .agg(
+            risk_index_storm_mean=("risk_index_storm", "mean"),
+            risk_index_storm_max=("risk_index_storm", "max"),
+            risk_index_cmcc_mean=("risk_index_cmcc", "mean"),
+            risk_index_cmcc_max=("risk_index_cmcc", "max"),
+        )
+        .reset_index()
+    )
+    baseline_df = aggregated[aggregated["scenario_id"] == "all-default"]
+    if baseline_df.empty:
+        return pd.DataFrame()
+    baseline_row = baseline_df.iloc[0]
+
+    rows: list[dict[str, Any]] = []
+    column_specs = {
+        "storm": {"mean": "risk_index_storm_mean", "max": "risk_index_storm_max"},
+        "storm_cmcc": {"mean": "risk_index_cmcc_mean", "max": "risk_index_cmcc_max"},
+    }
+    for _, row in aggregated[aggregated["scenario_id"] != "all-default"].iterrows():
+        for hazard, hazard_columns in column_specs.items():
+            for graph_kind, graph_spec in RISK_INDEX_GRAPH_SPECS.items():
+                column_name = hazard_columns[graph_kind]
+                baseline_value = safe_float(baseline_row.get(column_name))
+                value = safe_float(row.get(column_name))
+                if math.isnan(value) or math.isnan(baseline_value) or baseline_value == 0.0:
+                    continue
+                rows.append(
+                    {
+                        "scenario_id": row["scenario_id"],
+                        "graph_slug": f"tornado_{graph_spec['slug']}",
+                        "graph_title": f"{scope_label} - {graph_spec['label']}",
+                        "series_key": hazard,
+                        "delta_value": (value - baseline_value) / baseline_value * 100.0,
+                    }
+                )
+
+    if not rows:
+        return pd.DataFrame()
+
+    table = pd.DataFrame(rows).merge(
+        scenario_metadata[["scenario_id", "scenario_display_label"]],
+        on="scenario_id",
+        how="left",
+    )
+    table["scenario_display_label"] = table["scenario_display_label"].fillna(table["scenario_id"])
+    return table
+
+
+def plot_delta_annual_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
+    table = build_delta_annual_tornado_table(df)
+    return plot_series_tornado_table(
+        table,
+        output_dir / "tornado-annual-hazards",
+        series_order=HAZARD_SERIES_ORDER,
+        series_colors=HAZARD_SERIES_COLORS,
+        series_labels={hazard: display_hazard(hazard) for hazard in HAZARD_SERIES_ORDER},
+        xlabel="Variation par rapport au cas de reference (%)",
+        value_suffix="%",
+    )
+
+
+def plot_portfolio_risk_tornado(
+    portfolio_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+    output_dir: Path,
+) -> list[Path]:
+    table = build_portfolio_risk_tornado_table(portfolio_df, scenario_metadata, scope_label)
+    return plot_series_tornado_table(
+        table,
+        output_dir / "tornado-portfolio-risk",
+        series_order=PORTFOLIO_HAZARD_SERIES_ORDER,
+        series_colors=PORTFOLIO_HAZARD_SERIES_COLORS,
+        series_labels={hazard: display_hazard(hazard) for hazard in PORTFOLIO_HAZARD_SERIES_ORDER},
+        xlabel="Variation par rapport au cas de reference (%)",
+        value_suffix="%",
+    )
+
+
+def plot_social_metric_tornado(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+    output_dir: Path,
+) -> list[Path]:
+    table = build_social_metric_tornado_table(territory_df, scenario_metadata, scope_label)
+    return plot_series_tornado_table(
+        table,
+        output_dir / "tornado-social-impacts",
+        series_order=PORTFOLIO_HAZARD_SERIES_ORDER,
+        series_colors=PORTFOLIO_HAZARD_SERIES_COLORS,
+        series_labels={hazard: display_hazard(hazard) for hazard in PORTFOLIO_HAZARD_SERIES_ORDER},
+        xlabel="Variation par rapport au cas de reference (habitants)",
+        value_suffix=" hab",
+    )
+
+
+def plot_social_state_tornado(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+    output_dir: Path,
+) -> list[Path]:
+    table = build_social_state_tornado_table(territory_df, scenario_metadata, scope_label)
+    return plot_series_tornado_table(
+        table,
+        output_dir / "tornado-social-states",
+        series_order=PORTFOLIO_HAZARD_SERIES_ORDER,
+        series_colors=PORTFOLIO_HAZARD_SERIES_COLORS,
+        series_labels={hazard: display_hazard(hazard) for hazard in PORTFOLIO_HAZARD_SERIES_ORDER},
+        xlabel="Variation par rapport au cas de reference (habitants)",
+        value_suffix=" hab",
+    )
+
+
+def plot_risk_index_tornado(
+    territory_df: pd.DataFrame,
+    scenario_metadata: pd.DataFrame,
+    scope_label: str,
+    output_dir: Path,
+) -> list[Path]:
+    table = build_risk_index_tornado_table(territory_df, scenario_metadata, scope_label)
+    return plot_series_tornado_table(
+        table,
+        output_dir / "tornado-territory-risk",
+        series_order=PORTFOLIO_HAZARD_SERIES_ORDER,
+        series_colors=PORTFOLIO_HAZARD_SERIES_COLORS,
+        series_labels={hazard: display_hazard(hazard) for hazard in PORTFOLIO_HAZARD_SERIES_ORDER},
+        xlabel="Variation par rapport au cas de reference (%)",
+        value_suffix="%",
+    )
+
+
 def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     output_paths: list[Path] = []
     tornado_dir = output_dir / "tornado"
@@ -873,6 +1477,8 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
     ):
         territory = str(territory or "unknown_territory")
         hazard = str(hazard or "unknown_hazard")
+        territory_label = display_territory(territory)
+        hazard_label = display_hazard(hazard)
         summary = (
             group.pivot_table(
                 index="scenario_id",
@@ -930,7 +1536,8 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
         ax.set_yticks(y_positions)
         ax.set_yticklabels(summary["scenario_display_label"])
         ax.axvline(0, color="black", linewidth=0.8)
-        ax.set_xlabel("Variation vs baseline (%)")
+        ax.set_xlabel("Variation par rapport au cas de reference (%)")
+        ax.set_title(f"{territory_label} - {hazard_label} - Sensibilite des impacts")
         ax.grid(True, axis="x", alpha=0.3)
         _set_symmetric_xlim(ax, all_values)
 
@@ -984,6 +1591,7 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
     ):
         territory = str(territory or "unknown_territory")
         network_metric = str(network_metric or "unknown_metric")
+        territory_label = display_territory(territory)
 
         summary = (
             group.pivot_table(
@@ -1057,15 +1665,15 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
         ax.set_yticks(y_positions)
         ax.set_yticklabels(summary["scenario_display_label"])
         ax.axvline(0, color="black", linewidth=0.8)
-        ax.set_xlabel("Variation vs baseline (points de pourcentage de réseau)")
-        ax.set_title(NETWORK_METRICS.get(network_metric, network_metric))
+        ax.set_xlabel("Variation par rapport au cas de reference (points de pourcentage de reseau)")
+        ax.set_title(f"{territory_label} - {NETWORK_METRICS.get(network_metric, network_metric)}")
         ax.grid(True, axis="x", alpha=0.3)
         _set_symmetric_xlim(ax, all_values)
 
         series_legend_handles = [
             Patch(
                 color=NETWORK_SERIES_COLORS[series_key],
-                label=f"{series_key[0].upper()} {SERVICE_LABELS[series_key[1]]}",
+                label=f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
             )
             for series_key in NETWORK_SERIES_ORDER
             if series_column_names[series_key] in summary.columns
@@ -1165,6 +1773,11 @@ def main() -> int:
 
     df, extraction_warnings = build_normalized_dataframe(parent_manifest)
     df = add_baseline_deltas(df)
+    scenario_metadata = build_scenario_metadata(df)
+    scope_label = display_scope_label(df)
+    run_dir = manifest_path.parent
+    portfolio_metrics_df = load_artifact_table(run_dir, "portfolio-metrics.parquet")
+    territory_metrics_df = load_artifact_table(run_dir, "territory-metrics.parquet")
 
     normalized_csv = output_dir / "sensitivity-results-normalized.csv"
     df.to_csv(normalized_csv, index=False)
@@ -1189,6 +1802,11 @@ def main() -> int:
     graph_paths: list[Path] = []
     graph_paths.extend(plot_tornado(df, output_dir))
     graph_paths.extend(plot_network_state_tornado(df, output_dir))
+    graph_paths.extend(plot_delta_annual_tornado(df, output_dir))
+    graph_paths.extend(plot_portfolio_risk_tornado(portfolio_metrics_df, scenario_metadata, scope_label, output_dir))
+    graph_paths.extend(plot_social_metric_tornado(territory_metrics_df, scenario_metadata, scope_label, output_dir))
+    graph_paths.extend(plot_social_state_tornado(territory_metrics_df, scenario_metadata, scope_label, output_dir))
+    graph_paths.extend(plot_risk_index_tornado(territory_metrics_df, scenario_metadata, scope_label, output_dir))
 
     quality_report = build_quality_report(df)
     quality_report.setdefault("alerts", []).extend(extraction_warnings)

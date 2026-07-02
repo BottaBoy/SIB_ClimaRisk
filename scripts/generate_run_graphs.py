@@ -62,7 +62,7 @@ HAZARD_COLORS = {
     "indirect": "#be123c",
     "s1": "#f59e0b",
     "s2": "#ef4444",
-    "s3": "#7f1d1d",
+    "s3": "#000000",
     "health": "#166534",
 }
 
@@ -70,12 +70,32 @@ STATE_COLORS = {
     "S0": "#68b66e",
     "S1": "#fde68a",
     "S2": "#fb923c",
-    "S3": "#b91c1c",
+    "S3": "#000000",
 }
 STATE_SEQUENCE = ("S0", "S1", "S2", "S3")
+STATE_LABELS = {
+    "S0": "Opérationnel (S0)",
+    "S1": "Dégradé (S1)",
+    "S2": "Critique (S2)",
+    "S3": "Hors service (S3)",
+}
+STATE_SHORT_LABELS = {
+    "S0": "Opérationnel",
+    "S1": "Dégradé",
+    "S2": "Critique",
+    "S3": "Hors service",
+}
 SURGE_COLORS = ["#f7fcfd", "#d0eff2", "#a6dbe4", "#72c5d6", "#3eaac4", "#167f96", "#0a596e", "#04384a"]
 LANDSLIDE_COLORS = ["#f7efe8", "#e8c9ae", "#d39b6f", "#ac6940", "#734127"]
 ELECTRIC_NETWORK_MAP_COLOR = "#FFD744"
+LEGACY_ELECTRIC_STATE_LAYER_KEYS = (
+    "elec_bt_aerien",
+    "elec_bt_souterrain",
+    "elec_hta_aerien",
+    "elec_hta_souterrain",
+)
+AGGREGATED_ELECTRIC_STATE_LAYER_KEYS = ("elec_grid_0p1deg",)
+ELECTRIC_STATE_LAYER_KEYS = AGGREGATED_ELECTRIC_STATE_LAYER_KEYS + LEGACY_ELECTRIC_STATE_LAYER_KEYS
 NETWORK_EXPOSURE_ORDER = (
     "eau_aep",
     "eau_eu",
@@ -97,6 +117,18 @@ OUVRAGE_EXPOSURE_LABELS = {
     "eau_eu_pr": "Postes de refoulement EU",
     "eau_eu_step": "STEP",
 }
+NETWORK_STATE_MATRIX_SCENARIOS = (
+    ("annual", "Annuel"),
+    ("rp50", "RP50"),
+    ("rp100", "RP100"),
+    ("p99", "P99"),
+)
+NETWORK_STATE_MATRIX_COLUMNS = (
+    ("eau_aep", "Etat reseaux AEP", ("eau_aep",)),
+    ("eau_eu", "Etat reseaux EU", ("eau_eu",)),
+    ("elec_aerien", "Etats reseaux elec aerien", ("elec_bt_aerien", "elec_hta_aerien")),
+    ("elec_souterrain", "Etats reseaux elec souterrain", ("elec_bt_souterrain", "elec_hta_souterrain")),
+)
 
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 COMPONENT_LABELS = {
@@ -411,6 +443,23 @@ def _stringify_value(value: Any) -> str:
 
 def _format_percent(value: Any) -> str:
     return f"{_safe_float(value):.2f}%"
+
+
+def _state_label(state: str) -> str:
+    return STATE_LABELS.get(str(state or "").upper(), str(state or ""))
+
+
+def _state_short_label(state: str) -> str:
+    return STATE_SHORT_LABELS.get(str(state or "").upper(), str(state or ""))
+
+
+def _format_damage_share_label(damage_eur: float, total_value_eur: float) -> str:
+    damage_text = _format_compact_eur(damage_eur)
+    denominator = _safe_float(total_value_eur, default=0.0)
+    if denominator <= 0.0:
+        return damage_text
+    damage_pct = (max(float(damage_eur), 0.0) / denominator) * 100.0
+    return f"{damage_text}\n({_format_percent(damage_pct)} valeur)"
 
 
 def _split_cli_values(values: list[str] | None) -> list[str]:
@@ -2548,6 +2597,52 @@ def _bar_label_text(value: float, label_format: str | None) -> str:
     return _format_number(value)
 
 
+def _grouped_bar_label_text(
+    payload: dict[str, Any],
+    series_idx: int,
+    value_idx: int,
+    value: float,
+) -> str:
+    label_texts = payload.get("label_texts")
+    if (
+        isinstance(label_texts, list)
+        and series_idx < len(label_texts)
+        and isinstance(label_texts[series_idx], list)
+        and value_idx < len(label_texts[series_idx])
+    ):
+        custom = str(label_texts[series_idx][value_idx] or "").strip()
+        if custom:
+            return custom
+    return _bar_label_text(value, payload.get("label_format"))
+
+
+def _resolve_grouped_bar_ymax(payload: dict[str, Any]) -> float:
+    explicit = payload.get("ymax")
+    series = payload.get("series") or []
+    max_value = 0.0
+    max_label_lines = 1
+    for series_idx, item in enumerate(series):
+        values = item.get("values") or []
+        for value_idx, raw_value in enumerate(values):
+            value = max(_safe_float(raw_value), 0.0)
+            if value > max_value:
+                max_value = value
+            if payload.get("show_labels") and value > 0.0:
+                label_text = _grouped_bar_label_text(payload, series_idx, value_idx, value)
+                max_label_lines = max(max_label_lines, label_text.count("\n") + 1 if label_text else 1)
+    auto_ymax = max(max_value, 1.0)
+    if payload.get("show_labels") and max_value > 0.0:
+        headroom_ratio = _safe_float(payload.get("label_headroom_ratio"), default=0.0)
+        if headroom_ratio <= 0.0:
+            headroom_ratio = 0.12 if max_label_lines <= 1 else 0.22
+        auto_ymax = max_value * (1.0 + headroom_ratio)
+    elif max_value <= 0.0:
+        auto_ymax = 1.0
+    if explicit is not None:
+        return max(float(explicit), auto_ymax)
+    return auto_ymax
+
+
 def _render_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
     categories = payload.get("categories") or []
     values = payload.get("values") or []
@@ -2601,6 +2696,7 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
         fig.savefig(output_path, dpi=180)
         plt.close(fig)
         return
+    ax.set_ylim(0, _resolve_grouped_bar_ymax(payload))
     width = 0.8 / max(1, len(series))
     positions = list(range(len(categories)))
     for idx, item in enumerate(series):
@@ -2609,18 +2705,21 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
         values = [float(value) for value in item.get("values") or []]
         bars = ax.bar(shifted, values, width=width, label=item.get("name"), color=item.get("color"))
         if payload.get("show_labels"):
-            label_format = payload.get("label_format")
-            for bar, value in zip(bars, values):
+            label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
+            y_pad = max((ax.get_ylim()[1] or 1.0) * 0.015, max(max(values, default=0.0) * 0.02, 0.0), 0.5)
+            for value_idx, (bar, value) in enumerate(zip(bars, values)):
                 if value <= 0.0:
                     continue
+                label_text = _grouped_bar_label_text(payload, idx, value_idx, value)
                 ax.text(
                     bar.get_x() + (bar.get_width() / 2.0),
-                    value + max((ax.get_ylim()[1] or 1.0) * 0.012, 0.5),
-                    _bar_label_text(value, label_format),
+                    value + y_pad,
+                    label_text,
                     ha="center",
                     va="bottom",
-                    fontsize=8,
+                    fontsize=label_fontsize,
                     rotation=0,
+                    bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
                 )
     ax.set_xticks(positions)
     ax.set_xticklabels(categories, rotation=20)
@@ -2678,6 +2777,90 @@ def _render_stacked_bar_with_line_png(plt: Any, payload: dict[str, Any], output_
     handles1, labels1 = ax.get_legend_handles_labels()
     handles2, labels2 = ax2.get_legend_handles_labels()
     ax.legend(handles1 + handles2, labels1 + labels2, loc="upper right")
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    from matplotlib.patches import Patch
+
+    row_titles = payload.get("row_titles") or []
+    column_titles = payload.get("column_titles") or []
+    cells = payload.get("cells") or []
+    if not row_titles or not column_titles or not cells:
+        fig, _ax = plt.subplots(figsize=(12, 8))
+        _save_figure(fig, output_path, payload.get("note"))
+        plt.close(fig)
+        return
+
+    nrows = len(row_titles)
+    ncols = len(column_titles)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14.5, 12.3), sharey=True)
+    if nrows == 1 and ncols == 1:
+        axes_grid = [[axes]]
+    elif nrows == 1:
+        axes_grid = [list(axes)]
+    elif ncols == 1:
+        axes_grid = [[ax] for ax in axes]
+    else:
+        axes_grid = [list(row) for row in axes]
+
+    state_palette = {
+        "S0": STATE_COLORS["S0"],
+        "S1": HAZARD_COLORS["s1"],
+        "S2": HAZARD_COLORS["s2"],
+        "S3": HAZARD_COLORS["s3"],
+    }
+    text_colors = {
+        "S0": "#0f172a",
+        "S1": "#0f172a",
+        "S2": "#0f172a",
+        "S3": "#ffffff",
+    }
+
+    for row_idx, row_title in enumerate(row_titles):
+        row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
+        for col_idx, column_title in enumerate(column_titles):
+            ax = axes_grid[row_idx][col_idx]
+            cell = row_cells[col_idx] if col_idx < len(row_cells) and isinstance(row_cells[col_idx], dict) else {}
+            bottoms = 0.0
+            for state in STATE_SEQUENCE:
+                value = max(_safe_float(cell.get(state)), 0.0)
+                ax.bar([0], [value], bottom=[bottoms], width=0.62, color=state_palette[state], edgecolor="white", linewidth=0.8)
+                if value >= 12.0:
+                    ax.text(
+                        0,
+                        bottoms + (value / 2.0),
+                        f"{_state_short_label(state)}\n{value:.0f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color=text_colors[state],
+                        fontweight="bold",
+                    )
+                bottoms += value
+            ax.set_ylim(0, 100)
+            ax.set_xlim(-0.65, 0.65)
+            ax.set_xticks([])
+            if col_idx == 0:
+                ax.set_ylabel(row_title, rotation=0, labelpad=34, va="center", fontsize=10, fontweight="bold")
+                ax.set_yticks([0, 50, 100])
+            else:
+                ax.set_yticks([0, 50, 100])
+                ax.set_yticklabels([])
+            if row_idx == 0:
+                ax.set_title(column_title, fontsize=10, pad=18, fontweight="bold")
+            ax.grid(True, axis="y", alpha=0.18)
+            for spine in ("top", "right"):
+                ax.spines[spine].set_visible(False)
+            ax.spines["left"].set_alpha(0.25)
+            ax.spines["bottom"].set_alpha(0.2)
+
+    handles = [Patch(facecolor=state_palette[state], label=_state_label(state)) for state in STATE_SEQUENCE]
+    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.952), frameon=False)
+    fig.suptitle(payload.get("title") or "", fontsize=17, y=0.988)
+    fig.text(0.03, 0.5, "% des reseaux", rotation="vertical", va="center", fontsize=10)
+    fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.86))
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
 
@@ -2845,7 +3028,13 @@ def _state_layer_to_source_infra_types(filter_values: list[str] | None) -> list[
     }
     out: list[str] = []
     for value in filter_values or []:
-        infra_type = mapping.get(str(value))
+        value_str = str(value)
+        if value_str == "elec_grid_0p1deg":
+            for infra_type in LEGACY_ELECTRIC_STATE_LAYER_KEYS:
+                if infra_type not in out:
+                    out.append(infra_type)
+            continue
+        infra_type = mapping.get(value_str)
         if infra_type and infra_type not in out:
             out.append(infra_type)
     return out
@@ -2876,9 +3065,12 @@ def _swap_state_surfaces_for_source_lines(
     if source_gdf.empty:
         return gdf
 
+    target_crs = gdf.crs
     if source_gdf.crs is None:
         source_gdf = source_gdf.set_crs(epsg=4326)
-    source_gdf = source_gdf.to_crs(epsg=3857)
+    if target_crs is None:
+        target_crs = "EPSG:3857"
+    source_gdf = source_gdf.to_crs(target_crs)
 
     line_like = source_gdf.geom_type.isin(["LineString", "MultiLineString"])
     source_gdf = source_gdf[line_like].copy()
@@ -2890,9 +3082,29 @@ def _swap_state_surfaces_for_source_lines(
     state_columns = ["feature_id", state_column]
     state_frame = gdf[state_columns].drop_duplicates(subset=["feature_id"]).copy()
     merged = source_gdf.merge(state_frame, on="feature_id", how="inner")
-    if merged.empty:
+    if not merged.empty:
+        return merged
+
+    aggregated_electric = any(str(value) in AGGREGATED_ELECTRIC_STATE_LAYER_KEYS for value in (payload.get("filter_values") or []))
+    if not aggregated_electric:
         return gdf
-    return merged
+
+    gpd = _load_geopandas()
+    state_surfaces = gdf[[state_column, "geometry"]].copy()
+    source_probes = source_gdf[["feature_id", "geometry"]].copy()
+    # Representative points keep one spatial lookup per line feature without
+    # requiring source and state feature IDs to match for aggregated grid layers.
+    source_probes["geometry"] = source_probes.geometry.representative_point()
+    spatial_matches = gpd.sjoin(source_probes, state_surfaces, how="inner", predicate="within")
+    if spatial_matches.empty:
+        spatial_matches = gpd.sjoin(source_probes, state_surfaces, how="inner", predicate="intersects")
+    if spatial_matches.empty:
+        return gdf
+    state_lookup = spatial_matches[["feature_id", state_column]].drop_duplicates(subset=["feature_id"]).copy()
+    spatial_merged = source_gdf.merge(state_lookup, on="feature_id", how="inner")
+    if spatial_merged.empty:
+        return gdf
+    return spatial_merged
 
 
 def _thin_zoomed_surface_network_geometries(gdf: Any) -> Any:
@@ -2964,23 +3176,37 @@ def _render_geojson_map_png(
     line_width = _adaptive_geo_linewidth(gdf, base_width=1.4)
     fill_line_width = _adaptive_geo_linewidth(gdf, base_width=1.6)
     state_column = payload.get("state_column")
-    if state_column:
+    color_column = payload.get("color_column")
+    categorical_column = state_column or color_column
+    if categorical_column:
+        from matplotlib.lines import Line2D
         from matplotlib.patches import Patch
 
-        state_colors = payload.get("state_colors") or STATE_COLORS
+        raw_colors = payload.get("state_colors") or payload.get("color_map") or STATE_COLORS
+        raw_labels = payload.get("legend_labels") or STATE_LABELS
+        category_order = [str(item) for item in (payload.get("category_order") or list(raw_colors.keys()))]
+        state_colors = {str(key): str(value) for key, value in dict(raw_colors).items()}
+        legend_labels = {str(key): str(value) for key, value in dict(raw_labels).items()}
         gdf = gdf.copy()
-        gdf["_plot_color"] = gdf[state_column].map(lambda value: state_colors.get(str(value), "#94a3b8"))
+        gdf["_plot_color"] = gdf[categorical_column].map(lambda value: state_colors.get(str(value), "#94a3b8"))
         geom_types = {str(value) for value in getattr(gdf, "geom_type", [])}
         is_surface = bool(geom_types) and geom_types.issubset({"Polygon", "MultiPolygon"})
         if is_surface:
             gdf.plot(ax=ax, color=gdf["_plot_color"], linewidth=0.0, edgecolor="none", alpha=0.92, zorder=3)
         else:
-            gdf.plot(ax=ax, color=gdf["_plot_color"], linewidth=line_width, alpha=0.92, zorder=3)
-        legend_handles = [
-            Patch(facecolor=color, edgecolor=color, label=label)
-            for label, color in state_colors.items()
-        ]
-        ax.legend(handles=legend_handles, title=payload.get("legend_title") or "Etat", loc="upper right")
+            gdf.plot(ax=ax, color=gdf["_plot_color"], linewidth=payload.get("line_width") or line_width, alpha=0.92, zorder=3)
+        legend_handles = []
+        for key in category_order:
+            color = state_colors.get(key)
+            if not color:
+                continue
+            label = legend_labels.get(key, key)
+            if is_surface:
+                legend_handles.append(Patch(facecolor=color, edgecolor=color, label=label))
+            else:
+                legend_handles.append(Line2D([0], [0], color=color, lw=3.0, label=label))
+        if legend_handles:
+            ax.legend(handles=legend_handles, title=payload.get("legend_title") or "Etat de service", loc="upper right")
     else:
         color = payload.get("color") or "#0f766e"
         geom_types = {str(value) for value in getattr(gdf, "geom_type", [])}
@@ -3073,7 +3299,7 @@ def _network_filter_config(network_key: str) -> tuple[list[str] | None, list[str
     if network_key == "eu":
         return ["eau_eu"], ["EU"]
     if network_key == "elec":
-        return ["elec_bt_aerien", "elec_bt_souterrain", "elec_hta_aerien", "elec_hta_souterrain"], None
+        return list(ELECTRIC_STATE_LAYER_KEYS), None
     return None, None
 
 
@@ -3093,6 +3319,8 @@ def _render_auxiliary_output(
         _render_grouped_bar_png(plt, payload, output_path)
     elif plot_type == "stacked_bar":
         _render_stacked_bar_png(plt, payload, output_path)
+    elif plot_type == "network_state_matrix":
+        _render_network_state_matrix_png(plt, payload, output_path)
     elif plot_type == "geojson_map":
         _render_geojson_map_png(plt, payload, output_path)
     elif plot_type == "scatter_map":
@@ -3181,6 +3409,20 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
     ]
     storm_values = [_safe_float((storm_map.get(class_key) or {}).get("damage_eur")) for class_key in class_keys]
     cmcc_values = [_safe_float((cmcc_map.get(class_key) or {}).get("damage_eur")) for class_key in class_keys]
+    storm_label_texts = [
+        _format_damage_share_label(
+            _safe_float((storm_map.get(class_key) or {}).get("damage_eur")),
+            _safe_float((storm_map.get(class_key) or {}).get("exposure_eur")),
+        )
+        for class_key in class_keys
+    ]
+    cmcc_label_texts = [
+        _format_damage_share_label(
+            _safe_float((cmcc_map.get(class_key) or {}).get("damage_eur")),
+            _safe_float((cmcc_map.get(class_key) or {}).get("exposure_eur")),
+        )
+        for class_key in class_keys
+    ]
     return {
         "type": "grouped_bar",
         "title": title,
@@ -3192,6 +3434,9 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
         "ylabel": "Degats directs (EUR)",
         "show_labels": True,
         "label_format": "compact_eur",
+        "label_texts": [storm_label_texts, cmcc_label_texts],
+        "label_fontsize": 7,
+        "label_headroom_ratio": 0.26,
     }
 
 
@@ -3223,6 +3468,7 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         cmcc_values.append(round(cmcc_total, 2))
     if not any(value > 0.0 for value in [*storm_values, *cmcc_values]):
         return None
+    family_total_value_eur = _resolve_family_total_value_eur(artifacts, family)
     return {
         "type": "grouped_bar",
         "title": title,
@@ -3234,6 +3480,122 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         "ylabel": "Degats directs (EUR)",
         "show_labels": True,
         "label_format": "compact_eur",
+        "label_texts": [
+            [_format_damage_share_label(value, family_total_value_eur) for value in storm_values],
+            [_format_damage_share_label(value, family_total_value_eur) for value in cmcc_values],
+        ],
+        "label_fontsize": 7,
+        "label_headroom_ratio": 0.26,
+    }
+
+
+def _resolve_family_total_value_eur(artifacts: AuxiliaryArtifacts, family: str) -> float:
+    exposition = _page7_block(artifacts, "exposition")
+    totals = exposition.get("total_value_by_type_eur") if isinstance(exposition, dict) and isinstance(exposition.get("total_value_by_type_eur"), dict) else {}
+    prefix = "eau_" if family == "water" else "elec_"
+    total_value = sum(
+        _safe_float(value)
+        for key, value in totals.items()
+        if str(key or "").startswith(prefix)
+    )
+    if total_value > 0.0:
+        return round(total_value, 2)
+    annual_rows = _page7_block(artifacts, "impact", "state_damage_tables", "annual")
+    if isinstance(annual_rows, list):
+        fallback_total = sum(
+            _safe_float(_dict_path_get(item, "storm", "exposure_eur"))
+            for item in annual_rows
+            if isinstance(item, dict) and str(item.get("class_key") or "").startswith(prefix)
+        )
+        if fallback_total > 0.0:
+            return round(fallback_total, 2)
+    return 0.0
+
+
+def _network_state_length_weights(artifacts: AuxiliaryArtifacts) -> dict[str, float]:
+    exposition = _page7_block(artifacts, "exposition")
+    lengths = exposition.get("lengths_km") if isinstance(exposition, dict) and isinstance(exposition.get("lengths_km"), dict) else {}
+    return {
+        str(key): _safe_float(value)
+        for key, value in lengths.items()
+    }
+
+
+def _aggregate_state_distribution_rows(
+    rows: list[dict[str, Any]],
+    *,
+    hazard: str,
+    class_keys: tuple[str, ...],
+    length_weights: dict[str, float],
+) -> dict[str, float]:
+    rows_by_class = {
+        str(item.get("class_key") or ""): item
+        for item in rows
+        if isinstance(item, dict)
+    }
+    totals = {state: 0.0 for state in STATE_SEQUENCE}
+    total_weight = 0.0
+    for class_key in class_keys:
+        row = rows_by_class.get(class_key)
+        if not isinstance(row, dict):
+            continue
+        hazard_block = row.get(hazard) if isinstance(row.get(hazard), dict) else {}
+        state_pct = hazard_block.get("state_pct") if isinstance(hazard_block.get("state_pct"), dict) else {}
+        weight = _safe_float(length_weights.get(class_key))
+        if weight <= 0.0:
+            weight = _safe_float(hazard_block.get("exposure_eur"))
+        if weight <= 0.0:
+            weight = 1.0
+        total_weight += weight
+        for state in STATE_SEQUENCE:
+            totals[state] += weight * _safe_float(state_pct.get(state))
+    if total_weight <= 0.0:
+        return {state: 0.0 for state in STATE_SEQUENCE}
+    return {
+        state: round(totals[state] / total_weight, 3)
+        for state in STATE_SEQUENCE
+    }
+
+
+def _build_network_state_matrix_payload(
+    artifacts: AuxiliaryArtifacts,
+    hazard: str,
+    title: str,
+) -> dict[str, Any] | None:
+    state_damage_tables = _page7_block(artifacts, "impact", "state_damage_tables")
+    if not isinstance(state_damage_tables, dict):
+        return None
+    length_weights = _network_state_length_weights(artifacts)
+    cells: list[list[dict[str, float]]] = []
+    has_non_zero = False
+    for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
+        rows = state_damage_tables.get(scenario_key)
+        if not isinstance(rows, list):
+            return None
+        scenario_cells: list[dict[str, float]] = []
+        for _column_key, _column_label, class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+            aggregated = _aggregate_state_distribution_rows(
+                rows,
+                hazard=hazard,
+                class_keys=class_keys,
+                length_weights=length_weights,
+            )
+            if any(_safe_float(aggregated.get(state)) > 0.0 for state in ("S1", "S2", "S3")):
+                has_non_zero = True
+            scenario_cells.append(aggregated)
+        cells.append(scenario_cells)
+    if not has_non_zero and not cells:
+        return None
+    return {
+        "type": "network_state_matrix",
+        "title": title,
+        "column_titles": [label for _column_key, label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS],
+        "row_titles": [label for _scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
+        "cells": cells,
+        "note": (
+            "Chaque vignette montre la repartition des etats de service du reseau de Opérationnel (S0) a Hors service (S3) pour un scenario et un type d'infrastructure. "
+            "Les colonnes elec aerien et elec souterrain agregent BT et HTA en ponderant par les longueurs de reseau."
+        ),
     }
 
 
@@ -3250,10 +3612,10 @@ def _build_network_state_chart_payload(artifacts: AuxiliaryArtifacts, network_ke
         "title": title,
         "categories": [HAZARD_LABELS["storm"], HAZARD_LABELS["storm_cmcc"]],
         "series": [
-            {"name": "S0", "values": [storm_pct.get("S0", 0.0), cmcc_pct.get("S0", 0.0)], "color": STATE_COLORS["S0"]},
-            {"name": "S1", "values": [storm_pct.get("S1", 0.0), cmcc_pct.get("S1", 0.0)], "color": HAZARD_COLORS["s1"]},
-            {"name": "S2", "values": [storm_pct.get("S2", 0.0), cmcc_pct.get("S2", 0.0)], "color": HAZARD_COLORS["s2"]},
-            {"name": "S3", "values": [storm_pct.get("S3", 0.0), cmcc_pct.get("S3", 0.0)], "color": HAZARD_COLORS["s3"]},
+            {"name": _state_label("S0"), "values": [storm_pct.get("S0", 0.0), cmcc_pct.get("S0", 0.0)], "color": STATE_COLORS["S0"]},
+            {"name": _state_label("S1"), "values": [storm_pct.get("S1", 0.0), cmcc_pct.get("S1", 0.0)], "color": HAZARD_COLORS["s1"]},
+            {"name": _state_label("S2"), "values": [storm_pct.get("S2", 0.0), cmcc_pct.get("S2", 0.0)], "color": HAZARD_COLORS["s2"]},
+            {"name": _state_label("S3"), "values": [storm_pct.get("S3", 0.0), cmcc_pct.get("S3", 0.0)], "color": HAZARD_COLORS["s3"]},
         ],
         "ylabel": "% des reseaux",
         "ymax": 100.0,
@@ -3275,7 +3637,7 @@ def _build_network_state_distribution_payload(artifacts: AuxiliaryArtifacts, met
         for network_key in ("elec", "aep", "eu"):
             values.append(counts_by_network.get(network_key, {}).get(state, 0.0))
         non_zero = non_zero or any(value > 0 for value in values)
-        series.append({"name": state, "values": values, "color": color})
+        series.append({"name": _state_label(state), "values": values, "color": color})
     if not non_zero:
         return None
     return {
@@ -3438,13 +3800,13 @@ def _build_social_impact_table_payload(artifacts: AuxiliaryArtifacts, title: str
     if not storm and not cmcc:
         return None
     metric_rows = [
-        ("Population totale affectee (S1/S2/S3)", "total_population_affected_any_network"),
-        ("Population sans electricite (S3)", "total_without_elec"),
-        ("Population sans eau potable AEP (S3)", "total_without_water_aep"),
-        ("Population sans eau EU (S3)", "total_without_water_eu"),
-        ("Population electricite degradee (S1/S2)", "total_with_degraded_elec"),
-        ("Population eau potable degradee (S1/S2)", "total_with_degraded_water_aep"),
-        ("Population eau EU degradee (S1/S2)", "total_with_degraded_water_eu"),
+        ("Population totale affectee (Dégradé (S1) / Critique (S2) / Hors service (S3))", "total_population_affected_any_network"),
+        ("Population sans electricite (Hors service (S3))", "total_without_elec"),
+        ("Population sans eau potable AEP (Hors service (S3))", "total_without_water_aep"),
+        ("Population sans eau EU (Hors service (S3))", "total_without_water_eu"),
+        ("Population electricite degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_elec"),
+        ("Population eau potable degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_water_aep"),
+        ("Population eau EU degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_water_eu"),
     ]
     rows: list[list[str]] = []
     for label, key in metric_rows:
@@ -3623,6 +3985,8 @@ def _render_integrated_vincennes_assets(
             (charts_dir / f"{territory}_etat_reseaux_eu_retour_100_ans.png", _build_network_state_chart_payload(artifacts, "eu", "rp100", f"{territory_label(territory)} - Etats reseaux EU RP100")),
             (charts_dir / f"{territory}_repartition_etats_reseaux_percentile_99.png", _build_network_state_distribution_payload(artifacts, "p99", f"{territory_label(territory)} - Repartition etats reseaux P99")),
             (charts_dir / f"{territory}_repartition_etats_reseaux_retour_100_ans.png", _build_network_state_distribution_payload(artifacts, "rp100", f"{territory_label(territory)} - Repartition etats reseaux RP100")),
+            (charts_dir / f"{territory}_matrice_etats_reseaux_storm.png", _build_network_state_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice etats reseaux STORM")),
+            (charts_dir / f"{territory}_matrice_etats_reseaux_storm_cmcc.png", _build_network_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_label(territory)} - Matrice etats reseaux STORM_CMCC")),
         ]
         for output_path, payload in chart_specs:
             if payload is None:
@@ -3689,7 +4053,7 @@ def _render_integrated_vincennes_assets(
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
-                    "filter_values": ["elec_bt_aerien", "elec_bt_souterrain", "elec_hta_aerien", "elec_hta_souterrain"],
+                    "filter_values": list(ELECTRIC_STATE_LAYER_KEYS),
                     "state_column": "state_p99_storm",
                 } if artifacts.network_states_path else None,
             ),
@@ -3701,7 +4065,7 @@ def _render_integrated_vincennes_assets(
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
-                    "filter_values": ["elec_bt_aerien", "elec_bt_souterrain", "elec_hta_aerien", "elec_hta_souterrain"],
+                    "filter_values": list(ELECTRIC_STATE_LAYER_KEYS),
                     "state_column": "state_rp100_storm",
                 } if artifacts.network_states_path else None,
             ),
@@ -3753,7 +4117,7 @@ def _render_integrated_vincennes_assets(
                 maps_dir / f"{territory}_inondation_cotiere_rp100.png",
                 {
                     "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Inondation cotiere RP100",
+                    "title": f"{territory_label(territory)} - Submersion cotiere RP100",
                     "points": _build_hazard_cell_points(artifacts, "storm", "rp100_surge_m"),
                     "cmap_colors": SURGE_COLORS,
                     "colorbar_label": "Submersion RP100 (m)",

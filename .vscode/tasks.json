@@ -1072,6 +1072,7 @@
     },
     {
   "label": "SIB: Generate Sensitivity Graphs - Choose Run ID",
+  "detail": "Generate baseline and extended tornado PNGs for a selected sensitivity run.",
   "type": "shell",
   "command": "bash",
   "args": [

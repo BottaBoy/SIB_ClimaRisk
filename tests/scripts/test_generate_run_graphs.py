@@ -302,8 +302,122 @@ def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.
     assert payload is not None
     assert payload["ylabel"] == "% des reseaux"
     assert payload["series"][0]["color"] == "#68b66e"
+    assert payload["series"][0]["name"] == "Opérationnel (S0)"
     assert payload["series"][0]["values"] == [50.0, 25.0]
+    assert payload["series"][3]["name"] == "Hors service (S3)"
+    assert payload["series"][3]["color"] == "#000000"
     assert payload["series"][3]["values"] == [0.0, 50.0]
+
+
+def test_build_damage_scenario_payload_adds_damage_share_labels() -> None:
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/page7.json",
+            {
+                "impact": {
+                    "damage_breakdown_by_scenario": {
+                        "annual": {
+                            "storm": [
+                                {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 250.0},
+                                {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 50.0},
+                            ],
+                            "storm_cmcc": [
+                                {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 300.0},
+                                {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 25.0},
+                            ],
+                        }
+                    }
+                }
+            },
+        ),
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_damage_scenario_payload(artifacts, "water", "Degats eau")
+
+    assert payload is not None
+    assert payload["label_texts"][0][0] == "250.00 EUR\n(25.00% valeur)"
+    assert payload["label_texts"][1][1] == "25.00 EUR\n(5.00% valeur)"
+
+
+def test_build_total_damage_by_return_period_payload_adds_family_share_labels() -> None:
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/page7.json",
+            {
+                "impact": {
+                    "damage_breakdown_by_scenario": {
+                        "annual": {
+                            "storm": [{"class_key": "eau_aep", "damage_eur": 35.0}],
+                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 17.5}],
+                        },
+                        "rp50": {
+                            "storm": [{"class_key": "eau_aep", "damage_eur": 70.0}],
+                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 35.0}],
+                        },
+                        "rp100": {
+                            "storm": [{"class_key": "eau_aep", "damage_eur": 140.0}],
+                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 70.0}],
+                        },
+                        "p99": {
+                            "storm": [{"class_key": "eau_aep", "damage_eur": 280.0}],
+                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 140.0}],
+                        },
+                    }
+                },
+                "exposition": {
+                    "total_value_by_type_eur": {
+                        "eau_aep": 700.0,
+                        "eau_eu": 700.0,
+                    }
+                },
+            },
+        ),
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_total_damage_by_return_period_payload(artifacts, "water", "Degats eau")
+
+    assert payload is not None
+    assert payload["label_texts"][0][0] == "35.00 EUR\n(2.50% valeur)"
+    assert payload["label_texts"][0][3] == "280.00 EUR\n(20.00% valeur)"
+    assert payload["label_texts"][1][1] == "35.00 EUR\n(2.50% valeur)"
+
+
+def test_resolve_grouped_bar_ymax_adds_headroom_for_multiline_labels() -> None:
+    payload = {
+        "show_labels": True,
+        "series": [
+            {"values": [100.0]},
+            {"values": [80.0]},
+        ],
+        "label_texts": [["100.00 EUR\n(10.00% valeur)"], ["80.00 EUR\n(8.00% valeur)"]],
+    }
+
+    ymax = generate_run_graphs._resolve_grouped_bar_ymax(payload)
+
+    assert ymax > 120.0
+
+
+def test_network_filter_config_supports_aggregated_electric_grid() -> None:
+    layer_keys, network_kinds = generate_run_graphs._network_filter_config("elec")
+
+    assert layer_keys is not None
+    assert "elec_grid_0p1deg" in layer_keys
+    assert "elec_bt_aerien" in layer_keys
+    assert network_kinds is None
 
 
 def test_build_annual_fec_graph_combines_selected_hazards(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -384,6 +498,111 @@ def test_swap_state_surfaces_for_source_lines_prefers_matching_line_geometries(
     assert list(swapped.geom_type) == ["LineString"]
     assert list(swapped["feature_id"]) == ["EU_1"]
     assert list(swapped["state_p99_storm"]) == ["S2"]
+
+
+def test_swap_state_surfaces_for_source_lines_accepts_aggregated_electric_grid_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import LineString, Polygon
+
+    state_gdf = gpd.GeoDataFrame(
+        {
+            "feature_id": ["cell-1"],
+            "state_p99_storm": ["S1"],
+        },
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])],
+        crs="EPSG:3857",
+    )
+    source_gdf = gpd.GeoDataFrame(
+        {
+            "feature_id": ["line-1"],
+            "infra_type": ["elec_bt_aerien"],
+        },
+        geometry=[LineString([(0, 0), (2, 0)])],
+        crs="EPSG:3857",
+    )
+
+    monkeypatch.setattr(generate_run_graphs, "_load_geodataframe_cached", lambda _path: source_gdf.copy())
+
+    swapped = generate_run_graphs._swap_state_surfaces_for_source_lines(
+        state_gdf,
+        {
+            "state_column": "state_p99_storm",
+            "source_geojson_path": "/tmp/source.geojson",
+            "filter_values": ["elec_grid_0p1deg"],
+        },
+    )
+
+    assert list(swapped.geom_type) == ["LineString"]
+    assert list(swapped["feature_id"]) == ["line-1"]
+    assert list(swapped["state_p99_storm"]) == ["S1"]
+
+
+def test_build_network_state_matrix_payload_aggregates_electric_air_and_underground() -> None:
+    def _row(
+        class_key: str,
+        storm_pct: dict[str, float],
+        cmcc_pct: dict[str, float],
+        exposure: float,
+    ) -> dict[str, object]:
+        return {
+            "class_key": class_key,
+            "class_label": class_key,
+            "storm": {"state_pct": storm_pct, "exposure_eur": exposure},
+            "storm_cmcc": {"state_pct": cmcc_pct, "exposure_eur": exposure},
+        }
+
+    scenario_rows = [
+        _row("eau_aep", {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}, {"S0": 90.0, "S1": 10.0, "S2": 0.0, "S3": 0.0}, 400.0),
+        _row("eau_eu", {"S0": 80.0, "S1": 20.0, "S2": 0.0, "S3": 0.0}, {"S0": 70.0, "S1": 30.0, "S2": 0.0, "S3": 0.0}, 300.0),
+        _row("elec_bt_aerien", {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}, {"S0": 50.0, "S1": 50.0, "S2": 0.0, "S3": 0.0}, 100.0),
+        _row("elec_hta_aerien", {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0}, {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0}, 50.0),
+        _row("elec_bt_souterrain", {"S0": 60.0, "S1": 40.0, "S2": 0.0, "S3": 0.0}, {"S0": 40.0, "S1": 60.0, "S2": 0.0, "S3": 0.0}, 80.0),
+        _row("elec_hta_souterrain", {"S0": 20.0, "S1": 80.0, "S2": 0.0, "S3": 0.0}, {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0}, 40.0),
+    ]
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/page7.json",
+            {
+                "impact": {
+                    "state_damage_tables": {
+                        "annual": scenario_rows,
+                        "rp50": scenario_rows,
+                        "rp100": scenario_rows,
+                        "p99": scenario_rows,
+                    }
+                },
+                "exposition": {
+                    "lengths_km": {
+                        "elec_bt_aerien": 3.0,
+                        "elec_hta_aerien": 1.0,
+                        "elec_bt_souterrain": 2.0,
+                        "elec_hta_souterrain": 1.0,
+                    }
+                },
+            },
+        ),
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_network_state_matrix_payload(artifacts, "storm", "Matrice")
+
+    assert payload is not None
+    assert payload["row_titles"] == ["Annuel", "RP50", "RP100", "P99"]
+    assert payload["column_titles"][2] == "Etats reseaux elec aerien"
+    assert payload["cells"][0][2]["S0"] == pytest.approx(75.0)
+    assert payload["cells"][0][2]["S1"] == pytest.approx(25.0)
+    assert payload["cells"][0][3]["S0"] == pytest.approx(46.667, rel=1e-4)
+    assert payload["cells"][0][3]["S1"] == pytest.approx(53.333, rel=1e-4)
+    assert "Opérationnel (S0)" in payload["note"]
+    assert "Hors service (S3)" in payload["note"]
 
 
 def test_thin_zoomed_surface_network_geometries_reduces_polygon_area() -> None:

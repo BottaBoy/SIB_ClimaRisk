@@ -22,9 +22,15 @@ from scripts.generate_sensitivity_graphs import (
     add_baseline_deltas,
     build_impact_legend_spec,
     build_quality_report,
+    build_scenario_metadata,
     clean_legacy_outputs,
     extract_rows_from_payload,
+    plot_delta_annual_tornado,
     plot_network_state_tornado,
+    plot_portfolio_risk_tornado,
+    plot_risk_index_tornado,
+    plot_social_metric_tornado,
+    plot_social_state_tornado,
     plot_tornado,
     summarize_network_state_distribution,
 )
@@ -237,6 +243,11 @@ def test_clean_legacy_outputs_removes_curves_and_legacy_pngs(tmp_path: Path) -> 
     legacy_network = tornado_network_dir / "tornado_network_states_guadeloupe_storm_elec_non_nominal_pct.png"
     legacy_network.write_text("legacy", encoding="utf-8")
 
+    extended_dir = tmp_path / "tornado-portfolio-risk"
+    extended_dir.mkdir()
+    legacy_extended = extended_dir / "tornado_portfolio_pml_10.png"
+    legacy_extended.write_text("legacy", encoding="utf-8")
+
     clean_legacy_outputs(tmp_path)
 
     assert not curves_dir.exists()
@@ -244,6 +255,7 @@ def test_clean_legacy_outputs_removes_curves_and_legacy_pngs(tmp_path: Path) -> 
     assert not legacy_combined_delta.exists()
     assert combined_tornado.exists()
     assert not legacy_network.exists()
+    assert not legacy_extended.exists()
 
 
 def test_plot_tornado_combines_return_periods_and_keeps_top_25(
@@ -353,3 +365,167 @@ def test_plot_network_state_tornado_produces_two_combined_outputs(tmp_path: Path
         "tornado_network_states_guadeloupe_combined_pct_reseaux_s3.png",
     ]
     assert all(path.exists() for path in output_paths)
+
+
+def test_plot_delta_annual_tornado_produces_one_output(tmp_path: Path) -> None:
+    rows: list[dict[str, object]] = []
+    for hazard in ("delta", "storm", "storm_cmcc"):
+        rows.append(
+            {
+                "scenario_id": "all-default",
+                "scenario_label": "Default",
+                "parameter_key": "param",
+                "parameter_value": "default",
+                "territory": "guadeloupe",
+                "hazard": hazard,
+                "metric": "impact_eur",
+                "return_period": "annual",
+                "value": 100.0,
+            }
+        )
+        rows.append(
+            {
+                "scenario_id": "scenario-a",
+                "scenario_label": "Scenario A",
+                "parameter_key": "param",
+                "parameter_value": "1",
+                "territory": "guadeloupe",
+                "hazard": hazard,
+                "metric": "impact_eur",
+                "return_period": "annual",
+                "value": 110.0,
+            }
+        )
+
+    df = add_baseline_deltas(pd.DataFrame(rows))
+    output_paths = plot_delta_annual_tornado(df, tmp_path)
+
+    assert [path.name for path in output_paths] == ["tornado_guadeloupe_annual_all_hazards.png"]
+    assert output_paths[0].exists()
+
+
+def test_plot_portfolio_risk_tornado_produces_expected_outputs(tmp_path: Path) -> None:
+    metadata_source = pd.DataFrame(
+        [
+            {
+                "scenario_id": "all-default",
+                "scenario_label": "Default",
+                "parameter_key": "",
+                "parameter_value": "default",
+                "territory": "guadeloupe",
+            },
+            {
+                "scenario_id": "scenario-a",
+                "scenario_label": "Scenario A",
+                "parameter_key": "param",
+                "parameter_value": "1",
+                "territory": "guadeloupe",
+            },
+        ]
+    )
+    scenario_metadata = build_scenario_metadata(metadata_source)
+    rows: list[dict[str, object]] = []
+    for scenario_id, multiplier in (("all-default", 1.0), ("scenario-a", 1.25)):
+        for hazard in ("storm", "storm_cmcc"):
+            rows.append(
+                {
+                    "scenario_id": scenario_id,
+                    "hazard": hazard,
+                    "percentile_99_loss_eur": 1000.0 * multiplier,
+                    "pml_10_eur": 2000.0 * multiplier,
+                    "pml_20_eur": 3000.0 * multiplier,
+                    "pml_200_eur": 4000.0 * multiplier,
+                    "pml_1000_eur": 5000.0 * multiplier,
+                    "tvar_95_eur": 6000.0 * multiplier,
+                }
+            )
+
+    output_paths = plot_portfolio_risk_tornado(pd.DataFrame(rows), scenario_metadata, "Guadeloupe", tmp_path)
+
+    assert sorted(path.name for path in output_paths) == [
+        "tornado_portfolio_percentile_99_loss.png",
+        "tornado_portfolio_pml_10.png",
+        "tornado_portfolio_pml_1000.png",
+        "tornado_portfolio_pml_20.png",
+        "tornado_portfolio_pml_200.png",
+        "tornado_portfolio_tvar_95.png",
+    ]
+    assert all(path.exists() for path in output_paths)
+
+
+def test_plot_social_and_risk_tornadoes_produce_expected_outputs(tmp_path: Path) -> None:
+    metadata_source = pd.DataFrame(
+        [
+            {
+                "scenario_id": "all-default",
+                "scenario_label": "Default",
+                "parameter_key": "",
+                "parameter_value": "default",
+                "territory": "guadeloupe",
+            },
+            {
+                "scenario_id": "scenario-a",
+                "scenario_label": "Scenario A",
+                "parameter_key": "param",
+                "parameter_value": "1",
+                "territory": "guadeloupe",
+            },
+        ]
+    )
+    scenario_metadata = build_scenario_metadata(metadata_source)
+    rows: list[dict[str, object]] = []
+    for scenario_id, shift in (("all-default", 0.0), ("scenario-a", 100.0)):
+        rows.append(
+            {
+                "scenario_id": scenario_id,
+                "risk_index_storm": 2.0 + shift / 100.0,
+                "risk_index_cmcc": 3.0 + shift / 100.0,
+                "social_metrics": {
+                    "storm": {
+                        "population_without_water_aep": 1000.0 + shift,
+                        "population_without_water_eu": 500.0 + shift,
+                        "population_with_degraded_elec": 200.0 + shift,
+                    },
+                    "storm_cmcc": {
+                        "population_without_water_aep": 1200.0 + shift,
+                        "population_without_water_eu": 700.0 + shift,
+                        "population_with_degraded_elec": 300.0 + shift,
+                    },
+                },
+                "social_impact_population_state_distribution": {
+                    "storm": {
+                        "elec": {"S0": 50.0 + shift, "S1": 25.0 + shift},
+                        "water_aep": {"S2": 40.0 + shift, "S3": 60.0 + shift},
+                        "water_eu": {"S3": 30.0 + shift},
+                    },
+                    "storm_cmcc": {
+                        "elec": {"S0": 45.0 + shift, "S1": 20.0 + shift},
+                        "water_aep": {"S2": 35.0 + shift, "S3": 55.0 + shift},
+                        "water_eu": {"S3": 25.0 + shift},
+                    },
+                },
+            }
+        )
+
+    territory_df = pd.DataFrame(rows)
+    social_outputs = plot_social_metric_tornado(territory_df, scenario_metadata, "Guadeloupe", tmp_path)
+    state_outputs = plot_social_state_tornado(territory_df, scenario_metadata, "Guadeloupe", tmp_path)
+    risk_outputs = plot_risk_index_tornado(territory_df, scenario_metadata, "Guadeloupe", tmp_path)
+
+    assert sorted(path.name for path in social_outputs) == [
+        "tornado_social_degraded_elec.png",
+        "tornado_social_without_water_aep.png",
+        "tornado_social_without_water_eu.png",
+    ]
+    assert sorted(path.name for path in state_outputs) == [
+        "tornado_social_state_elec_s0.png",
+        "tornado_social_state_elec_s1.png",
+        "tornado_social_state_water_aep_s2.png",
+        "tornado_social_state_water_aep_s3.png",
+        "tornado_social_state_water_eu_s3.png",
+    ]
+    assert sorted(path.name for path in risk_outputs) == [
+        "tornado_risk_index_max.png",
+        "tornado_risk_index_mean.png",
+    ]
+    assert all(path.exists() for path in social_outputs + state_outputs + risk_outputs)
