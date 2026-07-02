@@ -31,6 +31,9 @@ from scripts.generate_sensitivity_graphs import (
     plot_risk_index_tornado,
     plot_social_metric_tornado,
     plot_social_state_tornado,
+    plot_super_impact_monetary_tornado,
+    plot_super_network_state_tornado,
+    plot_super_social_state_tornado,
     plot_tornado,
     summarize_network_state_distribution,
 )
@@ -529,3 +532,231 @@ def test_plot_social_and_risk_tornadoes_produce_expected_outputs(tmp_path: Path)
         "tornado_risk_index_mean.png",
     ]
     assert all(path.exists() for path in social_outputs + state_outputs + risk_outputs)
+
+
+def test_plot_super_impact_monetary_tornado_filters_to_scenarios_above_two_percent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    rows: list[dict[str, object]] = []
+    for hazard in ("storm", "storm_cmcc"):
+        for return_period in ("annual", "rp50", "rp100"):
+            rows.append(
+                {
+                    "scenario_id": "all-default",
+                    "scenario_label": "Default",
+                    "parameter_key": "param",
+                    "parameter_value": "default",
+                    "territory": "guadeloupe",
+                    "hazard": hazard,
+                    "metric": "impact_eur",
+                    "return_period": return_period,
+                    "value": 100.0,
+                }
+            )
+    for scenario_id, multiplier in (("scenario-low", 1.01), ("scenario-high", 1.05)):
+        for hazard in ("storm", "storm_cmcc"):
+            for return_period in ("annual", "rp50", "rp100"):
+                rows.append(
+                    {
+                        "scenario_id": scenario_id,
+                        "scenario_label": scenario_id,
+                        "parameter_key": "param",
+                        "parameter_value": scenario_id,
+                        "territory": "guadeloupe",
+                        "hazard": hazard,
+                        "metric": "impact_eur",
+                        "return_period": return_period,
+                        "value": 100.0 * multiplier,
+                    }
+                )
+
+    df = add_baseline_deltas(pd.DataFrame(rows))
+    captured_labels: list[list[str]] = []
+    original = matplotlib.axes.Axes.set_yticklabels
+
+    def spy(self, labels, *args, **kwargs):  # type: ignore[no-untyped-def]
+        captured_labels.append(list(labels))
+        return original(self, labels, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_yticklabels", spy)
+
+    output_paths = plot_super_impact_monetary_tornado(df, tmp_path)
+
+    assert [path.name for path in output_paths] == ["sensitivity_super_graph_1_impact_monetaire_guadeloupe.png"]
+    assert output_paths[0].exists()
+    assert captured_labels
+    assert captured_labels[0] == ["param = scenario-high"]
+
+
+def test_plot_super_network_state_tornado_filters_to_scenarios_above_two_points(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    rows: list[dict[str, object]] = []
+    for hazard in ("storm", "storm_cmcc"):
+        for service in ("elec", "water_aep", "water_eu"):
+            for network_metric, baseline_value in (
+                ("non_nominal_pct", 10.0),
+                ("outage_pct", 3.0),
+            ):
+                rows.append(
+                    {
+                        "scenario_id": "all-default",
+                        "scenario_label": "Default",
+                        "parameter_key": "param",
+                        "parameter_value": "default",
+                        "territory": "guadeloupe",
+                        "hazard": hazard,
+                        "metric": "network_state_pct",
+                        "return_period": "network_state",
+                        "service": service,
+                        "network_metric": network_metric,
+                        "value": baseline_value,
+                    }
+                )
+                rows.append(
+                    {
+                        "scenario_id": "scenario-low",
+                        "scenario_label": "Scenario low",
+                        "parameter_key": "param",
+                        "parameter_value": "low",
+                        "territory": "guadeloupe",
+                        "hazard": hazard,
+                        "metric": "network_state_pct",
+                        "return_period": "network_state",
+                        "service": service,
+                        "network_metric": network_metric,
+                        "value": baseline_value + 1.5,
+                    }
+                )
+                rows.append(
+                    {
+                        "scenario_id": "scenario-high",
+                        "scenario_label": "Scenario high",
+                        "parameter_key": "param",
+                        "parameter_value": "high",
+                        "territory": "guadeloupe",
+                        "hazard": hazard,
+                        "metric": "network_state_pct",
+                        "return_period": "network_state",
+                        "service": service,
+                        "network_metric": network_metric,
+                        "value": baseline_value + 3.0,
+                    }
+                )
+
+    df = add_baseline_deltas(pd.DataFrame(rows))
+    captured_labels: list[list[str]] = []
+    original = matplotlib.axes.Axes.set_yticklabels
+
+    def spy(self, labels, *args, **kwargs):  # type: ignore[no-untyped-def]
+        captured_labels.append(list(labels))
+        return original(self, labels, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_yticklabels", spy)
+
+    output_paths = plot_super_network_state_tornado(df, tmp_path)
+
+    assert [path.name for path in output_paths] == ["sensitivity_super_graph_2_pct_reseaux_guadeloupe.png"]
+    assert output_paths[0].exists()
+    assert captured_labels
+    assert captured_labels[0] == ["param = high"]
+
+
+def test_plot_super_social_state_tornado_creates_matrix_and_filters_significant_scenarios(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    metadata_source = pd.DataFrame(
+        [
+            {
+                "scenario_id": "all-default",
+                "scenario_label": "Default",
+                "parameter_key": "",
+                "parameter_value": "default",
+                "territory": "guadeloupe",
+            },
+            {
+                "scenario_id": "scenario-low",
+                "scenario_label": "Scenario low",
+                "parameter_key": "param",
+                "parameter_value": "low",
+                "territory": "guadeloupe",
+            },
+            {
+                "scenario_id": "scenario-high",
+                "scenario_label": "Scenario high",
+                "parameter_key": "param",
+                "parameter_value": "high",
+                "territory": "guadeloupe",
+            },
+        ]
+    )
+    scenario_metadata = build_scenario_metadata(metadata_source)
+    rows = [
+        {
+            "scenario_id": "all-default",
+            "territory": "guadeloupe",
+            "social_impact_population_state_distribution": {
+                "storm": {
+                    "elec": {"S1": 100.0, "S2": 60.0, "S3": 20.0},
+                    "water_aep": {"S1": 70.0, "S2": 50.0, "S3": 30.0},
+                    "water_eu": {"S1": 40.0, "S2": 25.0, "S3": 10.0},
+                },
+                "storm_cmcc": {
+                    "elec": {"S1": 110.0, "S2": 70.0, "S3": 30.0},
+                    "water_aep": {"S1": 80.0, "S2": 55.0, "S3": 35.0},
+                    "water_eu": {"S1": 45.0, "S2": 28.0, "S3": 12.0},
+                },
+            },
+        },
+        {
+            "scenario_id": "scenario-low",
+            "territory": "guadeloupe",
+            "social_impact_population_state_distribution": {
+                "storm": {
+                    "elec": {"S1": 101.0, "S2": 60.0, "S3": 20.0},
+                    "water_aep": {"S1": 70.0, "S2": 50.0, "S3": 30.0},
+                    "water_eu": {"S1": 40.0, "S2": 25.0, "S3": 10.0},
+                },
+                "storm_cmcc": {
+                    "elec": {"S1": 111.0, "S2": 70.0, "S3": 30.0},
+                    "water_aep": {"S1": 80.0, "S2": 55.0, "S3": 35.0},
+                    "water_eu": {"S1": 45.0, "S2": 28.0, "S3": 12.0},
+                },
+            },
+        },
+        {
+            "scenario_id": "scenario-high",
+            "territory": "guadeloupe",
+            "social_impact_population_state_distribution": {
+                "storm": {
+                    "elec": {"S1": 110.0, "S2": 66.0, "S3": 24.0},
+                    "water_aep": {"S1": 77.0, "S2": 55.0, "S3": 36.0},
+                    "water_eu": {"S1": 44.0, "S2": 30.0, "S3": 12.0},
+                },
+                "storm_cmcc": {
+                    "elec": {"S1": 121.0, "S2": 77.0, "S3": 36.0},
+                    "water_aep": {"S1": 88.0, "S2": 61.0, "S3": 42.0},
+                    "water_eu": {"S1": 50.0, "S2": 31.0, "S3": 15.0},
+                },
+            },
+        },
+    ]
+
+    captured_labels: list[list[str]] = []
+    original = matplotlib.axes.Axes.set_yticklabels
+
+    def spy(self, labels, *args, **kwargs):  # type: ignore[no-untyped-def]
+        captured_labels.append(list(labels))
+        return original(self, labels, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_yticklabels", spy)
+
+    output_paths = plot_super_social_state_tornado(pd.DataFrame(rows), scenario_metadata, "Guadeloupe", tmp_path)
+
+    assert [path.name for path in output_paths] == ["sensitivity_super_graph_3_social_states_guadeloupe.png"]
+    assert output_paths[0].exists()
+    assert captured_labels
+    assert captured_labels[0] == ["param = high"]
