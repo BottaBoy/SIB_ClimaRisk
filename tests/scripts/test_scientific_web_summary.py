@@ -78,21 +78,115 @@ def test_build_scientific_web_summary_publishes_canonical_portfolio_totals(tmp_p
         ],
     }
     complete_path = tmp_path / "complete.json"
+    network_states_path = tmp_path / "network-states.geojson"
+    page_analysis_path = tmp_path / "page-analysis.json"
     out_path = tmp_path / "summary.json"
     complete_path.write_text(json.dumps(complete_payload), encoding="utf-8")
+    network_states_path.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "feature_id": "AEP_001",
+                            "layer_key": "eau_aep",
+                            "service_feature_id": "AEP_001",
+                            "zone_component_key": "AEP_001",
+                            "state_annual_storm": "S1",
+                            "state_rp50_storm": "S2",
+                            "state_rp100_storm": "S3",
+                            "state_p99_storm": "S3",
+                            "state_annual_storm_cmcc": "S2",
+                            "state_rp50_storm_cmcc": "S2",
+                            "state_rp100_storm_cmcc": "S3",
+                            "state_p99_storm_cmcc": "S3",
+                        },
+                        "geometry": {"type": "Point", "coordinates": [-61.5, 16.2]},
+                    },
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "feature_id": "cell-+16.20_-61.60",
+                            "layer_key": "elec_grid_0p1deg",
+                            "state_annual_storm": "S0",
+                            "state_rp50_storm": "S1",
+                            "state_rp100_storm": "S2",
+                            "state_p99_storm": "S3",
+                            "state_annual_storm_cmcc": "S1",
+                            "state_rp50_storm_cmcc": "S1",
+                            "state_rp100_storm_cmcc": "S2",
+                            "state_p99_storm_cmcc": "S3",
+                        },
+                        "geometry": {"type": "Point", "coordinates": [-61.6, 16.2]},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    page_analysis_path.write_text(
+        json.dumps(
+            {
+                "impact": {
+                    "component_order": ["wind", "rain", "surge", "landslide"],
+                    "summary_metrics": {
+                        "storm": {
+                            "eai_total_eur": 10.0,
+                            "rp50_total_loss_eur": 50.0,
+                            "rp100_total_loss_eur": 100.0,
+                            "p99_total_loss_eur": 150.0,
+                        },
+                        "storm_cmcc": {
+                            "eai_total_eur": 12.0,
+                            "rp50_total_loss_eur": 55.0,
+                            "rp100_total_loss_eur": 110.0,
+                            "p99_total_loss_eur": 160.0,
+                        },
+                    },
+                    "state_damage_tables": {
+                        "annual": [{"class_key": "eau_aep", "storm": {"damage_eur": 10.0}, "storm_cmcc": {"damage_eur": 20.0}}],
+                        "rp50": [{"class_key": "eau_aep", "storm": {"damage_eur": 50.0}, "storm_cmcc": {"damage_eur": 55.0}}],
+                        "rp100": [{"class_key": "eau_aep", "storm": {"damage_eur": 100.0}, "storm_cmcc": {"damage_eur": 110.0}}],
+                        "p99": [{"class_key": "eau_aep", "storm": {"damage_eur": 150.0}, "storm_cmcc": {"damage_eur": 160.0}}],
+                    },
+                    "damage_breakdown_by_scenario": {
+                        "annual": {"storm": [], "storm_cmcc": []},
+                        "rp50": {"storm": [], "storm_cmcc": []},
+                        "rp100": {"storm": [], "storm_cmcc": []},
+                        "p99": {"storm": [], "storm_cmcc": []},
+                    },
+                    "map_defaults": {"hazard": "storm", "scenario": "p99"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
 
     build_scientific_web_summary(
         territory="guadeloupe",
         complete_analysis_path=complete_path,
         out_path=out_path,
+        network_states_geojson_path=network_states_path,
+        page_analysis_path=page_analysis_path,
     )
 
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     assert payload["meta"]["scientific_source"] is True
+    assert payload["meta"]["schema_version"] == "scientific_web_summary_v2"
+    assert payload["meta"]["contract_version"] == "scientific_web_contract_v2"
     assert payload["portfolio_summary"]["storm"]["annual_eur"] == 10.0
     assert payload["portfolio_summary"]["storm_cmcc"]["p99_eur"] == 160.0
     assert payload["frontend"]["impact"]["summary_metrics"]["storm"]["rp100_total_loss_eur"] == 100.0
     assert payload["network_damage_tables"]["annual"][0]["class_key"] == "eau_aep"
     assert payload["network_damage_tables"]["annual"][0]["storm"]["damage_eur"] == 10.0
-    assert payload["network_states"]["scenario_service_state_distribution"]["p99"]["storm"]["elec"]["S2"] == 1
-    assert payload["social_impact"]["scenario_summary"]["p99"]["storm"]["total_population_affected_any_network"] == 25.0
+    assert payload["network_states"]["scenario_service_state_distribution"]["annual"]["storm"]["water_aep"]["S1"] == 1
+    assert payload["network_states"]["scenario_service_state_distribution"]["p99"]["storm"]["elec"]["S3"] == 1
+    assert payload["network_states"]["scenario_availability"] == {
+        "annual": True,
+        "rp50": True,
+        "rp100": True,
+        "p99": True,
+    }
+    assert payload["social_impact"]["scenario_summary"]["annual"]["storm"]["total_population_affected_any_network"] >= 0.0

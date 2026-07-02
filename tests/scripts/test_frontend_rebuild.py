@@ -250,6 +250,14 @@ def test_resolve_archived_complete_analysis_json_prefers_run_archive(tmp_path) -
     assert resolved == archived_path
 
 
+def test_app_js_uses_scientific_network_state_source_only() -> None:
+    app_js = (REPO_ROOT / "web" / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "function weightedStateDistribution(" not in app_js
+    assert "function featureStateDistribution(" not in app_js
+    assert "elec_grid_0p1deg" in app_js
+
+
 def test_main_passes_archived_complete_analysis_json_to_proxy_and_page(monkeypatch, tmp_path) -> None:
     journal_path = tmp_path / "20260527_160919" / "frontend-supervision.jsonl"
     manifest_path = journal_path.parent / "manifest.json"

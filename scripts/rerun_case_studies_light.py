@@ -572,21 +572,6 @@ def main(*, journal_path: Path | None = None) -> int:
         _run(
             [
                 str(PYTHON),
-                str(REPO_ROOT / "scripts" / "build_scientific_web_summary.py"),
-                "--territory",
-                territory,
-                *complete_analysis_args,
-                "--out-json",
-                str(REPO_ROOT / "web" / "data" / f"{territory}-scientific-web-summary.json"),
-            ],
-            env=territory_env,
-            journal_path=journal_path,
-            territory=territory,
-            step="build_scientific_web_summary",
-        )
-        _run(
-            [
-                str(PYTHON),
                 str(REPO_ROOT / "scripts" / "build_vulnerability_curve_artifacts.py"),
                 "--components",
                 "all",
@@ -630,6 +615,25 @@ def main(*, journal_path: Path | None = None) -> int:
             journal_path=journal_path,
             territory=territory,
             step="build_page_analysis",
+        )
+        _run(
+            [
+                str(PYTHON),
+                str(REPO_ROOT / "scripts" / "build_scientific_web_summary.py"),
+                "--territory",
+                territory,
+                *complete_analysis_args,
+                "--page-analysis-json",
+                str(page_json),
+                "--network-states-geojson",
+                str(REPO_ROOT / "web" / "data" / f"{territory}-network-states.geojson"),
+                "--out-json",
+                str(REPO_ROOT / "web" / "data" / f"{territory}-scientific-web-summary.json"),
+            ],
+            env=territory_env,
+            journal_path=journal_path,
+            territory=territory,
+            step="build_scientific_web_summary",
         )
 
         write_frontend_supervision_event(

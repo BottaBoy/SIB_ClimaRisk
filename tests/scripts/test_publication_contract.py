@@ -69,9 +69,65 @@ def _complete_analysis_payload(*, updated_at: str) -> dict:
 
 
 def _network_states_payload(*, metadata: dict | None = None) -> dict:
+    features = [
+        {
+            "type": "Feature",
+            "properties": {
+                "feature_id": "AEP_001",
+                "layer_key": "eau_aep",
+                "service_feature_id": "AEP_001",
+                "zone_component_key": "AEP_001",
+                "state_annual_storm": "S1",
+                "state_rp50_storm": "S2",
+                "state_rp100_storm": "S3",
+                "state_p99_storm": "S3",
+                "state_annual_storm_cmcc": "S2",
+                "state_rp50_storm_cmcc": "S2",
+                "state_rp100_storm_cmcc": "S3",
+                "state_p99_storm_cmcc": "S3",
+            },
+            "geometry": {"type": "Point", "coordinates": [-61.5, 16.2]},
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "feature_id": "EU_001",
+                "layer_key": "eau_eu",
+                "service_feature_id": "EU_001",
+                "zone_component_key": "EU_001",
+                "state_annual_storm": "S0",
+                "state_rp50_storm": "S1",
+                "state_rp100_storm": "S2",
+                "state_p99_storm": "S3",
+                "state_annual_storm_cmcc": "S1",
+                "state_rp50_storm_cmcc": "S2",
+                "state_rp100_storm_cmcc": "S2",
+                "state_p99_storm_cmcc": "S3",
+            },
+            "geometry": {"type": "Point", "coordinates": [-61.4, 16.3]},
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "feature_id": "cell-+16.20_-61.60",
+                "layer_key": "elec_grid_0p1deg",
+                "service_feature_id": "",
+                "zone_component_key": "",
+                "state_annual_storm": "S0",
+                "state_rp50_storm": "S1",
+                "state_rp100_storm": "S2",
+                "state_p99_storm": "S3",
+                "state_annual_storm_cmcc": "S1",
+                "state_rp50_storm_cmcc": "S1",
+                "state_rp100_storm_cmcc": "S2",
+                "state_p99_storm_cmcc": "S3",
+            },
+            "geometry": {"type": "Point", "coordinates": [-61.6, 16.2]},
+        },
+    ]
     return {
         "type": "FeatureCollection",
-        "features": [],
+        "features": features,
         "metadata": {
             "state_geometry_mode": "hydraulic_zoning_v2",
             "water_state_geometry_mode": "hydraulic_zoning_v2",
@@ -132,6 +188,134 @@ def _proxy_payload(*, case_study_run_id: str, complete_analysis_run_id: str, fro
     }
 
 
+def _state_damage_tables_payload(*, storm_rp100: float = 100.0) -> dict:
+    return {
+        "annual": [
+            {
+                "class_key": "eau_aep",
+                "class_label": "Reseau eau AEP",
+                "storm": {
+                    "state_pct": {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 10.0,
+                    "direct_damage_eur": 8.0,
+                    "indirect_damage_eur": 2.0,
+                    "damage_components_eur": {"wind": 10.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+                "storm_cmcc": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 12.0,
+                    "direct_damage_eur": 9.0,
+                    "indirect_damage_eur": 3.0,
+                    "damage_components_eur": {"wind": 12.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+            }
+        ],
+        "rp50": [
+            {
+                "class_key": "eau_aep",
+                "class_label": "Reseau eau AEP",
+                "storm": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 50.0,
+                    "direct_damage_eur": 40.0,
+                    "indirect_damage_eur": 10.0,
+                    "damage_components_eur": {"wind": 50.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+                "storm_cmcc": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 55.0,
+                    "direct_damage_eur": 45.0,
+                    "indirect_damage_eur": 10.0,
+                    "damage_components_eur": {"wind": 55.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+            }
+        ],
+        "rp100": [
+            {
+                "class_key": "eau_aep",
+                "class_label": "Reseau eau AEP",
+                "storm": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": storm_rp100,
+                    "direct_damage_eur": 80.0,
+                    "indirect_damage_eur": max(storm_rp100 - 80.0, 0.0),
+                    "damage_components_eur": {"wind": storm_rp100, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+                "storm_cmcc": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 110.0,
+                    "direct_damage_eur": 90.0,
+                    "indirect_damage_eur": 20.0,
+                    "damage_components_eur": {"wind": 110.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+            }
+        ],
+        "p99": [
+            {
+                "class_key": "eau_aep",
+                "class_label": "Reseau eau AEP",
+                "storm": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 150.0,
+                    "direct_damage_eur": 120.0,
+                    "indirect_damage_eur": 30.0,
+                    "damage_components_eur": {"wind": 150.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+                "storm_cmcc": {
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0},
+                    "exposure_eur": 1000.0,
+                    "damage_eur": 160.0,
+                    "direct_damage_eur": 130.0,
+                    "indirect_damage_eur": 30.0,
+                    "damage_components_eur": {"wind": 160.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                },
+            }
+        ],
+    }
+
+
+def _damage_breakdowns_payload(*, storm_rp100: float = 100.0) -> dict:
+    def _row(storm_damage: float, storm_cmcc_damage: float) -> dict:
+        return {
+            "storm": [
+                {
+                    "class_key": "eau_aep",
+                    "class_label": "Reseau eau AEP",
+                    "exposure_eur": 1000.0,
+                    "damage_eur": storm_damage,
+                    "direct_damage_eur": max(storm_damage - 10.0, 0.0),
+                    "indirect_damage_eur": min(10.0, storm_damage),
+                    "damage_components_eur": {"wind": storm_damage, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                }
+            ],
+            "storm_cmcc": [
+                {
+                    "class_key": "eau_aep",
+                    "class_label": "Reseau eau AEP",
+                    "exposure_eur": 1000.0,
+                    "damage_eur": storm_cmcc_damage,
+                    "direct_damage_eur": max(storm_cmcc_damage - 10.0, 0.0),
+                    "indirect_damage_eur": min(10.0, storm_cmcc_damage),
+                    "damage_components_eur": {"wind": storm_cmcc_damage, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                }
+            ],
+        }
+
+    return {
+        "annual": _row(10.0, 12.0),
+        "rp50": _row(50.0, 55.0),
+        "rp100": _row(storm_rp100, 110.0),
+        "p99": _row(150.0, 160.0),
+    }
+
+
 def _page_payload(
     *,
     case_study_run_id: str,
@@ -139,6 +323,8 @@ def _page_payload(
     mismatch_rp100: bool = False,
 ) -> dict:
     storm_rp100 = 99.0 if mismatch_rp100 else 100.0
+    state_tables = _state_damage_tables_payload(storm_rp100=storm_rp100)
+    breakdowns = _damage_breakdowns_payload(storm_rp100=storm_rp100)
     return {
         "meta": {
             "generated_at": "2026-05-11T18:04:00+00:00",
@@ -171,12 +357,19 @@ def _page_payload(
                     "rp100_total_loss_eur": 110.0,
                     "p99_total_loss_eur": 160.0,
                 },
-            }
+            },
+            "state_damage_tables": state_tables,
+            "damage_breakdown_by_scenario": breakdowns,
+            "component_order": ["wind", "rain", "surge", "landslide"],
+            "map_defaults": {"hazard": "storm", "scenario": "p99"},
         },
     }
 
 
-def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe") -> dict:
+def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe", mismatch_rp100: bool = False) -> dict:
+    storm_rp100 = 99.0 if mismatch_rp100 else 100.0
+    state_tables = _state_damage_tables_payload(storm_rp100=storm_rp100)
+    breakdowns = _damage_breakdowns_payload(storm_rp100=storm_rp100)
     return {
         "meta": {
             "territory": territory,
@@ -184,7 +377,10 @@ def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe
             "generated_at": "2026-05-11T18:04:30+00:00",
             "dynamic_max_tracks": 1500,
             "scientific_source": True,
-            "schema_version": "scientific_web_summary_v1",
+            "schema_version": "scientific_web_summary_v2",
+            "contract_version": "scientific_web_contract_v2",
+            "source_of_truth": "scientific_web_summary",
+            "aggregation_unit": "scientific_service_unit",
         },
         "portfolio_summary": {
             "storm": {
@@ -198,6 +394,85 @@ def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe
                 "rp50_eur": 55.0,
                 "rp100_eur": 110.0,
                 "p99_eur": 160.0,
+            },
+        },
+        "network_states": {
+            "scenario_service_state_distribution": {
+                "annual": {
+                    "storm": {
+                        "water_aep": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "water_eu": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
+                    },
+                    "storm_cmcc": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                    },
+                },
+                "rp50": {
+                    "storm": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                    },
+                    "storm_cmcc": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                    },
+                },
+                "rp100": {
+                    "storm": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                    },
+                    "storm_cmcc": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                    },
+                },
+                "p99": {
+                    "storm": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                    },
+                    "storm_cmcc": {
+                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "water_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "elec": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                    },
+                },
+            },
+            "scenario_availability": {"annual": True, "rp50": True, "rp100": True, "p99": True},
+        },
+        "frontend": {
+            "impact": {
+                "summary_metrics": {
+                    "storm": {
+                        "eai_total_eur": 10.0,
+                        "rp50_total_loss_eur": 50.0,
+                        "rp100_total_loss_eur": storm_rp100,
+                        "p99_total_loss_eur": 150.0,
+                    },
+                    "storm_cmcc": {
+                        "eai_total_eur": 12.0,
+                        "rp50_total_loss_eur": 55.0,
+                        "rp100_total_loss_eur": 110.0,
+                        "p99_total_loss_eur": 160.0,
+                    },
+                },
+                "state_damage_tables": state_tables,
+                "damage_breakdown_by_scenario": breakdowns,
+            },
+            "scenario_availability": {
+                "annual": {"damage_tables": True, "social_impact": True, "network_states": True},
+                "rp50": {"damage_tables": True, "social_impact": True, "network_states": True},
+                "rp100": {"damage_tables": True, "social_impact": True, "network_states": True},
+                "p99": {"damage_tables": True, "social_impact": True, "network_states": True},
             },
         },
     }
@@ -501,6 +776,33 @@ def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
     assert validation["complete_analysis_contract"]["population_projected_service_states_key"] == "population_projected_service_states"
     assert validation["scientific_web_summary_alignment"]["hazards"]["storm"]["annual_eur"] == pytest.approx(10.0)
     assert validation["scientific_web_summary_alignment"]["hazards"]["storm_cmcc"]["p99_eur"] == pytest.approx(160.0)
+    assert validation["scientific_web_summary_alignment"]["network_states"]["rp100"]["storm"]["water_aep"]["total_units"] == 1
+    assert validation["scientific_web_summary_alignment"]["page_alignment"]["annual"]["table_rows"] == 1
+
+
+def test_validate_territory_web_snapshot_rejects_scientific_summary_network_state_mismatch(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    run_id = "20260511_141135"
+    outputs_dir, web_dir = _write_publication_ready_fixture(
+        tmp_path=tmp_path,
+        run_id=run_id,
+    )
+    summary_path = web_dir / "data" / "guadeloupe-scientific-web-summary.json"
+    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["water_aep"]["S3"] = 0
+    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["water_aep"]["S2"] = 1
+    _write_json(summary_path, summary_payload)
+
+    monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
+
+    with pytest.raises(RuntimeError, match="scientific summary network-state mismatch"):
+        run_web_artifacts.validate_territory_web_snapshot(
+            run_id,
+            "guadeloupe",
+            source_web_dir=web_dir,
+        )
 
 
 def test_extract_run_entry_keeps_wind_map_track_count_when_page_meta_mentions_fallback() -> None:

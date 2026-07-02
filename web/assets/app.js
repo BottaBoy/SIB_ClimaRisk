@@ -288,15 +288,13 @@ const CASE_STUDY_ALLOWED_WATER_LAYER_TYPES = new Set(WATER_LAYER_ORDER);
 const NETWORK_LAYER_ORDER = [
   'eau_aep',
   'eau_eu',
-  'elec_bt_aerien',
-  'elec_hta_aerien',
-  'elec_bt_souterrain',
-  'elec_hta_souterrain'
+  'elec_grid_0p1deg'
 ];
 
 const NETWORK_LAYER_LABEL = {
   eau_aep: 'Reseau eau AEP',
   eau_eu: 'Reseau eau EU',
+  elec_grid_0p1deg: 'Reseau electricite agrege 0.1°',
   elec_bt_aerien: 'Reseau basse tension aerien',
   elec_hta_aerien: 'Reseau haute tension aerien',
   elec_bt_souterrain: 'Reseau basse tension souterrain',
@@ -1597,52 +1595,6 @@ function emptyStateValueMap(stateOrder = NETWORK_STATE_ORDER) {
   }, {});
 }
 
-function weightedStateDistribution(rows, hazardKeyRaw, matcher) {
-  const hazardKey = String(hazardKeyRaw || '').trim().toLowerCase() === 'storm_cmcc' ? 'storm_cmcc' : 'storm';
-  const safeRows = Array.isArray(rows) ? rows : [];
-  const totals = emptyStateValueMap();
-  let totalWeight = 0;
-
-  safeRows.forEach((row) => {
-    if (typeof matcher === 'function' && !matcher(row)) return;
-    const hazardRow = hazardKey === 'storm_cmcc' ? (row?.storm_cmcc || {}) : (row?.storm || {});
-    const statePct = hazardRow?.state_pct || {};
-    const exposureWeight = Number(hazardRow?.exposure_eur || 0);
-    const weight = exposureWeight > 0 ? exposureWeight : 1;
-    totalWeight += weight;
-    NETWORK_STATE_ORDER.forEach((stateCode) => {
-      totals[stateCode] += weight * (Number(statePct?.[stateCode] || 0) / 100);
-    });
-  });
-
-  if (totalWeight <= 0) return emptyStateValueMap();
-  return NETWORK_STATE_ORDER.reduce((acc, stateCode) => {
-    acc[stateCode] = (totals[stateCode] / totalWeight) * 100;
-    return acc;
-  }, {});
-}
-
-function featureStateDistribution(networkStates, propertyKey, matchesLayerKey) {
-  const features = Array.isArray(networkStates?.features) ? networkStates.features : [];
-  const totals = emptyStateValueMap();
-  let matchedCount = 0;
-
-  features.forEach((feature) => {
-    const layerKey = String(feature?.properties?.layer_key || '').trim();
-    if (typeof matchesLayerKey === 'function' && !matchesLayerKey(layerKey, feature)) return;
-    matchedCount += 1;
-    const stateCode = String(feature?.properties?.[propertyKey] || 'S0').toUpperCase();
-    if (totals[stateCode] === undefined) return;
-    totals[stateCode] += 1;
-  });
-
-  if (matchedCount <= 0) return null;
-  return NETWORK_STATE_ORDER.reduce((acc, stateCode) => {
-    acc[stateCode] = (totals[stateCode] / matchedCount) * 100;
-    return acc;
-  }, {});
-}
-
 function statePieSeriesData(stateValues, stateOrder = NETWORK_STATE_ORDER) {
   const safeValues = stateValues || {};
   return stateOrder
@@ -2484,83 +2436,12 @@ function scientificImpactPayload() {
   return payload && typeof payload === 'object' ? payload : null;
 }
 
-function scientificImpactPayloadFallback() {
-  return scientificImpactPayload();
-}
-
 function fallbackCaseStudyImpactPayload(analysis) {
   return analysis?.impact && typeof analysis.impact === 'object' ? analysis.impact : {};
 }
 
-function scenarioValueFromSources(scenarioRaw, sectionKey, scientificValue, fallbackValue) {
-  const publishedScientifically = scientificScenarioAvailability(scenarioRaw, sectionKey);
-  if (publishedScientifically === true) {
-    return scientificValue ?? fallbackValue;
-  }
-  return fallbackValue ?? scientificValue;
-}
-
-function mergedCaseStudyImpactPayload(analysis) {
-  const scientific = scientificImpactPayload();
-  const fallback = fallbackCaseStudyImpactPayload(analysis);
-  if (!scientific) return fallback;
-
-  const mergedTables = {};
-  const mergedBreakdowns = {};
-  const scientificTables = scientific?.state_damage_tables || {};
-  const fallbackTables = fallback?.state_damage_tables || {};
-  const scientificBreakdowns = scientific?.damage_breakdown_by_scenario || {};
-  const fallbackBreakdowns = fallback?.damage_breakdown_by_scenario || {};
-
-  ['annual', 'rp50', 'rp100', 'p99'].forEach((scenario) => {
-    mergedTables[scenario] = scenarioValueFromSources(
-      scenario,
-      'damage_tables',
-      Array.isArray(scientificTables?.[scenario]) ? scientificTables[scenario] : null,
-      Array.isArray(fallbackTables?.[scenario]) ? fallbackTables[scenario] : null
-    ) || [];
-    mergedBreakdowns[scenario] = scenarioValueFromSources(
-      scenario,
-      'damage_tables',
-      scientificBreakdowns?.[scenario] || null,
-      fallbackBreakdowns?.[scenario] || null
-    ) || { storm: [], storm_cmcc: [] };
-  });
-
-  return {
-    ...fallback,
-    ...scientific,
-    component_order: Array.isArray(scientific?.component_order) && scientific.component_order.length
-      ? scientific.component_order
-      : (Array.isArray(fallback?.component_order) ? fallback.component_order : IMPACT_COMPONENT_ORDER),
-    summary_metrics: {
-      ...(fallback?.summary_metrics || {}),
-      ...(scientific?.summary_metrics || {}),
-      storm: {
-        ...((fallback?.summary_metrics || {}).storm || {}),
-        ...((scientific?.summary_metrics || {}).storm || {})
-      },
-      storm_cmcc: {
-        ...((fallback?.summary_metrics || {}).storm_cmcc || {}),
-        ...((scientific?.summary_metrics || {}).storm_cmcc || {})
-      }
-    },
-    map_defaults: scientific?.map_defaults || fallback?.map_defaults || {},
-    state_damage_tables: {
-      ...(fallback?.state_damage_tables || {}),
-      ...(scientific?.state_damage_tables || {}),
-      ...mergedTables
-    },
-    damage_breakdown_by_scenario: {
-      ...(fallback?.damage_breakdown_by_scenario || {}),
-      ...(scientific?.damage_breakdown_by_scenario || {}),
-      ...mergedBreakdowns
-    },
-  };
-}
-
 function activeCaseStudyImpactPayload(analysis) {
-  return mergedCaseStudyImpactPayload(analysis);
+  return scientificImpactPayload() || fallbackCaseStudyImpactPayload(analysis);
 }
 
 function scientificScenarioAvailability(scenarioRaw, sectionKey) {
@@ -2568,15 +2449,6 @@ function scientificScenarioAvailability(scenarioRaw, sectionKey) {
   const availability = activeScientificWebSummary()?.frontend?.scenario_availability?.[scenario];
   if (!availability || typeof availability !== 'object') return null;
   return availability?.[sectionKey];
-}
-
-function scientificScenarioSocialSummary(scenarioRaw) {
-  const scenario = normalizeImpactTableScenario(scenarioRaw);
-  if (scientificScenarioAvailability(scenario, 'social_impact') !== true) return null;
-  const socialImpact = activeScientificWebSummary()?.social_impact || {};
-  const byScenario = socialImpact?.scenario_summary || {};
-  const summary = byScenario?.[scenario];
-  return summary && typeof summary === 'object' && Object.keys(summary).length ? summary : null;
 }
 
 function normalizeScientificServiceStateDistribution(raw) {
@@ -2914,46 +2786,22 @@ function aggregateScenarioSocialSummary(analysis, networkStates) {
   return summary;
 }
 
-function mergeSocialHazardMetrics(baseRaw, overlayRaw) {
-  const base = baseRaw && typeof baseRaw === 'object' ? baseRaw : {};
-  const overlay = overlayRaw && typeof overlayRaw === 'object' ? overlayRaw : {};
-  const merged = {
-    ...base,
-    ...overlay,
-    state_breakdown: {
-      ...(base.state_breakdown || {}),
-      ...(overlay.state_breakdown || {})
-    }
-  };
-  if (
-    Object.prototype.hasOwnProperty.call(merged, 'total_without_water_aep')
-    || Object.prototype.hasOwnProperty.call(merged, 'total_without_water_eu')
-  ) {
-    merged.total_without_water =
-      Number(merged.total_without_water_aep || 0) + Number(merged.total_without_water_eu || 0);
-  }
-  return merged;
-}
-
-function mergeScenarioSocialSummary(baseRaw, overlayRaw) {
-  const base = baseRaw && typeof baseRaw === 'object' ? baseRaw : {};
-  const overlay = overlayRaw && typeof overlayRaw === 'object' ? overlayRaw : {};
-  return {
-    ...base,
-    ...overlay,
-    storm: mergeSocialHazardMetrics(base.storm, overlay.storm),
-    storm_cmcc: mergeSocialHazardMetrics(base.storm_cmcc, overlay.storm_cmcc)
-  };
-}
-
 function ensureScenarioSocialSummary(analysis) {
   if (state.caseStudyScenarioSocialSummary) return state.caseStudyScenarioSocialSummary;
-  const socialSummary = aggregateScenarioSocialSummary(analysis, state.networkStates);
-  ['annual', 'rp50', 'rp100', 'p99'].forEach((scenario) => {
-    const scientificScenario = scientificScenarioSocialSummary(scenario);
-    if (!scientificScenario) return;
-    socialSummary[scenario] = mergeScenarioSocialSummary(socialSummary[scenario], scientificScenario);
+  const scientificSocialSummary = activeScientificWebSummary()?.social_impact?.scenario_summary || {};
+  const hasStrictScientificSummary = ['annual', 'rp50', 'rp100', 'p99'].every((scenario) => {
+    const published = scientificScenarioAvailability(scenario, 'social_impact') === true;
+    const scenarioPayload = scientificSocialSummary?.[scenario];
+    return published && scenarioPayload && typeof scenarioPayload === 'object';
   });
+  const socialSummary = hasStrictScientificSummary
+    ? {
+      annual: scientificSocialSummary.annual,
+      rp50: scientificSocialSummary.rp50,
+      rp100: scientificSocialSummary.rp100,
+      p99: scientificSocialSummary.p99
+    }
+    : aggregateScenarioSocialSummary(analysis, state.networkStates);
   const worstCaseSummary = worstCaseSocialSummaryFromCompleteAnalysis();
   if (worstCaseSummary) {
     socialSummary.worst_case = {
@@ -3018,50 +2866,28 @@ function renderImpactScenarioTableForHazard(targetBody, rows, hazardKeyRaw, expo
   }).join('');
 }
 
-function renderImpactStatePieCharts(rows) {
+function renderImpactStatePieCharts() {
   const scenarioKey = impactTableScenarioMeta(state.impactTableScenario).key;
-  const scenarioStatePropertyByHazard = {
-    storm: `state_${scenarioKey}_storm`,
-    storm_cmcc: `state_${scenarioKey}_storm_cmcc`
-  };
   const categories = [
     {
       refKey: 'impact_state_aep',
-      domId: 'impact-state-pie-aep',
-      matcher: (row) => String(row?.class_key || '') === 'eau_aep',
-      matchesLayerKey: (layerKey) => layerKey === 'eau_aep'
+      domId: 'impact-state-pie-aep'
     },
     {
       refKey: 'impact_state_eu',
-      domId: 'impact-state-pie-eu',
-      matcher: (row) => String(row?.class_key || '') === 'eau_eu',
-      matchesLayerKey: (layerKey) => layerKey === 'eau_eu'
+      domId: 'impact-state-pie-eu'
     },
     {
       refKey: 'impact_state_elec',
-      domId: 'impact-state-pie-elec',
-      matcher: (row) => String(row?.class_key || '').startsWith('elec_'),
-      matchesLayerKey: (layerKey) => layerKey.startsWith('elec_') || layerKey === 'elec_grid_0p1deg'
+      domId: 'impact-state-pie-elec'
     }
   ];
   categories.forEach((category) => {
     const serviceKey = category.refKey === 'impact_state_elec'
       ? 'elec'
       : (category.refKey === 'impact_state_aep' ? 'water_aep' : 'water_eu');
-    const stormValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm', serviceKey)
-      || weightedStateDistribution(rows, 'storm', category.matcher)
-      || featureStateDistribution(
-        state.networkStates,
-        scenarioStatePropertyByHazard.storm,
-        category.matchesLayerKey
-      );
-    const cmccValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm_cmcc', serviceKey)
-      || weightedStateDistribution(rows, 'storm_cmcc', category.matcher)
-      || featureStateDistribution(
-        state.networkStates,
-        scenarioStatePropertyByHazard.storm_cmcc,
-        category.matchesLayerKey
-      );
+    const stormValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm', serviceKey);
+    const cmccValues = scientificScenarioServiceStateDistribution(scenarioKey, 'storm_cmcc', serviceKey);
     renderFocusedStateShareChart(category.refKey, category.domId, stormValues, cmccValues, {
       innerLabel: getHazardLabel('storm'),
       outerLabel: getHazardLabel('storm_cmcc'),
