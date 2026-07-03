@@ -15,14 +15,29 @@ import textwrap
 import webbrowser
 from typing import Any
 
-from case_study_sources import territory_label
+from case_study_sources import HYDRAULIC_ZONING_V2_DIR, territory_label
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
+COMPLETE_RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
+TARGETED_RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "targeted-cyclone-runs"
+RUN_FAMILY_OUTPUT_DIRS = {
+    "complete-analysis": COMPLETE_RUN_OUTPUTS_DIR,
+    "targeted-cyclone": TARGETED_RUN_OUTPUTS_DIR,
+}
+RUN_OUTPUTS_DIR = COMPLETE_RUN_OUTPUTS_DIR
 WEB_DATA_DIR = REPO_ROOT / "web" / "data"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs" / "Graphs"
 UTC = timezone.utc
 BACKEND_ROOT = REPO_ROOT / "backend"
+POPULATION_OVERLAYS_PATH = REPO_ROOT / "web" / "hazard-maps" / "population-overlays.json"
+POPULATION_RASTER_PATHS = {
+    "guadeloupe": Path("/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif"),
+}
+HYDRAULIC_ZONE_BUNDLE_PATHS = {
+    "guadeloupe": HYDRAULIC_ZONING_V2_DIR / "guadeloupe_hydraulic_zones_estimate.gpkg",
+}
+TERRITORY_GRID_DEG = 0.2
+HOTSPOT_GRID_DEG = 0.05
 
 SUPPORTED_HAZARDS = ("storm", "storm_cmcc")
 PML_PERIODS = (10, 20, 50, 100, 200, 1000)
@@ -87,6 +102,7 @@ STATE_SHORT_LABELS = {
 }
 SURGE_COLORS = ["#f7fcfd", "#d0eff2", "#a6dbe4", "#72c5d6", "#3eaac4", "#167f96", "#0a596e", "#04384a"]
 LANDSLIDE_COLORS = ["#f7efe8", "#e8c9ae", "#d39b6f", "#ac6940", "#734127"]
+WIND_MAP_COLORS = ["#f8e45c", "#f9b24b", "#f2643c", "#c81e5b", "#6d28d9", "#2e1065"]
 ELECTRIC_NETWORK_MAP_COLOR = "#FFD744"
 LEGACY_ELECTRIC_STATE_LAYER_KEYS = (
     "elec_bt_aerien",
@@ -143,6 +159,24 @@ COMPONENT_COLORS = {
     "surge": "#ea580c",
     "landslide": "#7c3aed",
 }
+TARGETED_TRAJECTORY_CATEGORY_COLORS = {
+    "-1": "#94a3b8",
+    "0": "#38bdf8",
+    "1": "#22c55e",
+    "2": "#facc15",
+    "3": "#fb923c",
+    "4": "#ef4444",
+    "5": "#7f1d1d",
+}
+TARGETED_TRAJECTORY_CATEGORY_LABELS = {
+    "-1": "Tropical Depression",
+    "0": "Tropical Storm",
+    "1": "Cat 1",
+    "2": "Cat 2",
+    "3": "Cat 3",
+    "4": "Cat 4",
+    "5": "Cat 5",
+}
 ANNUAL_FEC_COMBO_COLORS = {
     ("guadeloupe", "storm"): "#0f766e",
     ("guadeloupe", "storm_cmcc"): "#c2410c",
@@ -157,6 +191,7 @@ EXTENDED_PML_PERIODS = tuple(sorted({*PML_PERIODS, *LIFETIME_EXTRA_RETURN_PERIOD
 GRAPH_TYPE_ORDER = (
     "run_overview_summary",
     "hazard_metric_scorecard",
+    "targeted_event_scorecard",
     "annual_fec_all_territories",
     "annual_fec_all_territories_pct",
     "annual_fec_by_territory_hazard",
@@ -172,6 +207,7 @@ GRAPH_TYPE_ORDER = (
 GRAPH_TYPE_LABELS = {
     "run_overview_summary": "Resume du run",
     "hazard_metric_scorecard": "Scorecard alea",
+    "targeted_event_scorecard": "Scorecard evenementiel",
     "annual_fec_all_territories": "FEC annuelle comparee",
     "annual_fec_all_territories_pct": "FEC annuelle comparee en %",
     "annual_fec_by_territory_hazard": "FEC annuelle",
@@ -185,14 +221,24 @@ GRAPH_TYPE_LABELS = {
 }
 
 SECTION_LABELS = {
-    "overview": "Overview",
-    "comparison": "Comparisons",
-    "fec": "Frequency Exceedance",
-    "loss": "Loss Metrics",
-    "events": "Top Events",
-    "wind": "Wind Distributions",
-    "health": "Health And Dependency",
+    "overview": "Vue d'ensemble",
+    "comparison": "Comparaisons",
+    "fec": "Courbes FEC",
+    "loss": "Metriques de pertes",
+    "events": "Evenements majeurs",
+    "wind": "Distributions du vent",
+    "health": "Sante et dependances",
 }
+
+
+def _display_territory_name(territory: str | None) -> str:
+    if not territory:
+        return ""
+    return territory_label(str(territory))
+
+
+def _display_territories(territories: list[str]) -> str:
+    return ", ".join(_display_territory_name(territory) for territory in territories)
 
 
 @dataclass
@@ -207,6 +253,7 @@ class RunRecord:
     manifest_path: str
     manifest: dict[str, Any]
     archived_ready_count: int
+    run_family: str = "complete-analysis"
 
 
 @dataclass
@@ -251,6 +298,9 @@ class AuxiliaryArtifacts:
     landslide_maps: ArchivedArtifact | None
     network_states_path: str | None
     water_infra_path: str | None
+    population_overlays: ArchivedArtifact | None = None
+    population_raster_path: str | None = None
+    hydraulic_zones_path: str | None = None
 
 
 _NATIVE_PML_CACHE: dict[tuple[str, str, str], dict[int, float] | None] = {}
@@ -259,6 +309,7 @@ _REAL_WIND_TRACK_HIST_CACHE: dict[tuple[str, str, str], tuple[list[float], list[
 _DYNAMIC_HAZARD_BUNDLE_CACHE: dict[tuple[str, str, int], Any] = {}
 _BACKEND_RUNTIME: tuple[Any, Any] | None = None
 _GEODATAFRAME_CACHE: dict[str, Any] = {}
+_GEODATAFRAME_LAYER_CACHE: dict[tuple[str, str | None], Any] = {}
 
 
 def _count_outputs_by_category(output_dir: Path, paths: list[str]) -> dict[str, int]:
@@ -287,7 +338,10 @@ def _auxiliary_output_classification(output_dir: Path, raw_path: str) -> tuple[s
     relative = path.relative_to(output_dir)
     category = relative.parts[0] if relative.parts else "root"
     file_name = relative.name.lower()
-    technical_type = {"charts": "chart", "maps": "map", "tables": "table"}.get(category, "file")
+    if category == "Population":
+        technical_type = "chart" if "matrice_" in file_name else "map"
+    else:
+        technical_type = {"charts": "chart", "maps": "map", "tables": "table"}.get(category, "file")
     if category == "maps":
         if any(token in file_name for token in ("storm_vent", "pluie", "inondation_cotiere", "mouvements_de_terrain", "bassin_")):
             family = "alea"
@@ -295,6 +349,8 @@ def _auxiliary_output_classification(output_dir: Path, raw_path: str) -> tuple[s
             family = "exposition"
         else:
             family = "impact"
+    elif category == "Population":
+        family = "impact"
     elif category == "charts":
         if "vent_max" in file_name:
             family = "alea"
@@ -500,6 +556,9 @@ def _load_case_study_analysis(base_dir: Path, territory: str) -> ArchivedArtifac
 def _load_auxiliary_artifacts(record: RunRecord, bundle: TerritoryPayload) -> AuxiliaryArtifacts:
     territory = bundle.territory
     base_dir = _archived_web_data_dir(record, territory)
+    population_overlays = _load_optional_archived_json(POPULATION_OVERLAYS_PATH)
+    population_raster_path = POPULATION_RASTER_PATHS.get(territory)
+    hydraulic_zones_path = HYDRAULIC_ZONE_BUNDLE_PATHS.get(territory)
     return AuxiliaryArtifacts(
         territory=territory,
         complete_analysis=ArchivedArtifact(payload_path=bundle.payload_path, payload=bundle.payload),
@@ -509,6 +568,9 @@ def _load_auxiliary_artifacts(record: RunRecord, bundle: TerritoryPayload) -> Au
         landslide_maps=_load_optional_archived_json(base_dir / f"{territory}-landslide-maps.json"),
         network_states_path=str(base_dir / f"{territory}-network-states.geojson") if (base_dir / f"{territory}-network-states.geojson").exists() else None,
         water_infra_path=str(base_dir / f"{territory}-water-infra.geojson") if (base_dir / f"{territory}-water-infra.geojson").exists() else None,
+        population_overlays=population_overlays,
+        population_raster_path=str(population_raster_path) if population_raster_path and population_raster_path.exists() else None,
+        hydraulic_zones_path=str(hydraulic_zones_path) if hydraulic_zones_path and hydraulic_zones_path.exists() else None,
     )
 
 
@@ -569,6 +631,29 @@ def _count_archived_payloads(manifest: dict[str, Any]) -> int:
     return count
 
 
+def _resolve_run_family(raw_value: str | None) -> str:
+    value = str(raw_value or "complete-analysis").strip().lower()
+    aliases = {
+        "complete-analysis": "complete-analysis",
+        "complete_analysis": "complete-analysis",
+        "complete": "complete-analysis",
+        "targeted-cyclone": "targeted-cyclone",
+        "targeted_cyclone": "targeted-cyclone",
+        "targeted": "targeted-cyclone",
+    }
+    if value not in aliases:
+        raise ValueError(f"Unsupported run family: {raw_value!r}")
+    return aliases[value]
+
+
+def _infer_record_run_family(manifest: dict[str, Any]) -> str:
+    explicit = str(manifest.get("run_family") or "").strip().lower()
+    if explicit:
+        return _resolve_run_family(explicit)
+    parameters = manifest.get("parameters") if isinstance(manifest.get("parameters"), dict) else {}
+    return _resolve_run_family(parameters.get("run_family"))
+
+
 def list_run_records() -> list[RunRecord]:
     records: list[RunRecord] = []
     if not RUN_OUTPUTS_DIR.exists():
@@ -598,6 +683,7 @@ def list_run_records() -> list[RunRecord]:
                 manifest_path=str(manifest_path),
                 manifest=manifest,
                 archived_ready_count=_count_archived_payloads(manifest),
+                run_family=_infer_record_run_family(manifest),
             )
         )
     records.sort(key=lambda item: _timestamp_sort_key(item.manifest), reverse=True)
@@ -606,10 +692,11 @@ def list_run_records() -> list[RunRecord]:
 
 def print_runs(records: list[RunRecord]) -> None:
     if not records:
-        print("No runs found under outputs/complete-analysis-runs")
+        print(f"No runs found under {RUN_OUTPUTS_DIR}")
         return
     headers = (
         "run_id",
+        "family",
         "status",
         "updated_at",
         "territories",
@@ -621,6 +708,7 @@ def print_runs(records: list[RunRecord]) -> None:
         rows.append(
             (
                 record.run_id,
+                record.run_family,
                 record.status,
                 record.updated_at or record.created_at or "",
                 ",".join(record.territories),
@@ -670,11 +758,12 @@ def resolve_run_record(run_id: str | None, latest_success: bool, records: list[R
             manifest_path=str(manifest_path),
             manifest=manifest,
             archived_ready_count=_count_archived_payloads(manifest),
+            run_family=_infer_record_run_family(manifest),
         )
     if latest_success or not run_id:
         successful = [record for record in records if record.status == "success"]
         if not successful:
-            raise RuntimeError("No successful complete-analysis run found")
+            raise RuntimeError(f"No successful run found under {RUN_OUTPUTS_DIR}")
         return successful[0]
     raise RuntimeError("Unable to resolve run selection")
 
@@ -701,6 +790,17 @@ def _resolve_selected_hazards(requested: list[str]) -> list[str]:
             out.append(normalized)
             seen.add(normalized)
     return out
+
+
+def _default_graph_types_for_run_family(run_family: str) -> list[str]:
+    if run_family == "targeted-cyclone":
+        return [
+            "run_overview_summary",
+            "targeted_event_scorecard",
+            "direct_vs_indirect_eai_by_hazard",
+            "top_events_by_hazard",
+        ]
+    return list(GRAPH_TYPE_ORDER)
 
 
 def _resolve_selected_graph_types(requested: list[str]) -> list[str]:
@@ -794,6 +894,56 @@ def _extract_hazard_metrics(payload: dict[str, Any], hazard: str) -> dict[str, A
     portfolio = payload.get("portfolio_results") if isinstance(payload.get("portfolio_results"), dict) else {}
     hazard_block = portfolio.get(hazard) if isinstance(portfolio.get(hazard), dict) else {}
     return hazard_block
+
+
+def _payload_run_family(payload: dict[str, Any]) -> str:
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    explicit = str(meta.get("run_family") or "").strip().lower()
+    if explicit:
+        return _resolve_run_family(explicit)
+    return "complete-analysis"
+
+
+def _payload_report_semantics(payload: dict[str, Any]) -> str:
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    return str(meta.get("report_semantics") or "").strip().lower() or "probabilistic"
+
+
+def _available_hazards_for_payload(payload: dict[str, Any]) -> list[str]:
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    hazard_names = meta.get("hazards") if isinstance(meta.get("hazards"), list) else []
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for raw_value in hazard_names:
+        normalized = str(raw_value or "").strip().lower()
+        if normalized == "storm":
+            key = "storm"
+        elif normalized in {"storm_cmcc", "cmcc"}:
+            key = "storm_cmcc"
+        elif normalized == "storm_cmcc".lower():
+            key = "storm_cmcc"
+        else:
+            key = HAZARD_ALIASES.get(normalized)
+        if key and key not in seen:
+            resolved.append(key)
+            seen.add(key)
+    portfolio = payload.get("portfolio_results") if isinstance(payload.get("portfolio_results"), dict) else {}
+    for hazard in SUPPORTED_HAZARDS:
+        if isinstance(portfolio.get(hazard), dict) and hazard not in seen:
+            resolved.append(hazard)
+            seen.add(hazard)
+    return resolved or list(SUPPORTED_HAZARDS)
+
+
+def _available_hazards_for_payloads(payloads: dict[str, TerritoryPayload]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for bundle in payloads.values():
+        for hazard in _available_hazards_for_payload(bundle.payload):
+            if hazard not in seen:
+                out.append(hazard)
+                seen.add(hazard)
+    return out or list(SUPPORTED_HAZARDS)
 
 
 def _extract_component_metric_map(payload: dict[str, Any], hazard: str, metric_key: str) -> dict[str, float]:
@@ -1384,27 +1534,31 @@ def _make_table_graph(
 def build_run_overview_graph(record: RunRecord, payloads: dict[str, TerritoryPayload]) -> GraphSpec:
     rows = [
         ["Run ID", record.run_id],
-        ["Status", record.status],
-        ["Created At", record.created_at or ""],
-        ["Updated At", record.updated_at or ""],
+        ["Famille de run", record.run_family],
+        ["Statut", record.status],
+        ["Cree le", record.created_at or ""],
+        ["Mis a jour le", record.updated_at or ""],
         ["dynamic_max_tracks", str(record.dynamic_max_tracks or "")],
         ["memory_budget_gb", _format_number(record.memory_budget_gb or 0.0)],
-        ["Territories", ", ".join(record.territories)],
+        ["Territoires", _display_territories(record.territories)],
     ]
     for territory, bundle in payloads.items():
-        rows.append([f"Source {territory}", f"{bundle.source_kind}: {bundle.payload_path}"])
+        display_name = _display_territory_name(territory)
+        rows.append([f"Source {display_name}", f"{bundle.source_kind}: {bundle.payload_path}"])
+        rows.append([f"Rapport {display_name}", _payload_report_semantics(bundle.payload)])
     return _make_table_graph(
         "run_overview_summary",
-        f"Run Overview - {record.run_id}",
+        f"Resume du run - {record.run_id}",
         "overview",
         "Resume operateur du run selectionne et des sources chargees.",
-        ["Field", "Value"],
+        ["Champ", "Valeur"],
         rows,
     )
 
 
 def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
-    categories = ["Annual EAI", "PML100", "PML1000", "TVaR95", "P99"]
+    territory_name = _display_territory_name(territory)
+    categories = ["EAI annuel", "PML100", "PML1000", "TVaR95", "P99"]
     series: list[dict[str, Any]] = []
     for hazard in selected_hazards:
         metrics = _extract_hazard_metrics(payload, hazard)
@@ -1425,16 +1579,16 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
     return GraphSpec(
         graph_id=_graph_id("hazard_metric_scorecard", territory),
         graph_type="hazard_metric_scorecard",
-        title=f"Hazard Scorecard - {territory}",
+        title=f"Tableau de bord alea - {territory_name}",
         section="overview",
         territory=territory,
         hazard=None,
         kind="chart",
         description="Comparaison synthetique des principales metriques de pertes par alea, hors decomposition directe/indirecte retiree.",
-        echarts_option=_build_bar_option(f"Hazard Scorecard - {territory}", categories, series),
+        echarts_option=_build_bar_option(f"Tableau de bord alea - {territory_name}", categories, series),
         png_payload={
             "type": "grouped_bar",
-            "title": f"Hazard Scorecard - {territory}",
+            "title": f"Tableau de bord alea - {territory_name}",
             "categories": categories,
             "series": [
                 {
@@ -1444,7 +1598,7 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
                 }
                 for item in series
             ],
-            "ylabel": "Loss (EUR)",
+            "ylabel": "Pertes (EUR)",
         },
     )
 
@@ -1452,6 +1606,7 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
 def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec | None:
     if set(selected_hazards) != set(SUPPORTED_HAZARDS):
         return None
+    territory_name = _display_territory_name(territory)
     comparison = payload.get("graphs") if isinstance(payload.get("graphs"), dict) else {}
     comparison = comparison.get("comparison") if isinstance(comparison.get("comparison"), dict) else {}
     side_by_side = comparison.get("side_by_side") if isinstance(comparison.get("side_by_side"), dict) else {}
@@ -1468,7 +1623,7 @@ def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], sele
         storm_values = [_safe_float(storm.get("eai_eur")), _safe_float(storm.get("pml_1000_eur"))]
         cmcc_values = [_safe_float(cmcc.get("eai_eur")), _safe_float(cmcc.get("pml_1000_eur"))]
     option = _build_bar_option(
-        f"STORM vs STORM_CMCC - {territory}",
+        f"Comparaison STORM / STORM_CMCC - {territory_name}",
         categories,
         [
             {"name": "STORM", "type": "bar", "data": storm_values, "itemStyle": {"color": HAZARD_COLORS["storm"]}},
@@ -1478,7 +1633,7 @@ def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], sele
     return GraphSpec(
         graph_id=_graph_id("storm_vs_cmcc_eai_pml1000", territory),
         graph_type="storm_vs_cmcc_eai_pml1000",
-        title=f"STORM vs STORM_CMCC - {territory}",
+        title=f"Comparaison STORM / STORM_CMCC - {territory_name}",
         section="comparison",
         territory=territory,
         hazard=None,
@@ -1487,29 +1642,30 @@ def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], sele
         echarts_option=option,
         png_payload={
             "type": "grouped_bar",
-            "title": f"STORM vs STORM_CMCC - {territory}",
+            "title": f"Comparaison STORM / STORM_CMCC - {territory_name}",
             "categories": categories,
             "series": [
                 {"name": "STORM", "values": storm_values, "color": HAZARD_COLORS["storm"]},
                 {"name": "STORM_CMCC", "values": cmcc_values, "color": HAZARD_COLORS["storm_cmcc"]},
             ],
-            "ylabel": "Loss (EUR)",
+            "ylabel": "Pertes (EUR)",
         },
     )
 
 
 def build_tvar95_comparison(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
+    territory_name = _display_territory_name(territory)
     categories = [HAZARD_LABELS[hazard] for hazard in selected_hazards]
     values = [_safe_float(_extract_hazard_metrics(payload, hazard).get("tvar_95_eur")) for hazard in selected_hazards]
     option = _build_bar_option(
-        f"TVaR95 - {territory}",
+        f"TVaR95 - {territory_name}",
         categories,
         [{"name": "TVaR95", "type": "bar", "data": values, "itemStyle": {"color": "#7c3aed"}}],
     )
     return GraphSpec(
         graph_id=_graph_id("tvar95_by_territory_hazard", territory),
         graph_type="tvar95_by_territory_hazard",
-        title=f"TVaR95 - {territory}",
+        title=f"TVaR95 - {territory_name}",
         section="loss",
         territory=territory,
         hazard=None,
@@ -1518,7 +1674,7 @@ def build_tvar95_comparison(territory: str, payload: dict[str, Any], selected_ha
         echarts_option=option,
         png_payload={
             "type": "bar",
-            "title": f"TVaR95 - {territory}",
+            "title": f"TVaR95 - {territory_name}",
             "categories": categories,
             "values": values,
             "color": "#7c3aed",
@@ -1533,6 +1689,7 @@ def build_annual_fec_graph(
     payload: dict[str, Any],
     selected_hazards: list[str],
 ) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     total_value_eur = _resolve_total_exposure_value(record, territory, payload)
     series: list[dict[str, Any]] = []
     png_series: list[dict[str, Any]] = []
@@ -1569,15 +1726,15 @@ def build_annual_fec_graph(
     if not series:
         return None
     option = _build_line_option(
-        f"Annual FEC - {territory}",
-        "Return period (years)",
-        "Damage (EUR)",
+        f"FEC annuelle - {territory_name}",
+        "Temps de retour (ans)",
+        "Dommages (EUR)",
         series,
     )
     return GraphSpec(
         graph_id=_graph_id("annual_fec_by_territory_hazard", territory),
         graph_type="annual_fec_by_territory_hazard",
-        title=f"Annual FEC - {territory}",
+        title=f"FEC annuelle - {territory_name}",
         section="fec",
         territory=territory,
         hazard=None,
@@ -1589,13 +1746,13 @@ def build_annual_fec_graph(
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": f"Annual FEC - {territory}",
+            "title": f"FEC annuelle - {territory_name}",
             "series": png_series,
-            "xlabel": "Return period (years)",
-            "ylabel": "Damage (EUR)",
+            "xlabel": "Temps de retour (ans)",
+            "ylabel": "Dommages (EUR)",
             "note": (
-                "Scenario total losses for STORM and STORM_CMCC are assembled on a single chart. "
-                "Labels show damage in EUR and the share of total infrastructure value."
+                "Les pertes totales des scenarios STORM et STORM_CMCC sont rassemblees sur un meme graphe. "
+                "Les etiquettes montrent les dommages en EUR et leur part de la valeur totale d'infrastructure."
             ),
         },
         warning=" | ".join(warnings) if warnings else None,
@@ -1644,15 +1801,15 @@ def build_annual_fec_all_territories_graph(
     if len(series) < 2:
         return None
     option = _build_line_option(
-        f"Annual FEC - {title_suffix}",
-        "Return period (years)",
-        "Damage (EUR)",
+        f"FEC annuelle - {title_suffix}",
+        "Temps de retour (ans)",
+        "Dommages (EUR)",
         series,
     )
     return GraphSpec(
         graph_id=_graph_id("annual_fec_all_territories"),
         graph_type="annual_fec_all_territories",
-        title=f"Annual FEC - {title_suffix}",
+        title=f"FEC annuelle - {title_suffix}",
         section="fec",
         territory=None,
         hazard=None,
@@ -1661,11 +1818,11 @@ def build_annual_fec_all_territories_graph(
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": f"Annual FEC - {title_suffix}",
+            "title": f"FEC annuelle - {title_suffix}",
             "series": png_series,
-            "xlabel": "Return period (years)",
-            "ylabel": "Damage (EUR)",
-            "note": "One curve per territory x scenario. Curves represent total scenario losses, not wind-only losses.",
+            "xlabel": "Temps de retour (ans)",
+            "ylabel": "Dommages (EUR)",
+            "note": "Une courbe par couple territoire x scenario. Les courbes representent les pertes totales du scenario, pas les pertes de vent seules.",
         },
         warning=" | ".join(graph_warnings) if graph_warnings else None,
     )
@@ -1722,15 +1879,15 @@ def build_annual_fec_all_territories_pct_graph(
     if len(series) < 2:
         return None
     option = _build_line_option(
-        f"Annual FEC - {title_suffix} (%)",
-        "Return period (years)",
-        "Damage (% of territory infrastructure value)",
+        f"FEC annuelle - {title_suffix} (%)",
+        "Temps de retour (ans)",
+        "Dommages (% de la valeur d'infrastructure du territoire)",
         series,
     )
     return GraphSpec(
         graph_id=_graph_id("annual_fec_all_territories_pct"),
         graph_type="annual_fec_all_territories_pct",
-        title=f"Annual FEC - {title_suffix} (%)",
+        title=f"FEC annuelle - {title_suffix} (%)",
         section="fec",
         territory=None,
         hazard=None,
@@ -1742,13 +1899,13 @@ def build_annual_fec_all_territories_pct_graph(
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": f"Annual FEC - {title_suffix} (%)",
+            "title": f"FEC annuelle - {title_suffix} (%)",
             "series": png_series,
-            "xlabel": "Return period (years)",
-            "ylabel": "Damage (% of territory infrastructure value)",
+            "xlabel": "Temps de retour (ans)",
+            "ylabel": "Dommages (% de la valeur d'infrastructure du territoire)",
             "note": (
-                "Each curve is normalized by the total infrastructure value of its own territory. "
-                "Curves represent total scenario losses, not wind-only losses."
+                "Chaque courbe est normalisee par la valeur totale d'infrastructure de son propre territoire. "
+                "Les courbes representent les pertes totales du scenario, pas les pertes de vent seules."
             ),
         },
         warning=" | ".join(graph_warnings) if graph_warnings else None,
@@ -1766,6 +1923,7 @@ def _resolve_output_root(requested_output_dir: Any) -> tuple[Path, str | None]:
 
 
 def build_lifetime_fec_graph(record: RunRecord, territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     block = _extract_graph_block(payload, hazard, "lifetime_fec")
     if not block:
         return None
@@ -1813,15 +1971,15 @@ def build_lifetime_fec_graph(record: RunRecord, territory: str, payload: dict[st
     if not series:
         return None
     option = _build_line_option(
-        f"Lifetime FEC - {territory} - {HAZARD_LABELS[hazard]}",
-        "Return period (years)",
-        "Damage (EUR)",
+        f"FEC duree de vie - {territory_name} - {HAZARD_LABELS[hazard]}",
+        "Temps de retour (ans)",
+        "Dommages (EUR)",
         series,
     )
     return GraphSpec(
         graph_id=_graph_id("lifetime_fec_by_territory_hazard", territory, hazard),
         graph_type="lifetime_fec_by_territory_hazard",
-        title=f"Lifetime FEC - {territory} - {HAZARD_LABELS[hazard]}",
+        title=f"FEC duree de vie - {territory_name} - {HAZARD_LABELS[hazard]}",
         section="fec",
         territory=territory,
         hazard=hazard,
@@ -1834,46 +1992,106 @@ def build_lifetime_fec_graph(record: RunRecord, territory: str, payload: dict[st
         echarts_option=option,
         png_payload={
             "type": "line",
-            "title": f"Lifetime FEC - {territory} - {HAZARD_LABELS[hazard]}",
+            "title": f"FEC duree de vie - {territory_name} - {HAZARD_LABELS[hazard]}",
             "series": png_series,
-            "xlabel": "Return period (years)",
-            "ylabel": "Damage (EUR)",
+            "xlabel": "Temps de retour (ans)",
+            "ylabel": "Dommages (EUR)",
             "annotate_x_values": list(LIFETIME_EXTRA_RETURN_PERIODS),
             "note": (
-                "Added 400/600/800-year points use annual PML values recomputed from archived event-loss checkpoints, "
-                "then apply the same lifetime factor as the backend 30y/50y series."
+                "Les points ajoutes 400/600/800 ans utilisent les valeurs PML annuelles recalculees a partir des checkpoints archives de pertes par evenement, "
+                "puis appliquent le meme facteur de duree de vie que les series backend 30y/50y."
             ),
         },
         warning=annual_warning,
     )
 
 
-def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec:
-    hazard_metrics = _extract_hazard_metrics(payload, hazard)
+def build_targeted_event_scorecard(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
+    territory_name = _display_territory_name(territory)
+    categories = ["Total scenario", "Direct", "Indirect", "Pire evenement", "TVaR95"]
+    series: list[dict[str, Any]] = []
+    for hazard in selected_hazards:
+        metrics = _extract_hazard_metrics(payload, hazard)
+        series.append(
+            {
+                "name": HAZARD_LABELS.get(hazard, hazard.upper()),
+                "type": "bar",
+                "data": [
+                    _safe_float(metrics.get("eai_eur")),
+                    _safe_float(metrics.get("eai_direct_eur")),
+                    _safe_float(metrics.get("eai_indirect_eur")),
+                    _safe_float(metrics.get("max_event_loss_eur")),
+                    _safe_float(metrics.get("tvar_95_eur")),
+                ],
+                "itemStyle": {"color": HAZARD_COLORS[hazard]},
+            }
+        )
+    return GraphSpec(
+        graph_id=_graph_id("targeted_event_scorecard", territory),
+        graph_type="targeted_event_scorecard",
+        title=f"Tableau de bord evenement cible - {territory_name}",
+        section="overview",
+        territory=territory,
+        hazard=None,
+        kind="chart",
+        description="Synthese evenementielle des pertes du scenario cible, sans lecture probabiliste de type FEC/PML.",
+        echarts_option=_build_bar_option(f"Tableau de bord evenement cible - {territory_name}", categories, series),
+        png_payload={
+            "type": "grouped_bar",
+            "title": f"Tableau de bord evenement cible - {territory_name}",
+            "categories": categories,
+            "series": [
+                {
+                    "name": str(item.get("name") or ""),
+                    "values": list(item.get("data") or []),
+                    "color": item.get("itemStyle", {}).get("color") if isinstance(item.get("itemStyle"), dict) else None,
+                }
+                for item in series
+            ],
+            "ylabel": "Pertes (EUR)",
+            "show_labels": True,
+            "label_format": "compact_eur",
+        },
+    )
+
+
+def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: list[str]) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     categories = [f"PML{period}" for period in PML_PERIODS]
-    values = [_safe_float(hazard_metrics.get(f"pml_{period}_eur")) for period in PML_PERIODS]
+    series: list[dict[str, Any]] = []
+    png_series: list[dict[str, Any]] = []
+    for hazard in hazards:
+        hazard_metrics = _extract_hazard_metrics(payload, hazard)
+        values = [_safe_float(hazard_metrics.get(f"pml_{period}_eur")) for period in PML_PERIODS]
+        if not any(value > 0.0 for value in values):
+            continue
+        series.append(
+            {"name": HAZARD_LABELS[hazard], "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}
+        )
+        png_series.append({"name": HAZARD_LABELS[hazard], "values": values, "color": HAZARD_COLORS[hazard]})
+    if not series:
+        return None
     option = _build_bar_option(
-        f"PML Ladder - {territory} - {HAZARD_LABELS[hazard]}",
+        f"Echelle PML - {territory_name}",
         categories,
-        [{"name": HAZARD_LABELS[hazard], "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
+        series,
     )
     return GraphSpec(
-        graph_id=_graph_id("pml_ladder_by_territory_hazard", territory, hazard),
+        graph_id=_graph_id("pml_ladder_by_territory_hazard", territory, "comparison"),
         graph_type="pml_ladder_by_territory_hazard",
-        title=f"PML Ladder - {territory} - {HAZARD_LABELS[hazard]}",
+        title=f"Echelle PML - {territory_name}",
         section="loss",
         territory=territory,
-        hazard=hazard,
+        hazard=None,
         kind="chart",
-        description="Lecture rapide de la queue de pertes sur les periodes de retour standard.",
+        description="Lecture rapide comparee de la queue de pertes sur les periodes de retour standard.",
         echarts_option=option,
         png_payload={
-            "type": "bar",
-            "title": f"PML Ladder - {territory} - {HAZARD_LABELS[hazard]}",
+            "type": "grouped_bar",
+            "title": f"Echelle PML - {territory_name}",
             "categories": categories,
-            "values": values,
-            "color": HAZARD_COLORS[hazard],
-            "ylabel": "Loss (EUR)",
+            "series": png_series,
+            "ylabel": "Pertes (EUR)",
             "show_labels": True,
             "label_format": "compact_eur",
         },
@@ -1881,6 +2099,7 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazard: str)
 
 
 def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     events = _extract_event_list(payload, hazard)[:10]
     if not events:
         return None
@@ -1892,15 +2111,15 @@ def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str)
         categories.append(f"{event_name} ({rp:.0f}y)" if rp else event_name)
         values.append(_safe_float(item.get("loss_eur")))
     option = _build_bar_option(
-        f"Top Events - {territory} - {HAZARD_LABELS[hazard]}",
+        f"Top evenements - {territory_name} - {HAZARD_LABELS[hazard]}",
         categories,
-        [{"name": "Loss", "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
+        [{"name": "Pertes", "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
         horizontal=True,
     )
     return GraphSpec(
         graph_id=_graph_id("top_events_by_hazard", territory, hazard),
         graph_type="top_events_by_hazard",
-        title=f"Top Events - {territory} - {HAZARD_LABELS[hazard]}",
+        title=f"Top evenements - {territory_name} - {HAZARD_LABELS[hazard]}",
         section="events",
         territory=territory,
         hazard=hazard,
@@ -1909,11 +2128,11 @@ def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str)
         echarts_option=option,
         png_payload={
             "type": "horizontal_bar",
-            "title": f"Top Events - {territory} - {HAZARD_LABELS[hazard]}",
+            "title": f"Top evenements - {territory_name} - {HAZARD_LABELS[hazard]}",
             "categories": categories,
             "values": values,
             "color": HAZARD_COLORS[hazard],
-            "xlabel": "Loss (EUR)",
+            "xlabel": "Pertes (EUR)",
         },
     )
 
@@ -1927,6 +2146,7 @@ def build_wind_hist_graph(
     graph_type: str,
     title_prefix: str,
 ) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     warning = None
     if block_name == "wind_track_hist":
         try:
@@ -1937,7 +2157,7 @@ def build_wind_hist_graph(
         if native_hist is not None:
             bin_values, values, wind_map_path = native_hist
             categories = [f"{value:.1f}" for value in bin_values]
-            title = f"{title_prefix} - {territory} - {HAZARD_LABELS[hazard]}"
+            title = f"{title_prefix} - {territory_name} - {HAZARD_LABELS[hazard]}"
             option = _build_bar_option(
                 title,
                 categories,
@@ -1962,11 +2182,11 @@ def build_wind_hist_graph(
                     "categories": categories,
                     "values": values,
                     "color": HAZARD_COLORS[hazard],
-                    "ylabel": "Percent of tracks",
-                    "xlabel": "Max wind intensity per track across archived territory cells (m/s)",
+                    "ylabel": "Part des trajectoires (%)",
+                    "xlabel": "Intensite maximale du vent par trajectoire sur les cellules archivees du territoire (m/s)",
                     "note": (
-                        f"Reconstructed from hazard intensities over archived wind-map cells using the run's STORM/STORM_CMCC catalog selection. "
-                        f"Source wind-map artifact: {wind_map_path}."
+                        f"Reconstruit a partir des intensites d'alea sur les cellules archivees de la carte de vent, en utilisant la selection de catalogues STORM/STORM_CMCC du run. "
+                        f"Artefact source de carte de vent : {wind_map_path}."
                     ),
                 },
                 warning=warning,
@@ -1981,21 +2201,21 @@ def build_wind_hist_graph(
         return None
     if block_name == "wind_year_hist":
         categories = [_format_compact_eur(value) for value in bin_values]
-        x_label = "Event loss bin (EUR)"
+        x_label = "Classe de pertes par evenement (EUR)"
         description = (
             "Malgre son identifiant historique, ce graphe montre une distribution des pertes evenementielles du portefeuille. "
             "L'axe X est en EUR, pas une vitesse de vent."
         )
-        note = "Legacy graph id, but the backend payload bins event losses in EUR on the X axis."
+        note = "Identifiant de graphe legacy, mais le payload backend regroupe ici les pertes par evenement en EUR sur l'axe X."
     else:
         categories = [f"{value:.0f}" for value in bin_values]
-        x_label = "Event loss intensity proxy (sqrt(EUR))"
+        x_label = "Proxy d'intensite de perte evenementielle (sqrt(EUR))"
         description = (
             "Malgre son identifiant historique, ce graphe montre un proxy de pertes par evenement construit cote backend sur sqrt(loss). "
             "L'axe X n'est ni une vitesse de vent ni un nombre de tracks."
         )
-        note = "Backend builds this X axis from sqrt(event loss EUR), not from wind speed or track count."
-    title = str(block.get("title") or f"{title_prefix} - {territory} - {HAZARD_LABELS[hazard]}")
+        note = "Le backend construit cet axe X a partir de sqrt(perte evenementielle en EUR), et non d'une vitesse de vent ou d'un nombre de trajectoires."
+    title = f"{title_prefix} - {territory_name} - {HAZARD_LABELS[hazard]}"
     option = _build_bar_option(
         title,
         categories,
@@ -2017,7 +2237,7 @@ def build_wind_hist_graph(
             "categories": categories,
             "values": values,
             "color": HAZARD_COLORS[hazard],
-            "ylabel": "Percent",
+            "ylabel": "Part (%)",
             "xlabel": x_label,
             "note": note,
         },
@@ -2026,11 +2246,12 @@ def build_wind_hist_graph(
 
 
 def build_direct_vs_indirect_graph(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
+    territory_name = _display_territory_name(territory)
     categories = [HAZARD_LABELS[hazard] for hazard in selected_hazards]
     direct_values = [_safe_float(_extract_hazard_metrics(payload, hazard).get("eai_direct_eur")) for hazard in selected_hazards]
     indirect_values = [_safe_float(_extract_hazard_metrics(payload, hazard).get("eai_indirect_eur")) for hazard in selected_hazards]
     option = _build_bar_option(
-        f"Direct vs Indirect EAI - {territory}",
+        f"EAI direct vs indirect - {territory_name}",
         categories,
         [
             {"name": "Direct", "type": "bar", "stack": "loss", "data": direct_values, "itemStyle": {"color": HAZARD_COLORS["direct"]}},
@@ -2040,7 +2261,7 @@ def build_direct_vs_indirect_graph(territory: str, payload: dict[str, Any], sele
     return GraphSpec(
         graph_id=_graph_id("direct_vs_indirect_eai_by_hazard", territory),
         graph_type="direct_vs_indirect_eai_by_hazard",
-        title=f"Direct vs Indirect EAI - {territory}",
+        title=f"EAI direct vs indirect - {territory_name}",
         section="loss",
         territory=territory,
         hazard=None,
@@ -2052,14 +2273,14 @@ def build_direct_vs_indirect_graph(territory: str, payload: dict[str, Any], sele
         echarts_option=option,
         png_payload={
             "type": "stacked_bar",
-            "title": f"Direct vs Indirect EAI - {territory}",
+            "title": f"EAI direct vs indirect - {territory_name}",
             "categories": categories,
             "series": [
                 {"name": "Direct", "values": direct_values, "color": HAZARD_COLORS["direct"]},
                 {"name": "Indirect", "values": indirect_values, "color": HAZARD_COLORS["indirect"]},
             ],
-            "ylabel": "Annual EAI (EUR)",
-            "note": "Each STORM/STORM_CMCC bar is a full-scenario total across active hazard components; indirect is the electricity-to-water uplift.",
+            "ylabel": "EAI annuel (EUR)",
+            "note": "Chaque barre STORM/STORM_CMCC correspond au total du scenario complet sur les composantes d'alea actives ; l'indirect correspond au surcroit elec -> eau.",
         },
     )
 
@@ -2127,13 +2348,14 @@ def build_hazard_component_share_graph(
             "title": title,
             "categories": categories,
             "series": png_series,
-            "ylabel": "Share of direct loss mix (%)",
+            "ylabel": "Part du mix de pertes directes (%)",
             "note": note,
         },
     )
 
 
 def build_component_health_graph(territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
     portfolio = payload.get("portfolio_results") if isinstance(payload.get("portfolio_results"), dict) else {}
     component_health = portfolio.get("component_health") if isinstance(portfolio.get("component_health"), dict) else {}
     hazard_block = component_health.get(hazard) if isinstance(component_health.get(hazard), dict) else {}
@@ -2150,7 +2372,7 @@ def build_component_health_graph(territory: str, payload: dict[str, Any], hazard
         total = _safe_float(component_metrics.get("L_total"))
         if total <= 0.0:
             total = 1.0
-        categories.append(component_name)
+        categories.append(COMPONENT_LABELS.get(component_name, component_name))
         s1_values.append(100.0 * _safe_float(component_metrics.get("L_S1")) / total)
         s2_values.append(100.0 * _safe_float(component_metrics.get("L_S2")) / total)
         s3_values.append(100.0 * _safe_float(component_metrics.get("L_S3")) / total)
@@ -2158,44 +2380,44 @@ def build_component_health_graph(territory: str, payload: dict[str, Any], hazard
     if not categories:
         return None
     option = _build_bar_option(
-        f"Component Health - {territory} - {HAZARD_LABELS[hazard]}",
+        f"Sante des composants - {territory_name} - {HAZARD_LABELS[hazard]}",
         categories,
         [
-            {"name": "S1 %", "type": "bar", "stack": "state", "data": s1_values, "itemStyle": {"color": HAZARD_COLORS["s1"]}},
-            {"name": "S2 %", "type": "bar", "stack": "state", "data": s2_values, "itemStyle": {"color": HAZARD_COLORS["s2"]}},
-            {"name": "S3 %", "type": "bar", "stack": "state", "data": s3_values, "itemStyle": {"color": HAZARD_COLORS["s3"]}},
-            {"name": "Health %", "type": "line", "yAxisIndex": 1, "data": health_values, "lineStyle": {"color": HAZARD_COLORS["health"], "width": 3}, "itemStyle": {"color": HAZARD_COLORS["health"]}},
+            {"name": f"{_state_label('S1')} %", "type": "bar", "stack": "state", "data": s1_values, "itemStyle": {"color": HAZARD_COLORS["s1"]}},
+            {"name": f"{_state_label('S2')} %", "type": "bar", "stack": "state", "data": s2_values, "itemStyle": {"color": HAZARD_COLORS["s2"]}},
+            {"name": f"{_state_label('S3')} %", "type": "bar", "stack": "state", "data": s3_values, "itemStyle": {"color": HAZARD_COLORS["s3"]}},
+            {"name": "Sante %", "type": "line", "yAxisIndex": 1, "data": health_values, "lineStyle": {"color": HAZARD_COLORS["health"], "width": 3}, "itemStyle": {"color": HAZARD_COLORS["health"]}},
         ],
         secondary_axis=True,
     )
     return GraphSpec(
         graph_id=_graph_id("component_health_by_territory", territory, hazard),
         graph_type="component_health_by_territory",
-        title=f"Component Health - {territory} - {HAZARD_LABELS[hazard]}",
+        title=f"Sante des composants - {territory_name} - {HAZARD_LABELS[hazard]}",
         section="health",
         territory=territory,
         hazard=hazard,
         kind="chart",
         description=(
-            "Synthese des etats finaux S1/S2/S3 annualises pour le scenario complet, apres propagation elec->eau quand elle s'applique. "
+            "Synthese des etats finaux Dégradé (S1) / Critique (S2) / Hors service (S3) annualises pour le scenario complet, apres propagation elec->eau quand elle s'applique. "
             "Ce n'est pas un graphe de retour 100 ans / 1000 ans, mais une synthese ponderee par geometrie d'actif."
         ),
         echarts_option=option,
         png_payload={
             "type": "stacked_bar_with_line",
-            "title": f"Component Health - {territory} - {HAZARD_LABELS[hazard]}",
+            "title": f"Sante des composants - {territory_name} - {HAZARD_LABELS[hazard]}",
             "categories": categories,
             "stacked_series": [
-                {"name": "S1 %", "values": s1_values, "color": HAZARD_COLORS["s1"]},
-                {"name": "S2 %", "values": s2_values, "color": HAZARD_COLORS["s2"]},
-                {"name": "S3 %", "values": s3_values, "color": HAZARD_COLORS["s3"]},
+                {"name": f"{_state_label('S1')} %", "values": s1_values, "color": HAZARD_COLORS["s1"]},
+                {"name": f"{_state_label('S2')} %", "values": s2_values, "color": HAZARD_COLORS["s2"]},
+                {"name": f"{_state_label('S3')} %", "values": s3_values, "color": HAZARD_COLORS["s3"]},
             ],
-            "line_series": {"name": "Health %", "values": health_values, "color": HAZARD_COLORS["health"]},
-            "ylabel": "State share (%)",
-            "line_ylabel": "Health (%)",
+            "line_series": {"name": "Sante %", "values": health_values, "color": HAZARD_COLORS["health"]},
+            "ylabel": "Part des etats de service (%)",
+            "line_ylabel": "Sante (%)",
             "note": (
-                "Annualized final-state synthesis for the selected scenario; not tied to a single return period. "
-                "Weighting uses feature geometry (km for lines, count for points)."
+                "Synthese annualisee des etats finaux pour le scenario selectionne ; elle n'est pas rattachee a un temps de retour unique. "
+                "La ponderation utilise la geometrie des objets (km pour les lignes, nombre pour les points)."
             ),
         },
     )
@@ -2226,10 +2448,10 @@ def build_interdependency_summary_graph(territory: str, payload: dict[str, Any])
         return None
     return _make_table_graph(
         "interdependency_summary_by_territory",
-        f"Interdependency Summary - {territory}",
+        f"Resume des interdependances - {_display_territory_name(territory)}",
         "health",
         "Resume des hypotheses et parametres de propagation electricite vers eau.",
-        ["Field", "Value"],
+        ["Champ", "Valeur"],
         rows,
         territory=territory,
     )
@@ -2241,6 +2463,7 @@ def build_graphs_for_territory(
     bundle: TerritoryPayload,
     selected_hazards: list[str],
 ) -> list[GraphSpec]:
+    territory_name = _display_territory_name(territory)
     payload = bundle.payload
     graphs: list[GraphSpec] = []
     graphs.append(build_hazard_metric_scorecard(territory, payload, selected_hazards))
@@ -2251,12 +2474,12 @@ def build_graphs_for_territory(
         selected_hazards,
         metric_key="components_direct_eai_eur",
         graph_type="hazard_component_share_annual_by_territory",
-        title=f"Relative Hazard Mix - Annual Direct EAI - {territory}",
+        title=f"Mix relatif des aleas - EAI direct annuel - {territory_name}",
         description=(
             "Part relative des composantes directes vent/pluie/submersion/mouvement de terrain dans l'EAI direct annuel. "
             "Les composantes absentes du payload sont affichees a zero."
         ),
-        note="Shares use portfolio_results.*.components_direct_eai_eur. This is direct multi-hazard mix only; indirect uplift is excluded.",
+        note="Les parts utilisent portfolio_results.*.components_direct_eai_eur. Il s'agit uniquement du mix multi-alea direct ; le surcroit indirect est exclu.",
     )
     if annual_component_mix is not None:
         graphs.append(annual_component_mix)
@@ -2266,27 +2489,49 @@ def build_graphs_for_territory(
         selected_hazards,
         metric_key="components_direct_percentile_99_loss_eur",
         graph_type="hazard_component_share_p99_by_territory",
-        title=f"Relative Hazard Mix - Direct P99 Loss - {territory}",
+        title=f"Mix relatif des aleas - Perte directe P99 - {territory_name}",
         description=(
             "Part relative des composantes directes vent/pluie/submersion/mouvement de terrain dans la perte directe P99 du scenario. "
             "Les composantes absentes du payload sont affichees a zero."
         ),
-        note="Shares use portfolio_results.*.components_direct_percentile_99_loss_eur. This is direct multi-hazard mix only.",
+        note="Les parts utilisent portfolio_results.*.components_direct_percentile_99_loss_eur. Il s'agit uniquement du mix multi-alea direct.",
     )
     if p99_component_mix is not None:
         graphs.append(p99_component_mix)
     annual_fec_graph = build_annual_fec_graph(record, territory, payload, selected_hazards)
     if annual_fec_graph is not None:
         graphs.append(annual_fec_graph)
+    pml_ladder_graph = build_pml_ladder_graph(territory, payload, selected_hazards)
+    if pml_ladder_graph is not None:
+        graphs.append(pml_ladder_graph)
     for hazard in selected_hazards:
         for graph in (
             build_lifetime_fec_graph(record, territory, payload, hazard),
-            build_pml_ladder_graph(territory, payload, hazard),
             build_top_events_graph(territory, payload, hazard),
-            build_wind_hist_graph(record, territory, payload, hazard, "wind_year_hist", "wind_year_hist_by_hazard", "Wind Year Histogram"),
+            build_wind_hist_graph(record, territory, payload, hazard, "wind_year_hist", "wind_year_hist_by_hazard", "Histogramme annuel du vent"),
         ):
             if graph is not None:
                 graphs.append(graph)
+    return graphs
+
+
+def build_targeted_graphs_for_territory(
+    territory: str,
+    bundle: TerritoryPayload,
+    selected_hazards: list[str],
+) -> list[GraphSpec]:
+    payload = bundle.payload
+    graphs: list[GraphSpec] = [
+        build_targeted_event_scorecard(territory, payload, selected_hazards),
+        build_direct_vs_indirect_graph(territory, payload, selected_hazards),
+    ]
+    interdependency_graph = build_interdependency_summary_graph(territory, payload)
+    if interdependency_graph is not None:
+        graphs.append(interdependency_graph)
+    for hazard in selected_hazards:
+        top_events_graph = build_top_events_graph(territory, payload, hazard)
+        if top_events_graph is not None:
+            graphs.append(top_events_graph)
     return graphs
 
 
@@ -2359,7 +2604,7 @@ def _render_index_html(
     warnings_html = ""
     if warnings:
         warning_items = "".join(f"<li>{html.escape(item)}</li>" for item in warnings)
-        warnings_html = f"<section class=\"warnings\"><h2>Warnings</h2><ul>{warning_items}</ul></section>"
+        warnings_html = f"<section class=\"warnings\"><h2>Avertissements</h2><ul>{warning_items}</ul></section>"
 
     nav_parts = []
     for section_key, label in SECTION_LABELS.items():
@@ -2368,15 +2613,15 @@ def _render_index_html(
                 f'<section class="nav-group"><h3>{html.escape(label)}</h3><ul>{"".join(sections[section_key])}</ul></section>'
             )
     payload_rows = "".join(
-        f"<li><strong>{html.escape(name)}</strong>: {html.escape(bundle.source_kind)} - {html.escape(bundle.payload_path)}</li>"
+        f"<li><strong>{html.escape(_display_territory_name(name))}</strong>: {html.escape(bundle.source_kind)} - {html.escape(bundle.payload_path)}</li>"
         for name, bundle in payloads.items()
     )
     html_text = f"""<!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SIB Graphs - {html.escape(record.run_id)}</title>
+  <title>Graphes SIB - {html.escape(record.run_id)}</title>
   <style>
     :root {{
       --bg: #f4efe7;
@@ -2441,14 +2686,14 @@ def _render_index_html(
 </head>
 <body>
   <header>
-    <h1>SIB Run Graphs</h1>
-    <p>Run <strong>{html.escape(record.run_id)}</strong> - status={html.escape(record.status)} - territories={html.escape(', '.join(record.territories))}</p>
+    <h1>Graphes du run SIB</h1>
+    <p>Run <strong>{html.escape(record.run_id)}</strong> - statut={html.escape(record.status)} - territoires={html.escape(_display_territories(record.territories))}</p>
     <p>Sources chargees:</p>
     <ul>{payload_rows}</ul>
   </header>
   <div class="layout">
     <aside class="sidebar">
-      <h2>Graph List</h2>
+      <h2>Liste des graphes</h2>
       {''.join(nav_parts)}
     </aside>
     <main class="content">
@@ -2870,37 +3115,8 @@ def _render_scatter_map_png(
     payload: dict[str, Any],
     output_path: Path,
 ) -> None:
-    points = list(payload.get("points") or [])
     fig, ax = plt.subplots(figsize=(8.5, 7.5))
-    if points:
-        gpd = _load_geopandas()
-        from shapely.geometry import Point
-
-        gdf = gpd.GeoDataFrame(
-            {
-                "value": [float(point["value"]) for point in points],
-            },
-            geometry=[Point(float(point["lon"]), float(point["lat"])) for point in points],
-            crs="EPSG:4326",
-        ).to_crs(epsg=3857)
-        cmap = _resolve_map_cmap(payload)
-        _apply_map_extent(ax, gdf)
-        _add_light_basemap(ax)
-        scatter = ax.scatter(
-            gdf.geometry.x,
-            gdf.geometry.y,
-            c=list(gdf["value"]),
-            cmap=cmap,
-            s=payload.get("size") or 130,
-            marker="s",
-            edgecolors="none",
-            alpha=0.9,
-            zorder=3,
-        )
-        cbar = fig.colorbar(scatter, ax=ax, shrink=0.8)
-        cbar.set_label(payload.get("colorbar_label") or "")
-    ax.set_title(payload.get("title") or "")
-    ax.set_axis_off()
+    _plot_scatter_map_axis(fig, ax, payload, add_colorbar=True)
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
 
@@ -2945,6 +3161,154 @@ def _render_multi_scatter_map_png(
     plt.close(fig)
 
 
+def _points_to_projected_gdf(points: list[dict[str, float]]) -> Any | None:
+    if not points:
+        return None
+    gpd = _load_geopandas()
+    from shapely.geometry import Point
+
+    return gpd.GeoDataFrame(
+        {
+            "value": [float(point["value"]) for point in points],
+        },
+        geometry=[Point(float(point["lon"]), float(point["lat"])) for point in points],
+        crs="EPSG:4326",
+    ).to_crs(epsg=3857)
+
+
+def _plot_scatter_map_axis(
+    fig: Any,
+    ax: Any,
+    payload: dict[str, Any],
+    *,
+    extent_gdf: Any | None = None,
+    add_colorbar: bool = False,
+) -> Any | None:
+    points = list(payload.get("points") or [])
+    gdf = _points_to_projected_gdf(points)
+    frame = gdf if gdf is not None else extent_gdf
+    if frame is not None:
+        _apply_map_extent(ax, frame)
+        _add_light_basemap(ax)
+    scatter = None
+    if gdf is not None:
+        scatter = ax.scatter(
+            gdf.geometry.x,
+            gdf.geometry.y,
+            c=list(gdf["value"]),
+            cmap=_resolve_map_cmap(payload),
+            s=payload.get("size") or 130,
+            marker="s",
+            edgecolors="none",
+            alpha=0.9,
+            zorder=3,
+            vmin=payload.get("vmin"),
+            vmax=payload.get("vmax"),
+        )
+        if add_colorbar:
+            cbar = fig.colorbar(scatter, ax=ax, shrink=0.8)
+            cbar.set_label(payload.get("colorbar_label") or "")
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            str(payload.get("empty_label") or "Aucune donnee"),
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="#475569",
+            transform=ax.transAxes,
+        )
+    title = str(payload.get("title") or "").strip()
+    if title:
+        ax.set_title(title)
+    ax.set_axis_off()
+    return scatter
+
+
+def _render_scatter_map_grid_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    import numpy as np
+
+    rows = [item for item in (payload.get("rows") or []) if isinstance(item, dict)]
+    columns = [item for item in (payload.get("columns") or []) if isinstance(item, dict)]
+    cells = payload.get("cells") or []
+    if not rows or not columns:
+        raise RuntimeError("scatter_map_grid requires non-empty rows and columns")
+
+    fig, axes = plt.subplots(len(rows), len(columns), figsize=(4.8 * len(columns), 4.4 * len(rows)))
+    axes = np.atleast_2d(axes)
+
+    combined_geometries = []
+    for row_cells in cells:
+        if not isinstance(row_cells, list):
+            continue
+        for cell_payload in row_cells:
+            if not isinstance(cell_payload, dict):
+                continue
+            gdf = _points_to_projected_gdf(list(cell_payload.get("points") or []))
+            if gdf is not None:
+                combined_geometries.extend(list(gdf.geometry))
+
+    extent_gdf = None
+    if combined_geometries:
+        gpd = _load_geopandas()
+        extent_gdf = gpd.GeoDataFrame(geometry=combined_geometries, crs="EPSG:3857")
+
+    column_mappables: list[Any | None] = [None for _ in columns]
+    for row_index, row in enumerate(rows):
+        for column_index, column in enumerate(columns):
+            ax = axes[row_index, column_index]
+            cell_payload = {}
+            if row_index < len(cells) and isinstance(cells[row_index], list) and column_index < len(cells[row_index]) and isinstance(cells[row_index][column_index], dict):
+                cell_payload = dict(cells[row_index][column_index])
+            if column_index == 0:
+                ax.text(
+                    -0.12,
+                    0.5,
+                    str(row.get("label") or ""),
+                    transform=ax.transAxes,
+                    rotation=90,
+                    ha="center",
+                    va="center",
+                    fontsize=11,
+                    fontweight="bold",
+                )
+            scatter = _plot_scatter_map_axis(fig, ax, {**cell_payload, "title": ""}, extent_gdf=extent_gdf, add_colorbar=False)
+            if row_index == 0:
+                ax.set_title(str(column.get("label") or ""), fontsize=12, pad=14, fontweight="bold")
+            if scatter is not None and column_mappables[column_index] is None:
+                column_mappables[column_index] = scatter
+
+    fig.suptitle(payload.get("title") or "", fontsize=16, y=0.98)
+    fig.subplots_adjust(top=0.9, bottom=0.08, left=0.06, right=0.93, wspace=0.09, hspace=0.05)
+
+    for column_index, column in enumerate(columns):
+        mappable = column_mappables[column_index]
+        if mappable is None:
+            continue
+        top_ax = axes[0, column_index]
+        bottom_ax = axes[len(rows) - 1, column_index]
+        top_box = top_ax.get_position()
+        bottom_box = bottom_ax.get_position()
+        next_left = axes[0, column_index + 1].get_position().x0 if column_index + 1 < len(columns) else 0.985
+        gutter = max(next_left - top_box.x1, 0.02)
+        cbar_width = min(0.012, gutter * 0.16)
+        cbar_x = top_box.x1 + (gutter * 0.36)
+        cax = fig.add_axes([cbar_x, bottom_box.y0, cbar_width, top_box.y1 - bottom_box.y0])
+        cbar = fig.colorbar(mappable, cax=cax)
+        cbar.ax.tick_params(labelsize=9, pad=3)
+        cbar.set_label(str(column.get("colorbar_label") or ""))
+    note = payload.get("note")
+    if note:
+        fig.text(0.01, 0.01, note, ha="left", va="bottom", fontsize=8, color="#475569", wrap=True)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _load_geopandas():
     try:
         import geopandas as gpd
@@ -2961,6 +3325,27 @@ def _load_geodataframe_cached(path: str) -> Any:
     gdf = gpd.read_file(path)
     _GEODATAFRAME_CACHE[cache_key] = gdf
     return gdf.copy()
+
+
+def _load_geodataframe_layer_cached(path: str, layer: str | None = None) -> Any:
+    cache_key = (str(path), str(layer) if layer is not None else None)
+    if cache_key in _GEODATAFRAME_LAYER_CACHE:
+        return _GEODATAFRAME_LAYER_CACHE[cache_key].copy()
+    gpd = _load_geopandas()
+    gdf = gpd.read_file(path, layer=layer) if layer is not None else gpd.read_file(path)
+    _GEODATAFRAME_LAYER_CACHE[cache_key] = gdf
+    return gdf.copy()
+
+
+def _load_rasterio() -> Any:
+    try:
+        import rasterio
+        import rasterio.mask
+    except Exception as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError(
+            "Population outputs require rasterio in the Python environment used to run this script"
+        ) from exc
+    return rasterio
 
 
 def _resolve_map_cmap(payload: dict[str, Any]) -> Any:
@@ -3149,6 +3534,499 @@ def _add_light_basemap(ax: Any) -> None:
         return
 
 
+def _round_to_grid(coord: float, step: float = TERRITORY_GRID_DEG) -> float:
+    scaled = float(coord) / float(step)
+    if scaled >= 0:
+        return round(math.floor(scaled + 0.5) * step, 2)
+    return round(math.ceil(scaled - 0.5) * step, 2)
+
+
+def _territory_cell_id_from_lat_lon(lat: float, lon: float, step: float = TERRITORY_GRID_DEG) -> str:
+    lat_center = _round_to_grid(lat, step)
+    lon_center = _round_to_grid(lon, step)
+    return f"cell-{lat_center:+05.2f}_{lon_center:+06.2f}"
+
+
+def _parse_territory_cell_id(cell_id: str) -> tuple[float, float] | None:
+    text = str(cell_id or "").strip()
+    if not text.startswith("cell-"):
+        return None
+    try:
+        lat_raw, lon_raw = text[5:].split("_", 1)
+        return float(lat_raw), float(lon_raw)
+    except Exception:
+        return None
+
+
+def _service_key_from_layer_key(layer_key: str) -> str | None:
+    key = str(layer_key or "").strip().lower()
+    if key == "eau_aep":
+        return "water_aep"
+    if key == "eau_eu":
+        return "water_eu"
+    if key in {
+        "elec_grid_0p1deg",
+        "elec_bt_aerien",
+        "elec_bt_souterrain",
+        "elec_hta_aerien",
+        "elec_hta_souterrain",
+    }:
+        return "elec"
+    return None
+
+
+def _state_severity(value: str) -> int:
+    return {
+        "S0": 0,
+        "S1": 1,
+        "S2": 2,
+        "S3": 3,
+    }.get(str(value or "S0").upper(), 0)
+
+
+def _population_by_cell(complete_analysis_payload: dict[str, Any]) -> dict[str, float]:
+    rows = complete_analysis_payload.get("territory_results")
+    if not isinstance(rows, list):
+        return {}
+    out: dict[str, float] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cell_id = str(row.get("territory_id") or "").strip()
+        if not cell_id:
+            continue
+        out[cell_id] = _safe_float(row.get("population_total"))
+    return out
+
+
+def _territory_cell_geodataframe(population_by_cell: dict[str, float]) -> Any:
+    gpd = _load_geopandas()
+    from shapely.geometry import box
+
+    half_step = TERRITORY_GRID_DEG / 2.0
+    records: list[dict[str, Any]] = []
+    for cell_id, population in population_by_cell.items():
+        parsed = _parse_territory_cell_id(cell_id)
+        if parsed is None:
+            continue
+        lat, lon = parsed
+        records.append(
+            {
+                "territory_id": cell_id,
+                "population_total": float(population),
+                "geometry": box(lon - half_step, lat - half_step, lon + half_step, lat + half_step),
+            }
+        )
+    if not records:
+        return gpd.GeoDataFrame(columns=["territory_id", "population_total", "geometry"], geometry="geometry", crs="EPSG:4326")
+    return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
+def _aligned_grid_edges(min_coord: float, max_coord: float, step: float) -> list[float]:
+    start = math.floor(float(min_coord) / float(step)) * float(step)
+    stop = math.ceil(float(max_coord) / float(step)) * float(step)
+    edges: list[float] = []
+    current = start
+    while current <= stop + 1e-9:
+        edges.append(round(current, 6))
+        current += float(step)
+    if len(edges) < 2:
+        edges.append(round(start + float(step), 6))
+    return edges
+
+
+def _population_overlay_territory_payload(artifacts: AuxiliaryArtifacts, code: str = "glp") -> dict[str, Any] | None:
+    if artifacts.population_overlays is None:
+        return None
+    territories = artifacts.population_overlays.payload.get("territories")
+    if not isinstance(territories, list):
+        return None
+    for item in territories:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("code") or "").strip().lower() == code:
+            return item
+    return None
+
+
+def _build_population_grid_geodataframe(
+    raster_path: str,
+    *,
+    bounds: dict[str, Any],
+    cell_size_deg: float,
+) -> Any:
+    gpd = _load_geopandas()
+    rasterio = _load_rasterio()
+    import numpy as np
+    from rasterio.windows import from_bounds
+    from shapely.geometry import box
+
+    west = _safe_float(bounds.get("west"))
+    east = _safe_float(bounds.get("east"))
+    south = _safe_float(bounds.get("south"))
+    north = _safe_float(bounds.get("north"))
+    lon_edges = _aligned_grid_edges(west, east, cell_size_deg)
+    lat_edges = _aligned_grid_edges(south, north, cell_size_deg)
+
+    records: list[dict[str, Any]] = []
+    with rasterio.open(raster_path) as src:
+        nodata = src.nodata
+        for lat_idx in range(len(lat_edges) - 1):
+            cell_south = lat_edges[lat_idx]
+            cell_north = lat_edges[lat_idx + 1]
+            for lon_idx in range(len(lon_edges) - 1):
+                cell_west = lon_edges[lon_idx]
+                cell_east = lon_edges[lon_idx + 1]
+                window = from_bounds(cell_west, cell_south, cell_east, cell_north, src.transform)
+                window = window.round_offsets().round_lengths()
+                arr = src.read(1, window=window, masked=True)
+                values = arr.compressed() if hasattr(arr, "compressed") else np.asarray(arr).ravel()
+                if nodata is not None:
+                    values = values[values != nodata]
+                values = values[np.isfinite(values)] if values.size else values
+                values = values[values > 0.0] if values.size else values
+                population = float(values.sum()) if values.size else 0.0
+                center_lat = round((cell_south + cell_north) / 2.0, 4)
+                center_lon = round((cell_west + cell_east) / 2.0, 4)
+                records.append(
+                    {
+                        "grid_cell_id": _territory_cell_id_from_lat_lon(center_lat, center_lon, cell_size_deg),
+                        "population_total": population,
+                        "center_lat": center_lat,
+                        "center_lon": center_lon,
+                        "geometry": box(cell_west, cell_south, cell_east, cell_north),
+                    }
+                )
+    return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
+def _network_state_feature_cell_id(feature: Any) -> str | None:
+    feature_id = str(feature.get("feature_id") or "").strip()
+    layer_key = str(feature.get("layer_key") or "").strip()
+    if layer_key == "elec_grid_0p1deg" and feature_id.startswith("cell-"):
+        return feature_id
+    geometry = feature.get("geometry")
+    if geometry is None:
+        return None
+    point = geometry.representative_point()
+    if point is None or point.is_empty:
+        return None
+    return _territory_cell_id_from_lat_lon(point.y, point.x)
+
+
+def _compute_population_state_analysis(artifacts: AuxiliaryArtifacts) -> dict[str, Any] | None:
+    if not artifacts.network_states_path:
+        return None
+    population_by_cell = _population_by_cell(artifacts.complete_analysis.payload)
+    if not population_by_cell:
+        return None
+    gdf = _load_geodataframe_cached(artifacts.network_states_path)
+    if gdf.empty:
+        return None
+    if gdf.crs is None:
+        gdf = gdf.set_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=4326)
+
+    scenarios = [scenario_key for scenario_key, _label in NETWORK_STATE_MATRIX_SCENARIOS]
+    hazards = list(SUPPORTED_HAZARDS)
+    column_keys = [column_key for column_key, _label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS]
+    service_states: dict[str, dict[str, dict[str, dict[str, str]]]] = {
+        scenario: {hazard: {} for hazard in hazards} for scenario in scenarios
+    }
+    column_states: dict[str, dict[str, dict[str, dict[str, str]]]] = {
+        scenario: {hazard: {column_key: {} for column_key in column_keys} for hazard in hazards} for scenario in scenarios
+    }
+    column_layers = {column_key: set(class_keys) for column_key, _label, class_keys in NETWORK_STATE_MATRIX_COLUMNS}
+
+    for row in gdf.itertuples(index=False):
+        row_dict = row._asdict()
+        cell_id = _network_state_feature_cell_id(row_dict)
+        if not cell_id or cell_id not in population_by_cell:
+            continue
+        layer_key = str(row_dict.get("layer_key") or "").strip()
+        service_key = _service_key_from_layer_key(layer_key)
+        for scenario in scenarios:
+            for hazard in hazards:
+                state_code = str(row_dict.get(f"state_{scenario}_{hazard}") or "S0").upper()
+                if service_key:
+                    service_bucket = service_states[scenario][hazard].setdefault(
+                        cell_id,
+                        {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                    )
+                    if _state_severity(state_code) > _state_severity(service_bucket.get(service_key, "S0")):
+                        service_bucket[service_key] = state_code
+                for column_key, layers in column_layers.items():
+                    if layer_key not in layers:
+                        continue
+                    current = str(column_states[scenario][hazard][column_key].get(cell_id) or "S0").upper()
+                    if _state_severity(state_code) > _state_severity(current):
+                        column_states[scenario][hazard][column_key][cell_id] = state_code
+
+    total_population = sum(max(0.0, float(value)) for value in population_by_cell.values())
+    return {
+        "population_by_cell": population_by_cell,
+        "service_states": service_states,
+        "column_states": column_states,
+        "total_population": total_population,
+    }
+
+
+def _compute_hotspot_population_state_analysis(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    cell_size_deg: float = HOTSPOT_GRID_DEG,
+) -> dict[str, Any] | None:
+    if not artifacts.network_states_path or not artifacts.population_raster_path:
+        return None
+    territory_payload = _population_overlay_territory_payload(artifacts, "glp")
+    bounds = territory_payload.get("bounds") if isinstance(territory_payload, dict) and isinstance(territory_payload.get("bounds"), dict) else None
+    if bounds is None:
+        return None
+    grid = _build_population_grid_geodataframe(artifacts.population_raster_path, bounds=bounds, cell_size_deg=cell_size_deg)
+    if grid.empty:
+        return None
+    gdf = _load_geodataframe_cached(artifacts.network_states_path)
+    if gdf.empty:
+        return None
+    if gdf.crs is None:
+        gdf = gdf.set_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=4326)
+    centroids = grid[["grid_cell_id", "population_total", "geometry"]].copy()
+    centroids["geometry"] = centroids.geometry.representative_point()
+    gpd = _load_geopandas()
+    joined = gpd.sjoin(centroids, gdf, how="left", predicate="within")
+    if joined.empty:
+        joined = gpd.sjoin(centroids, gdf, how="left", predicate="intersects")
+
+    scenarios = [scenario_key for scenario_key, _label in NETWORK_STATE_MATRIX_SCENARIOS]
+    hazards = list(SUPPORTED_HAZARDS)
+    service_states: dict[str, dict[str, dict[str, dict[str, str]]]] = {
+        scenario: {hazard: {} for hazard in hazards} for scenario in scenarios
+    }
+    for row in joined.itertuples(index=False):
+        cell_id = str(getattr(row, "grid_cell_id", "") or "").strip()
+        if not cell_id:
+            continue
+        service_key = _service_key_from_layer_key(getattr(row, "layer_key", ""))
+        if not service_key:
+            continue
+        for scenario in scenarios:
+            for hazard in hazards:
+                state_code = str(getattr(row, f"state_{scenario}_{hazard}", "S0") or "S0").upper()
+                bucket = service_states[scenario][hazard].setdefault(
+                    cell_id,
+                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                )
+                if _state_severity(state_code) > _state_severity(bucket.get(service_key, "S0")):
+                    bucket[service_key] = state_code
+    return {
+        "grid": grid,
+        "service_states": service_states,
+        "cell_size_deg": cell_size_deg,
+    }
+
+
+def _build_population_overlay_map_payload(artifacts: AuxiliaryArtifacts, title: str) -> dict[str, Any] | None:
+    if artifacts.territory != "guadeloupe" or artifacts.population_overlays is None:
+        return None
+    payload = artifacts.population_overlays.payload
+    territories = payload.get("territories")
+    if not isinstance(territories, list):
+        return None
+    territory_payload = next((item for item in territories if str(item.get("code") or "").strip().lower() == "glp"), None)
+    if not isinstance(territory_payload, dict):
+        return None
+    overlay_rel = str(territory_payload.get("overlay") or "").strip()
+    bounds = territory_payload.get("bounds") if isinstance(territory_payload.get("bounds"), dict) else {}
+    if not overlay_rel or not bounds:
+        return None
+    overlay_path = POPULATION_OVERLAYS_PATH.parent / overlay_rel
+    if not overlay_path.exists():
+        return None
+    return {
+        "type": "raster_overlay_map",
+        "title": title,
+        "overlay_path": str(overlay_path),
+        "bounds": {
+            "south": _safe_float(bounds.get("south")),
+            "north": _safe_float(bounds.get("north")),
+            "west": _safe_float(bounds.get("west")),
+            "east": _safe_float(bounds.get("east")),
+        },
+        "scale_max": _safe_float(_dict_path_get(payload, "meta", "scale", "max_people_per_pixel"), default=1.0),
+        "cmap_colors": list(_dict_path_get(payload, "meta", "palette_hex") or []),
+        "legend_title": "Population (pers./pixel)",
+        "note": "WorldPop 2020 - overlay rasterisee de population.",
+    }
+
+
+def _build_population_hotspot_superplot_payload(
+    artifacts: AuxiliaryArtifacts,
+    title: str,
+) -> dict[str, Any] | None:
+    analysis = _compute_hotspot_population_state_analysis(artifacts, cell_size_deg=HOTSPOT_GRID_DEG)
+    if analysis is None:
+        return None
+    base_grid = analysis["grid"]
+    if base_grid.empty:
+        return None
+    service_states = analysis["service_states"]
+    rows = [
+        {"key": "storm", "label": "STORM"},
+        {"key": "storm_cmcc", "label": "STORM_CMCC"},
+    ]
+    columns = [
+        {"key": "annual", "label": "Annuel"},
+        {"key": "rp50", "label": "RP50"},
+        {"key": "rp100", "label": "RP100"},
+        {"key": "p99", "label": "P99"},
+    ]
+    cells: list[list[dict[str, Any]]] = []
+    max_value = 0.0
+    for row in rows:
+        row_payloads: list[dict[str, Any]] = []
+        for column in columns:
+            cell_states = _dict_path_get(service_states, column["key"], row["key"])
+            if not isinstance(cell_states, dict):
+                return None
+            gdf = base_grid.copy()
+            values: list[float] = []
+            for grid_row in gdf.itertuples(index=False):
+                states = cell_states.get(
+                    str(grid_row.grid_cell_id),
+                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                )
+                affected = any(str(states.get(key) or "S0").upper() != "S0" for key in ("elec", "water_aep", "water_eu"))
+                value = float(grid_row.population_total) if affected else 0.0
+                max_value = max(max_value, value)
+                values.append(value)
+            gdf["affected_population"] = values
+            row_payloads.append(
+                {
+                    "gdf": gdf,
+                    "value_column": "affected_population",
+                }
+            )
+        cells.append(row_payloads)
+    return {
+        "type": "choropleth_map_grid",
+        "title": title,
+        "rows": rows,
+        "columns": columns,
+        "cells": cells,
+        "cmap_colors": ["#fff7bc", "#fee391", "#fec44f", "#fe9929", "#ec7014", "#cc4c02", "#993404"],
+        "legend_title": f"Population affectee (pers.) - maille {HOTSPOT_GRID_DEG:.2f}°",
+        "vmin": 0.0,
+        "vmax": max(max_value, 1.0),
+        "edgecolor": "#ffffff",
+        "line_width": 0.2,
+        "note": (
+            f"Population affectee tous reseaux confondus. Resolution de visualisation: maille reguliere {HOTSPOT_GRID_DEG:.2f}° "
+            f"(plus fine que la maille territoriale 0.20° du complete analysis)."
+        ),
+    }
+
+
+def _build_hydraulic_population_importance_payload(
+    artifacts: AuxiliaryArtifacts,
+    title: str,
+) -> dict[str, Any] | None:
+    if not artifacts.hydraulic_zones_path or not artifacts.population_raster_path:
+        return None
+    zones = _load_geodataframe_layer_cached(artifacts.hydraulic_zones_path, layer="hydraulic_zones")
+    if zones.empty:
+        return None
+    zones = zones[zones["network_kind"].astype(str).str.upper() == "AEP"].copy()
+    if zones.empty or "zone_uid" not in zones.columns:
+        return None
+    if zones.crs is None:
+        raise RuntimeError("Hydraulic zones layer has no CRS")
+    rasterio = _load_rasterio()
+    import numpy as np
+    from shapely.geometry import mapping
+
+    dissolved = zones[["zone_uid", "geometry"]].dissolve(by="zone_uid", as_index=False)
+    metrics: dict[str, float] = {}
+    with rasterio.open(artifacts.population_raster_path) as src:
+        dissolved_for_sum = dissolved.to_crs(src.crs) if src.crs is not None else dissolved
+        nodata = src.nodata
+        for row in dissolved_for_sum.itertuples(index=False):
+            geometry = row.geometry
+            if geometry is None or geometry.is_empty:
+                metrics[str(row.zone_uid)] = 0.0
+                continue
+            masked, _transform = rasterio.mask.mask(src, [mapping(geometry)], crop=True, filled=False)
+            band = masked[0]
+            values = band.compressed() if hasattr(band, "compressed") else np.asarray(band).ravel()
+            if nodata is not None:
+                values = values[values != nodata]
+            if values.size == 0:
+                metrics[str(row.zone_uid)] = 0.0
+                continue
+            values = values[np.isfinite(values)]
+            values = values[values > 0.0]
+            metrics[str(row.zone_uid)] = float(values.sum()) if values.size else 0.0
+    zones = zones.copy()
+    zones["dependent_population"] = zones["zone_uid"].map(lambda value: float(metrics.get(str(value), 0.0)))
+    return {
+        "type": "choropleth_map",
+        "title": title,
+        "gdf": zones,
+        "value_column": "dependent_population",
+        "cmap_colors": ["#fff7bc", "#fee391", "#fec44f", "#fb923c", "#ef4444", "#b91c1c"],
+        "legend_title": "Population dependante (pers.)",
+        "edgecolor": "#ffffff",
+        "line_width": 0.35,
+        "note": "Importance des zonages hydrauliques AEP - population totale couverte par zone logique.",
+    }
+
+
+def _build_population_state_matrix_payload(
+    artifacts: AuxiliaryArtifacts,
+    hazard: str,
+    title: str,
+) -> dict[str, Any] | None:
+    analysis = _compute_population_state_analysis(artifacts)
+    if analysis is None:
+        return None
+    population_by_cell = analysis["population_by_cell"]
+    column_states = _dict_path_get(analysis, "column_states")
+    total_population = max(_safe_float(analysis.get("total_population")), 0.0)
+    if not isinstance(column_states, dict) or total_population <= 0.0:
+        return None
+    cells: list[list[dict[str, float]]] = []
+    has_non_zero = False
+    for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
+        hazard_columns = _dict_path_get(column_states, scenario_key, hazard)
+        if not isinstance(hazard_columns, dict):
+            return None
+        scenario_cells: list[dict[str, float]] = []
+        for column_key, _column_label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+            totals = {state: 0.0 for state in STATE_SEQUENCE}
+            cell_states = hazard_columns.get(column_key) if isinstance(hazard_columns.get(column_key), dict) else {}
+            for cell_id, population in population_by_cell.items():
+                state = str(cell_states.get(cell_id) or "S0").upper()
+                if state not in totals:
+                    state = "S0"
+                totals[state] += float(population)
+            percentages = {state: round((value / total_population) * 100.0, 4) for state, value in totals.items()}
+            if any(percentages[state] > 0.0 for state in ("S1", "S2", "S3")):
+                has_non_zero = True
+            scenario_cells.append(percentages)
+        cells.append(scenario_cells)
+    if not has_non_zero and not cells:
+        return None
+    return {
+        "type": "population_state_matrix",
+        "title": title,
+        "column_titles": [label for _column_key, label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS],
+        "row_titles": [label for scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
+        "cells": cells,
+        "legend_title": "% de la population totale",
+        "note": "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau.",
+    }
+
+
 def _render_geojson_map_png(
     plt: Any,
     payload: dict[str, Any],
@@ -3221,8 +4099,227 @@ def _render_geojson_map_png(
     plt.close(fig)
 
 
+def _render_raster_overlay_map_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib import cm, colors as mcolors
+
+    overlay_path = str(payload.get("overlay_path") or "").strip()
+    bounds = payload.get("bounds") if isinstance(payload.get("bounds"), dict) else {}
+    if not overlay_path or not bounds:
+        raise RuntimeError("overlay_path and bounds are required for raster_overlay_map rendering")
+    image = plt.imread(overlay_path)
+    gpd = _load_geopandas()
+    from shapely.geometry import box
+
+    bounds_gdf = gpd.GeoDataFrame(
+        [{"geometry": box(_safe_float(bounds.get("west")), _safe_float(bounds.get("south")), _safe_float(bounds.get("east")), _safe_float(bounds.get("north")))}],
+        geometry="geometry",
+        crs="EPSG:4326",
+    ).to_crs(epsg=3857)
+    min_x, min_y, max_x, max_y = [float(value) for value in bounds_gdf.total_bounds]
+
+    fig, ax = plt.subplots(figsize=(8.5, 7.5))
+    _apply_map_extent(ax, bounds_gdf)
+    _add_light_basemap(ax)
+    ax.imshow(image, extent=(min_x, max_x, min_y, max_y), zorder=3, alpha=0.96)
+    ax.set_title(payload.get("title") or "")
+    ax.set_axis_off()
+
+    scale_max = max(_safe_float(payload.get("scale_max"), default=1.0), 1.0)
+    cmap = _resolve_map_cmap(payload)
+    norm = mcolors.Normalize(vmin=0.0, vmax=scale_max)
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+    cbar = fig.colorbar(mappable, ax=ax, fraction=0.035, pad=0.02)
+    cbar.set_label(str(payload.get("legend_title") or "Valeur"))
+
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_choropleth_map_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib import cm, colors as mcolors
+
+    gdf = payload.get("gdf")
+    value_column = str(payload.get("value_column") or "").strip()
+    if gdf is None or not value_column:
+        raise RuntimeError("gdf and value_column are required for choropleth_map rendering")
+    if getattr(gdf, "empty", True):
+        raise RuntimeError("No geometries available for choropleth_map rendering")
+    if value_column not in gdf.columns:
+        raise RuntimeError(f"Missing value column for choropleth_map: {value_column}")
+    if gdf.crs is None:
+        gdf = gdf.set_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=3857)
+    values = gdf[value_column].map(lambda value: max(_safe_float(value), 0.0))
+    gdf = gdf.copy()
+    gdf[value_column] = values
+
+    fig, ax = plt.subplots(figsize=(8.5, 7.5))
+    _apply_map_extent(ax, gdf)
+    _add_light_basemap(ax)
+
+    cmap = _resolve_map_cmap(payload)
+    vmin = 0.0
+    vmax = max(_safe_float(values.max()), 0.0)
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    colors = [cmap(norm(value)) for value in values]
+    line_width = _safe_float(payload.get("line_width"), default=0.45)
+    gdf.plot(
+        ax=ax,
+        color=colors,
+        edgecolor=str(payload.get("edgecolor") or "#ffffff"),
+        linewidth=line_width,
+        alpha=0.9,
+        zorder=3,
+    )
+    ax.set_title(payload.get("title") or "")
+    ax.set_axis_off()
+
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+    cbar = fig.colorbar(mappable, ax=ax, fraction=0.035, pad=0.02)
+    cbar.set_label(str(payload.get("legend_title") or "Valeur"))
+
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_choropleth_map_grid_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib import cm, colors as mcolors
+
+    rows = payload.get("rows") or []
+    columns = payload.get("columns") or []
+    cells = payload.get("cells") or []
+    if not rows or not columns or not cells:
+        raise RuntimeError("choropleth_map_grid requires non-empty rows, columns and cells")
+
+    nrows = len(rows)
+    ncols = len(columns)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(18, 9.6), sharex=False, sharey=False)
+    if nrows == 1 and ncols == 1:
+        axes_grid = [[axes]]
+    elif nrows == 1:
+        axes_grid = [list(axes)]
+    elif ncols == 1:
+        axes_grid = [[ax] for ax in axes]
+    else:
+        axes_grid = [list(row) for row in axes]
+
+    cmap = _resolve_map_cmap(payload)
+    norm = mcolors.Normalize(vmin=_safe_float(payload.get("vmin"), 0.0), vmax=max(_safe_float(payload.get("vmax"), 1.0), 1.0))
+    edgecolor = str(payload.get("edgecolor") or "#ffffff")
+    line_width = _safe_float(payload.get("line_width"), 0.2)
+
+    for row_idx, row_cfg in enumerate(rows):
+        row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
+        for col_idx, column_cfg in enumerate(columns):
+            ax = axes_grid[row_idx][col_idx]
+            cell = row_cells[col_idx] if col_idx < len(row_cells) and isinstance(row_cells[col_idx], dict) else {}
+            gdf = cell.get("gdf")
+            value_column = str(cell.get("value_column") or "").strip()
+            if gdf is None or not value_column or getattr(gdf, "empty", True):
+                ax.set_axis_off()
+                continue
+            if gdf.crs is None:
+                gdf = gdf.set_crs(epsg=4326)
+            gdf = gdf.to_crs(epsg=3857)
+            _apply_map_extent(ax, gdf)
+            _add_light_basemap(ax)
+            values = gdf[value_column].map(lambda value: max(_safe_float(value), 0.0))
+            colors = [cmap(norm(value)) for value in values]
+            gdf.plot(ax=ax, color=colors, edgecolor=edgecolor, linewidth=line_width, alpha=0.92, zorder=3)
+            ax.set_axis_off()
+            if row_idx == 0:
+                ax.set_title(str(column_cfg.get("label") or column_cfg.get("key") or ""), fontsize=11, pad=10, fontweight="bold")
+            if col_idx == 0:
+                ax.text(-0.08, 0.5, str(row_cfg.get("label") or row_cfg.get("key") or ""), transform=ax.transAxes, rotation=90, va="center", ha="center", fontsize=11, fontweight="bold")
+
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+    cbar = fig.colorbar(mappable, ax=[ax for row_axes in axes_grid for ax in row_axes], fraction=0.022, pad=0.02)
+    cbar.set_label(str(payload.get("legend_title") or "Valeur"))
+    fig.suptitle(payload.get("title") or "", fontsize=18, y=0.985)
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_population_state_matrix_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib.patches import Patch
+
+    row_titles = payload.get("row_titles") or []
+    column_titles = payload.get("column_titles") or []
+    cells = payload.get("cells") or []
+    if not row_titles or not column_titles or not cells:
+        fig, _ax = plt.subplots(figsize=(12, 8))
+        _save_figure(fig, output_path, payload.get("note"))
+        plt.close(fig)
+        return
+
+    nrows = len(row_titles)
+    ncols = len(column_titles)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14.5, 12.3), subplot_kw={"aspect": "equal"})
+    if nrows == 1 and ncols == 1:
+        axes_grid = [[axes]]
+    elif nrows == 1:
+        axes_grid = [list(axes)]
+    elif ncols == 1:
+        axes_grid = [[ax] for ax in axes]
+    else:
+        axes_grid = [list(row) for row in axes]
+
+    state_palette = [STATE_COLORS[state] if state == "S0" else HAZARD_COLORS[state.lower()] for state in STATE_SEQUENCE]
+    for row_idx, row_title in enumerate(row_titles):
+        row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
+        for col_idx, column_title in enumerate(column_titles):
+            ax = axes_grid[row_idx][col_idx]
+            cell = row_cells[col_idx] if col_idx < len(row_cells) and isinstance(row_cells[col_idx], dict) else {}
+            values = [max(_safe_float(cell.get(state)), 0.0) for state in STATE_SEQUENCE]
+            total = sum(values)
+            if total > 0.0:
+                ax.pie(
+                    values,
+                    colors=state_palette,
+                    startangle=90,
+                    counterclock=False,
+                    wedgeprops={"linewidth": 0.8, "edgecolor": "white"},
+                )
+                impacted = sum(values[1:])
+                ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=10, fontweight="bold", color="#0f172a")
+            else:
+                ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=10, fontweight="bold", color="#64748b")
+            if col_idx == 0:
+                ax.set_ylabel(row_title, rotation=0, labelpad=38, va="center", fontsize=10, fontweight="bold")
+            if row_idx == 0:
+                ax.set_title(column_title, fontsize=10, pad=18, fontweight="bold")
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    handles = [Patch(facecolor=state_palette[idx], label=_state_label(state)) for idx, state in enumerate(STATE_SEQUENCE)]
+    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.955), frameon=False)
+    fig.suptitle(payload.get("title") or "", fontsize=17, y=0.99)
+    fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=10)
+    fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.88))
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
 def _clean_output_categories(output_dir: Path) -> None:
-    for category in ("charts", "maps", "tables"):
+    for category in ("charts", "maps", "tables", "Population"):
         category_dir = output_dir / category
         if category_dir.exists():
             shutil.rmtree(category_dir)
@@ -3321,17 +4418,63 @@ def _render_auxiliary_output(
         _render_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "network_state_matrix":
         _render_network_state_matrix_png(plt, payload, output_path)
+    elif plot_type == "population_state_matrix":
+        _render_population_state_matrix_png(plt, payload, output_path)
     elif plot_type == "geojson_map":
         _render_geojson_map_png(plt, payload, output_path)
+    elif plot_type == "raster_overlay_map":
+        _render_raster_overlay_map_png(plt, payload, output_path)
+    elif plot_type == "choropleth_map":
+        _render_choropleth_map_png(plt, payload, output_path)
+    elif plot_type == "choropleth_map_grid":
+        _render_choropleth_map_grid_png(plt, payload, output_path)
     elif plot_type == "scatter_map":
         _render_scatter_map_png(plt, payload, output_path)
+    elif plot_type == "scatter_map_grid":
+        _render_scatter_map_grid_png(plt, payload, output_path)
     elif plot_type == "multi_scatter_map":
         _render_multi_scatter_map_png(plt, payload, output_path)
     else:
         raise RuntimeError(f"Unsupported auxiliary payload type: {plot_type}")
 
 
-def _build_wind_hist_payload(artifacts: AuxiliaryArtifacts, hist_key: str, title: str) -> dict[str, Any] | None:
+def _select_evenly_spaced_indices(point_count: int, target_count: int) -> list[int]:
+    if point_count <= 0:
+        return []
+    if target_count >= point_count:
+        return list(range(point_count))
+    if target_count <= 1:
+        return [0]
+    return [math.floor(position * (point_count - 1) / (target_count - 1)) for position in range(target_count)]
+
+
+def _downsample_line_series(series: dict[str, Any], divisor: int) -> dict[str, Any]:
+    if divisor <= 1:
+        return dict(series)
+    x_values = list(series.get("x") or [])
+    y_values = list(series.get("y") or [])
+    point_count = min(len(x_values), len(y_values))
+    if point_count < 4:
+        return dict(series)
+    target_count = max(2, math.ceil(point_count / divisor))
+    if target_count >= point_count:
+        return dict(series)
+    indices = _select_evenly_spaced_indices(point_count, target_count)
+    output = dict(series)
+    output["x"] = [x_values[idx] for idx in indices]
+    output["y"] = [y_values[idx] for idx in indices]
+    annotations = list(series.get("annotations") or [])
+    if annotations:
+        output["annotations"] = [annotations[idx] if idx < len(annotations) else "" for idx in indices]
+    return output
+
+
+def _build_wind_hist_payload(
+    artifacts: AuxiliaryArtifacts,
+    hist_key: str,
+    title: str,
+    point_divisor: int = 1,
+) -> dict[str, Any] | None:
     histograms = _page7_block(artifacts, "hazard", "wind_histograms")
     if not isinstance(histograms, dict):
         return None
@@ -3356,27 +4499,32 @@ def _build_wind_hist_payload(artifacts: AuxiliaryArtifacts, hist_key: str, title
             labels.append("" if value <= 0.0 else f"{value:.4g} %")
         return labels
 
+    series = [
+        {
+            "name": HAZARD_LABELS["storm"],
+            "x": storm_bins,
+            "y": storm_values,
+            "color": HAZARD_COLORS["storm"],
+            "annotations": _point_labels(storm_values),
+        },
+        {
+            "name": HAZARD_LABELS["storm_cmcc"],
+            "x": cmcc_bins,
+            "y": cmcc_values,
+            "color": HAZARD_COLORS["storm_cmcc"],
+            "annotations": _point_labels(cmcc_values),
+        },
+    ]
+    if point_divisor > 1:
+        series = [_downsample_line_series(item, point_divisor) for item in series]
+
     return {
         "type": "line",
         "title": title,
         "xlabel": "Vent maximum (km/h)",
         "ylabel": "Part des observations (%)",
-        "series": [
-            {
-                "name": HAZARD_LABELS["storm"],
-                "x": storm_bins,
-                "y": storm_values,
-                "color": HAZARD_COLORS["storm"],
-                "annotations": _point_labels(storm_values),
-            },
-            {
-                "name": HAZARD_LABELS["storm_cmcc"],
-                "x": cmcc_bins,
-                "y": cmcc_values,
-                "color": HAZARD_COLORS["storm_cmcc"],
-                "annotations": _point_labels(cmcc_values),
-            },
-        ],
+        "series": series,
+        "note": "Version allégée : un point sur deux est conservé pour améliorer la lisibilité." if point_divisor > 1 else None,
     }
 
 
@@ -3870,6 +5018,34 @@ def _build_population_coverage_table_payload(artifacts: AuxiliaryArtifacts, titl
     }
 
 
+def _build_population_output_specs(artifacts: AuxiliaryArtifacts) -> list[tuple[str, dict[str, Any] | None]]:
+    if artifacts.territory != "guadeloupe":
+        return []
+    territory_name = territory_label(artifacts.territory)
+    return [
+        (
+            "carte_population_guadeloupe.png",
+            _build_population_overlay_map_payload(artifacts, f"{territory_name} - Carte de population"),
+        ),
+        (
+            "superplot_hotspots_population_affectee.png",
+            _build_population_hotspot_superplot_payload(artifacts, f"{territory_name} - Hotspots population affectee"),
+        ),
+        (
+            "importance_zonages_hydrauliques_aep.png",
+            _build_hydraulic_population_importance_payload(artifacts, f"{territory_name} - Importance des zonages hydrauliques AEP"),
+        ),
+        (
+            "matrice_population_etats_reseaux_storm.png",
+            _build_population_state_matrix_payload(artifacts, "storm", f"{territory_name} - Matrice population etats reseaux STORM"),
+        ),
+        (
+            "matrice_population_etats_reseaux_storm_cmcc.png",
+            _build_population_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_name} - Matrice population etats reseaux STORM_CMCC"),
+        ),
+    ]
+
+
 def _build_hazard_cell_points(artifacts: AuxiliaryArtifacts, hazard: str, field_name: str) -> list[dict[str, float]]:
     block = _wind_map_block(artifacts, hazard)
     if not block:
@@ -3902,6 +5078,170 @@ def _build_landslide_points(artifacts: AuxiliaryArtifacts) -> list[dict[str, flo
             continue
         points.append({"lat": float(lat), "lon": float(lon), "value": float(value)})
     return points
+
+
+def _scale_points(points: list[dict[str, float]], factor: float) -> list[dict[str, float]]:
+    if math.isclose(factor, 1.0):
+        return [dict(point) for point in points]
+    out: list[dict[str, float]] = []
+    for point in points:
+        value = point.get("value")
+        if value is None:
+            continue
+        out.append(
+            {
+                "lat": float(point["lat"]),
+                "lon": float(point["lon"]),
+                "value": float(value) * factor,
+            }
+        )
+    return out
+
+
+def _build_hazard_scatter_map_payloads(artifacts: AuxiliaryArtifacts, territory: str) -> dict[str, dict[str, Any]]:
+    territory_name = territory_label(territory)
+    wind_rp50_points = _scale_points(_build_hazard_cell_points(artifacts, "storm", "rp50_wind_mps"), 3.6)
+    wind_rp100_points = _scale_points(_build_hazard_cell_points(artifacts, "storm", "rp100_wind_mps"), 3.6)
+    landslide_points = _build_landslide_points(artifacts)
+    landslide_note = (
+        "Le payload archive n'expose pas de couche glissement distincte par temps de retour; "
+        "la vue reutilise le score moyen archive."
+    )
+    return {
+        "wind_rp50": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Vent RP50",
+            "points": wind_rp50_points,
+            "cmap_colors": WIND_MAP_COLORS,
+            "colorbar_label": "Vent RP50 (km/h)",
+        },
+        "wind_rp100": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Vent RP100",
+            "points": wind_rp100_points,
+            "cmap_colors": WIND_MAP_COLORS,
+            "colorbar_label": "Vent RP100 (km/h)",
+        },
+        "rain_rp50": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Pluie RP50",
+            "points": _build_hazard_cell_points(artifacts, "storm", "rp50_rain_mm"),
+            "cmap": "GnBu",
+            "colorbar_label": "Pluie RP50 (mm)",
+        },
+        "rain_rp100": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Pluie RP100",
+            "points": _build_hazard_cell_points(artifacts, "storm", "rp100_rain_mm"),
+            "cmap": "GnBu",
+            "colorbar_label": "Pluie RP100 (mm)",
+        },
+        "surge_rp50": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Submersion cotiere RP50",
+            "points": _build_hazard_cell_points(artifacts, "storm", "rp50_surge_m"),
+            "cmap_colors": SURGE_COLORS,
+            "colorbar_label": "Submersion RP50 (m)",
+        },
+        "surge_rp100": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Submersion cotiere RP100",
+            "points": _build_hazard_cell_points(artifacts, "storm", "rp100_surge_m"),
+            "cmap_colors": SURGE_COLORS,
+            "colorbar_label": "Submersion RP100 (m)",
+        },
+        "landslide_rp50": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Mouvements de terrain RP50",
+            "points": landslide_points,
+            "cmap_colors": LANDSLIDE_COLORS,
+            "colorbar_label": "Score mouvement de terrain",
+            "note": landslide_note,
+        },
+        "landslide_rp100": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Mouvements de terrain RP100",
+            "points": landslide_points,
+            "cmap_colors": LANDSLIDE_COLORS,
+            "colorbar_label": "Score mouvement de terrain",
+            "note": landslide_note,
+        },
+        "landslide_mean": {
+            "type": "scatter_map",
+            "title": f"{territory_name} - Mouvements de terrain",
+            "points": landslide_points,
+            "cmap_colors": LANDSLIDE_COLORS,
+            "colorbar_label": "Score mouvement de terrain",
+        },
+    }
+
+
+def _resolve_scatter_value_bounds(
+    point_groups: list[list[dict[str, float]]],
+    *,
+    lower_pad_ratio: float = 0.0,
+    upper_pad_ratio: float = 0.0,
+    floor_zero: bool = False,
+) -> tuple[float, float] | None:
+    values = [float(point["value"]) for points in point_groups for point in points if isinstance(point, dict) and point.get("value") is not None]
+    if not values:
+        return None
+    lower = min(values)
+    upper = max(values)
+    if math.isclose(lower, upper):
+        pad = max(abs(lower) * 0.05, 1.0)
+        lower -= pad
+        upper += pad
+    span = max(upper - lower, 1.0)
+    lower -= span * max(lower_pad_ratio, 0.0)
+    upper += span * max(upper_pad_ratio, 0.0)
+    if floor_zero:
+        lower = max(0.0, lower)
+    return lower, upper
+
+
+def _build_guadeloupe_hazard_supergraph_payload(artifacts: AuxiliaryArtifacts, territory: str) -> dict[str, Any] | None:
+    if territory != "guadeloupe":
+        return None
+    map_payloads = _build_hazard_scatter_map_payloads(artifacts, territory)
+    rows = [
+        {"key": "rp50", "label": "RP50"},
+        {"key": "rp100", "label": "RP100"},
+    ]
+    columns = [
+        {"key": "wind", "label": "Vent", "colorbar_label": "Vent (km/h)", "lower_pad_ratio": 0.2, "upper_pad_ratio": 0.2, "floor_zero": True},
+        {"key": "rain", "label": "Pluie", "colorbar_label": "Pluie (mm)", "lower_pad_ratio": 0.2, "upper_pad_ratio": 0.2, "floor_zero": True},
+        {"key": "surge", "label": "Inondation cotiere", "colorbar_label": "Submersion (m)"},
+        {"key": "landslide", "label": "Mouvements de terrain", "colorbar_label": "Score glissement"},
+    ]
+    cells: list[list[dict[str, Any]]] = []
+    for row in rows:
+        row_cells: list[dict[str, Any]] = []
+        for column in columns:
+            row_cells.append(dict(map_payloads[f"{column['key']}_{row['key']}"]))
+        cells.append(row_cells)
+
+    for column_index in range(len(columns)):
+        column = columns[column_index]
+        bounds = _resolve_scatter_value_bounds(
+            [cells[row_index][column_index].get("points") or [] for row_index in range(len(rows))],
+            lower_pad_ratio=float(column.get("lower_pad_ratio") or 0.0),
+            upper_pad_ratio=float(column.get("upper_pad_ratio") or 0.0),
+            floor_zero=bool(column.get("floor_zero")),
+        )
+        if bounds is None:
+            continue
+        for row_index in range(len(rows)):
+            cells[row_index][column_index]["vmin"] = bounds[0]
+            cells[row_index][column_index]["vmax"] = bounds[1]
+
+    return {
+        "type": "scatter_map_grid",
+        "title": f"{territory_label(territory)} - Supergraph des aleas RP50 et RP100",
+        "rows": rows,
+        "columns": columns,
+        "cells": cells,
+    }
 
 
 def _build_global_basin_payload(artifacts_by_territory: dict[str, AuxiliaryArtifacts]) -> dict[str, Any] | None:
@@ -3951,6 +5291,126 @@ def _write_table_payload_csv(output_path: Path, payload: dict[str, Any]) -> None
     _write_csv_table(output_path, headers, rows)
 
 
+def _resolve_archived_artifact_path(bundle: TerritoryPayload, raw_path: Any) -> Path | None:
+    if not raw_path:
+        return None
+    path = Path(str(raw_path))
+    if path.is_absolute():
+        return path
+    return Path(bundle.payload_path).resolve().parent / path
+
+
+def _build_targeted_trajectory_map_payload(
+    territory: str,
+    bundle: TerritoryPayload,
+) -> dict[str, Any] | None:
+    meta = bundle.payload.get("meta") if isinstance(bundle.payload.get("meta"), dict) else {}
+    geojson_path = _resolve_archived_artifact_path(bundle, meta.get("targeted_cyclone_track_segments_geojson"))
+    if geojson_path is None or not geojson_path.exists():
+        return None
+    return {
+        "type": "geojson_map",
+        "title": f"{territory_label(territory)} - Trajectoire du cyclone transposee",
+        "geojson_path": str(geojson_path),
+        "color_column": "saffir_simpson_category",
+        "color_map": TARGETED_TRAJECTORY_CATEGORY_COLORS,
+        "legend_labels": TARGETED_TRAJECTORY_CATEGORY_LABELS,
+        "category_order": ["-1", "0", "1", "2", "3", "4", "5"],
+        "legend_title": "Saffir-Simpson",
+        "line_width": 3.2,
+        "note": (
+            "La trajectoire transposée est colorée par catégorie Saffir-Simpson, "
+            "calculée à partir du vent maximum soutenu segment par segment."
+        ),
+    }
+
+
+def _render_targeted_event_assets(
+    record: RunRecord,
+    payloads: dict[str, TerritoryPayload],
+    output_dir: Path,
+) -> tuple[list[str], list[str]]:
+    tables_dir = output_dir / "tables"
+    maps_dir = output_dir / "maps"
+    if tables_dir.exists():
+        shutil.rmtree(tables_dir)
+    if maps_dir.exists():
+        shutil.rmtree(maps_dir)
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    maps_dir.mkdir(parents=True, exist_ok=True)
+
+    generated_paths: list[str] = []
+    warnings: list[str] = []
+    _, plt = _load_matplotlib()
+    for territory, bundle in sorted(payloads.items()):
+        payload = bundle.payload
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        selected_cyclones = meta.get("selected_cyclones") if isinstance(meta.get("selected_cyclones"), list) else []
+        trajectory_map_payload = _build_targeted_trajectory_map_payload(territory, bundle)
+        trajectory_map_path = maps_dir / f"{territory}_trajectoire_cyclone_saffir_simpson.png"
+        if trajectory_map_payload is None:
+            warnings.append(_warning_message(territory, trajectory_map_path.name, "missing targeted trajectory geojson"))
+        else:
+            try:
+                _render_auxiliary_output(plt, trajectory_map_path, trajectory_map_payload)
+                generated_paths.append(str(trajectory_map_path))
+            except Exception as exc:
+                warnings.append(_warning_message(territory, trajectory_map_path.name, f"render failed: {type(exc).__name__}: {exc}"))
+        if selected_cyclones:
+            rows: list[list[str]] = []
+            for item in selected_cyclones:
+                if not isinstance(item, dict):
+                    continue
+                transposition = item.get("transposition") if isinstance(item.get("transposition"), dict) else {}
+                rows.append(
+                    [
+                        str(item.get("preset_id") or ""),
+                        str(item.get("storm_id") or ""),
+                        str(item.get("name") or item.get("original_name") or ""),
+                        str(item.get("season") or ""),
+                        str(item.get("basin") or ""),
+                        _format_number(transposition.get("lat_shift")),
+                        _format_number(transposition.get("lon_shift")),
+                    ]
+                )
+            if rows:
+                output_path = tables_dir / f"{territory}_cyclones_selection.csv"
+                _write_csv_table(
+                    output_path,
+                    ["preset_id", "storm_id", "name", "season", "basin", "lat_shift", "lon_shift"],
+                    rows,
+                )
+                generated_paths.append(str(output_path))
+
+        for hazard in _available_hazards_for_payload(payload):
+            events = _extract_event_list(payload, hazard)
+            if not events:
+                continue
+            rows = []
+            for index, event in enumerate(events, start=1):
+                rows.append(
+                    [
+                        str(index),
+                        str(event.get("event_id") or ""),
+                        str(event.get("event_name") or ""),
+                        _format_number(event.get("loss_eur")),
+                        _format_number(event.get("frequency_annual")),
+                        _format_number(event.get("return_period_years_approx")),
+                    ]
+                )
+            output_path = tables_dir / f"{territory}_{hazard}_top_events.csv"
+            _write_csv_table(
+                output_path,
+                ["rank", "event_id", "event_name", "loss_eur", "frequency_annual", "return_period_years_approx"],
+                rows,
+            )
+            generated_paths.append(str(output_path))
+
+    if not generated_paths:
+        warnings.append(f"No targeted event CSV tables were generated for run {record.run_id}")
+    return generated_paths, warnings
+
+
 def _render_integrated_vincennes_assets(
     record: RunRecord,
     payloads: dict[str, TerritoryPayload],
@@ -3965,14 +5425,19 @@ def _render_integrated_vincennes_assets(
     charts_dir = output_dir / "charts"
     maps_dir = output_dir / "maps"
     tables_dir = output_dir / "tables"
+    population_dir = output_dir / "Population"
     charts_dir.mkdir(parents=True, exist_ok=True)
     maps_dir.mkdir(parents=True, exist_ok=True)
     tables_dir.mkdir(parents=True, exist_ok=True)
+    population_dir.mkdir(parents=True, exist_ok=True)
 
     for territory, artifacts in artifacts_by_territory.items():
+        hazard_map_payloads = _build_hazard_scatter_map_payloads(artifacts, territory)
         chart_specs = [
             (charts_dir / f"{territory}_vent_max_par_annee.png", _build_wind_hist_payload(artifacts, "year_max_hist", f"{territory_label(territory)} - Vent max par annee")),
             (charts_dir / f"{territory}_vent_max_par_evenement.png", _build_wind_hist_payload(artifacts, "track_max_hist", f"{territory_label(territory)} - Vent max par evenement")),
+            (charts_dir / f"{territory}_vent_max_par_annee_1_point_sur_2.png", _build_wind_hist_payload(artifacts, "year_max_hist", f"{territory_label(territory)} - Vent max par annee", point_divisor=2)),
+            (charts_dir / f"{territory}_vent_max_par_evenement_1_point_sur_2.png", _build_wind_hist_payload(artifacts, "track_max_hist", f"{territory_label(territory)} - Vent max par evenement", point_divisor=2)),
             (charts_dir / f"{territory}_degats_eau_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau par scenario")),
             (charts_dir / f"{territory}_degats_elec_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite par scenario")),
             (charts_dir / f"{territory}_degats_eau_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau par temps de retour")),
@@ -4095,56 +5560,33 @@ def _render_integrated_vincennes_assets(
             ),
             (
                 maps_dir / f"{territory}_storm_vent_rp100.png",
-                {
-                    "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Vent RP100",
-                    "points": _build_hazard_cell_points(artifacts, "storm", "rp100_wind_mps"),
-                    "cmap": "Blues",
-                    "colorbar_label": "Vent RP100 (m/s)",
-                },
+                hazard_map_payloads["wind_rp100"],
             ),
             (
                 maps_dir / f"{territory}_pluie_rp100.png",
-                {
-                    "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Pluie RP100",
-                    "points": _build_hazard_cell_points(artifacts, "storm", "rp100_rain_mm"),
-                    "cmap": "GnBu",
-                    "colorbar_label": "Pluie RP100 (mm)",
-                },
+                hazard_map_payloads["rain_rp100"],
             ),
             (
                 maps_dir / f"{territory}_inondation_cotiere_rp100.png",
-                {
-                    "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Submersion cotiere RP100",
-                    "points": _build_hazard_cell_points(artifacts, "storm", "rp100_surge_m"),
-                    "cmap_colors": SURGE_COLORS,
-                    "colorbar_label": "Submersion RP100 (m)",
-                },
+                hazard_map_payloads["surge_rp100"],
             ),
             (
                 maps_dir / f"{territory}_mouvements_de_terrain.png",
-                {
-                    "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Mouvements de terrain",
-                    "points": _build_landslide_points(artifacts),
-                    "cmap_colors": LANDSLIDE_COLORS,
-                    "colorbar_label": "Score mouvement de terrain",
-                },
+                hazard_map_payloads["landslide_mean"],
             ),
             (
                 maps_dir / f"{territory}_mouvements_de_terrain_rp100.png",
-                {
-                    "type": "scatter_map",
-                    "title": f"{territory_label(territory)} - Mouvements de terrain RP100",
-                    "points": _build_landslide_points(artifacts),
-                    "cmap_colors": LANDSLIDE_COLORS,
-                    "colorbar_label": "Score mouvement de terrain",
-                    "note": "Le payload archive n'expose pas une couche RP100 distincte; cette vue reutilise le score moyen archive.",
-                },
+                hazard_map_payloads["landslide_rp100"],
             ),
         ]
+        supergraph_payload = _build_guadeloupe_hazard_supergraph_payload(artifacts, territory)
+        if supergraph_payload is not None:
+            map_specs.append(
+                (
+                    maps_dir / f"{territory}_supergraph_vent_pluie_inondation_cotiere_mouvements_de_terrain_rp50_rp100.png",
+                    supergraph_payload,
+                )
+            )
         for output_path, payload in map_specs:
             if payload is None:
                 warnings.append(_warning_message(territory, output_path.name, "missing archived inputs"))
@@ -4195,6 +5637,17 @@ def _render_integrated_vincennes_assets(
             except Exception as exc:
                 warnings.append(_warning_message(territory, output_path.name, f"csv export failed: {type(exc).__name__}: {exc}"))
 
+        for file_name, payload in _build_population_output_specs(artifacts):
+            output_path = population_dir / file_name
+            if payload is None:
+                warnings.append(_warning_message(territory, output_path.name, "missing population inputs"))
+                continue
+            try:
+                _render_auxiliary_output(plt, output_path, payload)
+                generated_paths.append(str(output_path))
+            except Exception as exc:
+                warnings.append(_warning_message(territory, output_path.name, f"render failed: {type(exc).__name__}: {exc}"))
+
     return sorted(generated_paths), warnings
 
 
@@ -4240,6 +5693,7 @@ def write_graph_manifest(
     generated_outputs = _build_generated_output_records(output_dir, graphs, png_paths, auxiliary_output_paths)
     payload = {
         "run_id": record.run_id,
+        "run_family": record.run_family,
         "status": record.status,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
@@ -4277,12 +5731,13 @@ def write_graph_manifest(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate HTML and PNG graph packs from SIB complete-analysis runs."
+        description="Generate HTML and PNG graph packs from SIB archived runs."
     )
     run_group = parser.add_mutually_exclusive_group()
     run_group.add_argument("--run-id", help="Run ID to load. Use 'latest' to force latest-manifest.json")
     run_group.add_argument("--latest-success", action="store_true", help="Resolve the most recent complete-analysis run with top-level status=success")
-    parser.add_argument("--list-runs", action="store_true", help="List available complete-analysis runs and exit")
+    parser.add_argument("--run-family", default="complete-analysis", help="Run family: complete-analysis or targeted-cyclone")
+    parser.add_argument("--list-runs", action="store_true", help="List available archived runs for the selected family and exit")
     parser.add_argument("--territories", nargs="*", help="Optional territory filter: guadeloupe, martinique, saint-barthelemy, gua, mar, stb, blm")
     parser.add_argument("--hazards", nargs="*", help="Optional hazard filter: storm, storm_cmcc, cmcc")
     parser.add_argument("--graph-ids", nargs="*", help="Optional graph-type filter. Choices include: " + ", ".join(GRAPH_TYPE_ORDER))
@@ -4294,8 +5749,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global RUN_OUTPUTS_DIR
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    run_family = _resolve_run_family(args.run_family)
+    RUN_OUTPUTS_DIR = RUN_FAMILY_OUTPUT_DIRS[run_family]
 
     records = list_run_records()
     if args.list_runs:
@@ -4314,8 +5772,6 @@ def main(argv: list[str] | None = None) -> int:
 
     selected_record = resolve_run_record(args.run_id, args.latest_success or not args.run_id, records)
     selected_territories = _resolve_selected_territories(selected_record, requested_territories)
-    selected_hazards = _resolve_selected_hazards(requested_hazards)
-    selected_graph_types = _resolve_selected_graph_types(requested_graph_types)
 
     warnings: list[str] = []
     payloads: dict[str, TerritoryPayload] = {}
@@ -4327,15 +5783,28 @@ def main(argv: list[str] | None = None) -> int:
         if args.verbose:
             print(f"[info] territory={territory} source={bundle.source_kind} path={bundle.payload_path}")
 
+    selected_hazards = _resolve_selected_hazards(requested_hazards)
+    if not requested_hazards:
+        selected_hazards = _available_hazards_for_payloads(payloads)
+    selected_graph_types = (
+        _resolve_selected_graph_types(requested_graph_types)
+        if requested_graph_types
+        else _default_graph_types_for_run_family(selected_record.run_family)
+    )
+
     graphs: list[GraphSpec] = [build_run_overview_graph(selected_record, payloads)]
-    annual_fec_all_graph = build_annual_fec_all_territories_graph(selected_record, payloads, selected_territories, selected_hazards)
-    if annual_fec_all_graph is not None:
-        graphs.append(annual_fec_all_graph)
-    annual_fec_all_pct_graph = build_annual_fec_all_territories_pct_graph(selected_record, payloads, selected_territories, selected_hazards)
-    if annual_fec_all_pct_graph is not None:
-        graphs.append(annual_fec_all_pct_graph)
-    for territory in selected_territories:
-        graphs.extend(build_graphs_for_territory(selected_record, territory, payloads[territory], selected_hazards))
+    if selected_record.run_family == "targeted-cyclone":
+        for territory in selected_territories:
+            graphs.extend(build_targeted_graphs_for_territory(territory, payloads[territory], selected_hazards))
+    else:
+        annual_fec_all_graph = build_annual_fec_all_territories_graph(selected_record, payloads, selected_territories, selected_hazards)
+        if annual_fec_all_graph is not None:
+            graphs.append(annual_fec_all_graph)
+        annual_fec_all_pct_graph = build_annual_fec_all_territories_pct_graph(selected_record, payloads, selected_territories, selected_hazards)
+        if annual_fec_all_pct_graph is not None:
+            graphs.append(annual_fec_all_pct_graph)
+        for territory in selected_territories:
+            graphs.extend(build_graphs_for_territory(selected_record, territory, payloads[territory], selected_hazards))
     graphs = filter_graphs(graphs, selected_graph_types)
     if not graphs:
         raise RuntimeError("No graphs left after applying filters")
@@ -4359,7 +5828,10 @@ def main(argv: list[str] | None = None) -> int:
         if png_dir.exists():
             shutil.rmtree(png_dir)
         png_paths = render_png_graphs(graphs, png_dir)
-        auxiliary_output_paths, auxiliary_warnings = _render_integrated_vincennes_assets(selected_record, payloads, run_output_dir)
+        if selected_record.run_family == "targeted-cyclone":
+            auxiliary_output_paths, auxiliary_warnings = _render_targeted_event_assets(selected_record, payloads, run_output_dir)
+        else:
+            auxiliary_output_paths, auxiliary_warnings = _render_integrated_vincennes_assets(selected_record, payloads, run_output_dir)
         for auxiliary_warning in auxiliary_warnings:
             warnings.append(auxiliary_warning)
             print(f"[warn] {auxiliary_warning}", file=sys.stderr)
@@ -4370,6 +5842,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path = write_graph_manifest(selected_record, payloads, graphs, run_output_dir, html_index, png_paths, auxiliary_output_paths, warnings)
     print(f"[ok] Graph manifest written to {manifest_path}")
     print(f"[ok] Selected run: {selected_record.run_id}")
+    print(f"[ok] Run family: {selected_record.run_family}")
     print(f"[ok] Graph count: {len(graphs)}")
 
     if args.open_index and html_index is not None:

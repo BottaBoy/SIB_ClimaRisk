@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 
@@ -86,7 +87,37 @@ def test_build_hazard_metric_scorecard_is_chart():
     assert graph.table_headers is None
     assert graph.png_payload is not None
     assert graph.png_payload["type"] == "grouped_bar"
-    assert graph.png_payload["categories"] == ["Annual EAI", "PML100", "PML1000", "TVaR95", "P99"]
+    assert graph.png_payload["categories"] == ["EAI annuel", "PML100", "PML1000", "TVaR95", "P99"]
+
+
+def test_build_pml_ladder_graph_combines_storm_and_cmcc():
+    payload = {
+        "portfolio_results": {
+            "storm": {
+                "pml_10_eur": 10.0,
+                "pml_20_eur": 20.0,
+                "pml_50_eur": 50.0,
+                "pml_100_eur": 100.0,
+                "pml_200_eur": 200.0,
+                "pml_1000_eur": 1000.0,
+            },
+            "storm_cmcc": {
+                "pml_10_eur": 12.0,
+                "pml_20_eur": 22.0,
+                "pml_50_eur": 55.0,
+                "pml_100_eur": 110.0,
+                "pml_200_eur": 220.0,
+                "pml_1000_eur": 1110.0,
+            },
+        }
+    }
+
+    graph = generate_run_graphs.build_pml_ladder_graph("guadeloupe", payload, ["storm", "storm_cmcc"])
+
+    assert graph is not None
+    assert graph.hazard is None
+    assert graph.png_payload["type"] == "grouped_bar"
+    assert [series["name"] for series in graph.png_payload["series"]] == ["STORM", "STORM_CMCC"]
 
 
 def test_load_auxiliary_artifacts_resolves_archived_inputs(tmp_path, monkeypatch):
@@ -114,6 +145,9 @@ def test_load_auxiliary_artifacts_resolves_archived_inputs(tmp_path, monkeypatch
     assert artifacts.landslide_maps is not None
     assert artifacts.network_states_path is not None
     assert artifacts.water_infra_path is not None
+    assert artifacts.population_overlays is not None
+    assert artifacts.population_raster_path is not None
+    assert artifacts.hydraulic_zones_path is not None
 
 
 def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_path, monkeypatch):
@@ -170,7 +204,7 @@ def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_p
     monkeypatch.setattr(
         generate_run_graphs,
         "_build_wind_hist_payload",
-        lambda artifacts, hist_key, title: {"type": "grouped_bar", "title": title, "categories": ["1"], "series": [{"name": "x", "values": [1], "color": "#000"}]},
+        lambda artifacts, hist_key, title, point_divisor=1: {"type": "grouped_bar", "title": title, "categories": ["1"], "series": [{"name": "x", "values": [1], "color": "#000"}]},
     )
     monkeypatch.setattr(generate_run_graphs, "_build_damage_scenario_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_total_damage_by_return_period_payload", lambda *args, **kwargs: None)
@@ -191,6 +225,8 @@ def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_p
     relative_paths = sorted(Path(path).relative_to(output_dir).as_posix() for path in paths)
     assert "charts/saint-barthelemy_vent_max_par_annee.png" in relative_paths
     assert "charts/saint-barthelemy_vent_max_par_evenement.png" in relative_paths
+    assert "charts/saint-barthelemy_vent_max_par_annee_1_point_sur_2.png" in relative_paths
+    assert "charts/saint-barthelemy_vent_max_par_evenement_1_point_sur_2.png" in relative_paths
     assert "tables/saint-barthelemy_comparaison_aleas.csv" in relative_paths
     assert not stale_chart.exists()
     assert any("degats_eau_par_scenario_labels" in warning for warning in warnings)
@@ -205,6 +241,8 @@ def test_generated_output_records_count_technical_types_and_families(tmp_path):
     auxiliary_paths = [
         str(output_dir / "charts" / "guadeloupe_vent_max_par_evenement.png"),
         str(output_dir / "maps" / "guadeloupe_aep_canalisations.png"),
+        str(output_dir / "Population" / "carte_population_guadeloupe.png"),
+        str(output_dir / "Population" / "matrice_population_etats_reseaux_storm.png"),
     ]
     graphs = [
         generate_run_graphs.GraphSpec(
@@ -232,15 +270,199 @@ def test_generated_output_records_count_technical_types_and_families(tmp_path):
     records = generate_run_graphs._build_generated_output_records(output_dir, graphs, png_paths, auxiliary_paths)
 
     assert generate_run_graphs._count_generated_outputs(records, "technical_type") == {
-        "chart": 2,
-        "map": 1,
+        "chart": 3,
+        "map": 2,
         "table": 1,
     }
     assert generate_run_graphs._count_generated_outputs(records, "family") == {
         "alea": 2,
         "exposition": 1,
+        "impact": 2,
         "synthese": 1,
     }
+
+
+def test_build_population_output_specs_returns_guadeloupe_pack(monkeypatch):
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {"territory_results": []}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path="/tmp/network.geojson",
+        water_infra_path="/tmp/water.geojson",
+        population_overlays=generate_run_graphs.ArchivedArtifact("/tmp/population-overlays.json", {"territories": []}),
+        population_raster_path="/tmp/glp.tif",
+        hydraulic_zones_path="/tmp/hydraulic.gpkg",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_build_population_overlay_map_payload", lambda *args, **kwargs: {"type": "raster_overlay_map", "title": "population"})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_hotspot_superplot_payload", lambda *args, **kwargs: {"type": "choropleth_map_grid", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_hydraulic_population_importance_payload", lambda *args, **kwargs: {"type": "choropleth_map", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_state_matrix_payload", lambda *args, **kwargs: {"type": "population_state_matrix", "title": kwargs.get("title") or args[2]})
+
+    specs = generate_run_graphs._build_population_output_specs(artifacts)
+
+    assert [name for name, _payload in specs] == [
+        "carte_population_guadeloupe.png",
+        "superplot_hotspots_population_affectee.png",
+        "importance_zonages_hydrauliques_aep.png",
+        "matrice_population_etats_reseaux_storm.png",
+        "matrice_population_etats_reseaux_storm_cmcc.png",
+    ]
+
+
+def test_build_population_hotspot_superplot_payload_matches_total_affected_population(monkeypatch):
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import Point
+
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "territory_results": [
+                    {"territory_id": "cell-+16.20_-61.60", "population_total": 100.0},
+                    {"territory_id": "cell-+16.40_-61.40", "population_total": 50.0},
+                ]
+            },
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path="/tmp/network.geojson",
+        water_infra_path=None,
+        population_overlays=generate_run_graphs.ArchivedArtifact(
+            "/tmp/population-overlays.json",
+            {"territories": [{"code": "glp", "bounds": {"west": -61.7, "east": -61.3, "south": 16.1, "north": 16.5}}]},
+        ),
+        population_raster_path="/tmp/glp.tif",
+    )
+    features = gpd.GeoDataFrame(
+        [
+            {
+                "feature_id": "aep-zone-1",
+                "layer_key": "eau_aep",
+                "state_annual_storm": "S0",
+                "state_rp50_storm": "S0",
+                "state_rp100_storm": "S3",
+                "state_p99_storm": "S0",
+                "state_annual_storm_cmcc": "S0",
+                "state_rp50_storm_cmcc": "S0",
+                "state_rp100_storm_cmcc": "S1",
+                "state_p99_storm_cmcc": "S0",
+                "geometry": Point(-61.60, 16.20).buffer(0.03),
+            },
+            {
+                "feature_id": "elec-line-1",
+                "layer_key": "elec_bt_aerien",
+                "state_annual_storm": "S0",
+                "state_rp50_storm": "S0",
+                "state_rp100_storm": "S2",
+                "state_p99_storm": "S0",
+                "state_annual_storm_cmcc": "S0",
+                "state_rp50_storm_cmcc": "S0",
+                "state_rp100_storm_cmcc": "S2",
+                "state_p99_storm_cmcc": "S0",
+                "geometry": Point(-61.40, 16.40).buffer(0.03),
+            },
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    hotspot_grid = gpd.GeoDataFrame(
+        [
+            {"grid_cell_id": "cell-+16.20_-61.60", "population_total": 100.0, "geometry": Point(-61.60, 16.20).buffer(0.01)},
+            {"grid_cell_id": "cell-+16.40_-61.40", "population_total": 50.0, "geometry": Point(-61.40, 16.40).buffer(0.01)},
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_load_geodataframe_cached", lambda path: features.copy())
+    monkeypatch.setattr(generate_run_graphs, "_build_population_grid_geodataframe", lambda *args, **kwargs: hotspot_grid.copy())
+
+    hotspot_payload = generate_run_graphs._build_population_hotspot_superplot_payload(
+        artifacts,
+        "Guadeloupe - Hotspots",
+    )
+    matrix_payload = generate_run_graphs._build_population_state_matrix_payload(
+        artifacts,
+        "storm",
+        "Guadeloupe - Matrice",
+    )
+
+    assert hotspot_payload is not None
+    assert matrix_payload is not None
+    rp100_storm_gdf = hotspot_payload["cells"][0][2]["gdf"]
+    assert rp100_storm_gdf["affected_population"].sum() == pytest.approx(150.0)
+    first_cell = matrix_payload["cells"][2][0]
+    assert sum(first_cell.values()) == pytest.approx(100.0, abs=1e-6)
+
+
+def test_hydraulic_population_importance_propagates_zone_uid(monkeypatch):
+    gpd = pytest.importorskip("geopandas")
+    np = pytest.importorskip("numpy")
+    from types import SimpleNamespace
+    from shapely.geometry import Polygon
+
+    zones = gpd.GeoDataFrame(
+        [
+            {"zone_uid": "A", "network_kind": "AEP", "geometry": Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])},
+            {"zone_uid": "A", "network_kind": "AEP", "geometry": Polygon([(1, 0), (2, 0), (2, 1), (1, 1)])},
+            {"zone_uid": "B", "network_kind": "AEP", "geometry": Polygon([(0, 1), (1, 1), (1, 2), (0, 2)])},
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {"territory_results": []}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+        population_raster_path="/tmp/glp.tif",
+        hydraulic_zones_path="/tmp/hydraulic.gpkg",
+    )
+
+    class _FakeSrc:
+        nodata = None
+        crs = "EPSG:4326"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeRasterio:
+        def __init__(self):
+            self.calls = 0
+
+        def open(self, path):
+            return _FakeSrc()
+
+        def _mask(self, src, geometries, crop=True, filled=False):
+            self.calls += 1
+            value = 10.0 if self.calls == 1 else 20.0
+            return np.ma.array([[[value]]]), None
+
+    fake_rasterio = _FakeRasterio()
+    monkeypatch.setattr(generate_run_graphs, "_load_geodataframe_layer_cached", lambda path, layer=None: zones.copy())
+    monkeypatch.setattr(generate_run_graphs, "_load_rasterio", lambda: SimpleNamespace(open=fake_rasterio.open, mask=SimpleNamespace(mask=fake_rasterio._mask)))
+
+    payload = generate_run_graphs._build_hydraulic_population_importance_payload(
+        artifacts,
+        "Guadeloupe - Hydro",
+    )
+
+    assert payload is not None
+    values = payload["gdf"].groupby("zone_uid")["dependent_population"].unique().to_dict()
+    assert values["A"].tolist() == [10.0]
+    assert values["B"].tolist() == [20.0]
 
 
 def test_build_wind_hist_payload_uses_line_annotations_without_zero_labels() -> None:
@@ -273,6 +495,97 @@ def test_build_wind_hist_payload_uses_line_annotations_without_zero_labels() -> 
     assert payload["series"][0]["x"] == [216.0, 219.6]
     assert payload["series"][0]["annotations"] == ["", "5 %"]
     assert payload["series"][1]["annotations"] == ["1.5 %", ""]
+
+
+def test_build_wind_hist_payload_downsamples_to_one_point_out_of_two() -> None:
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/page7.json",
+            {
+                "hazard": {
+                    "wind_histograms": {
+                        "storm": {"track_max_hist": {"bins_mps": [60.0, 61.0, 62.0, 63.0, 64.0, 65.0], "percent": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}},
+                        "storm_cmcc": {"track_max_hist": {"bins_mps": [60.0, 61.0, 62.0, 63.0, 64.0, 65.0], "percent": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]}},
+                    }
+                }
+            },
+        ),
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_wind_hist_payload(
+        artifacts,
+        "track_max_hist",
+        "Vent max",
+        point_divisor=2,
+    )
+
+    assert payload is not None
+    assert payload["series"][0]["x"] == [216.0, 223.2, 234.0]
+    assert payload["series"][0]["y"] == [1.0, 3.0, 6.0]
+    assert payload["series"][0]["annotations"] == ["1 %", "3 %", "6 %"]
+    assert payload["series"][1]["y"] == [6.0, 4.0, 1.0]
+    assert "un point sur deux" in payload["note"]
+
+
+def test_build_hazard_supergraph_payload_uses_blue_red_wind_scale() -> None:
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=generate_run_graphs.ArchivedArtifact(
+            "/tmp/wind.json",
+            {
+                "storm": {
+                    "cells": [
+                        {
+                            "lat": 16.2,
+                            "lon": -61.5,
+                            "rp50_wind_mps": 35.0,
+                            "rp100_wind_mps": 42.0,
+                            "rp50_rain_mm": 120.0,
+                            "rp100_rain_mm": 180.0,
+                            "rp50_surge_m": 1.2,
+                            "rp100_surge_m": 2.0,
+                        }
+                    ]
+                }
+            },
+        ),
+        landslide_maps=generate_run_graphs.ArchivedArtifact(
+            "/tmp/landslide.json",
+            {"storm": {"cells": [{"lat": 16.2, "lon": -61.5, "mean_landslide_score": 0.7}]}},
+        ),
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    map_payloads = generate_run_graphs._build_hazard_scatter_map_payloads(artifacts, "guadeloupe")
+    supergraph = generate_run_graphs._build_guadeloupe_hazard_supergraph_payload(artifacts, "guadeloupe")
+
+    assert map_payloads["wind_rp100"]["cmap_colors"] == generate_run_graphs.WIND_MAP_COLORS
+    assert map_payloads["wind_rp100"]["colorbar_label"] == "Vent RP100 (km/h)"
+    assert map_payloads["wind_rp100"]["points"][0]["value"] == pytest.approx(151.2)
+    assert supergraph is not None
+    assert supergraph["type"] == "scatter_map_grid"
+    assert [row["label"] for row in supergraph["rows"]] == ["RP50", "RP100"]
+    assert [column["label"] for column in supergraph["columns"]] == [
+        "Vent",
+        "Pluie",
+        "Inondation cotiere",
+        "Mouvements de terrain",
+    ]
+    assert "note" not in supergraph
+    assert supergraph["columns"][0]["colorbar_label"] == "Vent (km/h)"
+    assert supergraph["cells"][0][0]["vmin"] == pytest.approx(120.96)
+    assert supergraph["cells"][0][0]["vmax"] == pytest.approx(156.24)
 
 
 def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -623,3 +936,174 @@ def test_thin_zoomed_surface_network_geometries_reduces_polygon_area() -> None:
 def test_normalize_territory_supports_saint_barthelemy_aliases() -> None:
     assert generate_run_graphs._normalize_territory("stb") == "saint-barthelemy"
     assert generate_run_graphs._normalize_territory("blm") == "saint-barthelemy"
+
+
+def test_main_supports_targeted_cyclone_run_family(monkeypatch, tmp_path) -> None:
+    run_id = "targeted_cyclone_20260623_120000"
+    run_root = tmp_path / "targeted-runs" / run_id / "territories" / "saint-barthelemy" / "web" / "data"
+    run_root.mkdir(parents=True)
+    payload = {
+        "meta": {
+            "run_family": "targeted-cyclone",
+            "report_semantics": "event",
+            "hazards": ["STORM"],
+            "selected_cyclones": [
+                {
+                    "preset_id": "irma-2017",
+                    "storm_id": "2017242N16333",
+                    "name": "IRMA",
+                    "season": 2017,
+                    "basin": "NA",
+                    "transposition": {"lat_shift": 6.9, "lon_shift": -11.8},
+                }
+            ],
+        },
+        "portfolio_results": {
+            "event_summary": {
+                "storm_top_events": [
+                    {
+                        "event_id": "2017242N16333",
+                        "event_name": "IRMA (transposed saint-barthelemy)",
+                        "loss_eur": 120.0,
+                        "frequency_annual": 1.0,
+                        "return_period_years_approx": 1.0,
+                    }
+                ],
+            },
+            "storm": {
+                "eai_eur": 100.0,
+                "eai_direct_eur": 70.0,
+                "eai_indirect_eur": 30.0,
+                "max_event_loss_eur": 120.0,
+                "tvar_95_eur": 125.0,
+            }
+        },
+    }
+    (run_root / "saint-barthelemy-complete-analysis.json").write_text(json.dumps(payload), encoding="utf-8")
+    manifest = {
+        "run_id": run_id,
+        "run_family": "targeted-cyclone",
+        "status": "success",
+        "territories": {
+            "saint-barthelemy": {
+                "status": "complete",
+                "archived_complete_analysis_path": str(run_root / "saint-barthelemy-complete-analysis.json"),
+                "phases": {
+                    "export": {
+                        "archived_output_file": str(run_root / "saint-barthelemy-complete-analysis.json"),
+                    }
+                },
+            }
+        },
+        "parameters": {
+            "run_family": "targeted-cyclone",
+            "territories": ["saint-barthelemy"],
+        },
+    }
+    manifest_path = tmp_path / "targeted-runs" / run_id / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    monkeypatch.setitem(generate_run_graphs.RUN_FAMILY_OUTPUT_DIRS, "targeted-cyclone", tmp_path / "targeted-runs")
+    monkeypatch.setattr(generate_run_graphs, "_resolve_output_root", lambda _value: (tmp_path / "graphs", None))
+    monkeypatch.setattr(generate_run_graphs, "_load_matplotlib", lambda: (None, object()))
+
+    def _fake_render_png(graphs, png_dir):
+        png_dir.mkdir(parents=True, exist_ok=True)
+        output_path = png_dir / "targeted-event-scorecard.png"
+        output_path.write_text("png", encoding="utf-8")
+        return [str(output_path)]
+
+    monkeypatch.setattr(generate_run_graphs, "render_png_graphs", _fake_render_png)
+
+    exit_code = generate_run_graphs.main(
+        [
+            "--run-family",
+            "targeted-cyclone",
+            "--run-id",
+            run_id,
+            "--formats",
+            "png",
+            "--output-dir",
+            str(tmp_path / "graphs"),
+        ]
+    )
+
+    assert exit_code == 0
+    graph_manifest = tmp_path / "graphs" / run_id / "graphs-manifest.json"
+    assert graph_manifest.exists()
+    manifest_payload = json.loads(graph_manifest.read_text(encoding="utf-8"))
+    assert manifest_payload["run_family"] == "targeted-cyclone"
+    assert "tables/saint-barthelemy_cyclones_selection.csv" in {
+        Path(path).relative_to(tmp_path / "graphs" / run_id).as_posix()
+        for path in manifest_payload["auxiliary_output_paths"]
+    }
+
+
+def test_render_targeted_event_assets_generates_trajectory_map(tmp_path, monkeypatch) -> None:
+    run_id = "targeted_cyclone_20260623_130000"
+    run_root = tmp_path / "targeted-runs" / run_id / "territories" / "saint-barthelemy" / "web" / "data"
+    run_root.mkdir(parents=True)
+    segment_geojson_path = run_root / "saint-barthelemy-targeted-cyclone-segments.geojson"
+    segment_geojson_path.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "saffir_simpson_category": 4,
+                            "saffir_simpson_label": "Cat 4",
+                        },
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[-62.8, 17.9], [-62.7, 18.0]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle = generate_run_graphs.TerritoryPayload(
+        territory="saint-barthelemy",
+        payload_path=str(run_root / "saint-barthelemy-complete-analysis.json"),
+        payload={
+            "meta": {
+                "selected_cyclones": [],
+                "targeted_cyclone_track_segments_geojson": str(segment_geojson_path),
+            },
+            "portfolio_results": {},
+        },
+        source_kind="archived",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_load_matplotlib", lambda: (None, object()))
+
+    def _fake_render(_plt, output_path, payload):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(payload.get("title") or "ok", encoding="utf-8")
+
+    monkeypatch.setattr(generate_run_graphs, "_render_auxiliary_output", _fake_render)
+
+    paths, warnings = generate_run_graphs._render_targeted_event_assets(
+        record=generate_run_graphs.RunRecord(
+            run_id=run_id,
+            status="success",
+            created_at=None,
+            updated_at=None,
+            territories=["saint-barthelemy"],
+            dynamic_max_tracks=None,
+            memory_budget_gb=None,
+            manifest_path=str(tmp_path / "targeted-runs" / run_id / "manifest.json"),
+            manifest={"territories": {"saint-barthelemy": {}}},
+            archived_ready_count=1,
+            run_family="targeted-cyclone",
+        ),
+        payloads={"saint-barthelemy": bundle},
+        output_dir=tmp_path / "graphs" / run_id,
+    )
+
+    assert not warnings
+    assert "maps/saint-barthelemy_trajectoire_cyclone_saffir_simpson.png" in {
+        Path(path).relative_to(tmp_path / "graphs" / run_id).as_posix() for path in paths
+    }
