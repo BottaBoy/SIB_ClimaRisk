@@ -118,6 +118,7 @@ INTENSITY_OVERLAY_ALPHA = 0.96
 GLOBAL_WIND_SCALE_MIN_MPS = 3.30
 GLOBAL_WIND_SCALE_MAX_MPS = 98.5
 KMH_PER_MPS = 3.6
+DEFAULT_HIGH_WIND_FOCUS_THRESHOLD_KMH = 200.0
 
 
 @dataclass(frozen=True)
@@ -508,9 +509,13 @@ def _normalize_longitudes(values: Any) -> Any:
 def _accumulate_territory_statistics_from_batches(
     parquet_path: Path,
     territory_specs: list[TerritorySpec],
+    *,
+    min_speed_kmh: float | None = None,
 ) -> dict[str, dict[str, Any]]:
     annual_maxima = {spec.territory_id: {} for spec in territory_specs}
     track_ids = {spec.territory_id: set() for spec in territory_specs}
+    filtered_annual_maxima = {spec.territory_id: {} for spec in territory_specs}
+    filtered_track_ids = {spec.territory_id: set() for spec in territory_specs}
     parquet_file = pq.ParquetFile(parquet_path)
     for batch in parquet_file.iter_batches(columns=["Year", "lat", "lon", "wind_max", "track_id"], batch_size=250_000):
         chunk = batch.to_pandas()
@@ -547,10 +552,30 @@ def _accumulate_territory_statistics_from_batches(
                 for value in territory_chunk["track_id"].dropna().tolist()
                 if str(value).strip()
             )
+            if min_speed_kmh is not None:
+                threshold_mps = float(min_speed_kmh) / KMH_PER_MPS
+                high_wind_chunk = territory_chunk[territory_chunk["wind_max"] > threshold_mps]
+                if high_wind_chunk.empty:
+                    continue
+                grouped_high_wind = high_wind_chunk.groupby("Year", as_index=False)["wind_max"].max()
+                filtered_maxima = filtered_annual_maxima[spec.territory_id]
+                for row in grouped_high_wind.itertuples(index=False):
+                    year = int(float(row.Year))
+                    value = float(row.wind_max)
+                    previous = filtered_maxima.get(year)
+                    if previous is None or value > previous:
+                        filtered_maxima[year] = value
+                filtered_track_ids[spec.territory_id].update(
+                    str(value).strip()
+                    for value in high_wind_chunk["track_id"].dropna().tolist()
+                    if str(value).strip()
+                )
     return {
         territory_id: {
             "annual_maxima_by_year": annual_maxima[territory_id],
             "track_count": int(len(track_ids[territory_id])),
+            "filtered_annual_maxima_by_year": filtered_annual_maxima[territory_id],
+            "filtered_track_count": int(len(filtered_track_ids[territory_id])),
         }
         for territory_id in annual_maxima
     }
@@ -564,12 +589,24 @@ def _build_territory_annual_maxima(
     *,
     territory_specs: list[TerritorySpec],
     catalog_root: Path,
-) -> tuple[dict[str, dict[str, list[float]]], dict[str, dict[str, dict[str, int]]]]:
+    min_speed_kmh: float | None = None,
+) -> tuple[
+    dict[str, dict[str, list[float]]],
+    dict[str, dict[str, dict[str, int]]],
+    dict[str, dict[str, dict[str, int]]],
+]:
     by_territory = {
         spec.territory_id: {provider: [] for provider in PROVIDER_ORDER}
         for spec in territory_specs
     }
     territory_counts = {
+        spec.territory_id: {
+            provider: {"year_count": 0, "track_count": 0}
+            for provider in PROVIDER_ORDER
+        }
+        for spec in territory_specs
+    }
+    filtered_territory_counts = {
         spec.territory_id: {
             provider: {"year_count": 0, "track_count": 0}
             for provider in PROVIDER_ORDER
@@ -585,7 +622,11 @@ def _build_territory_annual_maxima(
             continue
         for provider in PROVIDER_ORDER:
             parquet_path = _resolve_catalog_path(catalog_root, basin_code, provider)
-            territory_statistics = _accumulate_territory_statistics_from_batches(parquet_path, basin_specs)
+            territory_statistics = _accumulate_territory_statistics_from_batches(
+                parquet_path,
+                basin_specs,
+                min_speed_kmh=min_speed_kmh,
+            )
             for territory_id, territory_payload in territory_statistics.items():
                 maxima_by_year = territory_payload["annual_maxima_by_year"]
                 values = [float(value) for _, value in sorted(maxima_by_year.items())]
@@ -594,7 +635,12 @@ def _build_territory_annual_maxima(
                     "year_count": int(len(values)),
                     "track_count": int(territory_payload["track_count"]),
                 }
-    return by_territory, territory_counts
+                filtered_maxima_by_year = territory_payload["filtered_annual_maxima_by_year"]
+                filtered_territory_counts[territory_id][provider] = {
+                    "year_count": int(len(filtered_maxima_by_year)),
+                    "track_count": int(territory_payload["filtered_track_count"]),
+                }
+    return by_territory, territory_counts, filtered_territory_counts
 
 
 def _territory_subplot_title(
@@ -617,18 +663,31 @@ def _compute_histogram_payloads(
     *,
     bins_count: int,
     bin_width_kmh: float | None,
+    min_speed_kmh: float | None = None,
 ) -> dict[str, Any]:
     all_values_kmh: list[float] = []
     for provider_map in annual_maxima.values():
         for values in provider_map.values():
-            all_values_kmh.extend(float(value) * 3.6 for value in values)
+            provider_values_kmh = [float(value) * 3.6 for value in values]
+            if min_speed_kmh is not None:
+                provider_values_kmh = [value for value in provider_values_kmh if value > min_speed_kmh]
+            all_values_kmh.extend(provider_values_kmh)
     if not all_values_kmh:
-        raise ValueError("No annual maxima were resolved from the comparison catalogs")
+        if min_speed_kmh is None:
+            raise ValueError("No annual maxima were resolved from the comparison catalogs")
+        minimum = float(min_speed_kmh)
+        if bin_width_kmh is not None and bin_width_kmh > 0.0:
+            maximum = minimum + float(bin_width_kmh)
+        else:
+            maximum = minimum + 10.0
+    else:
+        minimum = min(all_values_kmh)
+        maximum = max(all_values_kmh)
+        if not math.isfinite(minimum) or not math.isfinite(maximum):
+            raise ValueError("Annual maxima contain non-finite values")
 
-    minimum = min(all_values_kmh)
-    maximum = max(all_values_kmh)
-    if not math.isfinite(minimum) or not math.isfinite(maximum):
-        raise ValueError("Annual maxima contain non-finite values")
+    if min_speed_kmh is not None:
+        minimum = float(min_speed_kmh)
 
     if math.isclose(minimum, maximum):
         minimum -= 1.8
@@ -655,10 +714,14 @@ def _compute_histogram_payloads(
         territory_payloads[territory_id] = {}
         for provider, values_mps in provider_map.items():
             values_kmh = np.asarray([float(value) * 3.6 for value in values_mps], dtype=float)
-            if values_kmh.size == 0:
+            if min_speed_kmh is not None:
+                filtered_values_kmh = values_kmh[values_kmh > float(min_speed_kmh)]
+            else:
+                filtered_values_kmh = values_kmh
+            if filtered_values_kmh.size == 0:
                 percentages = np.zeros(len(centers), dtype=float)
             else:
-                counts, _ = np.histogram(values_kmh, bins=edges)
+                counts, _ = np.histogram(filtered_values_kmh, bins=edges)
                 percentages = (counts.astype(float) / float(values_kmh.size)) * 100.0
             ymax = max(ymax, float(np.max(percentages)) if percentages.size else 0.0)
             territory_payloads[territory_id][provider] = percentages.tolist()
@@ -670,6 +733,7 @@ def _compute_histogram_payloads(
         "centers": centers,
         "x_limits": x_limits,
         "y_limit": y_limit,
+        "min_speed_kmh": float(min_speed_kmh) if min_speed_kmh is not None else None,
         "territories": territory_payloads,
     }
 
@@ -678,6 +742,8 @@ def _build_territory_supergraph_figure(
     territory_specs: list[TerritorySpec],
     histogram_payload: dict[str, Any],
     territory_counts: dict[str, dict[str, dict[str, int]]],
+    *,
+    title: str,
 ) -> Any:
     centers = [float(value) for value in histogram_payload["centers"]]
     x_limits = tuple(float(value) for value in histogram_payload["x_limits"])
@@ -715,7 +781,7 @@ def _build_territory_supergraph_figure(
     handles, labels = axes_list[0].get_legend_handles_labels()
     fig.subplots_adjust(top=0.82, hspace=0.32, wspace=0.16)
     fig.suptitle(
-        "Vent max par année simulée - distribution des maxima annuels",
+        title,
         fontsize=15,
         fontweight="bold",
         y=0.975,
@@ -732,13 +798,21 @@ def _render_territory_supergraph(
     output_path: Path,
     bins_count: int,
     bin_width_kmh: float | None,
+    min_speed_kmh: float | None = None,
+    title: str = "Vent max par année simulée - distribution des maxima annuels",
 ) -> dict[str, Any]:
     histogram_payload = _compute_histogram_payloads(
         annual_maxima,
         bins_count=bins_count,
         bin_width_kmh=bin_width_kmh,
+        min_speed_kmh=min_speed_kmh,
     )
-    fig = _build_territory_supergraph_figure(territory_specs, histogram_payload, territory_counts)
+    fig = _build_territory_supergraph_figure(
+        territory_specs,
+        histogram_payload,
+        territory_counts,
+        title=title,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
@@ -756,6 +830,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wind-unit-in", default="m/s", help="Raw STORM wind unit (m/s, kn, km/h).")
     parser.add_argument("--bins-count", type=int, default=24, help="Histogram bin count when --bin-width-kmh is omitted.")
     parser.add_argument("--bin-width-kmh", type=float, default=None, help="Optional shared histogram bin width in km/h.")
+    parser.add_argument(
+        "--high-wind-focus-threshold-kmh",
+        type=float,
+        default=DEFAULT_HIGH_WIND_FOCUS_THRESHOLD_KMH,
+        help="Lower bound in km/h for the additional focused territory supergraph.",
+    )
     parser.add_argument("--fill-max-distance-cells", type=float, default=1.5, help="Nearest-fill distance for basin map rendering.")
     return parser
 
@@ -798,9 +878,11 @@ def main(argv: list[str] | None = None) -> int:
         fill_max_distance_cells=float(args.fill_max_distance_cells),
     )
 
-    annual_maxima, territory_counts = _build_territory_annual_maxima(
+    high_wind_threshold_kmh = float(args.high_wind_focus_threshold_kmh)
+    annual_maxima, territory_counts, filtered_territory_counts = _build_territory_annual_maxima(
         territory_specs=territory_specs,
         catalog_root=Path(args.catalog_root),
+        min_speed_kmh=high_wind_threshold_kmh,
     )
     supergraph_path = charts_dir / "territories_vent_max_par_annee_supergraph.png"
     histogram_payload = _render_territory_supergraph(
@@ -810,6 +892,21 @@ def main(argv: list[str] | None = None) -> int:
         output_path=supergraph_path,
         bins_count=int(args.bins_count),
         bin_width_kmh=float(args.bin_width_kmh) if args.bin_width_kmh is not None else None,
+    )
+    high_wind_threshold_slug = str(int(round(high_wind_threshold_kmh)))
+    high_wind_supergraph_path = charts_dir / f"territories_vent_max_par_annee_supergraph_sup_{high_wind_threshold_slug}kmh.png"
+    high_wind_histogram_payload = _render_territory_supergraph(
+        territory_specs,
+        annual_maxima,
+        filtered_territory_counts,
+        output_path=high_wind_supergraph_path,
+        bins_count=int(args.bins_count),
+        bin_width_kmh=float(args.bin_width_kmh) if args.bin_width_kmh is not None else None,
+        min_speed_kmh=high_wind_threshold_kmh,
+        title=(
+            "Vent max par année simulée - focalisation sur les maxima annuels "
+            f"> {high_wind_threshold_kmh:.0f} km/h"
+        ),
     )
     map_scale_min_mps, map_scale_max_mps = _resolve_global_basin_map_scale()
 
@@ -826,6 +923,7 @@ def main(argv: list[str] | None = None) -> int:
             "wind_unit_in": str(args.wind_unit_in),
             "bins_count": int(args.bins_count),
             "bin_width_kmh": float(args.bin_width_kmh) if args.bin_width_kmh is not None else None,
+            "high_wind_focus_threshold_kmh": high_wind_threshold_kmh,
             "fill_max_distance_cells": float(args.fill_max_distance_cells),
             "map_scale_mps": [map_scale_min_mps, map_scale_max_mps],
             "map_scale_kmh": [round(_kmh_from_mps(map_scale_min_mps), 1), round(_kmh_from_mps(map_scale_max_mps), 1)],
@@ -864,9 +962,16 @@ def main(argv: list[str] | None = None) -> int:
             "bin_edges_kmh": [float(value) for value in histogram_payload["edges"]],
             "supergraph_path": str(supergraph_path),
         },
+        "high_wind_focus_histogram": {
+            "threshold_kmh": high_wind_threshold_kmh,
+            "x_limits_kmh": [float(value) for value in high_wind_histogram_payload["x_limits"]],
+            "y_limit_percent": float(high_wind_histogram_payload["y_limit"]),
+            "bin_edges_kmh": [float(value) for value in high_wind_histogram_payload["edges"]],
+            "supergraph_path": str(high_wind_supergraph_path),
+        },
         "outputs": {
             "maps": map_paths,
-            "charts": [str(supergraph_path)],
+            "charts": [str(supergraph_path), str(high_wind_supergraph_path)],
         },
     }
     manifest_path = output_root / "manifest.json"
@@ -874,6 +979,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Wrote 12 basin maps to {maps_dir}")
     print(f"Wrote territory supergraph to {supergraph_path}")
+    print(f"Wrote high-wind territory supergraph to {high_wind_supergraph_path}")
     print(f"Wrote manifest to {manifest_path}")
     return 0
 

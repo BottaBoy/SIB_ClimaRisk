@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pytest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -274,19 +275,98 @@ def test_compute_histogram_payloads_builds_shared_axes():
     assert len(payload["territories"]["martinique"]["storm_cmcc"]) == len(payload["centers"])
 
 
+def test_compute_histogram_payloads_can_focus_on_high_winds():
+    annual_maxima = {
+        "guadeloupe": {"storm": [40.0, 60.0, 70.0], "storm_cmcc": [45.0, 58.0, 75.0]},
+    }
+
+    payload = visual_pack._compute_histogram_payloads(
+        annual_maxima,
+        bins_count=3,
+        bin_width_kmh=20.0,
+        min_speed_kmh=200.0,
+    )
+
+    assert payload["x_limits"] == (200.0, 280.0)
+    assert payload["min_speed_kmh"] == 200.0
+    assert payload["territories"]["guadeloupe"]["storm"] == pytest.approx([100.0 / 3.0, 0.0, 100.0 / 3.0, 0.0])
+    assert payload["territories"]["guadeloupe"]["storm_cmcc"] == pytest.approx([100.0 / 3.0, 0.0, 0.0, 100.0 / 3.0])
+
+
+def test_compute_histogram_payloads_high_wind_focus_without_matching_values_returns_empty_bins():
+    annual_maxima = {
+        "guadeloupe": {"storm": [20.0, 22.0, 24.0], "storm_cmcc": [23.0, 25.0, 27.0]},
+    }
+
+    payload = visual_pack._compute_histogram_payloads(
+        annual_maxima,
+        bins_count=4,
+        bin_width_kmh=10.0,
+        min_speed_kmh=200.0,
+    )
+
+    assert payload["x_limits"] == (200.0, 210.0)
+    assert payload["y_limit"] == 1.0
+    assert payload["territories"]["guadeloupe"]["storm"] == [0.0]
+    assert payload["territories"]["guadeloupe"]["storm_cmcc"] == [0.0]
+
+
 def test_build_territory_annual_maxima_returns_year_and_track_counts(tmp_path):
     catalog_root = tmp_path / "catalogs"
     _write_catalog_sources(catalog_root)
     specs = visual_pack._resolve_ordered_territory_specs(_registry_payload())
 
-    annual_maxima, territory_counts = visual_pack._build_territory_annual_maxima(
+    annual_maxima, territory_counts, filtered_territory_counts = visual_pack._build_territory_annual_maxima(
         territory_specs=specs,
         catalog_root=catalog_root,
+        min_speed_kmh=200.0,
     )
 
     assert annual_maxima["guadeloupe"]["storm"] == [22.0, 23.0, 24.0]
     assert territory_counts["guadeloupe"]["storm"] == {"year_count": 3, "track_count": 3}
     assert territory_counts["guadeloupe"]["storm_cmcc"] == {"year_count": 3, "track_count": 3}
+    assert filtered_territory_counts["guadeloupe"]["storm"] == {"year_count": 0, "track_count": 0}
+    assert filtered_territory_counts["guadeloupe"]["storm_cmcc"] == {"year_count": 0, "track_count": 0}
+
+
+def test_build_territory_annual_maxima_returns_filtered_counts_for_high_wind_focus(tmp_path):
+    catalog_root = tmp_path / "catalogs"
+    specs = visual_pack._resolve_ordered_territory_specs(_registry_payload())
+    guadeloupe = next(spec for spec in specs if spec.territory_id == "guadeloupe")
+
+    _write_catalog_parquet(
+        catalog_root / "na" / "storm_tracks.parquet",
+        [
+            {"Year": 0, "lat": 15.9, "lon": 298.8, "wind_max": 40.0, "track_id": "track_low"},
+            {"Year": 0, "lat": 15.9, "lon": 298.8, "wind_max": 60.0, "track_id": "track_a"},
+            {"Year": 1, "lat": 15.9, "lon": 298.8, "wind_max": 58.0, "track_id": "track_b"},
+            {"Year": 2, "lat": 15.9, "lon": 298.8, "wind_max": 30.0, "track_id": "track_c"},
+            {"Year": 2, "lat": 15.9, "lon": 298.8, "wind_max": 65.0, "track_id": "track_d"},
+        ],
+    )
+    _write_catalog_parquet(
+        catalog_root / "na" / "storm_cmcc_tracks.parquet",
+        [
+            {"Year": 0, "lat": 15.9, "lon": 298.8, "wind_max": 45.0, "track_id": "cmcc_low"},
+            {"Year": 0, "lat": 15.9, "lon": 298.8, "wind_max": 57.0, "track_id": "cmcc_a"},
+            {"Year": 2, "lat": 15.9, "lon": 298.8, "wind_max": 59.0, "track_id": "cmcc_b"},
+        ],
+    )
+    _write_catalog_parquet(catalog_root / "si" / "storm_tracks.parquet", [])
+    _write_catalog_parquet(catalog_root / "si" / "storm_cmcc_tracks.parquet", [])
+    _write_catalog_parquet(catalog_root / "sp" / "storm_tracks.parquet", [])
+    _write_catalog_parquet(catalog_root / "sp" / "storm_cmcc_tracks.parquet", [])
+
+    annual_maxima, territory_counts, filtered_territory_counts = visual_pack._build_territory_annual_maxima(
+        territory_specs=[guadeloupe],
+        catalog_root=catalog_root,
+        min_speed_kmh=200.0,
+    )
+
+    assert annual_maxima["guadeloupe"]["storm"] == [60.0, 58.0, 65.0]
+    assert territory_counts["guadeloupe"]["storm"] == {"year_count": 3, "track_count": 5}
+    assert filtered_territory_counts["guadeloupe"]["storm"] == {"year_count": 3, "track_count": 3}
+    assert filtered_territory_counts["guadeloupe"]["storm_cmcc"] == {"year_count": 2, "track_count": 2}
 
 
 def test_basin_map_scale_is_fixed_and_expressed_in_kmh():
@@ -318,7 +398,12 @@ def test_build_territory_supergraph_figure_avoids_point_annotations():
     }
     histogram_payload = visual_pack._compute_histogram_payloads(annual_maxima, bins_count=6, bin_width_kmh=None)
 
-    fig = visual_pack._build_territory_supergraph_figure(specs, histogram_payload, territory_counts)
+    fig = visual_pack._build_territory_supergraph_figure(
+        specs,
+        histogram_payload,
+        territory_counts,
+        title="Vent max par année simulée - distribution des maxima annuels",
+    )
     axes = list(np.asarray(fig.axes[:9]).reshape(-1))
 
     assert len(axes) == 9
@@ -367,6 +452,7 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
     assert manifest_path.exists()
     assert len(list(maps_dir.glob("*.png"))) == 12
     assert (charts_dir / "territories_vent_max_par_annee_supergraph.png").exists()
+    assert (charts_dir / "territories_vent_max_par_annee_supergraph_sup_200kmh.png").exists()
     assert manifest["basins"]["sp"]["map_outputs"]["event_max"].endswith("sp_event_max_storm_vs_storm_cmcc.png")
     assert manifest["territories"]["saint_martin"]["annual_maxima_count"]["storm"] == 3
     assert manifest["territories"]["nouvelle_caledonie"]["annual_maxima_count"]["storm_cmcc"] == 3
@@ -374,3 +460,9 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
     assert manifest["territories"]["nouvelle_caledonie"]["track_count"]["storm_cmcc"] == 3
     assert manifest["parameters"]["map_scale_mps"] == [3.3, 98.5]
     assert manifest["parameters"]["map_scale_kmh"] == [11.9, 354.6]
+    assert manifest["parameters"]["high_wind_focus_threshold_kmh"] == 200.0
+    assert manifest["high_wind_focus_histogram"]["threshold_kmh"] == 200.0
+    assert manifest["high_wind_focus_histogram"]["supergraph_path"].endswith(
+        "charts/territories_vent_max_par_annee_supergraph_sup_200kmh.png"
+    )
+    assert manifest["outputs"]["charts"][-1].endswith("territories_vent_max_par_annee_supergraph_sup_200kmh.png")
