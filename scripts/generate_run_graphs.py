@@ -29,6 +29,17 @@ WEB_DATA_DIR = REPO_ROOT / "web" / "data"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs" / "Graphs"
 UTC = timezone.utc
 BACKEND_ROOT = REPO_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.risk_engine.png_label_layout import (
+    grouped_bar_figure_size,
+    line_chart_figure_size,
+    place_grouped_bar_labels,
+    place_line_annotations,
+    text_line_count,
+)
+
 POPULATION_OVERLAYS_PATH = REPO_ROOT / "web" / "hazard-maps" / "population-overlays.json"
 POPULATION_RASTER_PATHS = {
     "guadeloupe": Path("/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif"),
@@ -1209,6 +1220,13 @@ def _build_point_labels(return_periods: list[float], damages: list[float], total
     return labels
 
 
+def _build_compact_point_labels(return_periods: list[float], damages: list[float]) -> list[str]:
+    labels: list[str] = []
+    for idx in range(min(len(return_periods), len(damages))):
+        labels.append(f"{int(round(return_periods[idx]))}y\n{_format_compact_eur(float(damages[idx]))}")
+    return labels
+
+
 def _build_labeled_line_points(x_values: list[float], y_values: list[float], labels: list[str]) -> list[Any]:
     points: list[Any] = []
     if not x_values:
@@ -1750,6 +1768,7 @@ def build_annual_fec_graph(
             "series": png_series,
             "xlabel": "Temps de retour (ans)",
             "ylabel": "Dommages (EUR)",
+            "legacy_line_layout": True,
             "note": (
                 "Les pertes totales des scenarios STORM et STORM_CMCC sont rassemblees sur un meme graphe. "
                 "Les etiquettes montrent les dommages en EUR et leur part de la valeur totale d'infrastructure."
@@ -1822,6 +1841,7 @@ def build_annual_fec_all_territories_graph(
             "series": png_series,
             "xlabel": "Temps de retour (ans)",
             "ylabel": "Dommages (EUR)",
+            "legacy_line_layout": True,
             "note": "Une courbe par couple territoire x scenario. Les courbes representent les pertes totales du scenario, pas les pertes de vent seules.",
         },
         warning=" | ".join(graph_warnings) if graph_warnings else None,
@@ -1903,6 +1923,7 @@ def build_annual_fec_all_territories_pct_graph(
             "series": png_series,
             "xlabel": "Temps de retour (ans)",
             "ylabel": "Dommages (% de la valeur d'infrastructure du territoire)",
+            "legacy_line_layout": True,
             "note": (
                 "Chaque courbe est normalisee par la valeur totale d'infrastructure de son propre territoire. "
                 "Les courbes representent les pertes totales du scenario, pas les pertes de vent seules."
@@ -1967,7 +1988,14 @@ def build_lifetime_fec_graph(record: RunRecord, territory: str, payload: dict[st
                 "data": _build_annotated_line_points(rp, damage, inserted_periods),
             }
         )
-        png_series.append({"name": name, "x": rp, "y": damage, "color": color})
+        png_series.append(
+            {
+                "name": name,
+                "x": rp,
+                "y": damage,
+                "color": color,
+            }
+        )
     if not series:
         return None
     option = _build_line_option(
@@ -1996,7 +2024,7 @@ def build_lifetime_fec_graph(record: RunRecord, territory: str, payload: dict[st
             "series": png_series,
             "xlabel": "Temps de retour (ans)",
             "ylabel": "Dommages (EUR)",
-            "annotate_x_values": list(LIFETIME_EXTRA_RETURN_PERIODS),
+            "legacy_line_layout": True,
             "note": (
                 "Les points ajoutes 400/600/800 ans utilisent les valeurs PML annuelles recalculees a partir des checkpoints archives de pertes par evenement, "
                 "puis appliquent le meme facteur de duree de vie que les series backend 30y/50y."
@@ -2094,6 +2122,10 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
             "ylabel": "Pertes (EUR)",
             "show_labels": True,
             "label_format": "compact_eur",
+            "label_strategy": "grouped_bar_full_labels",
+            "label_fontsize_target": 13,
+            "allow_figure_autoscale": True,
+            "label_lane_gap_pts": 6,
         },
     )
 
@@ -2740,6 +2772,93 @@ def _load_matplotlib() -> tuple[Any, Any]:
     return matplotlib, plt
 
 
+VALUE_LABEL_SCALE = 2.0
+
+
+def _scaled_value_label_fontsize(
+    base_fontsize: int | float,
+    *,
+    item_count: int = 1,
+    density_cap: bool = True,
+) -> int:
+    base_size = max(float(base_fontsize), 1.0)
+    scaled = max(base_size * VALUE_LABEL_SCALE, base_size + 2.0)
+    if density_cap:
+        if item_count >= 28:
+            scaled = min(scaled, 12.0)
+        elif item_count >= 18:
+            scaled = min(scaled, 14.0)
+        else:
+            scaled = min(scaled, 16.0)
+    return max(9, int(round(scaled)))
+
+
+def _label_headroom_ratio(
+    *,
+    label_fontsize: int,
+    max_label_lines: int = 1,
+    rotation: int = 0,
+) -> float:
+    font_factor = max(float(label_fontsize) / 8.0, 1.0)
+    line_factor = 1.0 + max(0, max_label_lines - 1) * 0.45
+    rotation_factor = 1.35 if rotation else 1.0
+    return 0.06 + (0.055 * font_factor * line_factor * rotation_factor)
+
+
+def _line_label_texts_from_payload(payload: dict[str, Any], series_idx: int, x_values: list[Any], y_values: list[Any]) -> list[str]:
+    annotations = payload.get("series")[series_idx].get("annotations") if isinstance(payload.get("series"), list) and series_idx < len(payload.get("series")) and isinstance(payload.get("series")[series_idx], dict) else []
+    if isinstance(annotations, list) and annotations:
+        return [str(value or "").replace("\\n", "\n").strip() for value in annotations[: min(len(x_values), len(y_values))]]
+    annotate_x_values = {int(value) for value in (payload.get("annotate_x_values") or [])}
+    labels: list[str] = []
+    for point_idx in range(min(len(x_values), len(y_values))):
+        x_value = float(x_values[point_idx])
+        y_value = float(y_values[point_idx])
+        if annotate_x_values and int(round(x_value)) in annotate_x_values:
+            labels.append(f"{int(round(x_value))}y\n{_format_compact_eur(y_value)}")
+        else:
+            labels.append("")
+    return labels
+
+
+def _build_line_annotation_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    series_list = [item for item in (payload.get("series") or []) if isinstance(item, dict)]
+    priority_x_values = {int(value) for value in (payload.get("annotation_priority_x_values") or [])}
+    for series_idx, series in enumerate(series_list):
+        x_values = list(series.get("x") or [])
+        y_values = list(series.get("y") or [])
+        if not x_values or not y_values:
+            continue
+        label_texts = _line_label_texts_from_payload(payload, series_idx, x_values, y_values)
+        min_x = min((float(value) for value in x_values), default=0.0)
+        max_x = max((float(value) for value in x_values), default=0.0)
+        span_x = max(max_x - min_x, 1.0)
+        for point_idx in range(min(len(x_values), len(y_values), len(label_texts))):
+            label_text = label_texts[point_idx]
+            if not label_text:
+                continue
+            x_value = float(x_values[point_idx])
+            preferred_positions = ["top", "bottom", "top-right", "top-left", "right", "left"]
+            if x_value <= (min_x + 0.08 * span_x):
+                preferred_positions = ["right", "top-right", "bottom-right", "top", "bottom", "far-right"]
+            elif x_value >= (max_x - 0.05 * span_x):
+                preferred_positions = ["left", "top-left", "bottom-left", "top", "bottom", "far-left"]
+            elif (series_idx + point_idx) % 2 == 1:
+                preferred_positions = ["bottom", "top", "bottom-right", "bottom-left", "right", "left"]
+            items.append(
+                {
+                    "x": x_value,
+                    "y": float(y_values[point_idx]),
+                    "text": label_text,
+                    "color": series.get("color") or "#111827",
+                    "priority": int(round(x_value)) in priority_x_values,
+                    "preferred_positions": preferred_positions,
+                }
+            )
+    return items
+
+
 def _save_figure(fig: Any, output_path: Path, note: str | None = None) -> None:
     if note:
         fig.tight_layout(rect=(0, 0.06, 1, 1))
@@ -2765,14 +2884,166 @@ def _render_table_png(plt: Any, title: str, headers: list[str], rows: list[list[
 
 
 def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    strategy = str(payload.get("label_strategy") or "").strip().lower()
+    line_series = [item for item in (payload.get("series") or []) if isinstance(item, dict)]
+    if bool(payload.get("legacy_line_layout")):
+        fig, ax = plt.subplots(figsize=(11, 6))
+        annotate_x_values = {int(value) for value in (payload.get("annotate_x_values") or [])}
+        for series_idx, series in enumerate(line_series):
+            x_values = list(series.get("x") or [])
+            y_values = list(series.get("y") or [])
+            min_x = min((float(value) for value in x_values), default=0.0)
+            max_x = max((float(value) for value in x_values), default=0.0)
+            span_x = max(max_x - min_x, 1.0)
+            ax.plot(
+                x_values,
+                y_values,
+                marker="o",
+                linewidth=2.5,
+                label=series.get("name"),
+                color=series.get("color"),
+                linestyle=series.get("linestyle") or "solid",
+            )
+            annotations = list(series.get("annotations") or [])
+            if annotations:
+                for point_idx in range(min(len(x_values), len(y_values), len(annotations))):
+                    label = str(annotations[point_idx] or "").strip()
+                    if not label:
+                        continue
+                    x_value = float(x_values[point_idx])
+                    x_offset = 0
+                    ha = "center"
+                    if x_value <= (min_x + 0.08 * span_x):
+                        x_offset = 16
+                        ha = "left"
+                    elif x_value >= (max_x - 0.05 * span_x):
+                        x_offset = -16
+                        ha = "right"
+                    y_offset = 8 if (series_idx + point_idx) % 2 == 0 else -32
+                    ax.annotate(
+                        label.replace("\\n", "\n"),
+                        (x_value, float(y_values[point_idx])),
+                        textcoords="offset points",
+                        xytext=(x_offset, y_offset),
+                        ha=ha,
+                        fontsize=8,
+                        color=series.get("color") or "#111827",
+                    )
+            elif annotate_x_values:
+                for point_idx in range(min(len(x_values), len(y_values))):
+                    x_value = float(x_values[point_idx])
+                    y_value = float(y_values[point_idx])
+                    if int(round(x_value)) not in annotate_x_values:
+                        continue
+                    y_offset = 8 if (series_idx + point_idx) % 2 == 0 else -30
+                    ax.annotate(
+                        f"{int(round(x_value))}y\n{_format_compact_eur(y_value)}",
+                        (x_value, y_value),
+                        textcoords="offset points",
+                        xytext=(0, y_offset),
+                        ha="center",
+                        fontsize=8,
+                        color=series.get("color") or "#111827",
+                    )
+        ax.set_title(payload.get("title") or "")
+        ax.set_xlabel(payload.get("xlabel") or "")
+        ax.set_ylabel(payload.get("ylabel") or "")
+        ax.grid(True, alpha=0.25)
+        if line_series:
+            ax.legend()
+        _save_figure(fig, output_path, payload.get("note"))
+        plt.close(fig)
+        return
+
+    annotation_items = _build_line_annotation_items(payload)
+    point_count = sum(len(list(series.get("x") or [])) for series in line_series)
+    label_fontsize = int(
+        payload.get("label_fontsize_target")
+        or _scaled_value_label_fontsize(8, item_count=max(point_count, len(line_series)))
+    )
+    max_label_lines = max((text_line_count(item.get("text")) for item in annotation_items), default=1)
+    autoscale_mode = str(payload.get("figure_autoscale_mode") or "both").strip().lower() or "both"
+    if strategy == "line_full_labels_with_callouts":
+        width, height = line_chart_figure_size(
+            point_count=point_count,
+            series_count=max(len(line_series), 1),
+            label_fontsize=label_fontsize,
+            max_label_lines=max_label_lines,
+            base_width=11.0,
+            base_height=6.2,
+            autoscale_mode=autoscale_mode,
+        )
+        for attempt in range(6):
+            fig, ax = plt.subplots(figsize=(width, height))
+            for series in line_series:
+                x_values = list(series.get("x") or [])
+                y_values = list(series.get("y") or [])
+                ax.plot(
+                    x_values,
+                    y_values,
+                    marker="o",
+                    linewidth=2.5,
+                    label=series.get("name"),
+                    color=series.get("color"),
+                    linestyle=series.get("linestyle") or "solid",
+                )
+            ax.set_title(payload.get("title") or "")
+            ax.set_xlabel(payload.get("xlabel") or "")
+            ax.set_ylabel(payload.get("ylabel") or "")
+            ax.grid(True, alpha=0.25)
+            if line_series:
+                ax.legend()
+            ax.margins(x=0.06, y=0.14 if annotation_items else 0.08)
+            if annotation_items:
+                result = place_line_annotations(
+                    ax,
+                    annotation_items,
+                    label_fontsize=label_fontsize,
+                    allow_leader_lines=bool(payload.get("allow_leader_lines", True)),
+                )
+                if result.success:
+                    _save_figure(fig, output_path, payload.get("note"))
+                    plt.close(fig)
+                    return
+            else:
+                _save_figure(fig, output_path, payload.get("note"))
+                plt.close(fig)
+                return
+            plt.close(fig)
+            width *= 1.16
+            if autoscale_mode == "both":
+                height *= 1.12
+        fig, ax = plt.subplots(figsize=(width, height))
+        for series in line_series:
+            ax.plot(
+                list(series.get("x") or []),
+                list(series.get("y") or []),
+                marker="o",
+                linewidth=2.5,
+                label=series.get("name"),
+                color=series.get("color"),
+                linestyle=series.get("linestyle") or "solid",
+            )
+        ax.set_title(payload.get("title") or "")
+        ax.set_xlabel(payload.get("xlabel") or "")
+        ax.set_ylabel(payload.get("ylabel") or "")
+        ax.grid(True, alpha=0.25)
+        if line_series:
+            ax.legend()
+        _save_figure(fig, output_path, payload.get("note"))
+        plt.close(fig)
+        return
+
     fig, ax = plt.subplots(figsize=(11, 6))
     annotate_x_values = {int(value) for value in (payload.get("annotate_x_values") or [])}
-    for series_idx, series in enumerate(payload.get("series") or []):
+    has_annotations = False
+    for series_idx, series in enumerate(line_series):
         x_values = list(series.get("x") or [])
         y_values = list(series.get("y") or [])
         min_x = min((float(value) for value in x_values), default=0.0)
         max_x = max((float(value) for value in x_values), default=0.0)
         span_x = max(max_x - min_x, 1.0)
+        annotation_fontsize = _scaled_value_label_fontsize(8, item_count=max(len(x_values), len(line_series)))
         ax.plot(
             x_values,
             y_values,
@@ -2788,6 +3059,7 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
                 label = str(annotations[point_idx] or "").strip()
                 if not label:
                     continue
+                has_annotations = True
                 x_value = float(x_values[point_idx])
                 x_offset = 0
                 ha = "center"
@@ -2804,8 +3076,9 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
                     textcoords="offset points",
                     xytext=(x_offset, y_offset),
                     ha=ha,
-                    fontsize=8,
+                    fontsize=annotation_fontsize,
                     color=series.get("color") or "#111827",
+                    annotation_clip=True,
                 )
         elif annotate_x_values:
             for point_idx in range(min(len(x_values), len(y_values))):
@@ -2813,6 +3086,7 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
                 y_value = float(y_values[point_idx])
                 if int(round(x_value)) not in annotate_x_values:
                     continue
+                has_annotations = True
                 y_offset = 8 if (series_idx + point_idx) % 2 == 0 else -30
                 ax.annotate(
                     f"{int(round(x_value))}y\n{_format_compact_eur(y_value)}",
@@ -2820,15 +3094,21 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
                     textcoords="offset points",
                     xytext=(0, y_offset),
                     ha="center",
-                    fontsize=8,
+                    fontsize=annotation_fontsize,
                     color=series.get("color") or "#111827",
+                    annotation_clip=True,
                 )
     ax.set_title(payload.get("title") or "")
     ax.set_xlabel(payload.get("xlabel") or "")
     ax.set_ylabel(payload.get("ylabel") or "")
     ax.grid(True, alpha=0.25)
-    if payload.get("series"):
+    if line_series:
         ax.legend()
+    ax.margins(x=0.04, y=0.08)
+    if has_annotations:
+        y_min, y_max = ax.get_ylim()
+        y_span = max(y_max - y_min, 1.0)
+        ax.set_ylim(y_min - (0.04 * y_span), y_max + (0.20 * y_span))
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
 
@@ -2864,6 +3144,12 @@ def _grouped_bar_label_text(
 def _resolve_grouped_bar_ymax(payload: dict[str, Any]) -> float:
     explicit = payload.get("ymax")
     series = payload.get("series") or []
+    categories = payload.get("categories") or []
+    base_label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
+    scaled_label_fontsize = _scaled_value_label_fontsize(
+        base_label_fontsize,
+        item_count=max(len(categories), len(series)),
+    )
     max_value = 0.0
     max_label_lines = 1
     for series_idx, item in enumerate(series):
@@ -2874,12 +3160,15 @@ def _resolve_grouped_bar_ymax(payload: dict[str, Any]) -> float:
                 max_value = value
             if payload.get("show_labels") and value > 0.0:
                 label_text = _grouped_bar_label_text(payload, series_idx, value_idx, value)
-                max_label_lines = max(max_label_lines, label_text.count("\n") + 1 if label_text else 1)
+                max_label_lines = max(max_label_lines, text_line_count(label_text))
     auto_ymax = max(max_value, 1.0)
     if payload.get("show_labels") and max_value > 0.0:
         headroom_ratio = _safe_float(payload.get("label_headroom_ratio"), default=0.0)
         if headroom_ratio <= 0.0:
-            headroom_ratio = 0.12 if max_label_lines <= 1 else 0.22
+            headroom_ratio = _label_headroom_ratio(
+                label_fontsize=scaled_label_fontsize,
+                max_label_lines=max_label_lines,
+            )
         auto_ymax = max_value * (1.0 + headroom_ratio)
     elif max_value <= 0.0:
         auto_ymax = 1.0
@@ -2888,22 +3177,42 @@ def _resolve_grouped_bar_ymax(payload: dict[str, Any]) -> float:
     return auto_ymax
 
 
+def _resolve_bar_ymax(
+    payload: dict[str, Any],
+    values: list[Any],
+    *,
+    label_fontsize: int,
+) -> float:
+    explicit = payload.get("ymax")
+    numeric_values = [max(float(value or 0.0), 0.0) for value in values]
+    max_value = max(numeric_values, default=0.0)
+    auto_ymax = max(max_value, 1.0)
+    if payload.get("show_labels") and max_value > 0.0:
+        auto_ymax = max_value * (1.0 + _label_headroom_ratio(label_fontsize=label_fontsize))
+    if explicit is not None:
+        return max(float(explicit), auto_ymax)
+    return auto_ymax
+
+
 def _render_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
     categories = payload.get("categories") or []
     values = payload.get("values") or []
-    fig, ax = plt.subplots(figsize=(11, 6))
+    show_labels = bool(payload.get("show_labels"))
+    fig_width = max(11.0, len(categories) * 1.15 + (2.4 if show_labels else 1.6))
+    fig_height = 6.6 if show_labels else 6.0
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     bars = ax.bar(categories, values, color=payload.get("color") or "#0f766e")
     ax.set_title(payload.get("title") or "")
     if payload.get("xlabel"):
         ax.set_xlabel(payload.get("xlabel"))
     if payload.get("ylabel"):
         ax.set_ylabel(payload.get("ylabel"))
-    ymax = payload.get("ymax")
-    if ymax is not None:
-        ax.set_ylim(0, float(ymax))
+    label_fontsize = _scaled_value_label_fontsize(8, item_count=len(categories))
+    ax.set_ylim(0, _resolve_bar_ymax(payload, values, label_fontsize=label_fontsize))
     ax.tick_params(axis="x", rotation=24)
     ax.grid(True, axis="y", alpha=0.2)
-    if payload.get("show_labels"):
+    ax.margins(x=0.06)
+    if show_labels:
         label_format = payload.get("label_format")
         for bar, raw_value in zip(bars, values):
             value = float(raw_value or 0.0)
@@ -2914,7 +3223,9 @@ def _render_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> Non
                 _bar_label_text(value, label_format),
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=label_fontsize,
+                clip_on=True,
+                bbox={"boxstyle": "round,pad=0.18", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
             )
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
@@ -2936,11 +3247,100 @@ def _render_horizontal_bar_png(plt: Any, payload: dict[str, Any], output_path: P
 def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
     categories = payload.get("categories") or []
     series = payload.get("series") or []
-    fig, ax = plt.subplots(figsize=(11, 6))
+    strategy = str(payload.get("label_strategy") or "").strip().lower()
     if not categories or not series:
+        fig, ax = plt.subplots(figsize=(11.5, 6.8))
         fig.savefig(output_path, dpi=180)
         plt.close(fig)
         return
+    if strategy == "grouped_bar_full_labels":
+        base_label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
+        label_fontsize = int(
+            payload.get("label_fontsize_target")
+            or _scaled_value_label_fontsize(base_label_fontsize, item_count=max(len(categories), len(series)))
+        )
+        max_label_lines = 1
+        label_groups: list[list[str]] = []
+        for idx, item in enumerate(series):
+            values = [float(value) for value in item.get("values") or []]
+            labels: list[str] = []
+            for value_idx, value in enumerate(values):
+                label_text = _grouped_bar_label_text(payload, idx, value_idx, value) if payload.get("show_labels") and value > 0.0 else ""
+                labels.append(label_text)
+                max_label_lines = max(max_label_lines, text_line_count(label_text))
+            label_groups.append(labels)
+        width, height = grouped_bar_figure_size(
+            category_count=len(categories),
+            series_count=len(series),
+            label_fontsize=label_fontsize,
+            max_label_lines=max_label_lines,
+            base_width=max(11.5, len(categories) * 1.2 + len(series) * 0.7 + 1.6),
+            base_height=6.8,
+        )
+        for _attempt in range(6):
+            fig, ax = plt.subplots(figsize=(width, height))
+            ax.set_ylim(0, _resolve_grouped_bar_ymax(payload))
+            bar_width = 0.8 / max(1, len(series))
+            positions = list(range(len(categories)))
+            bar_groups: list[list[Any]] = []
+            for idx, item in enumerate(series):
+                offset = (idx - (len(series) - 1) / 2.0) * bar_width
+                shifted = [pos + offset for pos in positions]
+                values = [float(value) for value in item.get("values") or []]
+                bars = ax.bar(shifted, values, width=bar_width, label=item.get("name"), color=item.get("color"))
+                bar_groups.append(list(bars))
+            ax.set_xticks(positions)
+            ax.set_xticklabels(categories, rotation=20, ha="right")
+            ax.set_title(payload.get("title") or "")
+            if payload.get("ylabel"):
+                ax.set_ylabel(payload.get("ylabel"))
+            ymax = payload.get("ymax")
+            if ymax is not None:
+                ax.set_ylim(0, float(ymax))
+            ax.legend()
+            ax.grid(True, axis="y", alpha=0.2)
+            ax.margins(x=0.06)
+            if payload.get("show_labels"):
+                result = place_grouped_bar_labels(
+                    ax,
+                    bar_groups,
+                    label_groups,
+                    label_fontsize=label_fontsize,
+                    lane_gap_pts=float(payload.get("label_lane_gap_pts") or 6.0),
+                )
+                if result.success:
+                    _save_figure(fig, output_path, payload.get("note"))
+                    plt.close(fig)
+                    return
+            else:
+                _save_figure(fig, output_path, payload.get("note"))
+                plt.close(fig)
+                return
+            plt.close(fig)
+            width *= 1.14
+            height *= 1.12
+        fig, ax = plt.subplots(figsize=(width, height))
+        ax.set_ylim(0, _resolve_grouped_bar_ymax(payload))
+        bar_width = 0.8 / max(1, len(series))
+        positions = list(range(len(categories)))
+        for idx, item in enumerate(series):
+            offset = (idx - (len(series) - 1) / 2.0) * bar_width
+            shifted = [pos + offset for pos in positions]
+            values = [float(value) for value in item.get("values") or []]
+            ax.bar(shifted, values, width=bar_width, label=item.get("name"), color=item.get("color"))
+        ax.set_xticks(positions)
+        ax.set_xticklabels(categories, rotation=20, ha="right")
+        ax.set_title(payload.get("title") or "")
+        if payload.get("ylabel"):
+            ax.set_ylabel(payload.get("ylabel"))
+        ax.legend()
+        ax.grid(True, axis="y", alpha=0.2)
+        _save_figure(fig, output_path, payload.get("note"))
+        plt.close(fig)
+        return
+
+    fig_width = max(11.5, len(categories) * 1.2 + len(series) * 0.7 + 1.6)
+    fig, ax = plt.subplots(figsize=(fig_width, 6.8))
     ax.set_ylim(0, _resolve_grouped_bar_ymax(payload))
     width = 0.8 / max(1, len(series))
     positions = list(range(len(categories)))
@@ -2950,7 +3350,11 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
         values = [float(value) for value in item.get("values") or []]
         bars = ax.bar(shifted, values, width=width, label=item.get("name"), color=item.get("color"))
         if payload.get("show_labels"):
-            label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
+            base_label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
+            label_fontsize = _scaled_value_label_fontsize(
+                base_label_fontsize,
+                item_count=max(len(categories), len(series)),
+            )
             y_pad = max((ax.get_ylim()[1] or 1.0) * 0.015, max(max(values, default=0.0) * 0.02, 0.0), 0.5)
             for value_idx, (bar, value) in enumerate(zip(bars, values)):
                 if value <= 0.0:
@@ -2964,10 +3368,11 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
                     va="bottom",
                     fontsize=label_fontsize,
                     rotation=0,
+                    clip_on=True,
                     bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
                 )
     ax.set_xticks(positions)
-    ax.set_xticklabels(categories, rotation=20)
+    ax.set_xticklabels(categories, rotation=20, ha="right")
     ax.set_title(payload.get("title") or "")
     if payload.get("ylabel"):
         ax.set_ylabel(payload.get("ylabel"))
@@ -2976,6 +3381,7 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
         ax.set_ylim(0, float(ymax))
     ax.legend()
     ax.grid(True, axis="y", alpha=0.2)
+    ax.margins(x=0.05)
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
 
@@ -3040,7 +3446,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
 
     nrows = len(row_titles)
     ncols = len(column_titles)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(14.5, 12.3), sharey=True)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2, 12.9), sharey=True)
     if nrows == 1 and ncols == 1:
         axes_grid = [[axes]]
     elif nrows == 1:
@@ -3072,14 +3478,14 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
             for state in STATE_SEQUENCE:
                 value = max(_safe_float(cell.get(state)), 0.0)
                 ax.bar([0], [value], bottom=[bottoms], width=0.62, color=state_palette[state], edgecolor="white", linewidth=0.8)
-                if value >= 12.0:
+                if value >= 10.0:
                     ax.text(
                         0,
                         bottoms + (value / 2.0),
                         f"{_state_short_label(state)}\n{value:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=8,
+                        fontsize=10,
                         color=text_colors[state],
                         fontweight="bold",
                     )
@@ -3088,13 +3494,13 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
             ax.set_xlim(-0.65, 0.65)
             ax.set_xticks([])
             if col_idx == 0:
-                ax.set_ylabel(row_title, rotation=0, labelpad=34, va="center", fontsize=10, fontweight="bold")
+                ax.set_ylabel(row_title, rotation=0, labelpad=36, va="center", fontsize=11, fontweight="bold")
                 ax.set_yticks([0, 50, 100])
             else:
                 ax.set_yticks([0, 50, 100])
                 ax.set_yticklabels([])
             if row_idx == 0:
-                ax.set_title(column_title, fontsize=10, pad=18, fontweight="bold")
+                ax.set_title(column_title, fontsize=11, pad=20, fontweight="bold")
             ax.grid(True, axis="y", alpha=0.18)
             for spine in ("top", "right"):
                 ax.spines[spine].set_visible(False)
@@ -3102,9 +3508,9 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
             ax.spines["bottom"].set_alpha(0.2)
 
     handles = [Patch(facecolor=state_palette[state], label=_state_label(state)) for state in STATE_SEQUENCE]
-    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.952), frameon=False)
-    fig.suptitle(payload.get("title") or "", fontsize=17, y=0.988)
-    fig.text(0.03, 0.5, "% des reseaux", rotation="vertical", va="center", fontsize=10)
+    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=10)
+    fig.suptitle(payload.get("title") or "", fontsize=18, y=0.989)
+    fig.text(0.03, 0.5, "% des reseaux", rotation="vertical", va="center", fontsize=11)
     fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.86))
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
@@ -4272,7 +4678,7 @@ def _render_population_state_matrix_png(
 
     nrows = len(row_titles)
     ncols = len(column_titles)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(14.5, 12.3), subplot_kw={"aspect": "equal"})
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2, 12.9), subplot_kw={"aspect": "equal"})
     if nrows == 1 and ncols == 1:
         axes_grid = [[axes]]
     elif nrows == 1:
@@ -4299,20 +4705,20 @@ def _render_population_state_matrix_png(
                     wedgeprops={"linewidth": 0.8, "edgecolor": "white"},
                 )
                 impacted = sum(values[1:])
-                ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=10, fontweight="bold", color="#0f172a")
+                ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=12, fontweight="bold", color="#0f172a")
             else:
-                ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=10, fontweight="bold", color="#64748b")
+                ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=12, fontweight="bold", color="#64748b")
             if col_idx == 0:
-                ax.set_ylabel(row_title, rotation=0, labelpad=38, va="center", fontsize=10, fontweight="bold")
+                ax.set_ylabel(row_title, rotation=0, labelpad=40, va="center", fontsize=11, fontweight="bold")
             if row_idx == 0:
-                ax.set_title(column_title, fontsize=10, pad=18, fontweight="bold")
+                ax.set_title(column_title, fontsize=11, pad=20, fontweight="bold")
             ax.set_xticks([])
             ax.set_yticks([])
 
     handles = [Patch(facecolor=state_palette[idx], label=_state_label(state)) for idx, state in enumerate(STATE_SEQUENCE)]
-    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.955), frameon=False)
-    fig.suptitle(payload.get("title") or "", fontsize=17, y=0.99)
-    fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=10)
+    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.958), frameon=False, fontsize=10)
+    fig.suptitle(payload.get("title") or "", fontsize=18, y=0.991)
+    fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=11)
     fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.88))
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
@@ -4524,6 +4930,7 @@ def _build_wind_hist_payload(
         "xlabel": "Vent maximum (km/h)",
         "ylabel": "Part des observations (%)",
         "series": series,
+        "legacy_line_layout": True,
         "note": "Version allégée : un point sur deux est conservé pour améliorer la lisibilité." if point_divisor > 1 else None,
     }
 
@@ -4585,6 +4992,10 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
         "label_texts": [storm_label_texts, cmcc_label_texts],
         "label_fontsize": 7,
         "label_headroom_ratio": 0.26,
+        "label_strategy": "grouped_bar_full_labels",
+        "label_fontsize_target": 13,
+        "allow_figure_autoscale": True,
+        "label_lane_gap_pts": 6,
     }
 
 
@@ -4634,6 +5045,10 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         ],
         "label_fontsize": 7,
         "label_headroom_ratio": 0.26,
+        "label_strategy": "grouped_bar_full_labels",
+        "label_fontsize_target": 13,
+        "allow_figure_autoscale": True,
+        "label_lane_gap_pts": 6,
     }
 
 

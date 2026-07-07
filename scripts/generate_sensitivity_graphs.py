@@ -42,6 +42,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.risk_engine.sensitivity_scenarios import parameter_traceability
+from app.risk_engine.png_label_layout import horizontal_bar_figure_size, place_horizontal_bar_labels
 
 DEFAULT_MANIFEST = REPO_ROOT / "outputs" / "sensitivity-runs" / "latest-manifest.json"
 
@@ -166,6 +167,7 @@ SOCIAL_SUPER_GRAPH_STATE_LABELS = {
     "S2": "Critique (S2)",
     "S3": "Hors service (S3)",
 }
+SUPER_TORNADO_LABEL_SCALE = 2.0
 
 COMPLETE_ANALYSIS_JSON_RE = re.compile(
     r"(?P<path>/[^\s]+outputs/complete-analysis-runs/[^\s]+/territories/[^\s]+/web/data/[^\s]+-complete-analysis\.json)"
@@ -963,51 +965,122 @@ def _annotate_horizontal_bars(
         if abs(numeric_value) < min_abs_value:
             continue
         ha = "left" if numeric_value >= 0 else "right"
-        x_offset = 5 if numeric_value >= 0 else -5
         if decimals <= 0:
             label_value = f"{numeric_value:+.0f}"
         else:
             label_value = f"{numeric_value:+.{decimals}f}"
+        offset_pts = max(5, int(round(fontsize * 0.55)))
         ax.annotate(
             f"{label_value}{suffix}",
             xy=(numeric_value, y_pos),
-            xytext=(x_offset, 0),
+            xytext=(offset_pts if numeric_value >= 0 else -offset_pts, 0),
             textcoords="offset points",
             va="center",
             ha=ha,
             fontsize=fontsize,
-            clip_on=False,
+            clip_on=True,
+            bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
         )
 
 
-def _set_symmetric_xlim(ax: plt.Axes, values: list[float], *, padding_factor: float = 1.18) -> None:
+def _horizontal_label_text(value: float, *, suffix: str, decimals: int) -> str:
+    if decimals <= 0:
+        label_value = f"{float(value):+.0f}"
+    else:
+        label_value = f"{float(value):+.{decimals}f}"
+    return f"{label_value}{suffix}"
+
+
+def _build_horizontal_label_items(
+    values: np.ndarray,
+    y_positions: np.ndarray,
+    *,
+    suffix: str,
+    min_abs_value: float = 0.0,
+    decimals: int = 1,
+) -> list[dict[str, float | str]]:
+    items: list[dict[str, float | str]] = []
+    for value, y_pos in zip(values, y_positions):
+        if pd.isna(value):
+            continue
+        numeric_value = float(value)
+        if abs(numeric_value) < min_abs_value:
+            continue
+        items.append(
+            {
+                "value": numeric_value,
+                "x": numeric_value,
+                "y": float(y_pos),
+                "text": _horizontal_label_text(numeric_value, suffix=suffix, decimals=decimals),
+            }
+        )
+    return items
+
+
+def _set_symmetric_xlim(
+    ax: plt.Axes,
+    values: list[float],
+    *,
+    padding_factor: float = 1.18,
+    annotation_fontsize: int | None = None,
+) -> None:
     finite_values = [abs(float(value)) for value in values if not pd.isna(value)]
     max_abs = max(finite_values, default=0.0)
     if max_abs <= 0.0:
         max_abs = 1.0
-    ax.set_xlim(-max_abs * padding_factor, max_abs * padding_factor)
+    effective_padding = float(padding_factor)
+    if annotation_fontsize is not None:
+        effective_padding = max(effective_padding, 1.0 + 0.16 + (float(annotation_fontsize) * 0.02))
+    ax.set_xlim(-max_abs * effective_padding, max_abs * effective_padding)
 
 
 def _scenario_tick_fontsize(count: int) -> int:
     if count >= 40:
-        return 6
-    if count >= 25:
         return 7
-    if count >= 14:
+    if count >= 25:
         return 8
-    return 9
+    if count >= 14:
+        return 9
+    return 10
+
+
+def _scaled_super_annotation_fontsize(base_fontsize: int, count: int) -> int:
+    scaled = max(float(base_fontsize) * SUPER_TORNADO_LABEL_SCALE, float(base_fontsize) + 2.0)
+    if count >= 38:
+        scaled = min(scaled, 10.0)
+    elif count >= 28:
+        scaled = min(scaled, 11.0)
+    elif count >= 18:
+        scaled = min(scaled, 12.0)
+    else:
+        scaled = min(scaled, 14.0)
+    return max(9, int(round(scaled)))
 
 
 def _annotation_fontsize(count: int) -> int:
     if count >= 40:
-        return 5
+        return _scaled_super_annotation_fontsize(5, count)
     if count >= 25:
-        return 6
-    return 7
+        return _scaled_super_annotation_fontsize(6, count)
+    return _scaled_super_annotation_fontsize(7, count)
 
 
-def _super_graph_height(count: int, *, minimum: float, per_scenario: float, extra: float) -> float:
-    return max(minimum, per_scenario * max(count, 1) + extra)
+def _super_graph_height(
+    count: int,
+    *,
+    minimum: float,
+    per_scenario: float,
+    extra: float,
+    annotation_fontsize: int | None = None,
+    tick_fontsize: int | None = None,
+) -> float:
+    scale = 1.0
+    if annotation_fontsize is not None:
+        scale = max(scale, float(annotation_fontsize) / 7.0)
+    if tick_fontsize is not None:
+        scale = max(scale, float(tick_fontsize) / 9.0)
+    scale = min(scale, 1.35)
+    return max(minimum * min(scale, 1.15), (per_scenario * scale) * max(count, 1) + (extra * min(scale, 1.15)))
 
 
 def _filter_significant_scenarios(
@@ -1058,10 +1131,11 @@ def _draw_super_grouped_bars(
     annotation_fontsize: int,
     min_annotation_abs: float = 0.0,
     annotation_decimals: int = 1,
-) -> list[float]:
+) -> tuple[list[float], list[dict[str, float | str]]]:
     all_values: list[float] = []
+    label_items: list[dict[str, float | str]] = []
     if not series_columns:
-        return all_values
+        return all_values, label_items
     bar_height = 0.22 if len(series_columns) <= 3 else 0.14 if len(series_columns) <= 4 else 0.11
     center_offset = (len(series_columns) - 1) / 2.0
     for series_idx, series_column in enumerate(series_columns):
@@ -1079,17 +1153,17 @@ def _draw_super_grouped_bars(
             height=bar_height * 0.9,
             color=series_colors[series_column],
         )
-        _annotate_horizontal_bars(
-            ax,
-            valid_values,
-            bar_positions,
-            suffix=value_suffix,
-            fontsize=annotation_fontsize,
-            min_abs_value=min_annotation_abs,
-            decimals=annotation_decimals,
+        label_items.extend(
+            _build_horizontal_label_items(
+                valid_values,
+                bar_positions,
+                suffix=value_suffix,
+                min_abs_value=min_annotation_abs,
+                decimals=annotation_decimals,
+            )
         )
         all_values.extend(valid_values.tolist())
-    return all_values
+    return all_values, label_items
 
 
 def _territory_groups(df: pd.DataFrame, fallback_scope_label: str) -> list[tuple[str, str, pd.DataFrame]]:
@@ -1855,89 +1929,132 @@ def plot_super_impact_monetary_tornado(df: pd.DataFrame, output_dir: Path) -> li
         y_positions = np.arange(len(summary), dtype=float)
         tick_fontsize = _scenario_tick_fontsize(len(summary))
         annotation_fontsize = _annotation_fontsize(len(summary))
-        fig, axes = plt.subplots(
-            1,
-            2,
-            figsize=(17.5, _super_graph_height(len(summary), minimum=5.5, per_scenario=0.42, extra=2.2)),
-            sharex=True,
-            sharey=True,
+        base_width, base_height = horizontal_bar_figure_size(
+            item_count=len(summary),
+            series_count=3,
+            label_fontsize=annotation_fontsize,
+            base_width=17.5,
+            base_height=_super_graph_height(
+                len(summary),
+                minimum=5.8,
+                per_scenario=0.48,
+                extra=2.4,
+                annotation_fontsize=annotation_fontsize,
+                tick_fontsize=tick_fontsize,
+            ),
         )
-        all_values: list[float] = []
+        width = base_width
+        height = base_height
+        padding_factor = 1.28
+        saved = False
+        for _attempt in range(8):
+            fig, axes = plt.subplots(1, 2, figsize=(width, height), sharex=True, sharey=True)
+            all_values: list[float] = []
+            axis_label_items: list[list[dict[str, float | str]]] = []
 
-        for axis, hazard in zip(axes, ("storm", "storm_cmcc")):
-            hazard_columns = [
-                f"{hazard}__{return_period}"
-                for return_period in IMPACT_PERIOD_ORDER
-                if f"{hazard}__{return_period}" in summary.columns
-            ]
-            series_colors = {
-                f"{hazard}__{return_period}": IMPACT_NEGATIVE_COLORS[return_period]
-                for return_period in IMPACT_PERIOD_ORDER
-                if f"{hazard}__{return_period}" in summary.columns
-            }
-            bar_height = 0.22
-            offsets = {
-                f"{hazard}__annual": -bar_height,
-                f"{hazard}__rp50": 0.0,
-                f"{hazard}__rp100": bar_height,
-            }
-            for return_period in IMPACT_PERIOD_ORDER:
-                column_name = f"{hazard}__{return_period}"
-                if column_name not in summary.columns:
-                    continue
-                values = summary[column_name].to_numpy(dtype=float)
-                valid_mask = ~pd.isna(values)
-                if not valid_mask.any():
-                    continue
-                bar_positions = y_positions[valid_mask] + offsets[column_name]
-                valid_values = values[valid_mask]
-                colors = [
-                    IMPACT_NEGATIVE_COLORS[return_period] if value < 0 else IMPACT_POSITIVE_COLORS[return_period]
-                    for value in valid_values
+            for axis, hazard in zip(axes, ("storm", "storm_cmcc")):
+                axis_items: list[dict[str, float | str]] = []
+                hazard_columns = [
+                    f"{hazard}__{return_period}"
+                    for return_period in IMPACT_PERIOD_ORDER
+                    if f"{hazard}__{return_period}" in summary.columns
                 ]
-                axis.barh(bar_positions, valid_values, height=bar_height * 0.9, color=colors)
-                _annotate_horizontal_bars(
+                series_colors = {
+                    f"{hazard}__{return_period}": IMPACT_NEGATIVE_COLORS[return_period]
+                    for return_period in IMPACT_PERIOD_ORDER
+                    if f"{hazard}__{return_period}" in summary.columns
+                }
+                bar_height = 0.22
+                offsets = {
+                    f"{hazard}__annual": -bar_height,
+                    f"{hazard}__rp50": 0.0,
+                    f"{hazard}__rp100": bar_height,
+                }
+                for return_period in IMPACT_PERIOD_ORDER:
+                    column_name = f"{hazard}__{return_period}"
+                    if column_name not in summary.columns:
+                        continue
+                    values = summary[column_name].to_numpy(dtype=float)
+                    valid_mask = ~pd.isna(values)
+                    if not valid_mask.any():
+                        continue
+                    bar_positions = y_positions[valid_mask] + offsets[column_name]
+                    valid_values = values[valid_mask]
+                    colors = [
+                        IMPACT_NEGATIVE_COLORS[return_period] if value < 0 else IMPACT_POSITIVE_COLORS[return_period]
+                        for value in valid_values
+                    ]
+                    axis.barh(bar_positions, valid_values, height=bar_height * 0.9, color=colors)
+                    axis_items.extend(
+                        _build_horizontal_label_items(
+                            valid_values,
+                            bar_positions,
+                            suffix="%",
+                            min_abs_value=0.15,
+                            decimals=1,
+                        )
+                    )
+                    all_values.extend(valid_values.tolist())
+
+                axis.axvline(0, color="black", linewidth=0.8)
+                axis.grid(True, axis="x", alpha=0.3)
+                axis.set_title(display_hazard(hazard), fontsize=11, fontweight="bold")
+                axis.tick_params(axis="x", labelsize=8)
+                axis_label_items.append(axis_items)
+
+            axes[0].set_yticks(y_positions)
+            axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
+            axes[1].tick_params(axis="y", labelleft=False)
+            for axis in axes:
+                _set_symmetric_xlim(axis, all_values, padding_factor=padding_factor, annotation_fontsize=annotation_fontsize)
+
+            layout_ok = True
+            for axis, items in zip(axes, axis_label_items):
+                result = place_horizontal_bar_labels(
                     axis,
-                    valid_values,
-                    bar_positions,
-                    suffix="%",
-                    fontsize=annotation_fontsize,
-                    min_abs_value=0.15,
+                    items,
+                    label_fontsize=annotation_fontsize,
+                    lane_gap_pts=8.0,
                 )
-                all_values.extend(valid_values.tolist())
+                layout_ok = layout_ok and result.success
 
-            axis.axvline(0, color="black", linewidth=0.8)
-            axis.grid(True, axis="x", alpha=0.3)
-            axis.set_title(display_hazard(hazard), fontsize=11, fontweight="bold")
-            axis.tick_params(axis="x", labelsize=8)
-
-        axes[0].set_yticks(y_positions)
-        axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
-        axes[1].tick_params(axis="y", labelleft=False)
-        for axis in axes:
-            _set_symmetric_xlim(axis, all_values, padding_factor=1.28)
-
-        legend_handles, legend_labels, legend_title = build_impact_legend_spec()
-        fig.legend(
-            handles=legend_handles,
-            labels=legend_labels,
-            loc="upper center",
-            ncol=3,
-            bbox_to_anchor=(0.5, 0.955),
-            title=legend_title,
-            handler_map={tuple: HandlerTuple(ndivide=None, pad=0.6)},
-            frameon=False,
-        )
-        fig.suptitle(
-            f"{territory_label} - Impact monétaire",
-            fontsize=15,
-            y=0.985,
-            x=0.5,
-        )
-        fig.subplots_adjust(left=0.26, right=0.98, top=0.80, bottom=0.08, wspace=0.08)
-        fig.savefig(output_path, dpi=160)
-        plt.close(fig)
-        output_paths.append(output_path)
+            legend_handles, legend_labels, legend_title = build_impact_legend_spec()
+            fig.legend(
+                handles=legend_handles,
+                labels=legend_labels,
+                loc="upper center",
+                ncol=3,
+                bbox_to_anchor=(0.5, 0.955),
+                title=legend_title,
+                handler_map={tuple: HandlerTuple(ndivide=None, pad=0.6)},
+                frameon=False,
+            )
+            fig.suptitle(
+                f"{territory_label} - Impact monétaire",
+                fontsize=15,
+                y=0.985,
+                x=0.5,
+            )
+            fig.subplots_adjust(left=0.26, right=0.98, top=0.80, bottom=0.08, wspace=0.08)
+            if layout_ok:
+                fig.savefig(output_path, dpi=160)
+                plt.close(fig)
+                output_paths.append(output_path)
+                saved = True
+                break
+            plt.close(fig)
+            width *= 1.14
+            height *= 1.09
+            padding_factor *= 1.10
+        if not saved:
+            output_paths.append(
+                _write_super_graph_placeholder(
+                    output_path,
+                    title=f"{territory_label} - Super graph 1 - Impact monétaire",
+                    message="Le layout automatique n'a pas pu placer toutes les étiquettes sans chevauchement.",
+                    figsize=(max(width, 16), max(height, 5.5)),
+                )
+            )
 
     return output_paths
 
@@ -2011,27 +2128,40 @@ def plot_super_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list
         y_positions = np.arange(len(summary), dtype=float)
         tick_fontsize = _scenario_tick_fontsize(len(summary))
         annotation_fontsize = _annotation_fontsize(len(summary))
-        fig, axes = plt.subplots(
-            1,
-            2,
-            figsize=(18, _super_graph_height(len(summary), minimum=5.7, per_scenario=0.44, extra=2.3)),
-            sharex=True,
-            sharey=True,
+        base_width, base_height = horizontal_bar_figure_size(
+            item_count=len(summary),
+            series_count=len(NETWORK_SERIES_ORDER),
+            label_fontsize=annotation_fontsize,
+            base_width=18.0,
+            base_height=_super_graph_height(
+                len(summary),
+                minimum=6.0,
+                per_scenario=0.50,
+                extra=2.5,
+                annotation_fontsize=annotation_fontsize,
+                tick_fontsize=tick_fontsize,
+            ),
         )
-        all_values: list[float] = []
+        width = base_width
+        height = base_height
+        padding_factor = 1.28
+        saved = False
+        for _attempt in range(8):
+            fig, axes = plt.subplots(1, 2, figsize=(width, height), sharex=True, sharey=True)
+            all_values: list[float] = []
+            axis_label_items: list[list[dict[str, float | str]]] = []
 
-        for axis, network_metric in zip(axes, ("non_nominal_pct", "outage_pct")):
-            series_columns = [
-                f"{network_metric}__{hazard}__{service}"
-                for hazard, service in NETWORK_SERIES_ORDER
-                if f"{network_metric}__{hazard}__{service}" in summary.columns
-            ]
-            series_colors = {
-                series_column: NETWORK_SERIES_COLORS[(series_column.split("__")[1], series_column.split("__")[2])]
-                for series_column in series_columns
-            }
-            all_values.extend(
-                _draw_super_grouped_bars(
+            for axis, network_metric in zip(axes, ("non_nominal_pct", "outage_pct")):
+                series_columns = [
+                    f"{network_metric}__{hazard}__{service}"
+                    for hazard, service in NETWORK_SERIES_ORDER
+                    if f"{network_metric}__{hazard}__{service}" in summary.columns
+                ]
+                series_colors = {
+                    series_column: NETWORK_SERIES_COLORS[(series_column.split("__")[1], series_column.split("__")[2])]
+                    for series_column in series_columns
+                }
+                drawn_values, label_items = _draw_super_grouped_bars(
                     axis,
                     summary,
                     y_positions=y_positions,
@@ -2041,41 +2171,68 @@ def plot_super_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list
                     annotation_fontsize=annotation_fontsize,
                     min_annotation_abs=0.15,
                 )
+                all_values.extend(drawn_values)
+                axis_label_items.append(label_items)
+                axis.axvline(0, color="black", linewidth=0.8)
+                axis.grid(True, axis="x", alpha=0.3)
+                axis.set_title(NETWORK_METRICS.get(network_metric, network_metric), fontsize=11, fontweight="bold")
+                axis.tick_params(axis="x", labelsize=8)
+
+            axes[0].set_yticks(y_positions)
+            axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
+            axes[1].tick_params(axis="y", labelleft=False)
+            for axis in axes:
+                _set_symmetric_xlim(axis, all_values, padding_factor=padding_factor, annotation_fontsize=annotation_fontsize)
+
+            layout_ok = True
+            for axis, items in zip(axes, axis_label_items):
+                result = place_horizontal_bar_labels(
+                    axis,
+                    items,
+                    label_fontsize=annotation_fontsize,
+                    lane_gap_pts=8.0,
+                )
+                layout_ok = layout_ok and result.success
+
+            fig.legend(
+                handles=[
+                    Patch(
+                        color=NETWORK_SERIES_COLORS[series_key],
+                        label=f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+                    )
+                    for series_key in NETWORK_SERIES_ORDER
+                    if any(
+                        f"{network_metric}__{series_key[0]}__{series_key[1]}" in summary.columns
+                        for network_metric in ("non_nominal_pct", "outage_pct")
+                    )
+                ],
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.962),
+                ncol=3,
+                frameon=False,
+                title="Séries",
             )
-            axis.axvline(0, color="black", linewidth=0.8)
-            axis.grid(True, axis="x", alpha=0.3)
-            axis.set_title(NETWORK_METRICS.get(network_metric, network_metric), fontsize=11, fontweight="bold")
-            axis.tick_params(axis="x", labelsize=8)
-
-        axes[0].set_yticks(y_positions)
-        axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
-        axes[1].tick_params(axis="y", labelleft=False)
-        for axis in axes:
-            _set_symmetric_xlim(axis, all_values, padding_factor=1.28)
-
-        fig.legend(
-            handles=[
-                Patch(
-                    color=NETWORK_SERIES_COLORS[series_key],
-                    label=f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+            fig.suptitle(f"{territory_label} - % réseaux", fontsize=15, y=0.985, x=0.5)
+            fig.subplots_adjust(left=0.26, right=0.98, top=0.785, bottom=0.08, wspace=0.08)
+            if layout_ok:
+                fig.savefig(output_path, dpi=160)
+                plt.close(fig)
+                output_paths.append(output_path)
+                saved = True
+                break
+            plt.close(fig)
+            width *= 1.14
+            height *= 1.09
+            padding_factor *= 1.10
+        if not saved:
+            output_paths.append(
+                _write_super_graph_placeholder(
+                    output_path,
+                    title=f"{territory_label} - Super graph 2 - % réseaux",
+                    message="Le layout automatique n'a pas pu placer toutes les étiquettes sans chevauchement.",
+                    figsize=(max(width, 16), max(height, 5.7)),
                 )
-                for series_key in NETWORK_SERIES_ORDER
-                if any(
-                    f"{network_metric}__{series_key[0]}__{series_key[1]}" in summary.columns
-                    for network_metric in ("non_nominal_pct", "outage_pct")
-                )
-            ],
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.962),
-            ncol=3,
-            frameon=False,
-            title="Séries",
-        )
-        fig.suptitle(f"{territory_label} - % réseaux", fontsize=15, y=0.985, x=0.5)
-        fig.subplots_adjust(left=0.26, right=0.98, top=0.785, bottom=0.08, wspace=0.08)
-        fig.savefig(output_path, dpi=160)
-        plt.close(fig)
-        output_paths.append(output_path)
+            )
 
     return output_paths
 
@@ -2170,92 +2327,142 @@ def plot_super_social_state_tornado(
         y_positions = np.arange(len(summary), dtype=float)
         tick_fontsize = _scenario_tick_fontsize(len(summary))
         annotation_fontsize = _annotation_fontsize(len(summary))
-        fig, axes = plt.subplots(
-            len(SOCIAL_SUPER_GRAPH_STATE_ORDER),
-            len(SOCIAL_SUPER_GRAPH_SERVICE_ORDER),
-            figsize=(21, _super_graph_height(len(summary), minimum=9.6, per_scenario=0.38, extra=4.8)),
-            sharex=True,
-            sharey=True,
+        base_width, base_height = horizontal_bar_figure_size(
+            item_count=len(summary),
+            series_count=len(PORTFOLIO_HAZARD_SERIES_ORDER),
+            label_fontsize=annotation_fontsize,
+            base_width=24.0,
+            base_height=_super_graph_height(
+                len(summary),
+                minimum=10.2,
+                per_scenario=0.46,
+                extra=5.2,
+                annotation_fontsize=annotation_fontsize,
+                tick_fontsize=tick_fontsize,
+            ),
         )
-        all_values: list[float] = []
+        width = base_width
+        height = base_height
+        padding_factor = 1.52
+        saved = False
+        for _attempt in range(8):
+            fig, axes = plt.subplots(
+                len(SOCIAL_SUPER_GRAPH_STATE_ORDER),
+                len(SOCIAL_SUPER_GRAPH_SERVICE_ORDER),
+                figsize=(width, height),
+                sharex=True,
+                sharey=True,
+            )
+            all_values: list[float] = []
+            axis_label_items: list[list[list[dict[str, float | str]]]] = []
 
-        for row_idx, state in enumerate(SOCIAL_SUPER_GRAPH_STATE_ORDER):
-            for col_idx, service in enumerate(SOCIAL_SUPER_GRAPH_SERVICE_ORDER):
-                axis = axes[row_idx, col_idx]
-                series_columns = [
-                    f"{service}__{state}__{hazard}"
+            for row_idx, state in enumerate(SOCIAL_SUPER_GRAPH_STATE_ORDER):
+                row_label_items: list[list[dict[str, float | str]]] = []
+                for col_idx, service in enumerate(SOCIAL_SUPER_GRAPH_SERVICE_ORDER):
+                    axis = axes[row_idx, col_idx]
+                    series_columns = [
+                        f"{service}__{state}__{hazard}"
+                        for hazard in PORTFOLIO_HAZARD_SERIES_ORDER
+                        if f"{service}__{state}__{hazard}" in summary.columns
+                    ]
+                    series_colors = {
+                        series_column: PORTFOLIO_HAZARD_SERIES_COLORS[series_column.split("__")[2]]
+                        for series_column in series_columns
+                    }
+                    drawn_values, label_items = _draw_super_grouped_bars(
+                        axis,
+                        summary,
+                        y_positions=y_positions,
+                        series_columns=series_columns,
+                        series_colors=series_colors,
+                        value_suffix=" hab",
+                        annotation_fontsize=annotation_fontsize,
+                        min_annotation_abs=0.5,
+                        annotation_decimals=0,
+                    )
+                    row_label_items.append(label_items)
+                    all_values.extend(drawn_values)
+                    axis.axvline(0, color="black", linewidth=0.8)
+                    axis.grid(True, axis="x", alpha=0.25)
+                    axis.tick_params(axis="x", labelsize=8)
+                    if row_idx == 0:
+                        axis.set_title(SOCIAL_SUPER_GRAPH_SERVICE_LABELS[service], fontsize=11, fontweight="bold", pad=10)
+                    if col_idx == 0:
+                        axis.set_yticks(y_positions)
+                        axis.set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
+                        axis.text(
+                            -0.52,
+                            0.5,
+                            SOCIAL_SUPER_GRAPH_STATE_LABELS[state],
+                            rotation=90,
+                            va="center",
+                            ha="center",
+                            fontsize=10,
+                            fontweight="bold",
+                            transform=axis.transAxes,
+                        )
+                    else:
+                        axis.tick_params(axis="y", labelleft=False)
+                    if not drawn_values:
+                        axis.text(
+                            0.5,
+                            0.5,
+                            "Aucune donnée",
+                            ha="center",
+                            va="center",
+                            fontsize=9,
+                            color="#475569",
+                            transform=axis.transAxes,
+                        )
+                axis_label_items.append(row_label_items)
+
+            for row in axes:
+                for axis in row:
+                    _set_symmetric_xlim(axis, all_values, padding_factor=padding_factor, annotation_fontsize=annotation_fontsize)
+
+            layout_ok = True
+            for row_axes, row_items in zip(axes, axis_label_items):
+                for axis, items in zip(row_axes, row_items):
+                    result = place_horizontal_bar_labels(
+                        axis,
+                        items,
+                        label_fontsize=annotation_fontsize,
+                        lane_gap_pts=8.0,
+                    )
+                    layout_ok = layout_ok and result.success
+
+            fig.legend(
+                handles=[
+                    Patch(color=PORTFOLIO_HAZARD_SERIES_COLORS[hazard], label=display_hazard(hazard))
                     for hazard in PORTFOLIO_HAZARD_SERIES_ORDER
-                    if f"{service}__{state}__{hazard}" in summary.columns
-                ]
-                series_colors = {
-                    series_column: PORTFOLIO_HAZARD_SERIES_COLORS[series_column.split("__")[2]]
-                    for series_column in series_columns
-                }
-                drawn_values = _draw_super_grouped_bars(
-                    axis,
-                    summary,
-                    y_positions=y_positions,
-                    series_columns=series_columns,
-                    series_colors=series_colors,
-                    value_suffix=" hab",
-                    annotation_fontsize=annotation_fontsize,
-                    min_annotation_abs=0.5,
-                    annotation_decimals=0,
+                ],
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.972),
+                ncol=2,
+                frameon=False,
+                title="Aléas",
+            )
+            fig.suptitle(f"{territory_label} - États sociaux", fontsize=15, y=0.988, x=0.5)
+            fig.subplots_adjust(left=0.30, right=0.985, top=0.865, bottom=0.07, wspace=0.10, hspace=0.24)
+            if layout_ok:
+                fig.savefig(output_path, dpi=160)
+                plt.close(fig)
+                output_paths.append(output_path)
+                saved = True
+                break
+            plt.close(fig)
+            width *= 1.18
+            height *= 1.10
+            padding_factor *= 1.12
+        if not saved:
+            output_paths.append(
+                _write_super_graph_placeholder(
+                    output_path,
+                    title=f"{territory_label} - Super graph 3 - États sociaux",
+                    message="Le layout automatique n'a pas pu placer toutes les étiquettes sans chevauchement.",
+                    figsize=(max(width, 22), max(height, 10.2)),
                 )
-                all_values.extend(drawn_values)
-                axis.axvline(0, color="black", linewidth=0.8)
-                axis.grid(True, axis="x", alpha=0.25)
-                axis.tick_params(axis="x", labelsize=8)
-                if row_idx == 0:
-                    axis.set_title(SOCIAL_SUPER_GRAPH_SERVICE_LABELS[service], fontsize=11, fontweight="bold", pad=10)
-                if col_idx == 0:
-                    axis.set_yticks(y_positions)
-                    axis.set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
-                    axis.text(
-                        -0.52,
-                        0.5,
-                        SOCIAL_SUPER_GRAPH_STATE_LABELS[state],
-                        rotation=90,
-                        va="center",
-                        ha="center",
-                        fontsize=10,
-                        fontweight="bold",
-                        transform=axis.transAxes,
-                    )
-                else:
-                    axis.tick_params(axis="y", labelleft=False)
-                if not drawn_values:
-                    axis.text(
-                        0.5,
-                        0.5,
-                        "Aucune donnée",
-                        ha="center",
-                        va="center",
-                        fontsize=9,
-                        color="#475569",
-                        transform=axis.transAxes,
-                    )
-
-        for row in axes:
-            for axis in row:
-                _set_symmetric_xlim(axis, all_values, padding_factor=1.52)
-
-        fig.legend(
-            handles=[
-                Patch(color=PORTFOLIO_HAZARD_SERIES_COLORS[hazard], label=display_hazard(hazard))
-                for hazard in PORTFOLIO_HAZARD_SERIES_ORDER
-            ],
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.972),
-            ncol=2,
-            frameon=False,
-            title="Aléas",
-        )
-        fig.suptitle(f"{territory_label} - États sociaux", fontsize=15, y=0.988, x=0.5)
-        fig.subplots_adjust(left=0.30, right=0.985, top=0.865, bottom=0.07, wspace=0.10, hspace=0.24)
-        fig.savefig(output_path, dpi=160)
-        plt.close(fig)
-        output_paths.append(output_path)
+            )
 
     return output_paths
 

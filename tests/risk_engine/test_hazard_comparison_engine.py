@@ -228,6 +228,28 @@ def test_build_execution_plan_resolves_catalogs_and_component_inputs(tmp_path: P
     assert storm["components"]["wind"]["planned_output_path"].endswith("/territories/demo/hazards/storm/wind.h5")
 
 
+def test_build_execution_plan_propagates_territory_surge_grid_override(tmp_path: Path) -> None:
+    topo_path = tmp_path / "copernicus" / "Demo_COP30.tif"
+    topo_path.parent.mkdir(parents=True, exist_ok=True)
+    topo_path.write_text("topography", encoding="utf-8")
+
+    registry_payload = _registry_payload(tmp_path, territory_id="demo", topo_path=topo_path)
+    registry_payload["territories"]["demo"]["surge_grid_deg_override"] = 0.1
+    registry_path = _write_json(tmp_path / "territories.json", registry_payload)
+    catalogs_path = _write_json(tmp_path / "catalogs.json", _catalog_payload(tmp_path / "catalogs"))
+    scenarios_path = _write_json(tmp_path / "scenarios.json", _scenario_payload())
+
+    payload = build_hazard_comparison_execution_plan(
+        run_id="20260522_000001",
+        output_root=tmp_path / "runs",
+        registry_path=registry_path,
+        catalogs_path=catalogs_path,
+        scenarios_path=scenarios_path,
+    )
+
+    assert payload["territories"]["demo"]["surge_grid_deg_override"] == 0.1
+
+
 def test_build_execution_plan_rejects_guadeloupe_topography_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     canonical_topo_path = tmp_path / "copernicus" / "Guadeloupe_COP30.tif"
     resolved_topo_path = tmp_path / "other" / "Guadeloupe_COP30.tif"
@@ -1157,8 +1179,317 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
     assert (tables_dir / "component-comparison-wide.csv").exists()
     assert len(list(charts_dir.glob("*.png"))) == 10
     assert json.loads((charts_dir / "wind__intensity_max.json").read_text(encoding="utf-8"))["units"] == "km/h"
-    assert json.loads((charts_dir / "wind__intensity_max_return_periods__storm.json").read_text(encoding="utf-8"))["show_value_labels"] is False
+    return_period_payload = json.loads((charts_dir / "wind__intensity_max_return_periods__storm.json").read_text(encoding="utf-8"))
+    assert return_period_payload["show_value_labels"] is True
+    assert return_period_payload["value_label_rotation"] == 90
+    assert return_period_payload["value_label_fontsize"] == 7
+    assert return_period_payload["series"][0]["hatch"] == "--"
+    assert return_period_payload["series"][0]["geographic_group_id"] == "na_autres"
+    scalar_payload = json.loads((charts_dir / "wind__intensity_max.json").read_text(encoding="utf-8"))
+    assert scalar_payload["category_styles"][0]["group_id"] == "na_autres"
+    assert scalar_payload["group_legend_title"] == "Groupe geographique"
     assert exported["comparison_exports"]["chart_count"] == 10
+
+
+def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
+    metrics_document = {
+        "component_order": ["wind"],
+        "territories": {
+            "guadeloupe": {
+                "label": "Guadeloupe",
+                "storm_basin_code": "NA",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 10.0,
+                                "positive_centroid_fraction": 0.5,
+                                "event_footprint_p95_fraction": 0.3,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [10.0, 11.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 12.0,
+                                "positive_centroid_fraction": 0.6,
+                                "event_footprint_p95_fraction": 0.35,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [12.0, 13.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "martinique": {
+                "label": "Martinique",
+                "storm_basin_code": "NA",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 11.0,
+                                "positive_centroid_fraction": 0.55,
+                                "event_footprint_p95_fraction": 0.31,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [11.0, 12.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 13.0,
+                                "positive_centroid_fraction": 0.65,
+                                "event_footprint_p95_fraction": 0.36,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [13.0, 14.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "la_reunion": {
+                "label": "La Reunion",
+                "storm_basin_code": "SI",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 14.0,
+                                "positive_centroid_fraction": 0.7,
+                                "event_footprint_p95_fraction": 0.4,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [14.0, 15.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 16.0,
+                                "positive_centroid_fraction": 0.75,
+                                "event_footprint_p95_fraction": 0.44,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [16.0, 17.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "mayotte": {
+                "label": "Mayotte",
+                "storm_basin_code": "SI",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 15.0,
+                                "positive_centroid_fraction": 0.72,
+                                "event_footprint_p95_fraction": 0.41,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [15.0, 16.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 17.0,
+                                "positive_centroid_fraction": 0.77,
+                                "event_footprint_p95_fraction": 0.45,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [17.0, 18.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "nouvelle_caledonie": {
+                "label": "Nouvelle-Caledonie",
+                "storm_basin_code": "SP",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 18.0,
+                                "positive_centroid_fraction": 0.8,
+                                "event_footprint_p95_fraction": 0.5,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [18.0, 19.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 20.0,
+                                "positive_centroid_fraction": 0.84,
+                                "event_footprint_p95_fraction": 0.54,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [20.0, 21.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "guyane": {
+                "label": "Guyane",
+                "storm_basin_code": "NA",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 19.0,
+                                "positive_centroid_fraction": 0.81,
+                                "event_footprint_p95_fraction": 0.51,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [19.0, 20.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 21.0,
+                                "positive_centroid_fraction": 0.85,
+                                "event_footprint_p95_fraction": 0.55,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [21.0, 22.0]},
+                            }
+                        }
+                    },
+                },
+            },
+            "saint_pierre_et_miquelon": {
+                "label": "Saint-Pierre-et-Miquelon",
+                "storm_basin_code": "NA",
+                "scenarios": {
+                    "storm": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 8.0,
+                                "positive_centroid_fraction": 0.42,
+                                "event_footprint_p95_fraction": 0.22,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [8.0, 9.0]},
+                            }
+                        }
+                    },
+                    "storm_cmcc": {
+                        "components": {
+                            "wind": {
+                                "haz_type": "TC",
+                                "units": "m/s",
+                                "intensity_max": 9.0,
+                                "positive_centroid_fraction": 0.47,
+                                "event_footprint_p95_fraction": 0.25,
+                                "intensity_max_return_periods": {"return_periods": [10, 20], "values": [9.0, 10.0]},
+                            }
+                        }
+                    },
+                },
+            },
+        },
+    }
+
+    payloads = hazard_comparison_engine._build_phase5_chart_payloads(metrics_document)
+    scalar_payload = next(payload for payload in payloads if payload["metric_key"] == "intensity_max")
+    positive_payload = next(payload for payload in payloads if payload["metric_key"] == "positive_centroid_fraction")
+    footprint_payload = next(payload for payload in payloads if payload["metric_key"] == "event_footprint_p95_fraction")
+    return_payload = next(payload for payload in payloads if payload["metric_key"] == "intensity_max_return_periods__storm")
+
+    scalar_styles = {entry["territory_id"]: entry for entry in scalar_payload["category_styles"]}
+    return_series = {entry["territory_id"]: entry for entry in return_payload["series"]}
+
+    assert scalar_styles["guadeloupe"]["group_id"] == "antilles"
+    assert scalar_styles["martinique"]["group_id"] == "antilles"
+    assert scalar_styles["la_reunion"]["group_id"] == "ocean_indien"
+    assert scalar_styles["mayotte"]["group_id"] == "ocean_indien"
+    assert scalar_styles["nouvelle_caledonie"]["group_id"] == "ocean_pacifique"
+    assert scalar_styles["guyane"]["group_id"] == "guyane"
+    assert scalar_styles["saint_pierre_et_miquelon"]["group_id"] == "saint_pierre_miquelon"
+    assert scalar_payload["label_strategy"] is None
+    assert positive_payload["label_strategy"] == "phase5_scalar_grouped_bar_dense_labels"
+    assert footprint_payload["label_strategy"] == "phase5_scalar_grouped_bar_dense_labels"
+    assert return_series["guadeloupe"]["color"] != return_series["martinique"]["color"]
+    assert return_series["la_reunion"]["color"] != return_series["mayotte"]["color"]
+    assert return_series["guadeloupe"]["hatch"] == "//"
+    assert return_series["la_reunion"]["hatch"] == "\\\\"
+    assert return_series["nouvelle_caledonie"]["hatch"] == "oo"
+    assert return_series["guyane"]["hatch"] == ".."
+    assert return_series["saint_pierre_et_miquelon"]["hatch"] == "xx"
+
+
+def test_render_phase5_metric_chart_supports_category_styles_and_hatches(tmp_path: Path) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    plt = pytest.importorskip("matplotlib.pyplot")
+    output_path = tmp_path / "chart.png"
+
+    hazard_comparison_engine._render_phase5_metric_chart(
+        plt,
+        {
+            "title": "Styled chart",
+            "ylabel": "Value",
+            "categories": ["A", "B"],
+            "series": [
+                {
+                    "name": "Territory A",
+                    "values": [1.0, 2.0],
+                    "color": "#0f766e",
+                    "edgecolor": "#0b5a55",
+                    "hatch": "//",
+                },
+                {
+                    "name": "Territory B",
+                    "values": [1.5, 2.5],
+                    "color": "#ea580c",
+                    "edgecolor": "#c2410c",
+                    "hatch": "\\\\",
+                },
+            ],
+            "show_value_labels": True,
+            "value_label_rotation": 90,
+            "value_label_fontsize": 7,
+            "category_styles": [
+                {
+                    "territory_id": "a",
+                    "group_id": "antilles",
+                    "group_label": "Antilles",
+                    "label_color": "#0f766e",
+                    "background_color": "#dff7f2",
+                },
+                {
+                    "territory_id": "b",
+                    "group_id": "ocean_indien",
+                    "group_label": "Ocean Indien",
+                    "label_color": "#c2410c",
+                    "background_color": "#ffedd5",
+                },
+            ],
+            "group_legend_title": "Geographic group",
+        },
+        output_path,
+    )
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
 
 
 def test_materialize_hazard_comparison_report_writes_html_index(
@@ -1260,6 +1591,6 @@ def test_materialize_hazard_comparison_report_writes_html_index(
     assert reported["mode"] == "phase6_html_report"
     assert reported["territories"]["demo"]["phases"]["phase6_html_report"]["status"] == "complete"
     assert index_path.exists()
-    assert "Hazard Comparison Report" in html_text
-    assert "Top Absolute Deltas" in html_text
+    assert "Rapport de comparaison des aleas" in html_text
+    assert "Plus grands deltas absolus" in html_text
     assert "wind__intensity_max.png" in html_text

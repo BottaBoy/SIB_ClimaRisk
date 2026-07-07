@@ -492,6 +492,7 @@ def test_build_wind_hist_payload_uses_line_annotations_without_zero_labels() -> 
     assert payload is not None
     assert payload["type"] == "line"
     assert payload["xlabel"] == "Vent maximum (km/h)"
+    assert payload["legacy_line_layout"] is True
     assert payload["series"][0]["x"] == [216.0, 219.6]
     assert payload["series"][0]["annotations"] == ["", "5 %"]
     assert payload["series"][1]["annotations"] == ["1.5 %", ""]
@@ -655,6 +656,7 @@ def test_build_damage_scenario_payload_adds_damage_share_labels() -> None:
     payload = generate_run_graphs._build_damage_scenario_payload(artifacts, "water", "Degats eau")
 
     assert payload is not None
+    assert payload["label_strategy"] == "grouped_bar_full_labels"
     assert payload["label_texts"][0][0] == "250.00 EUR\n(25.00% valeur)"
     assert payload["label_texts"][1][1] == "25.00 EUR\n(5.00% valeur)"
 
@@ -704,6 +706,7 @@ def test_build_total_damage_by_return_period_payload_adds_family_share_labels() 
     payload = generate_run_graphs._build_total_damage_by_return_period_payload(artifacts, "water", "Degats eau")
 
     assert payload is not None
+    assert payload["label_strategy"] == "grouped_bar_full_labels"
     assert payload["label_texts"][0][0] == "35.00 EUR\n(2.50% valeur)"
     assert payload["label_texts"][0][3] == "280.00 EUR\n(20.00% valeur)"
     assert payload["label_texts"][1][1] == "35.00 EUR\n(2.50% valeur)"
@@ -756,6 +759,40 @@ def test_build_annual_fec_graph_combines_selected_hazards(monkeypatch: pytest.Mo
     assert len(graph.png_payload["series"]) == 2
     assert graph.png_payload["series"][0]["name"] == "STORM"
     assert graph.png_payload["series"][1]["name"] == "STORM_CMCC"
+    assert graph.png_payload["legacy_line_layout"] is True
+    assert graph.png_payload["series"][0]["annotations"][0] == "10y\\n1.00 k EUR\\n10.00%"
+
+
+def test_build_lifetime_fec_graph_marks_priority_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        generate_run_graphs,
+        "_extract_graph_block",
+        lambda *_args, **_kwargs: {
+            "series": [
+                {
+                    "name": "30 ans",
+                    "return_period_years": [10, 20, 50, 100, 200, 1000],
+                    "damage_eur": [100.0, 200.0, 300.0, 400.0, 500.0, 800.0],
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        generate_run_graphs,
+        "_resolve_annual_fec_curve",
+        lambda *_args, **_kwargs: ([10.0, 20.0, 50.0, 100.0, 200.0, 1000.0], [100.0, 200.0, 300.0, 400.0, 500.0, 800.0], [], None),
+    )
+
+    graph = generate_run_graphs.build_lifetime_fec_graph(
+        _run_record(),
+        "guadeloupe",
+        {"portfolio_results": {}},
+        "storm",
+    )
+
+    assert graph is not None
+    assert graph.png_payload["legacy_line_layout"] is True
+    assert "annotations" not in graph.png_payload["series"][0]
 
 
 def test_adaptive_geo_linewidth_keeps_base_width_for_lines() -> None:

@@ -35,6 +35,7 @@ from .hazard_comparison_registry import (
 )
 from .climada_petals_loader import load_climada_petals_hazard_symbols
 from .landslide_engine import build_landslide_hazard_from_prob
+from .png_label_layout import grouped_bar_figure_size, place_grouped_bar_labels, text_line_count
 
 
 UTC = timezone.utc
@@ -65,30 +66,75 @@ _PHASE5_PLOT_METRIC_KEYS = (
     "event_footprint_p95_fraction",
 )
 _PHASE5_RETURN_PERIOD_METRIC_KEY = "intensity_max_return_periods"
-_PHASE5_METRIC_LABELS = {
-    "event_count": "Event count",
-    "frequency_sum_annual": "Annual frequency sum",
-    "positive_centroid_fraction": "Positive centroid fraction",
-    "intensity_max": "Maximum intensity",
-    "intensity_max_return_periods": "Maximum intensity by return period",
-    "intensity_mean_positive": "Mean positive intensity",
-    "intensity_p95_positive": "P95 positive intensity",
-    "event_footprint_mean_fraction": "Mean event footprint fraction",
-    "event_footprint_p95_fraction": "P95 event footprint fraction",
-    "event_footprint_max_fraction": "Max event footprint fraction",
+_COMPONENT_LABELS = {
+    "wind": "Vent",
+    "rain": "Pluie",
+    "surge": "Submersion cotiere",
+    "landslide": "Mouvement de terrain",
 }
-_PHASE5_TERRITORY_COLORS = (
-    "#0f766e",
-    "#b45309",
-    "#1d4ed8",
-    "#be123c",
-    "#4d7c0f",
-    "#7c2d12",
-    "#0369a1",
-    "#9f1239",
-    "#4338ca",
-    "#0f172a",
-)
+_PHASE5_METRIC_LABELS = {
+    "event_count": "Nombre d'evenements",
+    "frequency_sum_annual": "Frequence annuelle cumulee",
+    "positive_centroid_fraction": "Part des centroides positifs",
+    "intensity_max": "Intensite maximale",
+    "intensity_max_return_periods": "Intensite maximale par temps de retour",
+    "intensity_mean_positive": "Intensite moyenne positive",
+    "intensity_p95_positive": "Intensite positive P95",
+    "event_footprint_mean_fraction": "Part moyenne d'emprise evenementielle",
+    "event_footprint_p95_fraction": "Part P95 d'emprise evenementielle",
+    "event_footprint_max_fraction": "Part maximale d'emprise evenementielle",
+}
+_PHASE5_GEOGRAPHIC_GROUP_LABELS = {
+    "antilles": "Antilles",
+    "guyane": "Guyane",
+    "saint_pierre_miquelon": "Saint-Pierre-et-Miquelon",
+    "ocean_indien": "Ocean Indien",
+    "ocean_pacifique": "Ocean Pacifique",
+    "na_autres": "NA autres",
+}
+_PHASE5_TERRITORY_GROUP_OVERRIDES = {
+    "guadeloupe": "antilles",
+    "martinique": "antilles",
+    "saint_barthelemy": "antilles",
+    "saint_martin": "antilles",
+    "guyane": "guyane",
+    "saint_pierre_et_miquelon": "saint_pierre_miquelon",
+    "la_reunion": "ocean_indien",
+    "mayotte": "ocean_indien",
+    "nouvelle_caledonie": "ocean_pacifique",
+}
+_PHASE5_GROUP_COLOR_FAMILIES = {
+    "antilles": ("#0f766e", "#15803d", "#0d9488", "#2f855a"),
+    "guyane": ("#166534", "#15803d"),
+    "saint_pierre_miquelon": ("#64748b", "#475569"),
+    "ocean_indien": ("#ea580c", "#f97316", "#fb7185"),
+    "ocean_pacifique": ("#2563eb", "#4f46e5", "#1d4ed8"),
+    "na_autres": ("#475569", "#334155"),
+}
+_PHASE5_GROUP_LABEL_COLORS = {
+    "antilles": "#0f766e",
+    "guyane": "#166534",
+    "saint_pierre_miquelon": "#475569",
+    "ocean_indien": "#c2410c",
+    "ocean_pacifique": "#3730a3",
+    "na_autres": "#334155",
+}
+_PHASE5_GROUP_BACKGROUND_COLORS = {
+    "antilles": "#dff7f2",
+    "guyane": "#dcfce7",
+    "saint_pierre_miquelon": "#e2e8f0",
+    "ocean_indien": "#ffedd5",
+    "ocean_pacifique": "#dbeafe",
+    "na_autres": "#e5e7eb",
+}
+_PHASE5_GROUP_HATCHES = {
+    "antilles": "//",
+    "guyane": "..",
+    "saint_pierre_miquelon": "xx",
+    "ocean_indien": "\\\\",
+    "ocean_pacifique": "oo",
+    "na_autres": "--",
+}
 
 
 @dataclass(frozen=True)
@@ -501,6 +547,11 @@ def _metric_label(metric_key: str) -> str:
     return str(_PHASE5_METRIC_LABELS.get(str(metric_key), str(metric_key).replace("_", " ").title()))
 
 
+def _component_label(component_id: str) -> str:
+    normalized = str(component_id or "").strip()
+    return str(_COMPONENT_LABELS.get(normalized, normalized.replace("_", " ").title()))
+
+
 def _metric_is_intensity(metric_key: str) -> bool:
     return str(metric_key).startswith("intensity_")
 
@@ -518,8 +569,69 @@ def _phase5_display_value(component_id: str, metric_key: str, value: Any) -> flo
     return numeric
 
 
-def _phase5_territory_color(index: int) -> str:
-    return _PHASE5_TERRITORY_COLORS[index % len(_PHASE5_TERRITORY_COLORS)]
+def _mix_hex_colors(color: str, target: str, ratio: float) -> str:
+    source = str(color or "").lstrip("#")
+    destination = str(target or "").lstrip("#")
+    if len(source) != 6 or len(destination) != 6:
+        return str(color or target or "#334155")
+    blend_ratio = max(0.0, min(float(ratio), 1.0))
+    values = []
+    for idx in range(0, 6, 2):
+        source_channel = int(source[idx : idx + 2], 16)
+        destination_channel = int(destination[idx : idx + 2], 16)
+        mixed = int(round(source_channel + ((destination_channel - source_channel) * blend_ratio)))
+        values.append(f"{mixed:02x}")
+    return "#" + "".join(values)
+
+
+def _resolve_phase5_geographic_group(territory_id: str, storm_basin_code: str) -> tuple[str, str]:
+    group_id = _PHASE5_TERRITORY_GROUP_OVERRIDES.get(str(territory_id or "").strip())
+    basin_code = str(storm_basin_code or "").strip().upper()
+    if not group_id:
+        if basin_code == "SI":
+            group_id = "ocean_indien"
+        elif basin_code == "SP":
+            group_id = "ocean_pacifique"
+        elif basin_code == "NA":
+            group_id = "na_autres"
+        else:
+            group_id = "na_autres"
+    return group_id, str(_PHASE5_GEOGRAPHIC_GROUP_LABELS.get(group_id, group_id.replace("_", " ").title()))
+
+
+def _build_phase5_territory_contexts(metrics_document: dict[str, Any]) -> list[dict[str, str]]:
+    territories = metrics_document.get("territories") if isinstance(metrics_document.get("territories"), dict) else {}
+    group_counts: dict[str, int] = {}
+    contexts: list[dict[str, str]] = []
+    for territory_id, territory_payload in territories.items():
+        if not isinstance(territory_payload, dict):
+            continue
+        storm_basin_code = str(territory_payload.get("storm_basin_code") or "").strip().upper()
+        group_id = str(territory_payload.get("geographic_group_id") or "").strip()
+        group_label = str(territory_payload.get("geographic_group_label") or "").strip()
+        if not group_id:
+            group_id, group_label = _resolve_phase5_geographic_group(str(territory_id), storm_basin_code)
+        if not group_label:
+            group_label = str(_PHASE5_GEOGRAPHIC_GROUP_LABELS.get(group_id, group_id.replace("_", " ").title()))
+        group_index = group_counts.get(group_id, 0)
+        group_counts[group_id] = group_index + 1
+        palette = _PHASE5_GROUP_COLOR_FAMILIES.get(group_id) or _PHASE5_GROUP_COLOR_FAMILIES["na_autres"]
+        fill_color = str(palette[group_index % len(palette)])
+        contexts.append(
+            {
+                "territory_id": str(territory_id),
+                "territory_label": str(territory_payload.get("label") or territory_id),
+                "storm_basin_code": storm_basin_code,
+                "geographic_group_id": group_id,
+                "geographic_group_label": group_label,
+                "color": fill_color,
+                "edgecolor": _mix_hex_colors(fill_color, "#0f172a", 0.28),
+                "label_color": str(_PHASE5_GROUP_LABEL_COLORS.get(group_id, fill_color)),
+                "background_color": str(_PHASE5_GROUP_BACKGROUND_COLORS.get(group_id, "#e5e7eb")),
+                "hatch": str(_PHASE5_GROUP_HATCHES.get(group_id, "--")),
+            }
+        )
+    return contexts
 
 
 def _resolve_phase5_metrics_document(payload: dict[str, Any]) -> tuple[dict[str, Any], Path]:
@@ -668,17 +780,21 @@ def _build_phase5_scalar_chart_payloads(metrics_document: dict[str, Any]) -> lis
     if not territories:
         return []
     component_order = [str(value) for value in list(metrics_document.get("component_order") or _ALLOWED_COMPONENTS)]
+    territory_contexts = _build_phase5_territory_contexts(metrics_document)
 
     chart_payloads: list[dict[str, Any]] = []
     for component_id in component_order:
         for metric_key in _PHASE5_PLOT_METRIC_KEYS:
             territory_labels: list[str] = []
+            category_styles: list[dict[str, str]] = []
             storm_values: list[float] = []
             cmcc_values: list[float] = []
             units = ""
             haz_type = ""
 
-            for territory_id, territory_payload in territories.items():
+            for context in territory_contexts:
+                territory_id = str(context["territory_id"])
+                territory_payload = territories.get(territory_id)
                 if not isinstance(territory_payload, dict):
                     continue
                 scenarios = territory_payload.get("scenarios") if isinstance(territory_payload.get("scenarios"), dict) else {}
@@ -688,7 +804,16 @@ def _build_phase5_scalar_chart_payloads(metrics_document: dict[str, Any]) -> lis
                     continue
 
                 raw_units = str(storm_component.get("units") or cmcc_component.get("units") or units)
-                territory_labels.append(str(territory_payload.get("label") or territory_id))
+                territory_labels.append(str(context["territory_label"]))
+                category_styles.append(
+                    {
+                        "territory_id": territory_id,
+                        "group_id": str(context["geographic_group_id"]),
+                        "group_label": str(context["geographic_group_label"]),
+                        "label_color": str(context["label_color"]),
+                        "background_color": str(context["background_color"]),
+                    }
+                )
                 storm_values.append(_phase5_display_value(component_id, metric_key, storm_component.get(metric_key)))
                 cmcc_values.append(_phase5_display_value(component_id, metric_key, cmcc_component.get(metric_key)))
                 units = _phase5_display_units(component_id, raw_units, metric_key)
@@ -708,7 +833,7 @@ def _build_phase5_scalar_chart_payloads(metrics_document: dict[str, Any]) -> lis
                     "metric_key": str(metric_key),
                     "metric_label": _metric_label(metric_key),
                     "units": units,
-                    "title": f"{str(component_id).replace('_', ' ').title()} - {_metric_label(metric_key)}",
+                    "title": f"{_component_label(component_id)} - {_metric_label(metric_key)}",
                     "ylabel": ylabel,
                     "categories": territory_labels,
                     "series": [
@@ -716,6 +841,18 @@ def _build_phase5_scalar_chart_payloads(metrics_document: dict[str, Any]) -> lis
                         {"name": "STORM_CMCC", "values": cmcc_values, "color": "#b45309"},
                     ],
                     "show_value_labels": True,
+                    "value_label_rotation": 0,
+                    "value_label_fontsize": 8,
+                    "category_styles": category_styles,
+                    "group_legend_title": "Groupe geographique",
+                    "label_strategy": (
+                        "phase5_scalar_grouped_bar_dense_labels"
+                        if metric_key in {"positive_centroid_fraction", "event_footprint_p95_fraction"}
+                        else None
+                    ),
+                    "label_fontsize_target": 13,
+                    "allow_figure_autoscale": True,
+                    "label_lane_gap_pts": 6,
                 }
             )
     return chart_payloads
@@ -726,6 +863,7 @@ def _build_phase5_return_period_chart_payloads(metrics_document: dict[str, Any])
     if not territories:
         return []
     component_order = [str(value) for value in list(metrics_document.get("component_order") or _ALLOWED_COMPONENTS)]
+    territory_contexts = _build_phase5_territory_contexts(metrics_document)
 
     chart_payloads: list[dict[str, Any]] = []
     for component_id in component_order:
@@ -735,7 +873,9 @@ def _build_phase5_return_period_chart_payloads(metrics_document: dict[str, Any])
             units = ""
             haz_type = ""
 
-            for territory_index, (territory_id, territory_payload) in enumerate(territories.items()):
+            for context in territory_contexts:
+                territory_id = str(context["territory_id"])
+                territory_payload = territories.get(territory_id)
                 if not isinstance(territory_payload, dict):
                     continue
                 scenarios = territory_payload.get("scenarios") if isinstance(territory_payload.get("scenarios"), dict) else {}
@@ -763,12 +903,16 @@ def _build_phase5_return_period_chart_payloads(metrics_document: dict[str, Any])
                 haz_type = str(component_payload.get("haz_type") or haz_type)
                 series_payloads.append(
                     {
-                        "name": str(territory_payload.get("label") or territory_id),
+                        "name": str(context["territory_label"]),
+                        "territory_id": territory_id,
+                        "geographic_group_id": str(context["geographic_group_id"]),
                         "values": [
                             _phase5_display_value(component_id, _PHASE5_RETURN_PERIOD_METRIC_KEY, value)
                             for value in values
                         ],
-                        "color": _phase5_territory_color(territory_index),
+                        "color": str(context["color"]),
+                        "edgecolor": str(context["edgecolor"]),
+                        "hatch": str(context["hatch"]),
                     }
                 )
 
@@ -788,13 +932,15 @@ def _build_phase5_return_period_chart_payloads(metrics_document: dict[str, Any])
                     "metric_label": metric_label,
                     "units": units,
                     "scenario_id": str(scenario_id),
-                    "title": f"{str(component_id).replace('_', ' ').title()} - {_metric_label(_PHASE5_RETURN_PERIOD_METRIC_KEY)} - {scenario_label}",
-                    "xlabel": "Return period (years)",
+                    "title": f"{_component_label(component_id)} - {_metric_label(_PHASE5_RETURN_PERIOD_METRIC_KEY)} - {scenario_label}",
+                    "xlabel": "Temps de retour (ans)",
                     "ylabel": ylabel,
                     "categories": categories,
                     "series": series_payloads,
-                    "show_value_labels": False,
-                    "legend_title": "Territory",
+                    "show_value_labels": True,
+                    "value_label_rotation": 90,
+                    "value_label_fontsize": 7,
+                    "legend_title": "Territoire",
                 }
             )
 
@@ -805,16 +951,177 @@ def _build_phase5_chart_payloads(metrics_document: dict[str, Any]) -> list[dict[
     return _build_phase5_scalar_chart_payloads(metrics_document) + _build_phase5_return_period_chart_payloads(metrics_document)
 
 
+def _scaled_phase5_value_label_fontsize(base_fontsize: int | float, *, item_count: int) -> int:
+    base_size = max(float(base_fontsize), 1.0)
+    scaled = max(base_size * 2.0, base_size + 2.0)
+    if item_count >= 18:
+        scaled = min(scaled, 14.0)
+    else:
+        scaled = min(scaled, 16.0)
+    return max(9, int(round(scaled)))
+
+
+def _phase5_label_headroom_ratio(*, label_fontsize: int, rotation: int) -> float:
+    font_factor = max(float(label_fontsize) / 8.0, 1.0)
+    rotation_factor = 1.35 if rotation else 1.0
+    return 0.07 + (0.06 * font_factor * rotation_factor)
+
+
 def _render_phase5_metric_chart(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
     categories = list(payload.get("categories") or [])
     series = list(payload.get("series") or [])
-    width = max(8.0, float(len(categories)) * 1.25 + float(len(series)) * 0.45)
-    fig, ax = plt.subplots(figsize=(width, 5.2))
-    count = max(1, len(series))
-    bar_width = min(0.38, 0.8 / count)
-    positions = list(range(len(categories)))
+    category_styles = list(payload.get("category_styles") or [])
     show_value_labels = bool(payload.get("show_value_labels", True))
+    strategy = str(payload.get("label_strategy") or "").strip().lower()
+    count = max(1, len(series))
+    positions = list(range(len(categories)))
+    value_label_rotation = int(payload.get("value_label_rotation") or 0)
+    value_label_fontsize = int(
+        payload.get("label_fontsize_target")
+        or _scaled_phase5_value_label_fontsize(
+            int(payload.get("value_label_fontsize") or 8),
+            item_count=max(len(categories), len(series)),
+        )
+    )
+    dense_label_lines = 1
+    if strategy == "phase5_scalar_grouped_bar_dense_labels":
+        for series_payload in series:
+            for value in list(series_payload.get("values") or []):
+                dense_label_lines = max(dense_label_lines, text_line_count(f"{float(value or 0.0):.3g}"))
+        width, height = grouped_bar_figure_size(
+            category_count=len(categories),
+            series_count=len(series),
+            label_fontsize=value_label_fontsize,
+            max_label_lines=dense_label_lines,
+            base_width=max(9.5, float(len(categories)) * 1.45 + float(len(series)) * 0.7),
+            base_height=6.1 if show_value_labels else 5.4,
+        )
+        for _attempt in range(6):
+            fig, ax = plt.subplots(figsize=(width, height))
+            bar_width = min(0.38, 0.8 / count)
+            all_values: list[float] = []
+            bar_groups: list[list[Any]] = []
+            if len(category_styles) == len(categories):
+                for idx, category_style in enumerate(category_styles):
+                    ax.axvspan(
+                        idx - 0.5,
+                        idx + 0.5,
+                        facecolor=str(category_style.get("background_color") or "#e5e7eb"),
+                        alpha=0.18,
+                        zorder=0,
+                    )
+            for idx, series_payload in enumerate(series):
+                values = [float(value or 0.0) for value in list(series_payload.get("values") or [])]
+                all_values.extend(values)
+                offset = (idx - (count - 1) / 2.0) * bar_width
+                bars = ax.bar(
+                    [position + offset for position in positions],
+                    values,
+                    width=bar_width,
+                    label=str(series_payload.get("name") or f"series-{idx + 1}"),
+                    color=str(series_payload.get("color") or "#334155"),
+                    edgecolor=str(series_payload.get("edgecolor") or series_payload.get("color") or "#334155"),
+                    linewidth=0.9,
+                    hatch=str(series_payload.get("hatch") or ""),
+                    zorder=3,
+                )
+                bar_groups.append(list(bars))
+            ax.set_xticks(positions)
+            ax.set_xticklabels(categories, rotation=25, ha="right")
+            if len(category_styles) == len(categories):
+                for tick, category_style in zip(ax.get_xticklabels(), category_styles):
+                    tick.set_color(str(category_style.get("label_color") or "#0f172a"))
+            if payload.get("xlabel"):
+                ax.set_xlabel(str(payload.get("xlabel") or ""))
+            ax.set_ylabel(str(payload.get("ylabel") or "Valeur"))
+            ax.set_title(str(payload.get("title") or "Comparaison des aleas"))
+            max_value = max(all_values) if all_values else 0.0
+            top_padding_ratio = (
+                _phase5_label_headroom_ratio(label_fontsize=value_label_fontsize, rotation=value_label_rotation)
+                if show_value_labels
+                else 0.06
+            )
+            top_padding = max(0.2, max_value * top_padding_ratio)
+            ax.set_ylim(0.0, max(1.0, max_value + top_padding))
+            ax.grid(axis="y", alpha=0.18, zorder=1)
+            ax.margins(x=0.05)
+            legend_columns = 1
+            if len(series) > 6:
+                legend_columns = 3
+            elif len(series) > 3:
+                legend_columns = 2
+            primary_legend = ax.legend(
+                title=str(payload.get("legend_title") or "") or None,
+                ncol=min(legend_columns, max(1, len(series))),
+                fontsize=8 if len(series) > 6 else 9,
+                loc="upper left",
+            )
+            if len(category_styles) == len(categories):
+                from matplotlib.patches import Patch
+
+                ax.add_artist(primary_legend)
+                group_handles: list[Any] = []
+                seen_group_ids: set[str] = set()
+                for category_style in category_styles:
+                    group_id = str(category_style.get("group_id") or "")
+                    if not group_id or group_id in seen_group_ids:
+                        continue
+                    seen_group_ids.add(group_id)
+                    group_handles.append(
+                        Patch(
+                            facecolor=str(category_style.get("background_color") or "#e5e7eb"),
+                            edgecolor=str(category_style.get("label_color") or "#334155"),
+                            label=str(category_style.get("group_label") or group_id),
+                        )
+                    )
+                if group_handles:
+                    ax.legend(
+                        handles=group_handles,
+                        title=str(payload.get("group_legend_title") or "Groupe geographique"),
+                        loc="upper right",
+                        fontsize=8,
+                    )
+            if show_value_labels:
+                label_groups = [
+                    [f"{float(value or 0.0):.3g}" for value in list(series_payload.get("values") or [])]
+                    for series_payload in series
+                ]
+                result = place_grouped_bar_labels(
+                    ax,
+                    bar_groups,
+                    label_groups,
+                    label_fontsize=value_label_fontsize,
+                    lane_gap_pts=float(payload.get("label_lane_gap_pts") or 6.0),
+                )
+                if result.success:
+                    fig.tight_layout()
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+                    plt.close(fig)
+                    return
+            else:
+                fig.tight_layout()
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                fig.savefig(output_path, dpi=180, bbox_inches="tight")
+                plt.close(fig)
+                return
+            plt.close(fig)
+            width *= 1.14
+            height *= 1.10
+
+    width = max(9.5, float(len(categories)) * 1.45 + float(len(series)) * 0.7)
+    fig, ax = plt.subplots(figsize=(width, 6.1 if show_value_labels else 5.4))
+    bar_width = min(0.38, 0.8 / count)
     all_values: list[float] = []
+    if len(category_styles) == len(categories):
+        for idx, category_style in enumerate(category_styles):
+            ax.axvspan(
+                idx - 0.5,
+                idx + 0.5,
+                facecolor=str(category_style.get("background_color") or "#e5e7eb"),
+                alpha=0.18,
+                zorder=0,
+            )
 
     for idx, series_payload in enumerate(series):
         values = [float(value or 0.0) for value in list(series_payload.get("values") or [])]
@@ -826,6 +1133,10 @@ def _render_phase5_metric_chart(plt: Any, payload: dict[str, Any], output_path: 
             width=bar_width,
             label=str(series_payload.get("name") or f"series-{idx + 1}"),
             color=str(series_payload.get("color") or "#334155"),
+            edgecolor=str(series_payload.get("edgecolor") or series_payload.get("color") or "#334155"),
+            linewidth=0.9,
+            hatch=str(series_payload.get("hatch") or ""),
+            zorder=3,
         )
         if show_value_labels:
             label_offset = max(0.04, (max(all_values) if all_values else 0.0) * 0.02)
@@ -836,29 +1147,67 @@ def _render_phase5_metric_chart(plt: Any, payload: dict[str, Any], output_path: 
                     f"{value:.3g}",
                     ha="center",
                     va="bottom",
-                    fontsize=8,
-                    rotation=90 if value else 0,
+                    fontsize=value_label_fontsize,
+                    rotation=value_label_rotation,
+                    clip_on=True,
+                    bbox={"boxstyle": "round,pad=0.18", "facecolor": "white", "edgecolor": "none", "alpha": 0.82},
                 )
 
     ax.set_xticks(positions)
     ax.set_xticklabels(categories, rotation=25, ha="right")
+    if len(category_styles) == len(categories):
+        for tick, category_style in zip(ax.get_xticklabels(), category_styles):
+            tick.set_color(str(category_style.get("label_color") or "#0f172a"))
     if payload.get("xlabel"):
         ax.set_xlabel(str(payload.get("xlabel") or ""))
-    ax.set_ylabel(str(payload.get("ylabel") or "Value"))
-    ax.set_title(str(payload.get("title") or "Hazard comparison"))
+    ax.set_ylabel(str(payload.get("ylabel") or "Valeur"))
+    ax.set_title(str(payload.get("title") or "Comparaison des aleas"))
     max_value = max(all_values) if all_values else 0.0
-    top_padding = max(0.2, max_value * (0.12 if show_value_labels else 0.06))
+    top_padding_ratio = (
+        _phase5_label_headroom_ratio(label_fontsize=value_label_fontsize, rotation=value_label_rotation)
+        if show_value_labels
+        else 0.06
+    )
+    top_padding = max(0.2, max_value * top_padding_ratio)
     ax.set_ylim(0.0, max(1.0, max_value + top_padding))
+    ax.grid(axis="y", alpha=0.18, zorder=1)
+    ax.margins(x=0.04)
     legend_columns = 1
     if len(series) > 6:
         legend_columns = 3
     elif len(series) > 3:
         legend_columns = 2
-    ax.legend(
+    primary_legend = ax.legend(
         title=str(payload.get("legend_title") or "") or None,
         ncol=min(legend_columns, max(1, len(series))),
         fontsize=8 if len(series) > 6 else 9,
+        loc="upper left",
     )
+    if len(category_styles) == len(categories):
+        from matplotlib.patches import Patch
+
+        ax.add_artist(primary_legend)
+        group_handles: list[Any] = []
+        seen_group_ids: set[str] = set()
+        for category_style in category_styles:
+            group_id = str(category_style.get("group_id") or "")
+            if not group_id or group_id in seen_group_ids:
+                continue
+            seen_group_ids.add(group_id)
+            group_handles.append(
+                Patch(
+                    facecolor=str(category_style.get("background_color") or "#e5e7eb"),
+                    edgecolor=str(category_style.get("label_color") or "#334155"),
+                    label=str(category_style.get("group_label") or group_id),
+                )
+            )
+        if group_handles:
+            ax.legend(
+                handles=group_handles,
+                title=str(payload.get("group_legend_title") or "Groupe geographique"),
+                loc="upper right",
+                fontsize=8,
+            )
     ax.margins(x=0.02)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -889,7 +1238,7 @@ def _build_phase6_top_delta_rows(metrics_document: dict[str, Any], *, limit: int
                                         {
                                                 "territory_id": str(territory_id),
                                                 "territory_label": territory_label,
-                                                "component": str(component_id),
+                                                "component": _component_label(str(component_id)),
                                                 "metric_key": str(metric_key),
                                                 "metric_label": _metric_label(str(metric_key)),
                                                 "units": str(component_payload.get("units") or ""),
@@ -940,7 +1289,8 @@ def _render_phase6_report_html(
                         {
                                 "component": component,
                                 "metric_key": str(chart.get("metric_key") or ""),
-                        "metric_label": str(chart.get("metric_label") or _metric_label(str(chart.get("metric_key") or ""))),
+                                "component_label": _component_label(component),
+                                "metric_label": str(chart.get("metric_label") or _metric_label(str(chart.get("metric_key") or ""))),
                                 "image_href": _relative_href(report_dir, image_path),
                                 "payload_href": _relative_href(report_dir, payload_file),
                         }
@@ -958,7 +1308,7 @@ def _render_phase6_report_html(
                 for row in top_rows
         )
         if not top_rows_html:
-                top_rows_html = '<tr><td colspan="6">No comparison deltas available.</td></tr>'
+                top_rows_html = '<tr><td colspan="6">Aucun delta de comparaison disponible.</td></tr>'
 
         table_links_html = "".join(
                 f'<li><a href="{html.escape(_relative_href(report_dir, Path(str(path))))}">{html.escape(name)}</a></li>'
@@ -973,24 +1323,24 @@ def _render_phase6_report_html(
                 cards_html = "".join(
                         "<article class=\"chart-card\">"
                         f"<h3>{html.escape(entry['metric_label'])}</h3>"
-                        f"<a class=\"chart-link\" href=\"{html.escape(entry['image_href'])}\"><img src=\"{html.escape(entry['image_href'])}\" alt=\"{html.escape(component)} {html.escape(entry['metric_label'])}\"></a>"
-                        f"<p><a href=\"{html.escape(entry['payload_href'])}\">JSON payload</a></p>"
+                        f"<a class=\"chart-link\" href=\"{html.escape(entry['image_href'])}\"><img src=\"{html.escape(entry['image_href'])}\" alt=\"{html.escape(entry['component_label'])} {html.escape(entry['metric_label'])}\"></a>"
+                        f"<p><a href=\"{html.escape(entry['payload_href'])}\">Charge utile JSON</a></p>"
                         "</article>"
                         for entry in entries
                 )
                 chart_sections_html.append(
                         "<section class=\"component-section\">"
-                        f"<h2>{html.escape(component.title())}</h2>"
+                        f"<h2>{html.escape(_component_label(component))}</h2>"
                         f"<div class=\"chart-grid\">{cards_html}</div>"
                         "</section>"
                 )
 
         html_text = f"""<!doctype html>
-<html lang=\"en\">
+<html lang=\"fr\">
 <head>
     <meta charset=\"utf-8\">
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-    <title>Hazard Comparison Report - {html.escape(str(metrics_document.get('run_id') or ''))}</title>
+    <title>Rapport de comparaison des aleas - {html.escape(str(metrics_document.get('run_id') or ''))}</title>
     <style>
         :root {{
             --bg: #f2efe8;
@@ -1048,37 +1398,37 @@ def _render_phase6_report_html(
 </head>
 <body>
     <header>
-        <h1>Hazard Comparison Report</h1>
-        <p>Run <strong>{html.escape(str(metrics_document.get('run_id') or ''))}</strong> derived from lot 5 export artifacts. This report is static and audit-friendly: it only links the persisted lot 4 and lot 5 outputs.</p>
+        <h1>Rapport de comparaison des aleas</h1>
+        <p>Run <strong>{html.escape(str(metrics_document.get('run_id') or ''))}</strong> derive des artefacts d'export du lot 5. Ce rapport est statique et orienté audit : il relie uniquement les sorties persistees des lots 4 et 5.</p>
     </header>
     <main class=\"shell\">
         <section class=\"hero\">
             <div class=\"stats\">
-                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('territory_count') or 0))}</strong><span>Territories</span></div>
-                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('chart_count') or 0))}</strong><span>Charts</span></div>
-                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('component_metric_row_count') or 0))}</strong><span>Component rows</span></div>
-                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('comparison_delta_row_count') or 0))}</strong><span>Delta rows</span></div>
+                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('territory_count') or 0))}</strong><span>Territoires</span></div>
+                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('chart_count') or 0))}</strong><span>Graphes</span></div>
+                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('component_metric_row_count') or 0))}</strong><span>Lignes composant</span></div>
+                <div class=\"stat\"><strong>{html.escape(str(summary_document.get('comparison_delta_row_count') or 0))}</strong><span>Lignes delta</span></div>
             </div>
             <div class=\"layout\">
                 <section class=\"panel\">
-                    <h2>Scope</h2>
+                    <h2>Perimetre</h2>
                     <ul class=\"meta-list\">
-                        <li>Territories: {html.escape(', '.join(territory_labels) if territory_labels else 'n/a')}</li>
-                        <li>Metrics JSON: <a href=\"{html.escape(_relative_href(report_dir, metrics_path))}\">comparison-metrics.json</a></li>
-                        <li>Export summary: <a href=\"{html.escape(_relative_href(report_dir, summary_path))}\">summary.json</a></li>
+                        <li>Territoires : {html.escape(', '.join(territory_labels) if territory_labels else 'n/a')}</li>
+                        <li>JSON des metriques : <a href=\"{html.escape(_relative_href(report_dir, metrics_path))}\">comparison-metrics.json</a></li>
+                        <li>Resume d'export : <a href=\"{html.escape(_relative_href(report_dir, summary_path))}\">summary.json</a></li>
                     </ul>
                 </section>
                 <section class=\"panel\">
-                    <h2>Downloads</h2>
+                    <h2>Telechargements</h2>
                     <ul class=\"downloads\">{table_links_html}</ul>
                 </section>
             </div>
         </section>
         <section class=\"panel\">
-            <h2>Top Absolute Deltas</h2>
+            <h2>Plus grands deltas absolus</h2>
             <table>
                 <thead>
-                    <tr><th>Territory</th><th>Component</th><th>Metric</th><th>Delta</th><th>Ratio</th><th>Units</th></tr>
+                    <tr><th>Territoire</th><th>Composant</th><th>Metrique</th><th>Delta</th><th>Ratio</th><th>Unites</th></tr>
                 </thead>
                 <tbody>{top_rows_html}</tbody>
             </table>
@@ -1694,6 +2044,7 @@ def build_hazard_comparison_execution_plan(
             "updated_at": _utc_now(),
             "storm_basin_code": basin_code,
             "comparison_bbox_hint": bbox,
+            "surge_grid_deg_override": territory_entry.get("surge_grid_deg_override"),
             "phases": {
                 "phase2_preflight": {
                     "status": "complete",
@@ -1746,7 +2097,12 @@ def materialize_hazard_comparison_hazards(
             territory_payload["updated_at"] = _utc_now()
             bbox = territory_payload.get("comparison_bbox_hint") if isinstance(territory_payload.get("comparison_bbox_hint"), dict) else {}
             grid_step_deg = float(settings.territory_grid_deg)
-            surge_grid_step_deg = float(getattr(settings, "surge_grid_deg", _DEFAULT_SURGE_GRID_DEG) or _DEFAULT_SURGE_GRID_DEG)
+            surge_grid_override = territory_payload.get("surge_grid_deg_override")
+            surge_grid_step_deg = float(
+                surge_grid_override
+                if surge_grid_override is not None
+                else (getattr(settings, "surge_grid_deg", _DEFAULT_SURGE_GRID_DEG) or _DEFAULT_SURGE_GRID_DEG)
+            )
             point_records = _build_point_records_from_bbox(bbox, grid_step_deg=grid_step_deg)
             if math.isclose(surge_grid_step_deg, grid_step_deg, rel_tol=0.0, abs_tol=1e-9):
                 surge_point_records = point_records
@@ -2182,8 +2538,13 @@ def materialize_hazard_comparison_metrics(
             )
 
             scenario_payloads = territory_payload.get("scenarios") if isinstance(territory_payload.get("scenarios"), dict) else {}
+            storm_basin_code = str(territory_payload.get("storm_basin_code") or "").strip().upper()
+            geographic_group_id, geographic_group_label = _resolve_phase5_geographic_group(territory_id, storm_basin_code)
             territory_metrics_payload: dict[str, Any] = {
                 "label": str(territory_payload.get("label") or territory_id),
+                "storm_basin_code": storm_basin_code,
+                "geographic_group_id": geographic_group_id,
+                "geographic_group_label": geographic_group_label,
                 "status": "running",
                 "scenarios": {},
             }
