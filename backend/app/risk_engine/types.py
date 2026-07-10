@@ -56,7 +56,7 @@ class ImpactComputationResult:
     asset_results: list[dict[str, Any]] = field(default_factory=list)
     modeling: dict[str, Any] = field(default_factory=dict)
     matching_qa: dict[str, Any] = field(default_factory=dict)
-    artifacts: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

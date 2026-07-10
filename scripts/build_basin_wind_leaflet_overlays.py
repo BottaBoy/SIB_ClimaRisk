@@ -43,6 +43,7 @@ SCENARIO_LABEL = {
     "event_max": "Evenement le plus fort",
 }
 CMCC_RP_LOW_BAND_HIDE_MAX_MPS = 18.0
+CMCC_LOW_BAND_MASK_METRICS = frozenset({"rp50", "rp100", "event_max"})
 
 
 def _require_render_deps() -> None:
@@ -189,14 +190,18 @@ def _fill_nan_nearest_with_mask(grid: np.ndarray, *, max_distance_cells: float) 
     return filled, render_mask
 
 
-def _mask_cmcc_low_rp_band(grid_render: np.ndarray, hazard: str, metric: str) -> np.ndarray:
+def _mask_cmcc_low_band(grid_render: np.ndarray, hazard: str, metric: str) -> np.ndarray:
     if str(hazard).strip().lower() != "storm_cmcc":
         return grid_render
-    if str(metric).strip().lower() not in {"rp50", "rp100"}:
+    if str(metric).strip().lower() not in CMCC_LOW_BAND_MASK_METRICS:
         return grid_render
     out = np.asarray(grid_render, dtype=np.float32).copy()
     out[out <= float(CMCC_RP_LOW_BAND_HIDE_MAX_MPS)] = np.nan
     return out
+
+
+def _mask_cmcc_low_rp_band(grid_render: np.ndarray, hazard: str, metric: str) -> np.ndarray:
+    return _mask_cmcc_low_band(grid_render, hazard, metric)
 
 
 def _finite_metric_values(cells: list[dict], metric_key: str) -> list[float]:
@@ -343,7 +348,7 @@ def _build_basin_entry(
                     max_distance_cells=float(fill_max_distance_cells),
                 )
             grid_render = np.where(render_mask, grid, np.nan)
-            grid_render = _mask_cmcc_low_rp_band(grid_render, hazard, metric)
+            grid_render = _mask_cmcc_low_band(grid_render, hazard, metric)
             rgba = _grid_to_rgba(
                 grid_render,
                 vmin=float(ranges[metric]["min_mps"]),
@@ -464,6 +469,8 @@ def main() -> None:
             "colormap": str(args.cmap),
             "fill_mode": str(args.fill_mode),
             "fill_max_distance_cells": float(args.fill_max_distance_cells),
+            "cmcc_low_band_hidden_mps_lte": float(CMCC_RP_LOW_BAND_HIDE_MAX_MPS),
+            "cmcc_low_band_hidden_metrics": sorted(CMCC_LOW_BAND_MASK_METRICS),
             "cmcc_rp_low_band_hidden_mps_lte": float(CMCC_RP_LOW_BAND_HIDE_MAX_MPS),
         },
         "basins": merged_basins,

@@ -6,6 +6,7 @@ import sys
 
 import matplotlib.axes
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
@@ -35,6 +36,7 @@ from scripts.generate_sensitivity_graphs import (
     plot_super_network_state_tornado,
     plot_super_social_state_tornado,
     plot_tornado,
+    resolve_scenario_payloads,
     summarize_network_state_distribution,
 )
 
@@ -205,6 +207,44 @@ def test_extract_rows_from_payload_uses_network_states_native(tmp_path: Path) ->
         (network_rows["service"] == "water_eu")
         & (network_rows["network_metric"] == "non_nominal_pct")
     ]["value"].iloc[0] == 0.0
+
+
+def test_resolve_scenario_payloads_requires_explicit_complete_analysis_path(tmp_path: Path) -> None:
+    payload_path = tmp_path / "guadeloupe-complete-analysis.json"
+    payload_path.write_text("{}", encoding="utf-8")
+
+    resolved = resolve_scenario_payloads(
+        {
+            "scenarios": [
+                {
+                    "scenario_id": "all-default",
+                    "label": "Default",
+                    "parameter_key": "param",
+                    "supported": True,
+                    "status": "complete",
+                    "complete_analysis_json_path": str(payload_path),
+                }
+            ]
+        }
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].payload_path == payload_path
+
+    with pytest.raises(RuntimeError, match="missing complete_analysis_json_path"):
+        resolve_scenario_payloads(
+            {
+                "scenarios": [
+                    {
+                        "scenario_id": "scenario-a",
+                        "label": "Scenario A",
+                        "parameter_key": "param",
+                        "supported": True,
+                        "status": "complete",
+                    }
+                ]
+            }
+        )
 
 
 def test_summarize_network_state_distribution_handles_nested_service_units() -> None:

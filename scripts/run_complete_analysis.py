@@ -25,6 +25,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -96,11 +97,19 @@ from valuation_ofb import (
     get_water_values,
 )
 from run_web_artifacts import (
+    collect_archived_run_files,
     copy_territory_web_relative_paths,
     territory_complete_analysis_relative_path,
+    territory_scientific_web_summary_relative_path,
     territory_frontend_rebuild_relative_paths,
     territory_optional_snapshot_relative_paths,
     validate_territory_web_snapshot,
+)
+from scientific_publication_contract import (
+    PUBLIC_SERVICE_KEYS,
+    SCIENTIFIC_SCENARIOS,
+    SCIENTIFIC_WEB_CONTRACT_VERSION,
+    SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
 )
 
 # Logging setup
@@ -152,6 +161,7 @@ DOCS_DIR = REPO_ROOT / "docs"
 JOURNAL_MD = DOCS_DIR / "Journalisation_Run_CompleteAnalysis.md"
 JOURNAL_JSONL = DOCS_DIR / "Journalisation_Run_CompleteAnalysis.jsonl"
 RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
+TRACK_SAMPLE_OUTPUT_ROOT = REPO_ROOT / "outputs" / "Échantillons Tracks_NA_Guadeloupe"
 
 COMPONENT_INFO_LABELS = {
     "wind": "vent",
@@ -374,6 +384,11 @@ def _resolve_resume_runtime_parameters(
         if isinstance(territories_raw, list) and territories_raw
         else parse_territory_selection(str(args.territories), default="both")
     )
+    resolved_track_sample_manifest = (
+        existing_parameters.get("track_sample_manifest")
+        if existing_parameters.get("track_sample_manifest") is not None
+        else (str(args.track_sample_manifest) if args.track_sample_manifest else None)
+    )
 
     if existing_parameters:
         current_requested = {
@@ -383,6 +398,7 @@ def _resolve_resume_runtime_parameters(
             "max_points_per_shard": int(args.max_points_per_shard),
             "min_points_per_shard": int(args.min_points_per_shard),
             "territories": parse_territory_selection(str(args.territories), default="both"),
+            "track_sample_manifest": str(args.track_sample_manifest) if args.track_sample_manifest else None,
         }
         resolved_current = {
             "dynamic_max_tracks": resolved_dynamic_max_tracks,
@@ -391,8 +407,9 @@ def _resolve_resume_runtime_parameters(
             "max_points_per_shard": resolved_max_points_per_shard,
             "min_points_per_shard": resolved_min_points_per_shard,
             "territories": resolved_territories,
+            "track_sample_manifest": resolved_track_sample_manifest,
         }
-        for key in ("dynamic_max_tracks", "requested_dynamic_max_tracks", "memory_budget_gb", "max_points_per_shard", "min_points_per_shard", "territories"):
+        for key in ("dynamic_max_tracks", "requested_dynamic_max_tracks", "memory_budget_gb", "max_points_per_shard", "min_points_per_shard", "territories", "track_sample_manifest"):
             if current_requested[key] != resolved_current[key]:
                 warnings.append(
                     f"resume parameter '{key}' changed from {current_requested[key]!r} to {resolved_current[key]!r}; using the manifest value to preserve shard checkpoints"
@@ -405,6 +422,7 @@ def _resolve_resume_runtime_parameters(
         "max_points_per_shard": resolved_max_points_per_shard,
         "min_points_per_shard": resolved_min_points_per_shard,
         "territories": resolved_territories,
+        "track_sample_manifest": resolved_track_sample_manifest,
     }
     return effective_args, warnings
 
@@ -448,9 +466,59 @@ def _infer_resume_dynamic_hazard_point_cap(
     return None
 
 
+def _resolve_track_sample_manifest_path(track_sample_manifest_path: str | None, dynamic_max_tracks: int) -> Path | None:
+    if not track_sample_manifest_path:
+        return None
+
+    raw_path = Path(str(track_sample_manifest_path)).expanduser()
+    path = raw_path if raw_path.is_absolute() else (REPO_ROOT / raw_path)
+    track_sample_root = TRACK_SAMPLE_OUTPUT_ROOT.resolve(strict=False)
+    path_resolved = path.resolve(strict=False)
+
+    candidate_roots: list[Path] = [path]
+    if path_resolved == track_sample_root or (
+        path.parent.resolve(strict=False) == TRACK_SAMPLE_OUTPUT_ROOT.parent.resolve(strict=False)
+        and TRACK_SAMPLE_OUTPUT_ROOT.name.startswith(path.name)
+    ):
+        candidate_roots.append(TRACK_SAMPLE_OUTPUT_ROOT)
+
+    candidates: list[Path] = []
+    if int(dynamic_max_tracks) > 0:
+        sample_manifest_rel = Path(f"sample_{int(dynamic_max_tracks):04d}") / "manifest.json"
+        for candidate_root in candidate_roots:
+            candidates.append(candidate_root / sample_manifest_rel)
+    candidates.extend(candidate_root / "manifest.json" for candidate_root in candidate_roots)
+    candidates.append(path)
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_file():
+            if candidate != path:
+                logger.info("Resolved track sample manifest %s -> %s", path, candidate)
+            return candidate
+    return path
+
+
+def _default_track_sample_max_points_per_shard(dynamic_max_tracks: int) -> int:
+    track_count = int(dynamic_max_tracks)
+    if track_count <= 0:
+        return 0
+    if track_count <= 50:
+        return 20_000
+    if track_count <= 100:
+        return 15_000
+    if track_count <= 800:
+        return 5_000
+    return 3_000
+
+
 def _build_complete_analysis_settings(
     *,
     dynamic_max_tracks: int,
+    track_sample_manifest_path: str | None,
     memory_budget_gb: float,
     max_points_per_shard: int,
     min_points_per_shard: int,
@@ -464,9 +532,23 @@ def _build_complete_analysis_settings(
     settings = load_settings()
     settings_dict = dataclasses.asdict(settings)
     settings_dict["hazard_dynamic_max_tracks"] = int(dynamic_max_tracks)
+    resolved_track_sample_manifest_path = _resolve_track_sample_manifest_path(
+        track_sample_manifest_path,
+        int(dynamic_max_tracks),
+    )
+    settings_dict["hazard_track_sample_manifest_path"] = resolved_track_sample_manifest_path
+    resolved_max_points_per_shard = max(0, int(max_points_per_shard))
+    if resolved_track_sample_manifest_path is not None and resolved_max_points_per_shard <= 0:
+        resolved_max_points_per_shard = _default_track_sample_max_points_per_shard(int(dynamic_max_tracks))
+        if resolved_max_points_per_shard > 0:
+            logger.info(
+                "Using conservative track-sample shard cap: max_points_per_shard=%d for dynamic_max_tracks=%d",
+                int(resolved_max_points_per_shard),
+                int(dynamic_max_tracks),
+            )
     settings_dict["climada_execution_profile"] = "complete-analysis"
     settings_dict["climada_memory_budget_gb"] = max(0.0, float(memory_budget_gb))
-    settings_dict["climada_max_points_per_shard"] = max(0, int(max_points_per_shard))
+    settings_dict["climada_max_points_per_shard"] = int(resolved_max_points_per_shard)
     settings_dict["climada_min_points_per_shard"] = max(1, int(min_points_per_shard))
     settings_dict["impact_engine_mode"] = "climada"
     settings_dict["allow_climada_fallback"] = False
@@ -733,6 +815,33 @@ class RunManifest:
             **kwargs,
         }
         entry.setdefault("phases", {})[phase] = phase_entry
+        self._write()
+
+    def set_post_run_phase(self, phase: str, status: str, **kwargs) -> None:
+        phases = self.data.setdefault("post_run_phases", {})
+        previous = phases.get(phase) if isinstance(phases, dict) else None
+        previous_attempt = int(previous.get("attempt") or 0) if isinstance(previous, dict) else 0
+        now = self._timestamp()
+        entry = dict(previous) if isinstance(previous, dict) else {}
+        entry.update(
+            {
+                "status": str(status),
+                "updated_at": now,
+                "resume_key": f"{self.run_id}:{phase}",
+                **kwargs,
+            }
+        )
+        if str(status) == "running":
+            entry["attempt"] = previous_attempt + 1
+            entry["started_at"] = now
+            entry.pop("finished_at", None)
+            entry.pop("last_error", None)
+        elif str(status) in {"complete", "failed", "skipped"}:
+            entry.setdefault("attempt", previous_attempt)
+            entry["finished_at"] = now
+            if str(status) != "failed":
+                entry.pop("last_error", None)
+        phases[phase] = entry
         self._write()
 
     def record_climada_event(self, territory: str, payload: dict[str, Any]) -> None:
@@ -1368,12 +1477,14 @@ def run_territory_analysis(
     run_logger: RunLogger,
     run_manifest: RunManifest,
     *,
+    track_sample_manifest_path: str | None,
     memory_budget_gb: float,
     max_points_per_shard: int,
     min_points_per_shard: int,
     allow_degraded_components: bool,
     resume_enabled: bool,
     resume_dynamic_hazard_point_cap: int | None,
+    materialize_scientific_graph_inputs: bool,
     scenario: SensitivityScenario | None,
 ) -> dict[str, Any] | None:
     """Run complete analysis for a single territory. Returns result dict or None on error."""
@@ -1408,6 +1519,7 @@ def run_territory_analysis(
 
         settings = _build_complete_analysis_settings(
             dynamic_max_tracks=dynamic_max_tracks,
+            track_sample_manifest_path=track_sample_manifest_path,
             memory_budget_gb=memory_budget_gb,
             max_points_per_shard=max_points_per_shard,
             min_points_per_shard=min_points_per_shard,
@@ -1456,7 +1568,11 @@ def run_territory_analysis(
         )
         
         # Compute impacts
-        logger.info(f"Computing impacts (dynamic_max_tracks={int(settings.hazard_dynamic_max_tracks)})...")
+        logger.info(
+            "Computing impacts (dynamic_max_tracks=%s, track_sample_manifest=%s)...",
+            int(settings.hazard_dynamic_max_tracks),
+            str(settings.hazard_track_sample_manifest_path) if settings.hazard_track_sample_manifest_path else "none",
+        )
         current_phase = "impacts"
         run_manifest.set_phase(
             territory_key,
@@ -1464,10 +1580,15 @@ def run_territory_analysis(
             "running",
             dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
             memory_budget_gb=float(memory_budget_gb),
-            max_points_per_shard=int(max_points_per_shard),
+            max_points_per_shard=int(settings.climada_max_points_per_shard),
             min_points_per_shard=int(min_points_per_shard),
             strict_components=not bool(allow_degraded_components),
             scenario_id=(scenario.scenario_id if scenario is not None else None),
+            track_sample_manifest=(
+                str(settings.hazard_track_sample_manifest_path)
+                if settings.hazard_track_sample_manifest_path
+                else None
+            ),
         )
         impact_start = time.time()
         checkpoint_dir = run_manifest.checkpoint_dir_for_territory(territory_key)
@@ -1545,8 +1666,47 @@ def run_territory_analysis(
         payload["meta"]["valuation_source"] = SOURCE_LABEL
         payload["meta"]["valuation_version"] = VALUATION_VERSION
         payload["meta"]["case_study_territory"] = territory_key
+        payload["meta"]["run_id"] = run_manifest.run_id
         payload["exposure_summary"]["asset_type_counts"] = dict(
             Counter(str((feat.properties or {}).get("asset_type") or "unknown") for feat in exposure.features)
+        )
+        pml_graph_inputs = payload.get("pml_network_graph_inputs")
+        pml_state_tables = (
+            pml_graph_inputs.get("state_damage_tables")
+            if isinstance(pml_graph_inputs, dict)
+            else None
+        )
+        pml_breakdowns = (
+            pml_graph_inputs.get("damage_breakdown_by_scenario")
+            if isinstance(pml_graph_inputs, dict)
+            else None
+        )
+        pml_graph_inputs_complete = (
+            isinstance(pml_graph_inputs, dict)
+            and list(pml_graph_inputs.get("scenarios") or []) == list(SCIENTIFIC_SCENARIOS)
+            and isinstance(pml_state_tables, dict)
+            and isinstance(pml_breakdowns, dict)
+            and all(
+                isinstance(pml_state_tables.get(scenario), list)
+                and bool(pml_state_tables.get(scenario))
+                and isinstance(pml_breakdowns.get(scenario), dict)
+                and isinstance(pml_breakdowns.get(scenario, {}).get("storm"), list)
+                and isinstance(pml_breakdowns.get(scenario, {}).get("storm_cmcc"), list)
+                for scenario in SCIENTIFIC_SCENARIOS
+            )
+        )
+        if not pml_graph_inputs_complete:
+            raise RuntimeError(
+                f"PML-light network graph inputs were not produced for {territory_key}; "
+                "complete-analysis cannot generate RP10/RP50/RP100/RP1000 graph outputs safely."
+            )
+        run_manifest.set_phase(
+            territory_key,
+            "pml_network_graph_inputs",
+            "complete",
+            schema_version=str(pml_graph_inputs.get("schema_version") or ""),
+            method=str(pml_graph_inputs.get("method") or ""),
+            scenarios=list(pml_graph_inputs.get("scenarios") or []),
         )
         
         out_path = WEB_DATA_DIR / f"{territory_key}-complete-analysis.json"
@@ -1560,6 +1720,111 @@ def run_territory_analysis(
         archived_complete_analysis_path = archived_complete_analysis.get(
             territory_complete_analysis_relative_path(territory_key)
         )
+        if not archived_complete_analysis_path:
+            raise RuntimeError(f"Failed to archive complete-analysis for {territory_key}")
+        archived_complete_analysis_file = Path(archived_complete_analysis_path)
+
+        if materialize_scientific_graph_inputs:
+            current_phase = "scientific_graph_inputs"
+            del payload
+            del comp
+            del climada_bundle
+            del disagg
+            del exposure
+            compaction = _compact_process_memory()
+            logger.info(
+                "Scientific graph parent memory compaction: rss_kb_before=%s rss_kb_after=%s mem_available_kb_before=%s mem_available_kb_after=%s malloc_trim_supported=%s malloc_trim_result=%s gc_collected=%s",
+                compaction.get("rss_kb_before"),
+                compaction.get("rss_kb_after"),
+                compaction.get("mem_available_kb_before"),
+                compaction.get("mem_available_kb_after"),
+                compaction.get("malloc_trim_supported"),
+                compaction.get("malloc_trim_result"),
+                compaction.get("gc_collected"),
+            )
+            run_manifest.set_phase(
+                territory_key,
+                "scientific_graph_inputs",
+                "running",
+                complete_analysis_path=str(archived_complete_analysis_file),
+                event_selection_basis="global_portfolio_loss",
+                scenarios=list(SCIENTIFIC_SCENARIOS),
+            )
+            logger.info(
+                "Materializing V4 scientific graph inputs before marking %s complete...",
+                territory_key,
+            )
+            scientific_env = os.environ.copy()
+            scientific_env.update(
+                {
+                    "OMP_NUM_THREADS": "1",
+                    "OPENBLAS_NUM_THREADS": "1",
+                    "MKL_NUM_THREADS": "1",
+                    "NUMEXPR_NUM_THREADS": "1",
+                    "VECLIB_MAXIMUM_THREADS": "1",
+                    "BLIS_NUM_THREADS": "1",
+                    "OMP_THREAD_LIMIT": "1",
+                    "MALLOC_ARENA_MAX": "2",
+                    "SIB_SCIENTIFIC_WORKER_MAX_POINTS_PER_CHUNK": "5000",
+                }
+            )
+            scientific_command = [
+                sys.executable,
+                str(SCRIPTS_ROOT / "scientific_graph_postprocess.py"),
+                "--territory",
+                territory_key,
+                "--complete-analysis-json",
+                str(archived_complete_analysis_file),
+                "--manifest-json",
+                str(run_manifest.manifest_path),
+                "--inline-workers",
+            ]
+            scientific_result = subprocess.run(
+                scientific_command,
+                env=scientific_env,
+                text=True,
+            )
+            if scientific_result.returncode != 0:
+                normalized_returncode = (
+                    128 + abs(scientific_result.returncode)
+                    if scientific_result.returncode < 0
+                    else int(scientific_result.returncode)
+                )
+                raise RuntimeError(
+                    f"scientific_graph_postprocess failed for {territory_key} with exit code {normalized_returncode}"
+                )
+            rebuilt_payload = json.loads(archived_complete_analysis_file.read_text(encoding="utf-8"))
+            graph_inputs = rebuilt_payload.get("scientific_graph_inputs")
+            scientific_graph_inputs_complete = (
+                isinstance(graph_inputs, dict)
+                and str(graph_inputs.get("source_of_truth") or "") == "complete_analysis"
+                and bool(graph_inputs.get("state_damage_tables"))
+                and bool(graph_inputs.get("damage_breakdown_by_scenario"))
+            )
+            if not scientific_graph_inputs_complete:
+                raise RuntimeError(
+                    f"V4 scientific_graph_inputs remain incomplete for {territory_key} after materialization"
+                )
+            _mirror_file(archived_complete_analysis_file, out_path)
+            if scientific_graph_inputs_complete:
+                run_manifest.set_phase(
+                    territory_key,
+                    "scientific_graph_inputs",
+                    "complete",
+                    complete_analysis_path=str(archived_complete_analysis_file),
+                    event_selection_basis="global_portfolio_loss",
+                    scenarios=list(SCIENTIFIC_SCENARIOS),
+                )
+        else:
+            run_manifest.set_phase(
+                territory_key,
+                "scientific_graph_inputs",
+                "skipped",
+                complete_analysis_path=str(archived_complete_analysis_file),
+                reason="strict scientific_graph_postprocess is optional; pml_network_graph_inputs are produced natively",
+                replacement_phase="pml_network_graph_inputs",
+                scenarios=list(SCIENTIFIC_SCENARIOS),
+            )
         
         logger.info(f"✓ Results exported to {out_path.name}")
         
@@ -1911,6 +2176,323 @@ def snapshot_frontend_artifacts_for_run(
     return archived_by_territory
 
 
+def _tail_text(value: str, *, max_chars: int = 4000) -> str:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return text[-max_chars:]
+
+
+def _run_bounded_postrun_command(
+    command: list[str],
+    *,
+    phase_name: str,
+    attempts: int = 2,
+    timeout_seconds: int | None = None,
+) -> subprocess.CompletedProcess[str]:
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, max(1, int(attempts)) + 1):
+        logger.info("Post-run phase %s attempt %s/%s: %s", phase_name, attempt, attempts, " ".join(command))
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            result = subprocess.CompletedProcess(
+                command,
+                returncode=124,
+                stdout=str(exc.stdout or ""),
+                stderr=f"Timed out after {timeout_seconds}s\n{exc.stderr or ''}",
+            )
+        last_result = result
+        if result.returncode == 0:
+            return result
+        normalized_returncode = 128 + abs(result.returncode) if result.returncode < 0 else int(result.returncode)
+        retryable = normalized_returncode in {124, 137, 143}
+        logger.error(
+            "Post-run phase %s failed attempt %s/%s with exit=%s: %s",
+            phase_name,
+            attempt,
+            attempts,
+            normalized_returncode,
+            _tail_text(result.stderr or result.stdout, max_chars=1200),
+        )
+        if not retryable or attempt >= attempts:
+            return result
+        time.sleep(min(30, 5 * attempt))
+    assert last_result is not None
+    return last_result
+
+
+def _archived_web_data_dir(run_manifest: RunManifest, territory: str) -> Path:
+    return run_manifest.run_dir / "territories" / str(territory) / "web" / "data"
+
+
+def _completed_complete_analysis_path(run_manifest: RunManifest, territory: str) -> Path:
+    result = run_manifest.completed_territory_result(territory)
+    if not result:
+        raise FileNotFoundError(f"No completed complete-analysis artifact registered for territory={territory}")
+    path = Path(str(result.get("complete_analysis_path") or ""))
+    if not path.exists():
+        raise FileNotFoundError(f"complete-analysis artifact is missing for territory={territory}: {path}")
+    return path
+
+
+def _web_data_path(relative_path: str) -> Path:
+    return REPO_ROOT / "web" / str(relative_path)
+
+
+def _mirror_file(source: Path, destination: Path) -> None:
+    if not source.exists():
+        raise FileNotFoundError(f"Cannot mirror missing artifact: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.read_bytes() == source.read_bytes():
+        return
+    shutil.copyfile(source, destination)
+
+
+def _mirror_allowed_web_artifacts_to_archive(run_manifest: RunManifest, territory: str) -> dict[str, str]:
+    data_dir = _archived_web_data_dir(run_manifest, territory)
+    allowed_names = (
+        f"{territory}-wind-maps.json",
+        f"{territory}-landslide-maps.json",
+        f"{territory}-multi-hazard-proxy.json",
+        f"{territory}-network-states.geojson",
+        f"{territory}-water-infra.geojson",
+        "vulnerability-curves-wind.json",
+        "vulnerability-curves-rain.json",
+        "vulnerability-curves-surge.json",
+        "vulnerability-curves-landslide.json",
+    )
+    mirrored: dict[str, str] = {}
+    for name in allowed_names:
+        source = WEB_DATA_DIR / name
+        if not source.exists():
+            continue
+        destination = data_dir / name
+        _mirror_file(source, destination)
+        mirrored[name] = str(destination)
+    return mirrored
+
+
+def _validate_scientific_summary_v4(summary_path: Path, complete_analysis_path: Path) -> dict[str, Any]:
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    complete_analysis = json.loads(complete_analysis_path.read_text(encoding="utf-8"))
+    if not isinstance(summary, dict) or not isinstance(complete_analysis, dict):
+        raise ValueError(f"Invalid scientific publication JSON payloads for {summary_path}")
+    summary_meta = summary.get("meta") if isinstance(summary.get("meta"), dict) else {}
+    if summary_meta.get("schema_version") != SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION:
+        raise ValueError(
+            f"{summary_path} has schema_version={summary_meta.get('schema_version')!r}, "
+            f"expected {SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION!r}"
+        )
+    if summary_meta.get("contract_version") != SCIENTIFIC_WEB_CONTRACT_VERSION:
+        raise ValueError(
+            f"{summary_path} has contract_version={summary_meta.get('contract_version')!r}, "
+            f"expected {SCIENTIFIC_WEB_CONTRACT_VERSION!r}"
+        )
+    graph_inputs = complete_analysis.get("scientific_graph_inputs")
+    if not isinstance(graph_inputs, dict):
+        raise ValueError(f"{complete_analysis_path} is missing scientific_graph_inputs")
+    scenarios = list(graph_inputs.get("scenarios") or [])
+    if scenarios != list(SCIENTIFIC_SCENARIOS):
+        raise ValueError(
+            f"{complete_analysis_path} has scientific scenarios {scenarios!r}, "
+            f"expected {list(SCIENTIFIC_SCENARIOS)!r}"
+        )
+    if summary.get("scientific_graph_inputs") != graph_inputs:
+        raise ValueError(
+            f"{summary_path} does not republish complete_analysis.scientific_graph_inputs 1:1"
+        )
+    payload_text = json.dumps(summary, ensure_ascii=False)
+    forbidden_exact_tokens = ("\"annual\"", "\"p99\"", "\"event_max\"")
+    forbidden_substrings = ("water_aep", "water_eu")
+    found = [token.strip('"') for token in forbidden_exact_tokens if token in payload_text]
+    found.extend(token for token in forbidden_substrings if token in payload_text)
+    if found:
+        raise ValueError(f"{summary_path} contains forbidden legacy public keys/scenarios: {found}")
+    network_keys = set()
+    for scenario_payload in (graph_inputs.get("network_state_distribution_by_scenario") or {}).values():
+        if isinstance(scenario_payload, dict):
+            network_keys.update(str(key) for key in scenario_payload.keys())
+    unexpected_network_keys = sorted(network_keys.difference(PUBLIC_SERVICE_KEYS))
+    if unexpected_network_keys:
+        raise ValueError(
+            f"{complete_analysis_path} contains non-canonical public service keys: {unexpected_network_keys}"
+        )
+    return summary
+
+
+def build_scientific_publication_artifacts(
+    run_manifest: RunManifest,
+    territories: list[str],
+    *,
+    repair_legacy_scientific_inputs: bool,
+) -> bool:
+    if not territories:
+        return False
+    run_manifest.set_post_run_phase(
+        "scientific_publication",
+        "running",
+        territories=list(territories),
+        repair_legacy_scientific_inputs=bool(repair_legacy_scientific_inputs),
+    )
+    archived_by_territory: dict[str, dict[str, str]] = {}
+    try:
+        for territory in territories:
+            complete_analysis_path = _completed_complete_analysis_path(run_manifest, territory)
+            web_data_dir = _archived_web_data_dir(run_manifest, territory)
+            mirrored_allowed_artifacts = _mirror_allowed_web_artifacts_to_archive(run_manifest, territory)
+            summary_path = web_data_dir / f"{territory}-scientific-web-summary.json"
+            network_states_path = web_data_dir / f"{territory}-network-states.geojson"
+            if not network_states_path.exists():
+                mutable_network_states_path = WEB_DATA_DIR / f"{territory}-network-states.geojson"
+                network_states_path = mutable_network_states_path if mutable_network_states_path.exists() else network_states_path
+
+            command = [
+                sys.executable,
+                str(SCRIPTS_ROOT / "build_scientific_web_summary.py"),
+                "--territory",
+                territory,
+                "--complete-analysis-json",
+                str(complete_analysis_path),
+                "--out-json",
+                str(summary_path),
+            ]
+            if network_states_path.exists():
+                command.extend(["--network-states-geojson", str(network_states_path)])
+            if repair_legacy_scientific_inputs:
+                command.append("--repair-legacy-scientific-inputs")
+
+            run_manifest.set_phase(
+                territory,
+                "scientific_publication",
+                "running",
+                output_file=str(summary_path),
+                repair_legacy_scientific_inputs=bool(repair_legacy_scientific_inputs),
+            )
+            result = _run_bounded_postrun_command(
+                command,
+                phase_name=f"scientific_publication:{territory}",
+                attempts=2,
+                timeout_seconds=None,
+            )
+            if result.returncode != 0:
+                error = _tail_text(result.stderr or result.stdout)
+                run_manifest.set_phase(
+                    territory,
+                    "scientific_publication",
+                    "failed",
+                    output_file=str(summary_path),
+                    last_error=error,
+                )
+                raise RuntimeError(f"scientific_publication failed for {territory}: {error}")
+            _validate_scientific_summary_v4(summary_path, complete_analysis_path)
+            _mirror_file(summary_path, _web_data_path(territory_scientific_web_summary_relative_path(territory)))
+            archived_by_territory[territory] = {
+                "complete_analysis": str(complete_analysis_path),
+                "scientific_web_summary": str(summary_path),
+                **mirrored_allowed_artifacts,
+            }
+            run_manifest.set_phase(
+                territory,
+                "scientific_publication",
+                "complete",
+                output_file=str(summary_path),
+                contract_version=SCIENTIFIC_WEB_CONTRACT_VERSION,
+                schema_version=SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+            )
+        run_manifest.set_post_run_phase(
+            "scientific_publication",
+            "complete",
+            territories=list(territories),
+            archived_files_by_territory=archived_by_territory,
+        )
+        return True
+    except Exception as exc:
+        run_manifest.set_post_run_phase(
+            "scientific_publication",
+            "failed",
+            territories=list(territories),
+            last_error=str(exc),
+            recoverable=True,
+        )
+        logger.error("✗ Scientific publication failed: %s", exc, exc_info=True)
+        return False
+
+
+def generate_graph_artifacts_for_run(run_manifest: RunManifest, *, formats: str = "html,png") -> bool:
+    output_dir = REPO_ROOT / "outputs" / "Graphs" / run_manifest.run_id
+    run_manifest.set_post_run_phase(
+        "graphs",
+        "running",
+        output_dir=str(output_dir),
+        formats=formats,
+    )
+    command = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "generate_run_graphs.py"),
+        "--run-id",
+        run_manifest.run_id,
+        "--formats",
+        formats,
+    ]
+    result = _run_bounded_postrun_command(
+        command,
+        phase_name="graphs",
+        attempts=2,
+        timeout_seconds=None,
+    )
+    if result.returncode != 0:
+        error = _tail_text(result.stderr or result.stdout)
+        run_manifest.set_post_run_phase(
+            "graphs",
+            "failed",
+            output_dir=str(output_dir),
+            last_error=error,
+            recoverable=True,
+        )
+        logger.error("✗ Graph generation failed: %s", error)
+        return False
+    manifest_path = output_dir / "graphs-manifest.json"
+    if not manifest_path.exists():
+        run_manifest.set_post_run_phase(
+            "graphs",
+            "failed",
+            output_dir=str(output_dir),
+            last_error=f"missing graphs manifest: {manifest_path}",
+            recoverable=True,
+        )
+        return False
+    graph_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    generated_count = len(graph_manifest.get("generated_outputs") or [])
+    warnings = graph_manifest.get("warnings") if isinstance(graph_manifest.get("warnings"), list) else []
+    run_manifest.set_status(
+        "running",
+        graphs={
+            "status": "complete",
+            "output_dir": str(output_dir),
+            "manifest_path": str(manifest_path),
+            "generated_count": int(generated_count),
+            "warnings": warnings,
+            "validation_status": "complete",
+        },
+    )
+    run_manifest.set_post_run_phase(
+        "graphs",
+        "complete",
+        output_dir=str(output_dir),
+        manifest_path=str(manifest_path),
+        generated_count=int(generated_count),
+        warnings=warnings,
+        validation_status="complete",
+    )
+    return True
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1923,6 +2505,14 @@ def main():
         help="Number of dynamic hazard tracks (default: 1200)"
     )
     parser.add_argument(
+        "--track-sample-manifest",
+        default=None,
+        help=(
+            "Optional prefabricated weighted track sample manifest. "
+            "When provided, the manifest track selection takes precedence over nearest-track capping."
+        ),
+    )
+    parser.add_argument(
         "--territories",
         default="both",
         help="Which territories to analyze: gua, mar, stb, both, all (default: both)"
@@ -1931,6 +2521,22 @@ def main():
         "--no-deploy",
         action="store_true",
         help="Skip deployment step"
+    )
+    parser.add_argument(
+        "--repair-legacy-scientific-inputs",
+        action="store_true",
+        help=(
+            "Repair archived/pre-V4 runs by allowing the heavy scientific graph-input "
+            "reconstruction during publication. Do not use for new V4 runs."
+        ),
+    )
+    parser.add_argument(
+        "--require-legacy-web",
+        action="store_true",
+        help=(
+            "Make the legacy page-analysis/frontend adapter mandatory for run success. "
+            "By default, scientific publication and graphs define success."
+        ),
     )
     parser.add_argument(
         "--memory-budget-gb",
@@ -2009,6 +2615,7 @@ def main():
 
     effective_settings = _build_complete_analysis_settings(
         dynamic_max_tracks=int(resolved_args["dynamic_max_tracks"]),
+        track_sample_manifest_path=resolved_args.get("track_sample_manifest"),
         memory_budget_gb=float(resolved_args["memory_budget_gb"]),
         max_points_per_shard=int(resolved_args["max_points_per_shard"]),
         min_points_per_shard=int(resolved_args["min_points_per_shard"]),
@@ -2023,12 +2630,13 @@ def main():
     for warning in resume_warnings:
         logger.warning("%s", warning)
     logger.info(
-        "Parameters: dynamic_max_tracks=%s (requested=%s), territories=%s, memory_budget_gb=%.2f, max_points_per_shard=%s, min_points_per_shard=%s, strict_components=%s, scenario_id=%s",
+        "Parameters: dynamic_max_tracks=%s (requested=%s), track_sample_manifest=%s, territories=%s, memory_budget_gb=%.2f, max_points_per_shard=%s, min_points_per_shard=%s, strict_components=%s, scenario_id=%s",
         int(effective_settings.hazard_dynamic_max_tracks),
         int(resolved_args["requested_dynamic_max_tracks"]),
+        str(effective_settings.hazard_track_sample_manifest_path) if effective_settings.hazard_track_sample_manifest_path else "none",
         territories,
         float(resolved_args["memory_budget_gb"]),
-        int(resolved_args["max_points_per_shard"]),
+        int(effective_settings.climada_max_points_per_shard),
         int(resolved_args["min_points_per_shard"]),
         not bool(args.allow_degraded_components),
         scenario.scenario_id if scenario is not None else None,
@@ -2040,13 +2648,20 @@ def main():
         "requested_dynamic_max_tracks": int(resolved_args["requested_dynamic_max_tracks"]),
         "territories": list(territories),
         "no_deploy": bool(args.no_deploy),
+        "repair_legacy_scientific_inputs": bool(args.repair_legacy_scientific_inputs),
+        "require_legacy_web": bool(args.require_legacy_web),
         "memory_budget_gb": float(resolved_args["memory_budget_gb"]),
-        "max_points_per_shard": int(resolved_args["max_points_per_shard"]),
+        "max_points_per_shard": int(effective_settings.climada_max_points_per_shard),
         "min_points_per_shard": int(resolved_args["min_points_per_shard"]),
         "allow_degraded_components": bool(args.allow_degraded_components),
         "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
         "territory_grid_deg": float(effective_settings.territory_grid_deg),
         "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
+        "track_sample_manifest": (
+            str(effective_settings.hazard_track_sample_manifest_path)
+            if effective_settings.hazard_track_sample_manifest_path
+            else None
+        ),
         **scenario_manifest_fields(scenario),
     }
     publication_policy = publication_policy_for_requested_tracks(
@@ -2063,6 +2678,8 @@ def main():
                 "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
                 "territories": requested_territories,
                 "no_deploy": bool(args.no_deploy),
+                "repair_legacy_scientific_inputs": bool(args.repair_legacy_scientific_inputs),
+                "require_legacy_web": bool(args.require_legacy_web),
                 "memory_budget_gb": float(args.memory_budget_gb),
                 "max_points_per_shard": int(args.max_points_per_shard),
                 "min_points_per_shard": int(args.min_points_per_shard),
@@ -2070,6 +2687,7 @@ def main():
                 "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
                 "territory_grid_deg": float(effective_settings.territory_grid_deg),
                 "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
+                "track_sample_manifest": str(args.track_sample_manifest) if args.track_sample_manifest else None,
                 **scenario_manifest_fields(scenario),
             },
             publication=publication_policy,
@@ -2103,6 +2721,11 @@ def main():
         sampling_spacing_m=float(effective_settings.default_sampling_spacing_m),
         territory_grid_deg=float(effective_settings.territory_grid_deg),
         climada_max_points_per_feature=int(effective_settings.climada_max_points_per_feature),
+        track_sample_manifest=(
+            str(effective_settings.hazard_track_sample_manifest_path)
+            if effective_settings.hazard_track_sample_manifest_path
+            else None
+        ),
         publication_eligible=bool(publication_policy.get("eligible")),
         min_publication_dynamic_max_tracks=int(publication_policy.get("min_dynamic_max_tracks") or 0),
         **scenario_manifest_fields(scenario),
@@ -2132,12 +2755,14 @@ def main():
             int(resolved_args["requested_dynamic_max_tracks"]),
             run_logger,
             run_manifest,
+            track_sample_manifest_path=resolved_args.get("track_sample_manifest"),
             memory_budget_gb=float(resolved_args["memory_budget_gb"]),
-            max_points_per_shard=int(resolved_args["max_points_per_shard"]),
+            max_points_per_shard=int(effective_settings.climada_max_points_per_shard),
             min_points_per_shard=int(resolved_args["min_points_per_shard"]),
             allow_degraded_components=bool(args.allow_degraded_components),
             resume_enabled=resume_enabled,
             resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
+            materialize_scientific_graph_inputs=bool(args.repair_legacy_scientific_inputs),
             scenario=scenario,
         )
         if result:
@@ -2150,7 +2775,10 @@ def main():
     if results and not territories_for_frontend and str(frontend_status or "") != "complete":
         territories_for_frontend = list(results.keys())
 
-    frontend_required = _frontend_artifacts_required(scenario)
+    frontend_required = (
+        _frontend_artifacts_required(scenario)
+        and not bool(args.repair_legacy_scientific_inputs)
+    )
     if results and territories_for_frontend and frontend_required:
         logger.info("Rebuilding case-study frontend artefacts...")
         artefact_start = time.time()
@@ -2248,26 +2876,116 @@ def main():
             )
     elif results and not frontend_required:
         frontend_artifacts_success = True
+        if bool(args.repair_legacy_scientific_inputs):
+            frontend_skip_reason = "legacy frontend artefact rebuild is skipped during explicit legacy scientific repair"
+        else:
+            frontend_skip_reason = "frontend artefact rebuild is skipped for sensitivity scenario runs"
         run_manifest.set_status(
             "running",
             frontend_artifacts={
                 "status": "skipped",
                 "territories": list(results.keys()),
-                "reason": "frontend artefact rebuild is skipped for sensitivity scenario runs",
+                "reason": frontend_skip_reason,
             },
         )
         run_logger.log_event(
             "frontend_artifacts",
             territories=list(results.keys()),
             status="skipped",
-            reason="frontend artefact rebuild is skipped for sensitivity scenario runs",
+            reason=frontend_skip_reason,
         )
     elif results:
         frontend_artifacts_success = str(frontend_status or "") == "complete"
+        if frontend_artifacts_success and frontend_required:
+            try:
+                collect_archived_run_files(run_manifest.run_id, list(results.keys()))
+            except Exception as exc:
+                reason = f"archived frontend artefacts are incomplete: {exc}"
+                frontend_artifacts_success = False
+                logger.error("✗ Frontend artefact snapshot is incomplete: %s", exc)
+                run_logger.log_event(
+                    "frontend_artifacts",
+                    territories=list(results.keys()),
+                    status="failed",
+                    reason=reason,
+                )
+                run_manifest.set_status(
+                    "running",
+                    frontend_artifacts={
+                        "status": "failed",
+                        "territories": list(results.keys()),
+                        "error": reason,
+                    },
+                )
     
+    scientific_publication_success = False
+    graphs_success = False
+    post_run_territories = list(results.keys())
+    calculation_complete = len(results) == len(territories)
+    frontend_ready_for_post_run = (not frontend_required) or bool(frontend_artifacts_success)
+    if results and calculation_complete and frontend_ready_for_post_run:
+        post_run_phases = run_manifest.data.get("post_run_phases") if isinstance(run_manifest.data, dict) else {}
+        scientific_phase = (
+            post_run_phases.get("scientific_publication")
+            if isinstance(post_run_phases, dict)
+            else None
+        )
+        if isinstance(scientific_phase, dict) and str(scientific_phase.get("status") or "") == "complete":
+            scientific_publication_success = True
+            logger.info("Skipping scientific_publication: already complete in manifest %s", run_manifest.run_id)
+        else:
+            scientific_publication_success = build_scientific_publication_artifacts(
+                run_manifest,
+                post_run_territories,
+                repair_legacy_scientific_inputs=bool(args.repair_legacy_scientific_inputs),
+            )
+
+        post_run_phases = run_manifest.data.get("post_run_phases") if isinstance(run_manifest.data, dict) else {}
+        graphs_phase = post_run_phases.get("graphs") if isinstance(post_run_phases, dict) else None
+        if scientific_publication_success:
+            if isinstance(graphs_phase, dict) and str(graphs_phase.get("status") or "") == "complete":
+                graphs_success = True
+                logger.info("Skipping graphs: already complete in manifest %s", run_manifest.run_id)
+            else:
+                graphs_success = generate_graph_artifacts_for_run(run_manifest)
+        else:
+            run_manifest.set_post_run_phase(
+                "graphs",
+                "skipped",
+                reason="scientific_publication failed or did not complete",
+            )
+    elif results and calculation_complete:
+        reason = "frontend artefact rebuild failed or archived graph inputs are incomplete"
+        run_manifest.set_post_run_phase(
+            "scientific_publication",
+            "skipped",
+            territories=post_run_territories,
+            reason=reason,
+        )
+        run_manifest.set_post_run_phase(
+            "graphs",
+            "skipped",
+            reason=reason,
+        )
+    elif results:
+        run_manifest.set_post_run_phase(
+            "scientific_publication",
+            "skipped",
+            territories=post_run_territories,
+            reason="not all requested territories completed",
+        )
+        run_manifest.set_post_run_phase(
+            "graphs",
+            "skipped",
+            reason="not all requested territories completed",
+        )
+
+    legacy_frontend_ok = (not bool(args.require_legacy_web)) or bool(frontend_artifacts_success)
+
     # Deploy if requested and successful
     deploy_success = False
-    if not args.no_deploy and results and frontend_artifacts_success:
+    deploy_required = (not bool(args.no_deploy)) and bool(publication_policy.get("eligible"))
+    if not args.no_deploy and results and calculation_complete and scientific_publication_success and graphs_success and legacy_frontend_ok:
         if bool(publication_policy.get("eligible")):
             run_manifest.set_status("running", deploy={"status": "running"})
             deploy_success = deploy_results()
@@ -2304,9 +3022,37 @@ def main():
                     ),
                 },
             )
+    elif args.no_deploy:
+        run_manifest.set_status("running", deploy={"status": "skipped", "reason": "--no-deploy"})
+    elif not bool(publication_policy.get("eligible")):
+        deploy_reason = str(publication_policy.get("reason") or "run is not publication-eligible")
+        run_manifest.set_status(
+            "running",
+            deploy={"status": "skipped", "reason": deploy_reason},
+        )
+    elif results:
+        run_manifest.set_status(
+            "running",
+            deploy={
+                "status": "skipped",
+                "reason": "scientific publication or graph generation did not complete",
+            },
+        )
     
     # Finalize logging
-    final_status = "success" if len(results) == len(territories) and frontend_artifacts_success else ("partial" if results else "failed")
+    deploy_ok = bool(args.no_deploy) or (not deploy_required) or bool(deploy_success)
+    post_run_ok = bool(scientific_publication_success) and bool(graphs_success)
+    publication_ok = (
+        bool(post_run_ok)
+        and bool(legacy_frontend_ok)
+        and bool(deploy_ok)
+    )
+    if calculation_complete and publication_ok:
+        final_status = "success"
+    elif results and len(results) < len(territories) and len(territories) > 1:
+        final_status = "partial"
+    else:
+        final_status = "failed"
     run_logger.finalize(
         status=final_status,
         territories_completed=len(results),
@@ -2320,6 +3066,12 @@ def main():
         total_assets=sum(r.get("assets", 0) for r in results.values()),
         deployed=bool(deploy_success),
         frontend_artifacts_success=bool(frontend_artifacts_success),
+        scientific_publication_success=bool(scientific_publication_success),
+        graphs_success=bool(graphs_success),
+        legacy_frontend_required=bool(args.require_legacy_web),
+        legacy_frontend_ok=bool(legacy_frontend_ok),
+        deploy_required=bool(deploy_required),
+        deploy_ok=bool(deploy_ok),
         finished_at=finished_at,
     )
     termination_guard.mark_complete()
@@ -2340,7 +3092,7 @@ def main():
     logger.info(f"  {run_manifest.manifest_path}")
     logger.info("=" * 60)
     
-    return 0 if len(results) == len(territories) and frontend_artifacts_success else 1
+    return 0 if final_status == "success" else 1
 
 
 if __name__ == "__main__":

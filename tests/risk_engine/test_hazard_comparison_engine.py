@@ -1018,6 +1018,7 @@ def test_materialize_hazard_comparison_metrics_extracts_component_metrics_and_de
     territory_metrics = payload["territories"]["demo"]["comparison_metrics"]
     wind_metrics = territory_metrics["scenarios"]["storm"]["components"]["wind"]
     wind_delta = territory_metrics["storm_vs_storm_cmcc"]["components"]["wind"]["metrics"]["intensity_max"]
+    wind_p99_delta = territory_metrics["storm_vs_storm_cmcc"]["components"]["wind"]["metrics"]["p99_event_intensity"]
     wind_return_periods = wind_metrics["intensity_max_return_periods"]
 
     assert payload["status"] == "complete"
@@ -1027,11 +1028,15 @@ def test_materialize_hazard_comparison_metrics_extracts_component_metrics_and_de
     assert metrics_path.exists()
     assert wind_metrics["event_count"] == 2
     assert wind_metrics["positive_centroid_fraction"] == pytest.approx(1.0)
+    assert wind_metrics["p99_event_intensity"] == pytest.approx(2.99)
     assert wind_return_periods["return_periods"] == list(hazard_comparison_engine.RETURN_PERIODS)
     assert wind_return_periods["values"] == pytest.approx([3.0] * len(hazard_comparison_engine.RETURN_PERIODS))
     assert wind_delta["storm"] == pytest.approx(3.0)
     assert wind_delta["storm_cmcc"] == pytest.approx(6.0)
     assert wind_delta["delta_cmcc_minus_storm"] == pytest.approx(3.0)
+    assert wind_p99_delta["storm"] == pytest.approx(2.99)
+    assert wind_p99_delta["storm_cmcc"] == pytest.approx(5.98)
+    assert wind_p99_delta["delta_cmcc_minus_storm"] == pytest.approx(2.99)
 
 
 def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
@@ -1064,6 +1069,7 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
                                 "frequency_sum_annual": 0.2,
                                 "positive_centroid_fraction": 0.5,
                                 "intensity_max": 10.0,
+                                "p99_event_intensity": 9.9,
                                 "intensity_max_return_periods": {"return_periods": [10, 20, 50], "values": [10.0, 10.5, 11.0]},
                                 "intensity_mean_positive": 5.0,
                                 "intensity_p95_positive": 9.0,
@@ -1078,6 +1084,7 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
                                 "frequency_sum_annual": 0.2,
                                 "positive_centroid_fraction": 1.0,
                                 "intensity_max": 30.0,
+                                "p99_event_intensity": 29.0,
                                 "intensity_max_return_periods": {"return_periods": [10, 20, 50], "values": [30.0, 32.0, 34.0]},
                                 "intensity_mean_positive": 20.0,
                                 "intensity_p95_positive": 28.0,
@@ -1098,6 +1105,7 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
                                 "frequency_sum_annual": 0.2,
                                 "positive_centroid_fraction": 0.75,
                                 "intensity_max": 15.0,
+                                "p99_event_intensity": 14.8,
                                 "intensity_max_return_periods": {"return_periods": [10, 20, 50], "values": [15.0, 16.0, 17.0]},
                                 "intensity_mean_positive": 6.0,
                                 "intensity_p95_positive": 12.0,
@@ -1112,6 +1120,7 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
                                 "frequency_sum_annual": 0.2,
                                 "positive_centroid_fraction": 0.9,
                                 "intensity_max": 36.0,
+                                "p99_event_intensity": 35.0,
                                 "intensity_max_return_periods": {"return_periods": [10, 20, 50], "values": [36.0, 38.0, 40.0]},
                                 "intensity_mean_positive": 24.0,
                                 "intensity_p95_positive": 30.0,
@@ -1178,14 +1187,14 @@ def test_materialize_hazard_comparison_exports_writes_tables_and_charts(
     assert (tables_dir / "storm-vs-storm_cmcc-deltas.csv").exists()
     assert (tables_dir / "component-comparison-wide.csv").exists()
     assert len(list(charts_dir.glob("*.png"))) == 10
-    assert json.loads((charts_dir / "wind__intensity_max.json").read_text(encoding="utf-8"))["units"] == "km/h"
+    assert json.loads((charts_dir / "wind__p99_event_intensity.json").read_text(encoding="utf-8"))["units"] == "km/h"
     return_period_payload = json.loads((charts_dir / "wind__intensity_max_return_periods__storm.json").read_text(encoding="utf-8"))
     assert return_period_payload["show_value_labels"] is True
     assert return_period_payload["value_label_rotation"] == 90
     assert return_period_payload["value_label_fontsize"] == 7
     assert return_period_payload["series"][0]["hatch"] == "--"
     assert return_period_payload["series"][0]["geographic_group_id"] == "na_autres"
-    scalar_payload = json.loads((charts_dir / "wind__intensity_max.json").read_text(encoding="utf-8"))
+    scalar_payload = json.loads((charts_dir / "wind__p99_event_intensity.json").read_text(encoding="utf-8"))
     assert scalar_payload["category_styles"][0]["group_id"] == "na_autres"
     assert scalar_payload["group_legend_title"] == "Groupe geographique"
     assert exported["comparison_exports"]["chart_count"] == 10
@@ -1205,6 +1214,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 10.0,
+                                "p99_event_intensity": 9.9,
                                 "positive_centroid_fraction": 0.5,
                                 "event_footprint_p95_fraction": 0.3,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [10.0, 11.0]},
@@ -1217,6 +1227,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 12.0,
+                                "p99_event_intensity": 11.9,
                                 "positive_centroid_fraction": 0.6,
                                 "event_footprint_p95_fraction": 0.35,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [12.0, 13.0]},
@@ -1235,6 +1246,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 11.0,
+                                "p99_event_intensity": 10.9,
                                 "positive_centroid_fraction": 0.55,
                                 "event_footprint_p95_fraction": 0.31,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [11.0, 12.0]},
@@ -1247,6 +1259,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 13.0,
+                                "p99_event_intensity": 12.8,
                                 "positive_centroid_fraction": 0.65,
                                 "event_footprint_p95_fraction": 0.36,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [13.0, 14.0]},
@@ -1265,6 +1278,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 14.0,
+                                "p99_event_intensity": 13.7,
                                 "positive_centroid_fraction": 0.7,
                                 "event_footprint_p95_fraction": 0.4,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [14.0, 15.0]},
@@ -1277,6 +1291,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 16.0,
+                                "p99_event_intensity": 15.6,
                                 "positive_centroid_fraction": 0.75,
                                 "event_footprint_p95_fraction": 0.44,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [16.0, 17.0]},
@@ -1295,6 +1310,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 15.0,
+                                "p99_event_intensity": 14.7,
                                 "positive_centroid_fraction": 0.72,
                                 "event_footprint_p95_fraction": 0.41,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [15.0, 16.0]},
@@ -1307,6 +1323,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 17.0,
+                                "p99_event_intensity": 16.7,
                                 "positive_centroid_fraction": 0.77,
                                 "event_footprint_p95_fraction": 0.45,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [17.0, 18.0]},
@@ -1325,6 +1342,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 18.0,
+                                "p99_event_intensity": 17.8,
                                 "positive_centroid_fraction": 0.8,
                                 "event_footprint_p95_fraction": 0.5,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [18.0, 19.0]},
@@ -1337,6 +1355,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 20.0,
+                                "p99_event_intensity": 19.7,
                                 "positive_centroid_fraction": 0.84,
                                 "event_footprint_p95_fraction": 0.54,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [20.0, 21.0]},
@@ -1355,6 +1374,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 19.0,
+                                "p99_event_intensity": 18.8,
                                 "positive_centroid_fraction": 0.81,
                                 "event_footprint_p95_fraction": 0.51,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [19.0, 20.0]},
@@ -1367,6 +1387,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 21.0,
+                                "p99_event_intensity": 20.8,
                                 "positive_centroid_fraction": 0.85,
                                 "event_footprint_p95_fraction": 0.55,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [21.0, 22.0]},
@@ -1385,6 +1406,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 8.0,
+                                "p99_event_intensity": 7.7,
                                 "positive_centroid_fraction": 0.42,
                                 "event_footprint_p95_fraction": 0.22,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [8.0, 9.0]},
@@ -1397,6 +1419,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
                                 "haz_type": "TC",
                                 "units": "m/s",
                                 "intensity_max": 9.0,
+                                "p99_event_intensity": 8.7,
                                 "positive_centroid_fraction": 0.47,
                                 "event_footprint_p95_fraction": 0.25,
                                 "intensity_max_return_periods": {"return_periods": [10, 20], "values": [9.0, 10.0]},
@@ -1409,7 +1432,7 @@ def test_build_phase5_chart_payloads_apply_geographic_group_styles() -> None:
     }
 
     payloads = hazard_comparison_engine._build_phase5_chart_payloads(metrics_document)
-    scalar_payload = next(payload for payload in payloads if payload["metric_key"] == "intensity_max")
+    scalar_payload = next(payload for payload in payloads if payload["metric_key"] == "p99_event_intensity")
     positive_payload = next(payload for payload in payloads if payload["metric_key"] == "positive_centroid_fraction")
     footprint_payload = next(payload for payload in payloads if payload["metric_key"] == "event_footprint_p95_fraction")
     return_payload = next(payload for payload in payloads if payload["metric_key"] == "intensity_max_return_periods__storm")
@@ -1519,9 +1542,10 @@ def test_materialize_hazard_comparison_report_writes_html_index(
                                 "units": "m/s",
                                 "event_count": 2,
                                 "frequency_sum_annual": 0.2,
-                                "positive_centroid_fraction": 0.5,
-                                "intensity_max": 10.0,
-                                "intensity_mean_positive": 5.0,
+                                    "positive_centroid_fraction": 0.5,
+                                    "intensity_max": 10.0,
+                                    "p99_event_intensity": 9.9,
+                                    "intensity_mean_positive": 5.0,
                                 "intensity_p95_positive": 9.0,
                                 "event_footprint_mean_fraction": 0.3,
                                 "event_footprint_p95_fraction": 0.4,
@@ -1537,9 +1561,10 @@ def test_materialize_hazard_comparison_report_writes_html_index(
                                 "units": "m/s",
                                 "event_count": 2,
                                 "frequency_sum_annual": 0.2,
-                                "positive_centroid_fraction": 0.75,
-                                "intensity_max": 15.0,
-                                "intensity_mean_positive": 6.0,
+                                    "positive_centroid_fraction": 0.75,
+                                    "intensity_max": 15.0,
+                                    "p99_event_intensity": 14.8,
+                                    "intensity_mean_positive": 6.0,
                                 "intensity_p95_positive": 12.0,
                                 "event_footprint_mean_fraction": 0.35,
                                 "event_footprint_p95_fraction": 0.45,
@@ -1593,4 +1618,4 @@ def test_materialize_hazard_comparison_report_writes_html_index(
     assert index_path.exists()
     assert "Rapport de comparaison des aleas" in html_text
     assert "Plus grands deltas absolus" in html_text
-    assert "wind__intensity_max.png" in html_text
+    assert "wind__p99_event_intensity.png" in html_text

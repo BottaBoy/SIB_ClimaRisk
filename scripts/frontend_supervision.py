@@ -35,6 +35,15 @@ def frontend_supervision_run_id_from_env() -> str | None:
     return raw or None
 
 
+def _journal_line_count(journal_path: Path) -> int:
+    if not journal_path.exists():
+        return 0
+    try:
+        return len(journal_path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return 0
+
+
 def write_frontend_supervision_event(
     journal_path: Path | None,
     *,
@@ -80,7 +89,7 @@ def is_same_process_alive(pid: int, start_ticks: int | None) -> bool:
     return int(current_start_ticks) == int(start_ticks)
 
 
-def has_terminal_event(journal_path: Path, actor: str) -> bool:
+def has_terminal_event(journal_path: Path, actor: str, *, start_line: int = 0) -> bool:
     terminal_events = PARENT_TERMINAL_EVENTS if actor == "parent" else CHILD_TERMINAL_EVENTS
     if not journal_path.exists():
         return False
@@ -88,7 +97,7 @@ def has_terminal_event(journal_path: Path, actor: str) -> bool:
         lines = journal_path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    for raw_line in lines:
+    for raw_line in lines[max(0, int(start_line)):]:
         raw_line = raw_line.strip()
         if not raw_line:
             continue
@@ -209,6 +218,7 @@ def monitor_frontend_processes(
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     journal_path = Path(journal_path)
+    monitor_start_line = _journal_line_count(journal_path)
     write_frontend_supervision_event(
         journal_path,
         actor="monitor",
@@ -230,8 +240,8 @@ def monitor_frontend_processes(
     child_terminal_event_seen = False
 
     while True:
-        parent_terminal_event_seen = has_terminal_event(journal_path, "parent")
-        child_terminal_event_seen = has_terminal_event(journal_path, "child")
+        parent_terminal_event_seen = has_terminal_event(journal_path, "parent", start_line=monitor_start_line)
+        child_terminal_event_seen = has_terminal_event(journal_path, "child", start_line=monitor_start_line)
         if parent_terminal_event_seen and child_terminal_event_seen:
             break
 

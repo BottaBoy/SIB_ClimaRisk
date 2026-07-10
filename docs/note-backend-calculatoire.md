@@ -1,6 +1,6 @@
 # Note detaillee - Backend calculatoire des risques cycloniques (CLIMADA)
 
-Derniere mise a jour: 2026-06-16
+Derniere mise a jour: 2026-07-06
 
 ## 1) Objectif
 Cette note explique:
@@ -91,6 +91,24 @@ Le tableau ci-dessous recense les principales mailles spatiales et pas d'echanti
 | `scripts/build_na_wind_leaflet_overlays.py` / `scripts/build_basin_wind_leaflet_overlays.py` | Rasterisation et rendu Leaflet des couches d'aléa a partir des cellules calculees. | Même maille que le JSON source (`0.02°` ou `0.05°` selon le jeu). | Une maille plus fine ici ne change pas la physique; elle améliore surtout la lisibilité visuelle, au prix d'un rendu plus lourd. |
 | `scripts/build_case_study_multi_hazard_proxy.py` / `scripts/build_guadeloupe_page1_data.py` | Tables et graphiques de restitution page 1/page 2 construits a partir des cellules d'aléa et du proxy multi-aléas. | Pas de nouvelle maille physique; agrégation sur la grille d'aléa correspondante. | On ne gagne en précision que si les grilles amont sont elles-mêmes plus fines et validées. |
 
+### 2.1.1 Nombre de zones de zonage hydraulique et electrique par territoire
+
+Convention de comptage retenue pour eviter les ambiguïtés:
+- `zone_uid`: nombre de zones hydrauliques logiques distinctes dans la couche `hydraulic_zones` des GPKG de `outputs/hydraulic_zoning/Zonage_V2`
+- `zone_component_key`: nombre de composantes hydrauliques effectivement publiees; une meme zone logique peut etre decoupee en plusieurs polygones
+- `elec_grid_0p1deg`: nombre de mailles de zonage electrique publiees dans `web/data/*-network-states.geojson`
+
+| Territoire | Zones hydrauliques distinctes (`zone_uid`) | dont AEP | dont EU | Composantes hydrauliques publiees (`zone_component_key`) | Zonages electriques publies (`elec_grid_0p1deg`) |
+|---|---:|---:|---:|---:|---:|
+| Guadeloupe | 147 | 47 | 100 | 305 | 40 |
+| Martinique | 436 | 343 | 93 | 807 | 20 |
+| Saint-Barthelemy | 30 | 24 | 6 | 30 | 2 |
+
+Lecture rapide:
+- le zonage hydraulique est beaucoup plus fin que le zonage electrique publie, surtout en Martinique;
+- en Guadeloupe et en Martinique, plusieurs zones hydrauliques sont multi-parties, d'ou un nombre de `zone_component_key` superieur au nombre de `zone_uid`;
+- a Saint-Barthelemy, dans le bundle courant, chaque zone hydraulique publiee correspond a une seule composante.
+
 ### 2.2 Tracks dynamiques: plafond de catalogue et cap conseille
 
 Les chiffres ci-dessous viennent du chargement dynamique STORM/STORM_CMCC sur la fenetre de publication page 5, c'est-a-dire la bbox NA avec le padding spatial du loader. Ils comptent des instances synthetiques distinctes de cyclone, donc une identite physique de type `(Year, track_id)`, avant tout cap `dynamic_max_tracks`.
@@ -154,6 +172,48 @@ Categories supportees:
 Aliases principaux:
 - `electric`, `electricity`, `power` -> `ouvrage_electrique`
 - `water`, `water_network` -> `ouvrage_eau`
+
+---
+
+### 3.0 Inventaire detaille des infrastructures eau et electricite utilisees pour l'exposition
+
+Le tableau ci-dessous documente les couches eau et electricite actuellement mobilisables pour l'exposition Guadeloupe / Martinique. Les valeurs ont ete relues directement dans les couches source disponibles dans `uploads/Infra_Eau_*` et `uploads/Infra_Elec_*` et doivent etre lues comme un inventaire technique de travail, pas comme un inventaire patrimonial certifie gestionnaire par gestionnaire.
+
+| Territoire | Famille infra | Sous-type / role | Source principale | Unite de comptage | Quantite | Longueur / capacite / stockage | Detail technique | Champs source mobilises | Limites |
+|---|---|---|---|---|---:|---|---|---|---|
+| Guadeloupe | AEP reseaux | canalisations | `AEP/cana_aep.gpkg` couche `canalisationaep240925` | troncons + km | 31 942 | ~3 151.8 km geometriques; `conduite_longrecol` cumule ~3 154.1 km | Materiaux dominants: `FI` ~1 570.6 km, `PVC` ~473.0 km, `AC` ~153.2 km, `FD` ~144.7 km, `PEHD` ~104.4 km, `FG` ~75.1 km, `PVC_BO` ~51.2 km; diametre interieur moyen variable selon materiau | `conduite_materiau`, `conduite_diametreint`, `conduite_diametrenominal`, `conduite_longrecol`, `pelem_zonehydraulique` | `FI` / `FD` / `FG` sont des codes metier locaux; la doc ne fournit pas ici de table de decodage officielle complete |
+| Guadeloupe | AEP ouvrages | reservoirs / cuves | `AEP/ouvrage_aep.gpkg` couche `ouvrages` | ouvrages | 202 | stockage cumule `ovrg_cuv_vol` ~153 501 | Type ouvrage `CUV`; diametre cuve moyen `ovrg_cuv_diam` ~14.0; `ovrg_cuv_type` quasi non renseigne | `ovrg_type`, `ovrg_cuv_type`, `ovrg_cuv_vol`, `ovrg_cuv_diam` | L'unite de `ovrg_cuv_vol` n'est pas re-explicitee dans la couche; elle est conservee telle quelle dans la note |
+| Guadeloupe | AEP ouvrages | captages / forages / sources | `AEP/ouvrage_aep.gpkg` couche `ouvrages` | ouvrages | 68 | somme `ovrg_capfor_cap_qresv` ~216 | Sous-types: `SOURCE` 28, `DRAIN` 18, `FOR` 17, `AUT` 3, `CAP` 2 | `ovrg_type`, `ovrg_capfor_type`, `ovrg_capfor_cap_qresv` | La signification physique exacte de `ovrg_capfor_cap_qresv` doit etre verifiee dans le dictionnaire RAEPA source avant toute lecture contractuelle |
+| Guadeloupe | AEP ouvrages | usines / traitement potable | `AEP/ouvrage_aep.gpkg` couche `ouvrages` | ouvrages | 40 | `up_caph` cumule ~10 092; `up_capj` cumule ~226 750 | Filieres / codes: `TRAIT` 37, `DESINF` 2, `AUT` 1 | `ovrg_type`, `up_caph`, `up_capj`, `up_filetyp`, `up_traitdesc` | Les unites de `up_caph` et `up_capj` ne sont pas re-documentees dans la couche; elles sont gardees brutes |
+| Guadeloupe | AEP ouvrages | stations de pompage / surpression | `AEP/ouvrage_aep.gpkg` couche `ouvrages` | ouvrages | 119 | pas de capacite cumulee robuste exploitee | Types: `SURP` 86, `PMP` 27, `NA` 4, `AUT` 1, `INC` 1 | `ovrg_type`, `pmp_typ`, `pmp_abcap` | Categorie utile pour l'exposition AEP, mais la couche ne fournit pas ici une capacite homogenisable simple |
+| Guadeloupe | EU reseaux | canalisations | `EU/cana_eu.gpkg` | troncons + km | 13 795 | ~819.2 km geometriques | Materiaux codes: `AA` ~320.0 km, `AX` ~284.1 km, `INC` ~58.4 km, `AZ` ~53.5 km, `AV` ~30.9 km, `AMC` ~13.0 km, `INOX` ~12.9 km; `PVC` ~5.0 km, `PEHD` ~2.4 km | `conduite_materiau`, `conduite_longrecol`, `conduite_diametrenominal`, `pelem_secteur` | Les codes materiaux EU (`AA`, `AX`, `AZ`, etc.) ne sont pas traduits en libelles explicites dans la source actuelle |
+| Guadeloupe | EU ouvrages | postes de refoulement | `EU/pr.gpkg` couche `eu_pr` | ouvrages | 348 | baches `stpmp_bachevol` cumulees ~2 096.0; pompes cumulees ~554 | Materiaux de refoulement / reference: `INOX` 66, `AM` 48, `AX` 48, `AZ` 43, `AA` 37; 58 enregistrements sans materiau de reference; nombreuses dimensions et volumes de bache disponibles | `stpmp_capacitepompes`, `stpmp_pompenombre`, `stpmp_ref_mat`, `stpmp_ref_diam`, `stpmp_ref_long`, `stpmp_bachevol`, `stpmp_type` | `stpmp_capacitepompes` est heterogene et peu normalisable en une unite unique dans cette note |
+| Guadeloupe | EU ouvrages | STEP / STEU | `EU/step.gpkg` couche `eu_stepn` | ouvrages | 142 | `step_traitdebitref` cumule ~4 538; `step_traitcapq` cumule ~33 438; `step_traitcapdbo` cumule ~13 371 | Tres forte richesse de champs process, pompage, baches et materiaux; `step_systeme` est souvent vide (`NA` 129) mais quelques systemes nommes restent presents | `step_traitdebitref`, `step_traitcapq`, `step_traitcapdbo`, `step_systeme`, `step_pmpebcapacite`, `step_pmpetcapacite`, `step_pmpebbccaracmat`, `step_pmpetbccaracmat` | Les unites ne sont pas re-rappelees dans tous les champs; la lecture doit rester prudente sans dictionnaire source complet |
+| Martinique | AEP reseaux | canalisations CACEM | `AEP/Réseaux/cacem_aep_cana.shp` | troncons + km | 9 008 | ~1 039.5 km geometriques | Materiaux explicites: `Fonte` ~447.6 km, `PVC MO` ~308.2 km, `PVC` ~148.9 km, `Fonte ductile` ~33.1 km, `Polyethylène HD` ~31.0 km, `PE` ~18.5 km, `PE bandes bleues` ~7.9 km; diametre moyen renseigne | `materiau`, `diametre`, `longeur`, `type_resea`, `sect_dis`, `ville` | Nomenclature gestionnaire locale; certains materiaux restent saisis comme `Inconnu` |
+| Martinique | AEP reseaux | canalisations CAESM | `AEP/Réseaux/caesm_aep_cana.shp` | troncons + km | 12 581 | ~1 376.5 km geometriques | Longueur importante mais pas de ventilation materiau exploitable dans la couche lue ici (`NA` majoritaire) | `materiau`, `diametre`, `longeur`, `type_resea`, `sect_dis` | La couche parait beaucoup moins renseignee sur le materiau que CACEM |
+| Martinique | AEP reseaux | canalisations CAP Nord | `AEP/Réseaux/capnord_aep_cana.shp` | troncons + km | 27 145 | ~950.7 km geometriques | Meme lecture que CAESM: ventilation materiau non exploitable proprement dans l'etat courant | `materiau`, `diametre`, `longeur`, `type_resea`, `sect_dis` | Le champ `materiau` n'est pas suffisamment renseigne pour un tableau par materiau fiable |
+| Martinique | AEP ouvrages | UPEP / traitement potable | `AEP/Usines/UPEP_2017.shp` | ouvrages | 27 | `Q_REG_M3J` cumule ~155 449 | Exploitants: `SMDS` 13, `SME` 9, `ODYSSI` 4, `CTM` 1 | `UPEP`, `Q_REG_M3J`, `EXPL`, `BENEF` | La couche est exploitable pour les capacites de production, mais ne detaille pas ici finement les filieres de traitement |
+| Martinique | AEP ouvrages | captages / forages | `AEP/Forages/AEP_CAPTAGES_FORAGES_2024.shp` | ouvrages | 6 | `prlv2017m3` disponible ponctuellement dans la couche source mais pas homogenise ici | Tous les points visibles dans l'extrait courant sont de type `Forage` | `CAPTAGE`, `TYPE`, `QP_EXPLOIT`, `prlv2017m3`, `UPEP` | L'echantillon present dans le workspace est tres reduit; pas de couche dediee reservoirs/cuves AEP clairement separee pour la Martinique |
+| Martinique | AEP ouvrages | reservoirs / stockage | pas de couche dediee separee clairement exploitable dans `AEP` | ouvrages | n/a | non disponible dans les couches source actuelles utilisees ici | Les noms de reservoirs apparaissent dans certains libelles de zonage, mais pas comme une couche patrimoniale de stockage autonome directement reutilisee pour l'exposition | n/a | Ne pas deduire un nombre de reservoirs a partir des seuls noms de zones ou des secteurs AEP |
+| Martinique | EU reseaux | canalisations | `Assainissement/Reseaux/*.shp` | troncons + km | n/a | CACEM ~386.1 km; CAESM ~305.1 km; SCISM ~180.7 km; SEA ~77.0 km | Les couches EU reseaux portent surtout des longueurs (`LONGCALC`, `LONGUEUR`); pas de ventilation materiau fiable dans l'etat courant | `LONGCALC`, `LONGUEUR` et attributs de reseau par gestionnaire | Le detail `PVC / fonte / PEHD` n'est pas proprement disponible sur ces couches EU Martinique |
+| Martinique | EU ouvrages | postes de refoulement | `Assainissement/Poste de refoulement/Postes de refoulement_2024.shp` | ouvrages | 480 | `capacite_1` cumulee ~65 446 | Tranches capacitaires documentees: `< 2000 eH` 53, `2000 - 10 000 eH` 28; exploitants principaux `SME` 212, `Odyssi` 83, `SEA` 59 | `poste`, `steu`, `capacite_1`, `tranche ca`, `exploitant`, `cd_steu` | Le champ de type est partiellement renseigne (`A1`, `A2`, sinon vide) |
+| Martinique | EU ouvrages | STEP / STEU communales | `Assainissement/STEP/steu_communales.shp` | ouvrages | 109 | `capacite E` cumulee ~361 281 | Types dominants: `Boues activées` 79, `Biodisques` 7, puis `Filtres plantes de vegetaux`, `Culture fixee`, `Oxyfix`, `Micro station`, `SBR`, `Membranes`; filieres boues renseignees | `station`, `code_steu`, `capacite E`, `type_sta`, `boues`, `exploitant` | Les STEP privees restent hors du tableau principal pour eviter de melanger patrimoine public et installations isolees |
+| Guadeloupe | Elec reseaux | BT aerien | `lignes-basse-tension-bt-aerien-gua.geojson` | troncons + km | 30 319 | ~3 063.9 km geometriques | Reseau basse tension aerien; tous les troncons visibles sont `En exploitation` | `statut`, `geometry` | La couche ne porte pas ici de materiau, section de conducteur, tension fine ou date de pose |
+| Guadeloupe | Elec reseaux | BT souterrain | `lignes-basse-tension-bt-souterrain-gua.geojson` | troncons + km | 33 085 | ~1 616.5 km geometriques | Reseau basse tension souterrain; tous les troncons visibles sont `En exploitation` | `statut`, `geometry` | Pas de detail cable (section, isolation, materiau) dans la couche exploitee |
+| Guadeloupe | Elec reseaux | HTA aerien | `lignes-haute-tension-hta-aerien-gua.geojson` | troncons + km | 1 819 | ~529.8 km geometriques | Reseau HTA aerien; statut unique `En exploitation` | `id`, `statut`, `geometry` | La classe distingue bien HTA / aerien mais sans niveau de tension plus fin ni type de support |
+| Guadeloupe | Elec reseaux | HTA souterrain | `lignes-haute-tension-hta-souterrain-gua.geojson` | troncons + km | 7 766 | ~1 956.8 km geometriques | Reseau HTA souterrain; statut unique `En exploitation` | `id`, `statut`, `geometry` | Pas de detail cable ni de typologie technique supplementaire dans le GeoJSON courant |
+| Martinique | Elec reseaux | BT aerien | `lignes-basse-tension-bt-aerien-martinique.geojson` | troncons + km | 27 071 | ~2 427.7 km geometriques | Reseau basse tension aerien; tous les troncons visibles sont `En exploitation` | `statut`, `geometry` | La couche ne porte pas de materiau ni de section de conducteur |
+| Martinique | Elec reseaux | BT souterrain | `e_troncon_cable_bt_me_position_me_position-martinique.geojson` | troncons + km | 21 512 | ~838.4 km geometriques | Reseau basse tension souterrain; tous les troncons visibles sont `En exploitation` | `statut`, `geometry` | Pas de detail cable exploitable au-dela de `BT souterrain` |
+| Martinique | Elec reseaux | HTA aerien | `lignes-haute-tension-hta-aerien-martinique.geojson` | troncons + km | 2 665 | ~560.8 km geometriques | Reseau HTA aerien; statut unique `En exploitation` | `id`, `statut`, `geometry` | Pas de ventilation par tension nominale, type de pylone ou conducteur |
+| Martinique | Elec reseaux | HTA souterrain | `lignes-haute-tension-hta-souterrain-martinique.geojson` | troncons + km | 4 877 | ~1 343.2 km geometriques | Reseau HTA souterrain; statut unique `En exploitation` | `id`, `statut`, `geometry` | La couche permet un lineaire fiable, mais pas un detail technique type cuivre / alu / section |
+
+Points de lecture utiles:
+- les longueurs de reseau ci-dessus sont prioritairement lues sur la geometrie reprojetee (`EPSG:5490`), puis comparees aux champs longueur natifs quand ils existent;
+- pour la Guadeloupe AEP, les longueurs geometriques et `conduite_longrecol` sont coherentes a quelques km pres, ce qui rend le lineaire global lisible;
+- pour la Guadeloupe EU et une partie de l'AEP Martinique, les materiaux sont parfois codes ou partiellement renseignes; il faut donc eviter toute sur-interpretation sans dictionnaire gestionnaire;
+- pour l'electricite, les couches actuellement integrees sont essentiellement des lineaires de reseau `BT/HTA` et `aerien/souterrain`; elles sont robustes pour les km lineaires, mais pauvres en attributs techniques fins;
+- les capacites de traitement, de pompage et de stockage sont volontairement laissees dans les unites source quand la couche ne redonne pas une unite documentaire parfaitement explicite;
+- la Martinique dispose d'une bonne couche UPEP et de couches PR / STEP exploitables, mais pas d'une couche reservoirs AEP autonome clairement mobilisee dans la chaine d'exposition actuelle.
 
 ---
 
@@ -556,13 +616,21 @@ La granularite runtime reste celle des classes metier (`eau_eu_cana`, `eau_eu_pr
 | Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU canalisations | EUR par km, moyenne de classe | 340 000 EUR/km | 957 143 EUR/km | Moyenne des 7 points prix documentes dans le dossier EU (3 DN gravitaires + 4 DN refoulement), convertie de EUR/ml en EUR/km | 7 |
 | Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU postes de refoulement (PR) | valeur fixe representative par unite | 900 000 EUR | 397 636 EUR | Moyenne des 11 tranches capacitaires documentees dans le dossier EU | 11 |
 | Profil partage Guadeloupe applique a Guadeloupe, Martinique et fallback | EU stations d'epuration (STEP) | valeur fixe representative par unite | 6 000 000 EUR | 8 785 714 EUR | Moyenne de 14 cellules du tableau EUR/EH du dossier EU, converties en valeur unitaire via des milieux de bandes representatifs (2 500 / 7 500 / 17 500 / 30 000 EH) | 14 |
+| Saint-Barthélemy | EU canalisations | profil partage Guadeloupe majore +50% | 510 000 EUR/km | 1 435 714,5 EUR/km | Reutilisation du profil EU partage avec majoration insulaire de cout | 7 |
+| Saint-Barthélemy | EU postes de refoulement (PR) | profil partage Guadeloupe majore +50% | 1 350 000 EUR | 596 454 EUR | Reutilisation du profil EU partage avec majoration insulaire de cout | 11 |
+| Saint-Barthélemy | EU stations d'epuration (STEP) | profil partage Guadeloupe majore +50% | 9 000 000 EUR | 13 178 571 EUR | Reutilisation du profil EU partage avec majoration insulaire de cout | 14 |
 | Guadeloupe + Martinique | Elec BT aerien | EUR par km | 180 000 EUR/km | 167 060 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 220kV | n/a |
 | Guadeloupe + Martinique | Elec BT souterrain | EUR par km | 320 000 EUR/km | 1 336 480 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), derive de 1 994,39 EUR/m * (167 060 / 249 299) * 1000 | n/a |
 | Guadeloupe + Martinique | Elec HTA aerien | EUR par km | 260 000 EUR/km | 249 299 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), overhead power line single 380kV | n/a |
 | Guadeloupe + Martinique | Elec HTA souterrain | EUR par km | 520 000 EUR/km | 1 994 390 EUR/km | D3 (ICF 2002, EU + Norvege + Suisse), 1 994,39 EUR/m * 1000 | n/a |
+| Saint-Barthélemy | Elec BT aerien | profil Guadeloupe/Martinique majore +50% | 270 000 EUR/km | 250 590 EUR/km | Reutilisation du profil electrique partage avec majoration insulaire de cout | n/a |
+| Saint-Barthélemy | Elec BT souterrain | profil Guadeloupe/Martinique majore +50% | 480 000 EUR/km | 2 004 720 EUR/km | Reutilisation du profil electrique partage avec majoration insulaire de cout | n/a |
+| Saint-Barthélemy | Elec HTA aerien | profil Guadeloupe/Martinique majore +50% | 390 000 EUR/km | 373 948,5 EUR/km | Reutilisation du profil electrique partage avec majoration insulaire de cout | n/a |
+| Saint-Barthélemy | Elec HTA souterrain | profil Guadeloupe/Martinique majore +50% | 780 000 EUR/km | 2 991 585 EUR/km | Reutilisation du profil electrique partage avec majoration insulaire de cout | n/a |
 | Guadeloupe + Martinique | AEP ouvrages (`ovrg_type`) | valeur fixe par type, exception temporaire conservee | `TRAIT=3.5M`, `STPMP=1.2M`, `CAP=1.0M`, `CUV=0.5M`, autres=`0.8M` EUR | inchange | Hypothese interne SIB, maintenue tant que les tableaux AEP exploitables ne sont pas disponibles | n/a |
+| Saint-Barthélemy | AEP ouvrages (`ovrg_type`) | profil Guadeloupe/Martinique majore +50% | `TRAIT=5.25M`, `STPMP=1.8M`, `CAP=1.5M`, `CUV=0.75M`, autres=`1.2M` EUR | inchange | Hypothese interne SIB, reprise avec majoration insulaire de cout | n/a |
 
-Pour Saint-Barthélemy, les classes electriques et les ouvrages AEP reutilisent ces memes profils avec un multiplicateur `1.5` applique dans `scripts/valuation_ofb.py`.
+Pour Saint-Barthélemy, les classes EU, electriques et les ouvrages AEP reutilisent les memes profils avec un multiplicateur `1.5` applique dans `scripts/valuation_ofb.py`.
 
 Choix de modelisation:
 - les valeurs EU sont agregees au niveau classe car les scripts de preparation actuels ne valorisent pas encore segment par segment selon un champ `diametre`, `debit`, `capacite_eh` ou `type_traitement`;

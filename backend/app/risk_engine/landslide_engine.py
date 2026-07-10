@@ -197,19 +197,25 @@ def scenario_loss_factors(result: HazardImpactResult) -> dict[str, float]:
     if eai <= 0.0:
         return {
             "annual": 0.0,
+            "rp10": 0.0,
             "rp50": 0.0,
             "rp100": 0.0,
+            "rp1000": 0.0,
             "event_max": 0.0,
             "top10": 0.0,
             "top5": 0.0,
         }
+    rp10 = float(pml.get(10, 0.0) or 0.0) / eai
     rp50 = float(pml.get(50, 0.0) or 0.0) / eai
     rp100 = float(pml.get(100, 0.0) or 0.0) / eai
+    rp1000 = float(pml.get(1000, 0.0) or 0.0) / eai
     event_max = max_loss / eai
     return {
         "annual": 1.0,
+        "rp10": max(0.0, rp10),
         "rp50": max(0.0, rp50),
         "rp100": max(0.0, rp100),
+        "rp1000": max(0.0, rp1000),
         "event_max": max(0.0, event_max),
         "top10": max(0.0, rp50),
         "top5": max(0.0, rp100),

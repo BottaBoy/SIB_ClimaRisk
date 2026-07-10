@@ -21,6 +21,7 @@ from .hazard_loader import (
     _build_hazard_from_tracks,
     load_storm_hazards,
     load_storm_hazards_from_parquet_for_points,
+    normalize_hazard_frequency_from_tracks,
     release_hazard_bundle_tracks,
     resolve_hazard_bundle_tracks,
 )
@@ -1119,6 +1120,18 @@ def _point_id_values(point_records: list[dict[str, Any]]) -> list[str]:
     return [str(rec.get("point_id") or rec.get("feature_id") or "") for rec in list(point_records or [])]
 
 
+def _service_group_from_point_record(record: dict[str, Any]) -> str:
+    text = " ".join(
+        str(record.get(key) or "").strip().lower()
+        for key in ("asset_type", "feature_id", "point_id", "infra_class")
+    ).replace("_", "-")
+    if "elec" in text:
+        return "electric"
+    if "eau" in text or "aep" in text or "eu-" in text or "eu " in text:
+        return "water"
+    return str(record.get("infra_class") or "other")
+
+
 def _save_shard_checkpoint(
     np: Any,
     *,
@@ -1656,17 +1669,18 @@ def _plan_exposure_shards(
             )
         ]
 
-    grouped_indices: dict[tuple[str, str], list[int]] = {}
+    grouped_indices: dict[tuple[str, str, str], list[int]] = {}
     for idx, rec in enumerate(point_records):
         key = (
             str(rec.get("territory_id") or "unknown"),
             str(rec.get("infra_class") or "unknown"),
+            _service_group_from_point_record(rec),
         )
         grouped_indices.setdefault(key, []).append(idx)
 
     shards: list[_ExposureShard] = []
     counter = 1
-    for (territory_id, infra_class), indices in grouped_indices.items():
+    for (territory_id, infra_class, service_group), indices in grouped_indices.items():
         for start in range(0, len(indices), point_cap):
             chunk = tuple(indices[start : start + point_cap])
             if not chunk:
@@ -1676,7 +1690,7 @@ def _plan_exposure_shards(
                     shard_id=f"shard-{counter:04d}",
                     point_indices=chunk,
                     territory_id=territory_id,
-                    infra_class=infra_class,
+                    infra_class=f"{infra_class}:{service_group}",
                 )
             )
             counter += 1
@@ -2517,8 +2531,9 @@ def _compute_dynamic_hazard_sharded_results(
                 continue
 
             centroids = _build_centroids_from_points(shard_coords)
-            wind_hazard = _normalize_frequency_on_copy(
+            wind_hazard = normalize_hazard_frequency_from_tracks(
                 _build_hazard_from_tracks(tracks, centroids),
+                tracks,
                 storm_years,
             )
             scoped_progress_callback = _scoped_dynamic_progress_callback(
@@ -2589,7 +2604,7 @@ def _compute_dynamic_hazard_sharded_results(
                             f"{hazard_key}: surge used pointwise land fractions for exposure-aligned centroid shards ({surge_meta.get('reason')}).{grid_desc}"
                         )
                         surge_fraction_note_added = True
-                    surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+                    surge_hazard = normalize_hazard_frequency_from_tracks(surge_hazard, tracks, storm_years)
                     # Surge no longer needs the source wind hazard once the surge field exists.
                     # Releasing it here avoids keeping both hazard matrices resident during ImpactCalc.
                     wind_hazard = None
@@ -2633,7 +2648,7 @@ def _compute_dynamic_hazard_sharded_results(
                         ignore_distance_to_coast=True,
                         max_dist_inland_km=float(rain_max_dist_inland_km),
                     )
-                    rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
+                    rain_hazard = normalize_hazard_frequency_from_tracks(rain_hazard, tracks, storm_years)
                     shard_metrics, inner_sharding = _compute_component_impact_sharded(
                         np,
                         ImpactCalc,
@@ -2838,6 +2853,7 @@ def run_climada_direct_impacts(
     fallback_to_precomputed_hazards: bool = True,
     storm_parquet_path: Path | None = None,
     storm_cmcc_parquet_path: Path | None = None,
+    track_sample_manifest_path: Path | None = None,
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     wind_unit_in: str = "m/s",
     convert_10min_to_1min: bool = True,
@@ -2865,6 +2881,7 @@ def run_climada_direct_impacts(
     resume_dynamic_hazard_point_cap: int | None = None,
     return_full_impact_data: bool = True,
     hazard_keys: tuple[str, ...] | None = None,
+    explicit_hazard_bundle: Any | None = None,
 ) -> ClimadaRunResult:
     if fallback_to_precomputed_hazards:
         raise ValueError(
@@ -2931,11 +2948,20 @@ def run_climada_direct_impacts(
     if selected_hazard_keys != ("storm", "storm_cmcc"):
         notes.append(f"Hazard selection override enabled: {list(selected_hazard_keys)}.")
 
-    bundle = None
+    bundle = explicit_hazard_bundle
     dynamic_hazard_shards: list[_ExposureShard] = []
     dynamic_hazard_point_cap = 0
     dynamic_hazard_estimated_full_memory_bytes = 0
-    if (
+    if bundle is not None:
+        explicit_source = str(getattr(bundle, "source", "") or "explicit_bundle")
+        missing_hazards = [hazard_key for hazard_key in selected_hazard_keys if getattr(bundle, hazard_key, None) is None]
+        if missing_hazards:
+            raise RuntimeError(
+                "Explicit hazard bundle is missing the selected hazards: "
+                + ", ".join(sorted(missing_hazards))
+            )
+        notes.append(f"Hazard source: explicit bundle ({explicit_source}).")
+    elif (
         prefer_dynamic_hazards
         and storm_parquet_path is not None
         and storm_cmcc_parquet_path is not None
@@ -2960,6 +2986,7 @@ def run_climada_direct_impacts(
                     max_tracks=max(0, int(dynamic_max_tracks)),
                     track_cache_max_entries=track_cache_max_entries,
                     build_hazards=False,
+                    track_sample_manifest_path=track_sample_manifest_path,
                 )
                 dynamic_hazard_event_count = max(
                     int(bundle.track_count_storm or 0),
@@ -3007,6 +3034,11 @@ def run_climada_direct_impacts(
                     f"(basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count}, "
                     f"tracks={int(bundle.track_count_storm or 0)}/{int(bundle.track_count_storm_cmcc or 0)})."
                 )
+                if getattr(bundle, "track_sample_id", None):
+                    notes.append(
+                        "Track sample manifest: "
+                        f"{getattr(bundle, 'track_sample_id')} ({getattr(bundle, 'track_sample_manifest_path', None)})."
+                    )
                 if dynamic_hazard_shards:
                     notes.append(
                         "Dynamic hazard construction stays on the centroid-scoped execution path before ImpactCalc "
@@ -3214,7 +3246,7 @@ def run_climada_direct_impacts(
                         notes.append(
                             f"{hazard_key}: surge used pointwise land fractions for exposure-aligned centroids ({surge_meta.get('reason')}).{grid_desc}"
                         )
-                    surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+                    surge_hazard = normalize_hazard_frequency_from_tracks(surge_hazard, tracks, storm_years)
                     surge_metrics, surge_sharding = _compute_component_impact_sharded(
                         np,
                         ImpactCalc,
@@ -3288,7 +3320,7 @@ def run_climada_direct_impacts(
                         ignore_distance_to_coast=True,
                         max_dist_inland_km=float(rain_max_dist_inland_km),
                     )
-                    rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
+                    rain_hazard = normalize_hazard_frequency_from_tracks(rain_hazard, tracks, storm_years)
                     rain_metrics, rain_sharding = _compute_component_impact_sharded(
                         np,
                         ImpactCalc,
@@ -3429,6 +3461,14 @@ def run_climada_direct_impacts(
         "hazard_point_count": int(bundle.point_count or 0),
         "hazard_track_count_storm": int(getattr(bundle, "track_count_storm", 0) or 0),
         "hazard_track_count_storm_cmcc": int(getattr(bundle, "track_count_storm_cmcc", 0) or 0),
+        "hazard_track_sample_manifest_path": (
+            str(getattr(bundle, "track_sample_manifest_path", None))
+            if getattr(bundle, "track_sample_manifest_path", None)
+            else None
+        ),
+        "hazard_track_sample_id": getattr(bundle, "track_sample_id", None),
+        "hazard_track_sample_size_by_provider": dict(getattr(bundle, "track_sample_size_by_provider", None) or {}),
+        "hazard_track_sample_weighted_frequency": bool(getattr(bundle, "track_sample_id", None)),
         "hazard_event_stats_by_hazard": {
             hazard_key: _summarize_event_stats(np, out.get(hazard_key))
             for hazard_key in selected_hazard_keys

@@ -11,6 +11,20 @@ cd /home/ubuntu/sib-work
 cat outputs/sensitivity-runs/latest-manifest.json
 
 
+Verifier l'etat d'un babysitter sans en relancer un :
+
+tmux attach -t babysit-sensitivity-sensitivity_20260619_073544
+
+ou
+
+tail -f /home/ubuntu/sib-work/logs/babysit_sensitivity_analysis_sensitivity_20260619_073544.log
+
+######################
+Generer des graph hazard comparaison all basin
+
+cd /home/ubuntu/sib-work
+/home/ubuntu/sib-work/backend/.venv/bin/python scripts/build_hazard_comparison_visual_pack.py
+
 #######################
 
 Pour voir seulement le scénario actif et son child:
@@ -165,4 +179,3 @@ ps -eo pid=,args= | awk '
     print $1
   }
 ' | xargs -r kill -KILL
-

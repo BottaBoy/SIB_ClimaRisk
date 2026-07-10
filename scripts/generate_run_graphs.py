@@ -16,6 +16,10 @@ import webbrowser
 from typing import Any
 
 from case_study_sources import HYDRAULIC_ZONING_V2_DIR, territory_label
+try:  # pragma: no cover - import path depends on module vs CLI execution
+    from scripts.scientific_publication_contract import PUBLIC_SERVICE_KEYS, SCIENTIFIC_SCENARIOS  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    from scientific_publication_contract import PUBLIC_SERVICE_KEYS, SCIENTIFIC_SCENARIOS  # type: ignore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPLETE_RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
@@ -145,16 +149,15 @@ OUVRAGE_EXPOSURE_LABELS = {
     "eau_eu_step": "STEP",
 }
 NETWORK_STATE_MATRIX_SCENARIOS = (
-    ("annual", "Annuel"),
+    ("rp10", "RP10"),
     ("rp50", "RP50"),
     ("rp100", "RP100"),
-    ("p99", "P99"),
+    ("rp1000", "RP1000"),
 )
 NETWORK_STATE_MATRIX_COLUMNS = (
     ("eau_aep", "Etat reseaux AEP", ("eau_aep",)),
     ("eau_eu", "Etat reseaux EU", ("eau_eu",)),
-    ("elec_aerien", "Etats reseaux elec aerien", ("elec_bt_aerien", "elec_hta_aerien")),
-    ("elec_souterrain", "Etats reseaux elec souterrain", ("elec_bt_souterrain", "elec_hta_souterrain")),
+    ("elec", "Etat reseaux elec", ("elec",)),
 )
 
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
@@ -169,6 +172,23 @@ COMPONENT_COLORS = {
     "rain": "#0f766e",
     "surge": "#ea580c",
     "landslide": "#7c3aed",
+}
+DAMAGE_FAMILY_ORDER = ("water", "electric")
+DAMAGE_FAMILY_LABELS = {
+    "water": "Eau",
+    "electric": "Elec",
+}
+DAMAGE_FAMILY_COLORS = {
+    "water": "#0ea5e9",
+    "electric": "#facc15",
+}
+OUTAGE_CAUSE_LABELS = {
+    "direct": "Direct",
+    "indirect": "Indirect",
+}
+OUTAGE_CAUSE_COLORS = {
+    "direct": "#2563eb",
+    "indirect": "#be123c",
 }
 TARGETED_TRAJECTORY_CATEGORY_COLORS = {
     "-1": "#94a3b8",
@@ -198,20 +218,36 @@ ANNUAL_FEC_COMBO_COLORS = {
 }
 LIFETIME_EXTRA_RETURN_PERIODS = (400, 600, 800)
 EXTENDED_PML_PERIODS = tuple(sorted({*PML_PERIODS, *LIFETIME_EXTRA_RETURN_PERIODS}))
+RETURN_PERIOD_SCENARIO_BY_PERIOD = {
+    10: "rp10",
+    50: "rp50",
+    100: "rp100",
+    1000: "rp1000",
+}
+EVENT_LOSS_HISTOGRAM_BINS_EUR = (
+    (0.0, 50_000_000.0, "0-50 M"),
+    (50_000_000.0, 100_000_000.0, "50-100 M"),
+    (100_000_000.0, 200_000_000.0, "100-200 M"),
+    (200_000_000.0, 300_000_000.0, "200-300 M"),
+    (300_000_000.0, 400_000_000.0, "300-400 M"),
+    (400_000_000.0, 500_000_000.0, "400-500 M"),
+    (500_000_000.0, 600_000_000.0, "500-600 M"),
+    (600_000_000.0, 700_000_000.0, "600-700 M"),
+    (700_000_000.0, 800_000_000.0, "700-800 M"),
+    (800_000_000.0, 900_000_000.0, "800-900 M"),
+    (900_000_000.0, 1_000_000_000.0, "900 M-1 B"),
+    (1_000_000_000.0, math.inf, ">1 B"),
+)
 
 GRAPH_TYPE_ORDER = (
     "run_overview_summary",
     "hazard_metric_scorecard",
     "targeted_event_scorecard",
-    "annual_fec_all_territories",
-    "annual_fec_all_territories_pct",
-    "annual_fec_by_territory_hazard",
     "lifetime_fec_by_territory_hazard",
-    "hazard_component_share_annual_by_territory",
-    "hazard_component_share_p99_by_territory",
     "pml_ladder_by_territory_hazard",
     "top_events_by_hazard",
     "wind_year_hist_by_hazard",
+    "hazard_component_share_by_return_period",
     "direct_vs_indirect_eai_by_hazard",
 )
 
@@ -219,15 +255,11 @@ GRAPH_TYPE_LABELS = {
     "run_overview_summary": "Resume du run",
     "hazard_metric_scorecard": "Scorecard alea",
     "targeted_event_scorecard": "Scorecard evenementiel",
-    "annual_fec_all_territories": "FEC annuelle comparee",
-    "annual_fec_all_territories_pct": "FEC annuelle comparee en %",
-    "annual_fec_by_territory_hazard": "FEC annuelle",
     "lifetime_fec_by_territory_hazard": "FEC duree de vie",
-    "hazard_component_share_annual_by_territory": "Mix relatif EAI direct",
-    "hazard_component_share_p99_by_territory": "Mix relatif P99 direct",
     "pml_ladder_by_territory_hazard": "Echelle PML",
     "top_events_by_hazard": "Top evenements",
     "wind_year_hist_by_hazard": "Histogramme vent max par annee",
+    "hazard_component_share_by_return_period": "Contribution aleas par temps de retour",
     "direct_vs_indirect_eai_by_hazard": "Direct vs indirect",
 }
 
@@ -309,12 +341,14 @@ class AuxiliaryArtifacts:
     landslide_maps: ArchivedArtifact | None
     network_states_path: str | None
     water_infra_path: str | None
+    scientific_web_summary: ArchivedArtifact | None = None
     population_overlays: ArchivedArtifact | None = None
     population_raster_path: str | None = None
     hydraulic_zones_path: str | None = None
 
 
 _NATIVE_PML_CACHE: dict[tuple[str, str, str], dict[int, float] | None] = {}
+_SERVICE_RP_CACHE: dict[tuple[str, str], dict[str, Any] | None] = {}
 _WIND_MAP_CACHE: dict[tuple[str, str], tuple[dict[str, Any], str] | None] = {}
 _REAL_WIND_TRACK_HIST_CACHE: dict[tuple[str, str, str], tuple[list[float], list[float], str] | None] = {}
 _DYNAMIC_HAZARD_BUNDLE_CACHE: dict[tuple[str, str, int], Any] = {}
@@ -529,6 +563,157 @@ def _format_damage_share_label(damage_eur: float, total_value_eur: float) -> str
     return f"{damage_text}\n({_format_percent(damage_pct)} valeur)"
 
 
+def _damage_family_for_class_key(class_key: Any) -> str | None:
+    key = str(class_key or "").strip().lower()
+    if key.startswith("eau_"):
+        return "water"
+    if key.startswith("elec_"):
+        return "electric"
+    return None
+
+
+def _graph_inputs_have_required_scenarios(inputs: Any) -> bool:
+    graph_inputs = inputs if isinstance(inputs, dict) else {}
+    if list(graph_inputs.get("scenarios") or []) != list(SCIENTIFIC_SCENARIOS):
+        return False
+    state_tables = graph_inputs.get("state_damage_tables")
+    breakdowns = graph_inputs.get("damage_breakdown_by_scenario")
+    return isinstance(state_tables, dict) and isinstance(breakdowns, dict)
+
+
+def _scientific_inputs_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    strict_inputs = payload.get("scientific_graph_inputs")
+    if _graph_inputs_have_required_scenarios(strict_inputs):
+        return strict_inputs if isinstance(strict_inputs, dict) else {}
+    pml_inputs = payload.get("pml_network_graph_inputs")
+    if _graph_inputs_have_required_scenarios(pml_inputs):
+        return pml_inputs if isinstance(pml_inputs, dict) else {}
+    return strict_inputs if isinstance(strict_inputs, dict) else {}
+
+
+def _damage_breakdown_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    breakdown = _scientific_inputs_from_payload(payload).get("damage_breakdown_by_scenario")
+    return breakdown if isinstance(breakdown, dict) else {}
+
+
+def _state_damage_tables_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    tables = _scientific_inputs_from_payload(payload).get("state_damage_tables")
+    return tables if isinstance(tables, dict) else {}
+
+
+def _nearest_return_period_scenario(period: int) -> str | None:
+    if period in RETURN_PERIOD_SCENARIO_BY_PERIOD:
+        return RETURN_PERIOD_SCENARIO_BY_PERIOD[period]
+    available = sorted(RETURN_PERIOD_SCENARIO_BY_PERIOD)
+    if not available:
+        return None
+    nearest = min(available, key=lambda candidate: abs(candidate - int(period)))
+    return RETURN_PERIOD_SCENARIO_BY_PERIOD[nearest]
+
+
+def _family_damage_totals_from_rows(rows: list[Any]) -> dict[str, float]:
+    totals = {family: 0.0 for family in DAMAGE_FAMILY_ORDER}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        family = _damage_family_for_class_key(row.get("class_key"))
+        if family is None:
+            continue
+        totals[family] += max(_safe_float(row.get("damage_eur")), 0.0)
+    return totals
+
+
+def _family_damage_shares_from_rows(rows: list[Any]) -> dict[str, float]:
+    totals = _family_damage_totals_from_rows(rows)
+    denominator = sum(totals.values())
+    if denominator <= 0.0:
+        return {family: (100.0 if index == 0 else 0.0) for index, family in enumerate(DAMAGE_FAMILY_ORDER)}
+    return {family: totals[family] / denominator for family in DAMAGE_FAMILY_ORDER}
+
+
+def _family_damage_shares_for_payload(
+    payload: dict[str, Any],
+    hazard: str,
+    *,
+    scenario_key: str | None = None,
+) -> dict[str, float]:
+    damage_by_scenario = _damage_breakdown_from_payload(payload)
+    rows: list[Any] = []
+    if scenario_key:
+        scenario_block = damage_by_scenario.get(scenario_key) if isinstance(damage_by_scenario.get(scenario_key), dict) else {}
+        hazard_rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
+        rows.extend(hazard_rows)
+    else:
+        for scenario_block in damage_by_scenario.values():
+            if not isinstance(scenario_block, dict):
+                continue
+            hazard_rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
+            rows.extend(hazard_rows)
+    return _family_damage_shares_from_rows(rows)
+
+
+def _component_damage_totals_for_scenario(
+    payload: dict[str, Any],
+    scenario_key: str,
+    hazard: str,
+) -> dict[str, float]:
+    scenario_block = _damage_breakdown_from_payload(payload).get(scenario_key)
+    if not isinstance(scenario_block, dict):
+        return {}
+    rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
+    totals = {component: 0.0 for component in COMPONENT_ORDER}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        components = row.get("damage_components_eur") if isinstance(row.get("damage_components_eur"), dict) else {}
+        for component, value in components.items():
+            component_key = str(component or "").strip()
+            if component_key not in totals:
+                totals[component_key] = 0.0
+            totals[component_key] += max(_safe_float(value), 0.0)
+    return totals
+
+
+def _outage_cause_shares_from_state_tables(
+    payload: dict[str, Any],
+    scenario_key: str,
+    hazard: str,
+    class_key: str,
+) -> dict[str, float] | None:
+    rows = _state_damage_tables_from_payload(payload).get(scenario_key)
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("class_key") or "") != class_key:
+            continue
+        hazard_block = row.get(hazard) if isinstance(row.get(hazard), dict) else {}
+        direct = max(_safe_float(hazard_block.get("direct_damage_eur")), 0.0)
+        indirect = max(_safe_float(hazard_block.get("indirect_damage_eur")), 0.0)
+        total = direct + indirect
+        if total <= 0.0:
+            return {"direct": 0.0, "indirect": 0.0}
+        return {
+            "direct": round((direct / total) * 100.0, 4),
+            "indirect": round((indirect / total) * 100.0, 4),
+        }
+    return None
+
+
+def _rebin_loss_histogram_percentages(
+    bin_values: list[float],
+    percentages: list[float],
+) -> list[float]:
+    rebinned = [0.0 for _low, _high, _label in EVENT_LOSS_HISTOGRAM_BINS_EUR]
+    for raw_value, raw_percent in zip(bin_values, percentages):
+        value = _safe_float(raw_value)
+        percent = max(_safe_float(raw_percent), 0.0)
+        for idx, (low, high, _label) in enumerate(EVENT_LOSS_HISTOGRAM_BINS_EUR):
+            if value >= low and value < high:
+                rebinned[idx] += percent
+                break
+    return [round(value, 4) for value in rebinned]
+
+
 def _split_cli_values(values: list[str] | None) -> list[str]:
     out: list[str] = []
     for item in values or []:
@@ -573,6 +758,7 @@ def _load_auxiliary_artifacts(record: RunRecord, bundle: TerritoryPayload) -> Au
     return AuxiliaryArtifacts(
         territory=territory,
         complete_analysis=ArchivedArtifact(payload_path=bundle.payload_path, payload=bundle.payload),
+        scientific_web_summary=_load_optional_archived_json(base_dir / f"{territory}-scientific-web-summary.json"),
         page7_analysis=_load_optional_archived_json(base_dir / f"{territory}-page7-analysis.json"),
         case_study_analysis=_load_case_study_analysis(base_dir, territory),
         wind_maps=_load_optional_archived_json(base_dir / f"{territory}-wind-maps.json"),
@@ -811,7 +997,12 @@ def _default_graph_types_for_run_family(run_family: str) -> list[str]:
             "direct_vs_indirect_eai_by_hazard",
             "top_events_by_hazard",
         ]
-    return list(GRAPH_TYPE_ORDER)
+    return [
+        "run_overview_summary",
+        "pml_ladder_by_territory_hazard",
+        "wind_year_hist_by_hazard",
+        "hazard_component_share_by_return_period",
+    ]
 
 
 def _resolve_selected_graph_types(requested: list[str]) -> list[str]:
@@ -1089,6 +1280,175 @@ def _compute_pml_from_arrays(losses: Any, frequency: Any, return_periods: tuple[
     return {
         int(rp): float(max(0.0, interpolated[idx]))
         for idx, rp in enumerate(return_periods)
+    }
+
+
+def _checkpoint_service_from_point_id(point_id: Any) -> str:
+    text = str(point_id or "").split("::", 1)[0].strip().lower().replace("_", "-")
+    if "elec" in text:
+        return "electric"
+    if "eau" in text or text.startswith("aep") or text.startswith("eu-") or "-eu-" in text:
+        return "water"
+    return "other"
+
+
+def _compute_service_rp_curves_from_checkpoints(record: RunRecord, artifacts: AuxiliaryArtifacts) -> dict[str, Any] | None:
+    territory = artifacts.territory
+    cache_key = (record.run_id, territory)
+    if cache_key in _SERVICE_RP_CACHE:
+        return _SERVICE_RP_CACHE[cache_key]
+
+    checkpoint_dir = _resolve_checkpoint_dir(record, territory)
+    if checkpoint_dir is None:
+        _SERVICE_RP_CACHE[cache_key] = None
+        return None
+
+    import numpy as np
+
+    payload = artifacts.complete_analysis.payload
+    rows: list[dict[str, Any]] = []
+    series_data: dict[tuple[str, str], dict[int, float]] = {}
+    overall_quality: dict[str, int] = {"total_shards": 0, "mixed_shards": 0, "approximate_shards": 0}
+
+    for hazard in _available_hazards_for_payload(payload):
+        hazard_quality: dict[str, int] = {"total_shards": 0, "mixed_shards": 0, "approximate_shards": 0}
+        combined_by_service: dict[str, Any] = {}
+        combined_frequency: Any | None = None
+        available_components = 0
+        for component in _resolve_enabled_components(record, territory, payload, hazard):
+            component_root = checkpoint_dir / "dynamic-hazard-shards" / hazard / component
+            result_paths = sorted(component_root.glob("**/results/*.npz"))
+            if not result_paths:
+                continue
+            component_by_service: dict[str, Any] = {}
+            component_frequency: Any | None = None
+            for result_path in result_paths:
+                with np.load(result_path, allow_pickle=False) as checkpoint:
+                    if "at_event_loss" not in checkpoint.files or "event_frequency" not in checkpoint.files:
+                        continue
+                    shard_at_event = np.asarray(checkpoint["at_event_loss"], dtype=float).reshape(-1)
+                    shard_frequency = np.asarray(checkpoint["event_frequency"], dtype=float).reshape(-1)
+                    point_ids = [str(value) for value in list(checkpoint["point_id"])] if "point_id" in checkpoint.files else []
+                if shard_at_event.size == 0:
+                    continue
+                services: dict[str, int] = {}
+                for point_id in point_ids:
+                    service = _checkpoint_service_from_point_id(point_id)
+                    if service in {"water", "electric"}:
+                        services[service] = services.get(service, 0) + 1
+                if not services:
+                    continue
+                hazard_quality["total_shards"] += 1
+                overall_quality["total_shards"] += 1
+                if len(services) > 1:
+                    hazard_quality["mixed_shards"] += 1
+                    hazard_quality["approximate_shards"] += 1
+                    overall_quality["mixed_shards"] += 1
+                    overall_quality["approximate_shards"] += 1
+                total_points = float(max(1, sum(services.values())))
+                if component_frequency is None:
+                    component_frequency = shard_frequency
+                if component_frequency.size != shard_at_event.size:
+                    _SERVICE_RP_CACHE[cache_key] = None
+                    return None
+                for service, count in services.items():
+                    weight = float(count) / total_points
+                    if service not in component_by_service:
+                        component_by_service[service] = np.zeros_like(shard_at_event, dtype=float)
+                    component_by_service[service] += shard_at_event * weight
+            if component_frequency is None or not component_by_service:
+                continue
+            available_components += 1
+            if combined_frequency is None:
+                combined_frequency = component_frequency
+            if combined_frequency.size != component_frequency.size:
+                _SERVICE_RP_CACHE[cache_key] = None
+                return None
+            for service, component_losses in component_by_service.items():
+                if service not in combined_by_service:
+                    combined_by_service[service] = np.zeros_like(component_losses, dtype=float)
+                combined_by_service[service] += component_losses
+
+        if available_components <= 0 or combined_frequency is None:
+            continue
+        scaler = _resolve_hazard_scaler(payload, hazard)
+        for service, losses in combined_by_service.items():
+            pml = _compute_pml_from_arrays(losses, combined_frequency, PML_PERIODS)
+            scaled = {int(rp): round(float(value) * scaler, 2) for rp, value in pml.items()}
+            series_data[(service, hazard)] = scaled
+            for rp in PML_PERIODS:
+                rows.append(
+                    {
+                        "territory": territory,
+                        "service": service,
+                        "hazard": hazard,
+                        "return_period_years": int(rp),
+                        "damage_eur": float(scaled.get(int(rp), 0.0)),
+                        "mixed_shards": int(hazard_quality["mixed_shards"]),
+                        "total_shards": int(hazard_quality["total_shards"]),
+                        "quality": "approximate_mixed_shards" if int(hazard_quality["mixed_shards"]) else "exact_service_shards",
+                    }
+                )
+
+    if not rows:
+        _SERVICE_RP_CACHE[cache_key] = None
+        return None
+    result = {"rows": rows, "series_data": series_data, "quality": overall_quality}
+    _SERVICE_RP_CACHE[cache_key] = result
+    return result
+
+
+def _build_service_rp_curve_payload(record: RunRecord, artifacts: AuxiliaryArtifacts, title: str) -> dict[str, Any] | None:
+    computed = _compute_service_rp_curves_from_checkpoints(record, artifacts)
+    if not computed:
+        return None
+    labels = {
+        "water": "Eau",
+        "electric": "Elec",
+    }
+    colors = {
+        ("water", "storm"): "#2563eb",
+        ("water", "storm_cmcc"): "#60a5fa",
+        ("electric", "storm"): "#b45309",
+        ("electric", "storm_cmcc"): "#f59e0b",
+    }
+    linestyles = {"storm": "solid", "storm_cmcc": "dashed"}
+    series = []
+    rp_axis_positions = list(range(len(PML_PERIODS)))
+    for service in ("water", "electric"):
+        for hazard in SUPPORTED_HAZARDS:
+            pml = computed["series_data"].get((service, hazard))
+            if not pml:
+                continue
+            y_values = [float(pml.get(int(rp), 0.0)) for rp in PML_PERIODS]
+            series.append(
+                {
+                    "name": f"{labels[service]} {HAZARD_LABELS[hazard]}",
+                    "x": list(rp_axis_positions),
+                    "y": y_values,
+                    "color": colors[(service, hazard)],
+                    "linestyle": linestyles[hazard],
+                    "annotations": [_format_compact_eur(value) if value > 0.0 else "" for value in y_values],
+                }
+            )
+    quality = computed.get("quality") if isinstance(computed.get("quality"), dict) else {}
+    note = (
+        f"Diagnostic approximatif : {int(quality.get('mixed_shards') or 0)} shards sur "
+        f"{int(quality.get('total_shards') or 0)} melangent eau/elec; les pertes y sont reparties au prorata des points."
+        if int(quality.get("mixed_shards") or 0)
+        else "Diagnostic exact : les checkpoints sont homogenes par service eau/elec."
+    )
+    return {
+        "type": "line",
+        "title": title,
+        "xlabel": "Temps de retour (ans)",
+        "ylabel": "Dommages directs (EUR)",
+        "series": series,
+        "legacy_line_layout": True,
+        "xticks": list(rp_axis_positions),
+        "xtick_labels": [str(int(period)) for period in PML_PERIODS],
+        "yaxis_format": "compact_eur",
+        "note": note,
     }
 
 
@@ -1521,6 +1881,30 @@ def _build_bar_option(
     }
 
 
+def _build_grouped_stacked_bar_option(title: str, categories: list[str], groups: list[dict[str, Any]]) -> dict[str, Any]:
+    flat_categories: list[str] = []
+    series_by_segment: dict[str, dict[str, Any]] = {}
+    for category_idx, category in enumerate(categories):
+        for group in groups:
+            group_name = str(group.get("name") or "")
+            flat_categories.append(f"{category}\n{group_name}")
+            for segment in [item for item in (group.get("segments") or []) if isinstance(item, dict)]:
+                name = str(segment.get("name") or "")
+                values = list(segment.get("values") or [])
+                bucket = series_by_segment.setdefault(
+                    name,
+                    {
+                        "name": name,
+                        "type": "bar",
+                        "stack": "family",
+                        "data": [],
+                        "itemStyle": {"color": segment.get("color") or "#64748b"},
+                    },
+                )
+                bucket["data"].append(_safe_float(values[category_idx] if category_idx < len(values) else 0.0))
+    return _build_bar_option(title, flat_categories, list(series_by_segment.values()))
+
+
 def _make_table_graph(
     graph_type: str,
     title: str,
@@ -1576,7 +1960,7 @@ def build_run_overview_graph(record: RunRecord, payloads: dict[str, TerritoryPay
 
 def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
     territory_name = _display_territory_name(territory)
-    categories = ["EAI annuel", "PML100", "PML1000", "TVaR95", "P99"]
+    categories = ["PML10", "PML50", "PML100", "PML1000", "TVaR95"]
     series: list[dict[str, Any]] = []
     for hazard in selected_hazards:
         metrics = _extract_hazard_metrics(payload, hazard)
@@ -1585,11 +1969,11 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
                 "name": HAZARD_LABELS[hazard],
                 "type": "bar",
                 "data": [
-                    _safe_float(metrics.get("eai_eur")),
+                    _safe_float(metrics.get("pml_10_eur")),
+                    _safe_float(metrics.get("pml_50_eur")),
                     _safe_float(metrics.get("pml_100_eur")),
                     _safe_float(metrics.get("pml_1000_eur")),
                     _safe_float(metrics.get("tvar_95_eur")),
-                    _safe_float(metrics.get("percentile_99_loss_eur")),
                 ],
                 "itemStyle": {"color": HAZARD_COLORS[hazard]},
             }
@@ -2087,7 +2471,7 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
     territory_name = _display_territory_name(territory)
     categories = [f"PML{period}" for period in PML_PERIODS]
     series: list[dict[str, Any]] = []
-    png_series: list[dict[str, Any]] = []
+    png_groups: list[dict[str, Any]] = []
     for hazard in hazards:
         hazard_metrics = _extract_hazard_metrics(payload, hazard)
         values = [_safe_float(hazard_metrics.get(f"pml_{period}_eur")) for period in PML_PERIODS]
@@ -2096,7 +2480,31 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
         series.append(
             {"name": HAZARD_LABELS[hazard], "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}
         )
-        png_series.append({"name": HAZARD_LABELS[hazard], "values": values, "color": HAZARD_COLORS[hazard]})
+        segment_values = {family: [] for family in DAMAGE_FAMILY_ORDER}
+        for period, total_value in zip(PML_PERIODS, values):
+            scenario_key = _nearest_return_period_scenario(int(period))
+            shares = _family_damage_shares_for_payload(payload, hazard, scenario_key=scenario_key)
+            allocated = 0.0
+            for family in DAMAGE_FAMILY_ORDER[:-1]:
+                family_value = round(max(total_value, 0.0) * shares.get(family, 0.0), 2)
+                segment_values[family].append(family_value)
+                allocated += family_value
+            last_family = DAMAGE_FAMILY_ORDER[-1]
+            segment_values[last_family].append(round(max(total_value, 0.0) - allocated, 2))
+        png_groups.append(
+            {
+                "name": HAZARD_LABELS[hazard],
+                "hatch": "" if hazard == "storm" else "///",
+                "segments": [
+                    {
+                        "name": DAMAGE_FAMILY_LABELS[family],
+                        "values": segment_values[family],
+                        "color": DAMAGE_FAMILY_COLORS[family],
+                    }
+                    for family in DAMAGE_FAMILY_ORDER
+                ],
+            }
+        )
     if not series:
         return None
     option = _build_bar_option(
@@ -2115,17 +2523,17 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
         description="Lecture rapide comparee de la queue de pertes sur les periodes de retour standard.",
         echarts_option=option,
         png_payload={
-            "type": "grouped_bar",
+            "type": "grouped_stacked_bar",
             "title": f"Echelle PML - {territory_name}",
             "categories": categories,
-            "series": png_series,
+            "groups": png_groups,
             "ylabel": "Pertes (EUR)",
             "show_labels": True,
             "label_format": "compact_eur",
-            "label_strategy": "grouped_bar_full_labels",
-            "label_fontsize_target": 13,
-            "allow_figure_autoscale": True,
-            "label_lane_gap_pts": 6,
+            "note": (
+                "Chaque barre garde le total PML du run ; la couleur interne repartit ce total entre eau et electricite "
+                "a partir des scenarios scientifiques de degats par temps de retour. PML20 et PML200 utilisent la part du scenario RP le plus proche."
+            ),
         },
     )
 
@@ -2277,6 +2685,75 @@ def build_wind_hist_graph(
     )
 
 
+def build_combined_event_loss_hist_graph(territory: str, payload: dict[str, Any], hazards: list[str]) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
+    categories = [label for _low, _high, label in EVENT_LOSS_HISTOGRAM_BINS_EUR]
+    groups: list[dict[str, Any]] = []
+    for hazard in hazards:
+        block = _extract_graph_block(payload, hazard, "wind_year_hist")
+        if not isinstance(block, dict):
+            continue
+        bin_values = [_safe_float(item) for item in block.get("bins_mps") or []]
+        percentages = [_safe_float(item) for item in block.get("percent") or []]
+        if not bin_values or not percentages:
+            continue
+        rebinned = _rebin_loss_histogram_percentages(bin_values, percentages)
+        shares = _family_damage_shares_for_payload(payload, hazard)
+        segment_values = {family: [] for family in DAMAGE_FAMILY_ORDER}
+        for total_value in rebinned:
+            allocated = 0.0
+            for family in DAMAGE_FAMILY_ORDER[:-1]:
+                family_value = round(total_value * shares.get(family, 0.0), 4)
+                segment_values[family].append(family_value)
+                allocated += family_value
+            last_family = DAMAGE_FAMILY_ORDER[-1]
+            segment_values[last_family].append(round(max(total_value - allocated, 0.0), 4))
+        groups.append(
+            {
+                "name": HAZARD_LABELS.get(hazard, hazard.upper()),
+                "hatch": "" if hazard == "storm" else "///",
+                "segments": [
+                    {
+                        "name": DAMAGE_FAMILY_LABELS[family],
+                        "values": segment_values[family],
+                        "color": DAMAGE_FAMILY_COLORS[family],
+                    }
+                    for family in DAMAGE_FAMILY_ORDER
+                ],
+            }
+        )
+    if not groups:
+        return None
+    title = f"Histogramme annuel des pertes - {territory_name} - STORM vs STORM_CMCC"
+    return GraphSpec(
+        graph_id=_graph_id("wind_year_hist_by_hazard", territory, "storm"),
+        graph_type="wind_year_hist_by_hazard",
+        title=title,
+        section="wind",
+        territory=territory,
+        hazard=None,
+        kind="chart",
+        description=(
+            "Distribution legacy des pertes evenementielles du portefeuille, reclassée dans des classes regulieres "
+            "et affichee simultanement pour STORM et STORM_CMCC."
+        ),
+        echarts_option=_build_grouped_stacked_bar_option(title, categories, groups),
+        png_payload={
+            "type": "grouped_stacked_bar",
+            "title": title,
+            "categories": categories,
+            "groups": groups,
+            "ylabel": "Part des evenements (%)",
+            "show_labels": True,
+            "label_format": "percent",
+            "note": (
+                "Les classes de pertes sont reconstruites depuis l'histogramme evenementiel archive. "
+                "La ventilation eau/elec utilise la repartition des degats scientifiques par scenario, l'archive ne portant pas la ventilation eau/elec par evenement."
+            ),
+        },
+    )
+
+
 def build_direct_vs_indirect_graph(territory: str, payload: dict[str, Any], selected_hazards: list[str]) -> GraphSpec:
     territory_name = _display_territory_name(territory)
     categories = [HAZARD_LABELS[hazard] for hazard in selected_hazards]
@@ -2382,6 +2859,88 @@ def build_hazard_component_share_graph(
             "series": png_series,
             "ylabel": "Part du mix de pertes directes (%)",
             "note": note,
+        },
+    )
+
+
+def build_hazard_component_share_by_return_period_graph(
+    territory: str,
+    payload: dict[str, Any],
+    selected_hazards: list[str],
+) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
+    scenario_items = [(period, RETURN_PERIOD_SCENARIO_BY_PERIOD[period]) for period in (10, 50, 100, 1000)]
+    categories: list[str] = []
+    component_values: dict[str, list[float]] = {component: [] for component in COMPONENT_ORDER}
+    has_non_zero = False
+    for period, scenario_key in scenario_items:
+        for hazard in selected_hazards:
+            totals = _component_damage_totals_for_scenario(payload, scenario_key, hazard)
+            if not totals:
+                continue
+            total_damage = sum(max(_safe_float(value), 0.0) for value in totals.values())
+            categories.append(f"RP{period}\n{HAZARD_LABELS.get(hazard, hazard.upper())}")
+            for component in COMPONENT_ORDER:
+                share = 0.0 if total_damage <= 0.0 else (max(_safe_float(totals.get(component)), 0.0) / total_damage) * 100.0
+                component_values.setdefault(component, [])
+                component_values[component].append(round(share, 2))
+                has_non_zero = has_non_zero or share > 0.0
+            for component in totals:
+                if component in COMPONENT_ORDER:
+                    continue
+                share = 0.0 if total_damage <= 0.0 else (max(_safe_float(totals.get(component)), 0.0) / total_damage) * 100.0
+                component_values.setdefault(component, [0.0] * (len(categories) - 1))
+                component_values[component].append(round(share, 2))
+                has_non_zero = has_non_zero or share > 0.0
+    if not categories or not has_non_zero:
+        return None
+    ordered_components = [component for component in COMPONENT_ORDER if any(component_values.get(component) or [])]
+    ordered_components.extend(
+        component
+        for component in sorted(component_values)
+        if component not in ordered_components and any(component_values.get(component) or [])
+    )
+    series = [
+        {
+            "name": COMPONENT_LABELS.get(component, component),
+            "type": "bar",
+            "stack": "share",
+            "data": component_values.get(component, []),
+            "itemStyle": {"color": COMPONENT_COLORS.get(component, "#64748b")},
+        }
+        for component in ordered_components
+    ]
+    option = _build_bar_option(
+        f"Contribution des aleas aux degats - {territory_name}",
+        categories,
+        series,
+    )
+    if isinstance(option.get("yAxis"), dict):
+        option["yAxis"]["max"] = 100
+    return GraphSpec(
+        graph_id=_graph_id("hazard_component_share_by_return_period", territory),
+        graph_type="hazard_component_share_by_return_period",
+        title=f"Contribution des aleas aux degats - {territory_name}",
+        section="loss",
+        territory=territory,
+        hazard=None,
+        kind="chart",
+        description="Part en pourcentage de chaque composante d'alea dans les degats monetaires par temps de retour.",
+        echarts_option=option,
+        png_payload={
+            "type": "stacked_bar",
+            "title": f"Contribution des aleas aux degats - {territory_name}",
+            "categories": categories,
+            "series": [
+                {
+                    "name": COMPONENT_LABELS.get(component, component),
+                    "values": component_values.get(component, []),
+                    "color": COMPONENT_COLORS.get(component, "#64748b"),
+                }
+                for component in ordered_components
+            ],
+            "ylabel": "Contribution aux degats (%)",
+            "ymax": 100.0,
         },
     )
 
@@ -2500,47 +3059,19 @@ def build_graphs_for_territory(
     graphs: list[GraphSpec] = []
     graphs.append(build_hazard_metric_scorecard(territory, payload, selected_hazards))
     graphs.append(build_direct_vs_indirect_graph(territory, payload, selected_hazards))
-    annual_component_mix = build_hazard_component_share_graph(
-        territory,
-        payload,
-        selected_hazards,
-        metric_key="components_direct_eai_eur",
-        graph_type="hazard_component_share_annual_by_territory",
-        title=f"Mix relatif des aleas - EAI direct annuel - {territory_name}",
-        description=(
-            "Part relative des composantes directes vent/pluie/submersion/mouvement de terrain dans l'EAI direct annuel. "
-            "Les composantes absentes du payload sont affichees a zero."
-        ),
-        note="Les parts utilisent portfolio_results.*.components_direct_eai_eur. Il s'agit uniquement du mix multi-alea direct ; le surcroit indirect est exclu.",
-    )
-    if annual_component_mix is not None:
-        graphs.append(annual_component_mix)
-    p99_component_mix = build_hazard_component_share_graph(
-        territory,
-        payload,
-        selected_hazards,
-        metric_key="components_direct_percentile_99_loss_eur",
-        graph_type="hazard_component_share_p99_by_territory",
-        title=f"Mix relatif des aleas - Perte directe P99 - {territory_name}",
-        description=(
-            "Part relative des composantes directes vent/pluie/submersion/mouvement de terrain dans la perte directe P99 du scenario. "
-            "Les composantes absentes du payload sont affichees a zero."
-        ),
-        note="Les parts utilisent portfolio_results.*.components_direct_percentile_99_loss_eur. Il s'agit uniquement du mix multi-alea direct.",
-    )
-    if p99_component_mix is not None:
-        graphs.append(p99_component_mix)
-    annual_fec_graph = build_annual_fec_graph(record, territory, payload, selected_hazards)
-    if annual_fec_graph is not None:
-        graphs.append(annual_fec_graph)
     pml_ladder_graph = build_pml_ladder_graph(territory, payload, selected_hazards)
     if pml_ladder_graph is not None:
         graphs.append(pml_ladder_graph)
+    component_share_graph = build_hazard_component_share_by_return_period_graph(territory, payload, selected_hazards)
+    if component_share_graph is not None:
+        graphs.append(component_share_graph)
+    combined_loss_hist_graph = build_combined_event_loss_hist_graph(territory, payload, selected_hazards)
+    if combined_loss_hist_graph is not None:
+        graphs.append(combined_loss_hist_graph)
     for hazard in selected_hazards:
         for graph in (
             build_lifetime_fec_graph(record, territory, payload, hazard),
             build_top_events_graph(territory, payload, hazard),
-            build_wind_hist_graph(record, territory, payload, hazard, "wind_year_hist", "wind_year_hist_by_hazard", "Histogramme annuel du vent"),
         ):
             if graph is not None:
                 graphs.append(graph)
@@ -2948,6 +3479,23 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
         ax.set_title(payload.get("title") or "")
         ax.set_xlabel(payload.get("xlabel") or "")
         ax.set_ylabel(payload.get("ylabel") or "")
+        if payload.get("xscale"):
+            ax.set_xscale(str(payload.get("xscale")))
+        if payload.get("yscale"):
+            ax.set_yscale(str(payload.get("yscale")))
+        if str(payload.get("yaxis_format") or "").strip().lower() == "compact_eur":
+            from matplotlib.ticker import FuncFormatter
+
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_eur(value).replace(" EUR", "")))
+            ax.yaxis.get_offset_text().set_visible(False)
+        xticks = [float(value) for value in (payload.get("xticks") or []) if isinstance(value, (int, float))]
+        if xticks:
+            ax.set_xticks(xticks)
+            labels = list(payload.get("xtick_labels") or [])
+            if len(labels) == len(xticks):
+                ax.set_xticklabels([str(label) for label in labels])
+            else:
+                ax.set_xticklabels([str(int(value)) if float(value).is_integer() else str(value) for value in xticks])
         ax.grid(True, alpha=0.25)
         if line_series:
             ax.legend()
@@ -2990,6 +3538,23 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
             ax.set_title(payload.get("title") or "")
             ax.set_xlabel(payload.get("xlabel") or "")
             ax.set_ylabel(payload.get("ylabel") or "")
+            if payload.get("xscale"):
+                ax.set_xscale(str(payload.get("xscale")))
+            if payload.get("yscale"):
+                ax.set_yscale(str(payload.get("yscale")))
+            if str(payload.get("yaxis_format") or "").strip().lower() == "compact_eur":
+                from matplotlib.ticker import FuncFormatter
+
+                ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_eur(value).replace(" EUR", "")))
+                ax.yaxis.get_offset_text().set_visible(False)
+            xticks = [float(value) for value in (payload.get("xticks") or []) if isinstance(value, (int, float))]
+            if xticks:
+                ax.set_xticks(xticks)
+                labels = list(payload.get("xtick_labels") or [])
+                if len(labels) == len(xticks):
+                    ax.set_xticklabels([str(label) for label in labels])
+                else:
+                    ax.set_xticklabels([str(int(value)) if float(value).is_integer() else str(value) for value in xticks])
             ax.grid(True, alpha=0.25)
             if line_series:
                 ax.legend()
@@ -3027,6 +3592,23 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
         ax.set_title(payload.get("title") or "")
         ax.set_xlabel(payload.get("xlabel") or "")
         ax.set_ylabel(payload.get("ylabel") or "")
+        if payload.get("xscale"):
+            ax.set_xscale(str(payload.get("xscale")))
+        if payload.get("yscale"):
+            ax.set_yscale(str(payload.get("yscale")))
+        if str(payload.get("yaxis_format") or "").strip().lower() == "compact_eur":
+            from matplotlib.ticker import FuncFormatter
+
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_eur(value).replace(" EUR", "")))
+            ax.yaxis.get_offset_text().set_visible(False)
+        xticks = [float(value) for value in (payload.get("xticks") or []) if isinstance(value, (int, float))]
+        if xticks:
+            ax.set_xticks(xticks)
+            labels = list(payload.get("xtick_labels") or [])
+            if len(labels) == len(xticks):
+                ax.set_xticklabels([str(label) for label in labels])
+            else:
+                ax.set_xticklabels([str(int(value)) if float(value).is_integer() else str(value) for value in xticks])
         ax.grid(True, alpha=0.25)
         if line_series:
             ax.legend()
@@ -3098,9 +3680,26 @@ def _render_line_png(plt: Any, payload: dict[str, Any], output_path: Path) -> No
                     color=series.get("color") or "#111827",
                     annotation_clip=True,
                 )
-    ax.set_title(payload.get("title") or "")
-    ax.set_xlabel(payload.get("xlabel") or "")
-    ax.set_ylabel(payload.get("ylabel") or "")
+        ax.set_title(payload.get("title") or "")
+        ax.set_xlabel(payload.get("xlabel") or "")
+        ax.set_ylabel(payload.get("ylabel") or "")
+        if payload.get("xscale"):
+            ax.set_xscale(str(payload.get("xscale")))
+        if payload.get("yscale"):
+            ax.set_yscale(str(payload.get("yscale")))
+        if str(payload.get("yaxis_format") or "").strip().lower() == "compact_eur":
+            from matplotlib.ticker import FuncFormatter
+
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_eur(value).replace(" EUR", "")))
+            ax.yaxis.get_offset_text().set_visible(False)
+        xticks = [float(value) for value in (payload.get("xticks") or []) if isinstance(value, (int, float))]
+        if xticks:
+            ax.set_xticks(xticks)
+            labels = list(payload.get("xtick_labels") or [])
+            if len(labels) == len(xticks):
+                ax.set_xticklabels([str(label) for label in labels])
+            else:
+                ax.set_xticklabels([str(int(value)) if float(value).is_integer() else str(value) for value in xticks])
     ax.grid(True, alpha=0.25)
     if line_series:
         ax.legend()
@@ -3386,6 +3985,102 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
     plt.close(fig)
 
 
+def _render_grouped_stacked_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    from matplotlib.patches import Patch
+
+    categories = payload.get("categories") or []
+    groups = [item for item in (payload.get("groups") or []) if isinstance(item, dict)]
+    if not categories or not groups:
+        fig, ax = plt.subplots(figsize=(11.5, 6.8))
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+
+    fig_width = max(12.0, len(categories) * max(len(groups), 1) * 0.62 + 3.0)
+    fig, ax = plt.subplots(figsize=(fig_width, 7.0))
+    positions = list(range(len(categories)))
+    group_width = min(0.34, 0.82 / max(len(groups), 1))
+    max_total = 0.0
+    segment_legend: dict[str, str] = {}
+    hatch_legend: dict[str, str] = {}
+    for group_idx, group in enumerate(groups):
+        offset = (group_idx - (len(groups) - 1) / 2.0) * group_width
+        shifted = [position + offset for position in positions]
+        bottoms = [0.0 for _category in categories]
+        hatch = str(group.get("hatch") or "")
+        hatch_legend[str(group.get("name") or f"Serie {group_idx + 1}")] = hatch
+        for segment in [item for item in (group.get("segments") or []) if isinstance(item, dict)]:
+            values = [max(_safe_float(value), 0.0) for value in (segment.get("values") or [])]
+            if len(values) < len(categories):
+                values.extend([0.0] * (len(categories) - len(values)))
+            values = values[: len(categories)]
+            color = str(segment.get("color") or "#64748b")
+            label = str(segment.get("name") or "")
+            if label and label not in segment_legend:
+                segment_legend[label] = color
+            ax.bar(
+                shifted,
+                values,
+                width=group_width * 0.9,
+                bottom=bottoms,
+                color=color,
+                edgecolor="#334155",
+                linewidth=0.45,
+                hatch=hatch,
+            )
+            bottoms = [bottoms[idx] + values[idx] for idx in range(len(categories))]
+        max_total = max(max_total, max(bottoms, default=0.0))
+        if payload.get("show_labels"):
+            item_count = len(categories) * len(groups)
+            label_fontsize = 8 if item_count >= 10 else 9
+            label_rotation = 90 if item_count >= 10 else 0
+            y_pad = max((max_total or 1.0) * 0.015, 0.5)
+            for x_pos, total in zip(shifted, bottoms):
+                if total <= 0.0:
+                    continue
+                ax.text(
+                    x_pos,
+                    total + y_pad,
+                    _bar_label_text(total, payload.get("label_format")),
+                    ha="center",
+                    va="bottom",
+                    fontsize=label_fontsize,
+                    rotation=label_rotation,
+                    clip_on=True,
+                    color="#0f172a",
+                )
+
+    explicit_ymax = payload.get("ymax")
+    auto_ymax = max(max_total * (1.32 if payload.get("show_labels") else 1.08), 1.0)
+    if explicit_ymax is not None:
+        auto_ymax = max(auto_ymax, _safe_float(explicit_ymax))
+    ax.set_ylim(0, auto_ymax)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(categories, rotation=24, ha="right")
+    ax.set_title(payload.get("title") or "")
+    if payload.get("ylabel"):
+        ax.set_ylabel(payload.get("ylabel"))
+    ax.grid(True, axis="y", alpha=0.2)
+    ax.margins(x=0.04)
+
+    segment_handles = [
+        Patch(facecolor=color, edgecolor="#334155", label=label)
+        for label, color in segment_legend.items()
+    ]
+    hatch_handles = [
+        Patch(facecolor="white", edgecolor="#334155", hatch=hatch, label=label)
+        for label, hatch in hatch_legend.items()
+    ]
+    if segment_handles:
+        legend_one = ax.legend(handles=segment_handles, loc="lower left", bbox_to_anchor=(0.0, 1.01), frameon=False, title="Famille")
+        ax.add_artist(legend_one)
+    if hatch_handles:
+        ax.legend(handles=hatch_handles, loc="lower right", bbox_to_anchor=(1.0, 1.01), frameon=False, title="Scenario")
+
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
 def _render_stacked_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
     categories = payload.get("categories") or []
     series = payload.get("series") or []
@@ -3438,6 +4133,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
     row_titles = payload.get("row_titles") or []
     column_titles = payload.get("column_titles") or []
     cells = payload.get("cells") or []
+    outage_cause_cells = payload.get("outage_cause_cells") or []
     if not row_titles or not column_titles or not cells:
         fig, _ax = plt.subplots(figsize=(12, 8))
         _save_figure(fig, output_path, payload.get("note"))
@@ -3471,16 +4167,21 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
 
     for row_idx, row_title in enumerate(row_titles):
         row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
+        row_cause_cells = outage_cause_cells[row_idx] if row_idx < len(outage_cause_cells) and isinstance(outage_cause_cells[row_idx], list) else []
         for col_idx, column_title in enumerate(column_titles):
             ax = axes_grid[row_idx][col_idx]
             cell = row_cells[col_idx] if col_idx < len(row_cells) and isinstance(row_cells[col_idx], dict) else {}
+            cause_cell = row_cause_cells[col_idx] if col_idx < len(row_cause_cells) and isinstance(row_cause_cells[col_idx], dict) else None
+            has_cause_bar = cause_cell is not None
+            state_x = -0.23 if has_cause_bar else 0.0
+            state_width = 0.46 if has_cause_bar else 0.62
             bottoms = 0.0
             for state in STATE_SEQUENCE:
                 value = max(_safe_float(cell.get(state)), 0.0)
-                ax.bar([0], [value], bottom=[bottoms], width=0.62, color=state_palette[state], edgecolor="white", linewidth=0.8)
+                ax.bar([state_x], [value], bottom=[bottoms], width=state_width, color=state_palette[state], edgecolor="white", linewidth=0.8)
                 if value >= 10.0:
                     ax.text(
-                        0,
+                        state_x,
                         bottoms + (value / 2.0),
                         f"{_state_short_label(state)}\n{value:.0f}%",
                         ha="center",
@@ -3490,6 +4191,39 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                         fontweight="bold",
                     )
                 bottoms += value
+            if cause_cell is not None:
+                cause_x = 0.38
+                cause_bottom = 0.0
+                outage_share = max(_safe_float(cell.get("S3")), 0.0)
+                cause_total = 0.0 if outage_share <= 0.0 else sum(max(_safe_float(cause_cell.get(key)), 0.0) for key in OUTAGE_CAUSE_LABELS)
+                if cause_total > 0.0:
+                    for cause_key in ("direct", "indirect"):
+                        value = max(_safe_float(cause_cell.get(cause_key)), 0.0)
+                        ax.bar(
+                            [cause_x],
+                            [value],
+                            bottom=[cause_bottom],
+                            width=0.24,
+                            color=OUTAGE_CAUSE_COLORS[cause_key],
+                            edgecolor="white",
+                            linewidth=0.7,
+                        )
+                        if value >= 18.0:
+                            ax.text(
+                                cause_x,
+                                cause_bottom + (value / 2.0),
+                                f"{OUTAGE_CAUSE_LABELS[cause_key]}\n{value:.0f}%",
+                                ha="center",
+                                va="center",
+                                fontsize=7,
+                                color="#ffffff" if cause_key == "indirect" else "#0f172a",
+                                fontweight="bold",
+                            )
+                        cause_bottom += value
+                else:
+                    ax.bar([cause_x], [100.0], width=0.24, color="none", edgecolor="#94a3b8", linewidth=0.8)
+                    ax.text(cause_x, 50.0, "S3\n0%", ha="center", va="center", fontsize=7, color="#64748b", fontweight="bold")
+                ax.text(cause_x, -7.0, "Cause\nS3", ha="center", va="top", fontsize=7, color="#475569")
             ax.set_ylim(0, 100)
             ax.set_xlim(-0.65, 0.65)
             ax.set_xticks([])
@@ -3508,7 +4242,8 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
             ax.spines["bottom"].set_alpha(0.2)
 
     handles = [Patch(facecolor=state_palette[state], label=_state_label(state)) for state in STATE_SEQUENCE]
-    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=10)
+    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"Cause S3 - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
+    fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=9)
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.989)
     fig.text(0.03, 0.5, "% des reseaux", rotation="vertical", va="center", fontsize=11)
     fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.86))
@@ -3845,7 +4580,7 @@ def _swap_state_surfaces_for_source_lines(
     if not state_column or not source_geojson_path:
         return gdf
 
-    source_filter_values = _state_layer_to_source_infra_types(payload.get("filter_values"))
+    source_filter_values = _state_layer_to_source_infra_types(payload.get("source_filter_values") or payload.get("filter_values"))
     if not source_filter_values:
         return gdf
 
@@ -3967,9 +4702,9 @@ def _parse_territory_cell_id(cell_id: str) -> tuple[float, float] | None:
 def _service_key_from_layer_key(layer_key: str) -> str | None:
     key = str(layer_key or "").strip().lower()
     if key == "eau_aep":
-        return "water_aep"
+        return "eau_aep"
     if key == "eau_eu":
-        return "water_eu"
+        return "eau_eu"
     if key in {
         "elec_grid_0p1deg",
         "elec_bt_aerien",
@@ -4157,7 +4892,7 @@ def _compute_population_state_analysis(artifacts: AuxiliaryArtifacts) -> dict[st
                 if service_key:
                     service_bucket = service_states[scenario][hazard].setdefault(
                         cell_id,
-                        {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                        {"elec": "S0", "eau_aep": "S0", "eau_eu": "S0"},
                     )
                     if _state_severity(state_code) > _state_severity(service_bucket.get(service_key, "S0")):
                         service_bucket[service_key] = state_code
@@ -4221,7 +4956,7 @@ def _compute_hotspot_population_state_analysis(
                 state_code = str(getattr(row, f"state_{scenario}_{hazard}", "S0") or "S0").upper()
                 bucket = service_states[scenario][hazard].setdefault(
                     cell_id,
-                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                    {"elec": "S0", "eau_aep": "S0", "eau_eu": "S0"},
                 )
                 if _state_severity(state_code) > _state_severity(bucket.get(service_key, "S0")):
                     bucket[service_key] = state_code
@@ -4282,10 +5017,10 @@ def _build_population_hotspot_superplot_payload(
         {"key": "storm_cmcc", "label": "STORM_CMCC"},
     ]
     columns = [
-        {"key": "annual", "label": "Annuel"},
+        {"key": "rp10", "label": "RP10"},
         {"key": "rp50", "label": "RP50"},
         {"key": "rp100", "label": "RP100"},
-        {"key": "p99", "label": "P99"},
+        {"key": "rp1000", "label": "RP1000"},
     ]
     cells: list[list[dict[str, Any]]] = []
     max_value = 0.0
@@ -4300,9 +5035,9 @@ def _build_population_hotspot_superplot_payload(
             for grid_row in gdf.itertuples(index=False):
                 states = cell_states.get(
                     str(grid_row.grid_cell_id),
-                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                    {"elec": "S0", "eau_aep": "S0", "eau_eu": "S0"},
                 )
-                affected = any(str(states.get(key) or "S0").upper() != "S0" for key in ("elec", "water_aep", "water_eu"))
+                affected = any(str(states.get(key) or "S0").upper() != "S0" for key in PUBLIC_SERVICE_KEYS)
                 value = float(grid_row.population_total) if affected else 0.0
                 max_value = max(max_value, value)
                 values.append(value)
@@ -4387,6 +5122,111 @@ def _build_hydraulic_population_importance_payload(
     }
 
 
+def _graph_population_state_distribution(artifacts: AuxiliaryArtifacts) -> dict[str, Any]:
+    inputs = _scientific_inputs_from_payload(artifacts.complete_analysis.payload)
+    distribution = inputs.get("social_population_state_distribution_by_scenario")
+    if isinstance(distribution, dict) and distribution:
+        return distribution
+    if artifacts.scientific_web_summary is not None:
+        summary_inputs = artifacts.scientific_web_summary.payload.get("scientific_graph_inputs")
+        if isinstance(summary_inputs, dict):
+            distribution = summary_inputs.get("social_population_state_distribution_by_scenario")
+            if isinstance(distribution, dict) and distribution:
+                return distribution
+        distribution = _dict_path_get(
+            artifacts.scientific_web_summary.payload,
+            "social_impact",
+            "scenario_population_state_distribution",
+        )
+        if isinstance(distribution, dict) and distribution:
+            return distribution
+    return {}
+
+
+def _population_state_service_block(
+    distribution: dict[str, Any],
+    scenario: str,
+    hazard: str,
+    service_key: str,
+) -> dict[str, Any]:
+    scenario_block = distribution.get(scenario) if isinstance(distribution.get(scenario), dict) else {}
+    hazard_block = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), dict) else {}
+    aliases = {
+        "eau_aep": ("eau_aep", "water_aep"),
+        "eau_eu": ("eau_eu", "water_eu"),
+        "elec": ("elec",),
+    }
+    for alias in aliases.get(service_key, (service_key,)):
+        block = hazard_block.get(alias)
+        if isinstance(block, dict):
+            return block
+    return {}
+
+
+def _build_population_state_matrix_from_graph_inputs(
+    artifacts: AuxiliaryArtifacts,
+    hazard: str,
+    title: str,
+) -> dict[str, Any] | None:
+    distribution = _graph_population_state_distribution(artifacts)
+    if not distribution:
+        return None
+    total_population = max(sum(_population_by_cell(artifacts.complete_analysis.payload).values()), 0.0)
+    for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
+        for column_key, _column_label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+            service_block = _population_state_service_block(distribution, scenario_key, hazard, column_key)
+            service_total = sum(max(_safe_float(service_block.get(state)), 0.0) for state in STATE_SEQUENCE)
+            total_population = max(total_population, service_total)
+    if total_population <= 0.0:
+        return None
+
+    cells: list[list[dict[str, float]]] = []
+    outage_cause_cells: list[list[dict[str, float] | None]] = []
+    has_distribution = False
+    complete_payload = artifacts.complete_analysis.payload
+    for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
+        scenario_cells: list[dict[str, float]] = []
+        scenario_cause_cells: list[dict[str, float] | None] = []
+        for column_key, _column_label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+            service_block = _population_state_service_block(distribution, scenario_key, hazard, column_key)
+            values = {
+                state: max(_safe_float(service_block.get(state)), 0.0)
+                for state in STATE_SEQUENCE
+            }
+            if any(value > 0.0 for value in values.values()):
+                has_distribution = True
+            scenario_cells.append(
+                {
+                    state: round((value / total_population) * 100.0, 4)
+                    for state, value in values.items()
+                }
+            )
+            if column_key in {"eau_aep", "eau_eu"}:
+                scenario_cause_cells.append(
+                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, column_key)
+                    or {"direct": 0.0, "indirect": 0.0}
+                )
+            else:
+                scenario_cause_cells.append(None)
+        cells.append(scenario_cells)
+        outage_cause_cells.append(scenario_cause_cells)
+    if not has_distribution:
+        return None
+    return {
+        "type": "population_state_matrix",
+        "title": title,
+        "column_titles": [label for _column_key, label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS],
+        "row_titles": [label for scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
+        "cells": cells,
+        "outage_cause_cells": outage_cause_cells,
+        "legend_title": "% de la population totale",
+        "note": (
+            "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
+            "Source fallback: scientific_graph_inputs.social_population_state_distribution_by_scenario quand network-states.geojson n'est pas archive."
+        ),
+    }
+
+
 def _build_population_state_matrix_payload(
     artifacts: AuxiliaryArtifacts,
     hazard: str,
@@ -4394,19 +5234,22 @@ def _build_population_state_matrix_payload(
 ) -> dict[str, Any] | None:
     analysis = _compute_population_state_analysis(artifacts)
     if analysis is None:
-        return None
+        return _build_population_state_matrix_from_graph_inputs(artifacts, hazard, title)
     population_by_cell = analysis["population_by_cell"]
     column_states = _dict_path_get(analysis, "column_states")
     total_population = max(_safe_float(analysis.get("total_population")), 0.0)
     if not isinstance(column_states, dict) or total_population <= 0.0:
         return None
     cells: list[list[dict[str, float]]] = []
+    outage_cause_cells: list[list[dict[str, float] | None]] = []
     has_non_zero = False
+    complete_payload = artifacts.complete_analysis.payload
     for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
         hazard_columns = _dict_path_get(column_states, scenario_key, hazard)
         if not isinstance(hazard_columns, dict):
             return None
         scenario_cells: list[dict[str, float]] = []
+        scenario_cause_cells: list[dict[str, float] | None] = []
         for column_key, _column_label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS:
             totals = {state: 0.0 for state in STATE_SEQUENCE}
             cell_states = hazard_columns.get(column_key) if isinstance(hazard_columns.get(column_key), dict) else {}
@@ -4419,7 +5262,15 @@ def _build_population_state_matrix_payload(
             if any(percentages[state] > 0.0 for state in ("S1", "S2", "S3")):
                 has_non_zero = True
             scenario_cells.append(percentages)
+            if column_key in {"eau_aep", "eau_eu"}:
+                scenario_cause_cells.append(
+                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, column_key)
+                    or {"direct": 0.0, "indirect": 0.0}
+                )
+            else:
+                scenario_cause_cells.append(None)
         cells.append(scenario_cells)
+        outage_cause_cells.append(scenario_cause_cells)
     if not has_non_zero and not cells:
         return None
     return {
@@ -4428,8 +5279,12 @@ def _build_population_state_matrix_payload(
         "column_titles": [label for _column_key, label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS],
         "row_titles": [label for scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
         "cells": cells,
+        "outage_cause_cells": outage_cause_cells,
         "legend_title": "% de la population totale",
-        "note": "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau.",
+        "note": (
+            "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
+            "Pour les reseaux d'eau, la petite barre a droite ventile le hors service entre dommage direct reseau et dommage indirect depuis ouvrages/zonage hydraulique quand cette decomposition est disponible."
+        ),
     }
 
 
@@ -4670,6 +5525,7 @@ def _render_population_state_matrix_png(
     row_titles = payload.get("row_titles") or []
     column_titles = payload.get("column_titles") or []
     cells = payload.get("cells") or []
+    outage_cause_cells = payload.get("outage_cause_cells") or []
     if not row_titles or not column_titles or not cells:
         fig, _ax = plt.subplots(figsize=(12, 8))
         _save_figure(fig, output_path, payload.get("note"))
@@ -4691,9 +5547,11 @@ def _render_population_state_matrix_png(
     state_palette = [STATE_COLORS[state] if state == "S0" else HAZARD_COLORS[state.lower()] for state in STATE_SEQUENCE]
     for row_idx, row_title in enumerate(row_titles):
         row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
+        row_cause_cells = outage_cause_cells[row_idx] if row_idx < len(outage_cause_cells) and isinstance(outage_cause_cells[row_idx], list) else []
         for col_idx, column_title in enumerate(column_titles):
             ax = axes_grid[row_idx][col_idx]
             cell = row_cells[col_idx] if col_idx < len(row_cells) and isinstance(row_cells[col_idx], dict) else {}
+            cause_cell = row_cause_cells[col_idx] if col_idx < len(row_cause_cells) and isinstance(row_cause_cells[col_idx], dict) else None
             values = [max(_safe_float(cell.get(state)), 0.0) for state in STATE_SEQUENCE]
             total = sum(values)
             if total > 0.0:
@@ -4708,6 +5566,34 @@ def _render_population_state_matrix_png(
                 ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=12, fontweight="bold", color="#0f172a")
             else:
                 ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=12, fontweight="bold", color="#64748b")
+            if cause_cell is not None:
+                inset = ax.inset_axes([0.82, 0.14, 0.12, 0.72])
+                cause_bottom = 0.0
+                outage_share = max(_safe_float(cell.get("S3")), 0.0)
+                cause_total = 0.0 if outage_share <= 0.0 else sum(max(_safe_float(cause_cell.get(key)), 0.0) for key in OUTAGE_CAUSE_LABELS)
+                if cause_total > 0.0:
+                    for cause_key in ("direct", "indirect"):
+                        value = max(_safe_float(cause_cell.get(cause_key)), 0.0)
+                        inset.bar(
+                            [0],
+                            [value],
+                            bottom=[cause_bottom],
+                            width=0.8,
+                            color=OUTAGE_CAUSE_COLORS[cause_key],
+                            edgecolor="white",
+                            linewidth=0.5,
+                        )
+                        cause_bottom += value
+                else:
+                    inset.bar([0], [100.0], width=0.8, color="none", edgecolor="#94a3b8", linewidth=0.8)
+                    inset.text(0, 50.0, "S3\n0%", ha="center", va="center", fontsize=6, color="#64748b", fontweight="bold")
+                inset.set_ylim(0, 100)
+                inset.set_xlim(-0.8, 0.8)
+                inset.set_xticks([])
+                inset.set_yticks([])
+                inset.set_title("Cause\nS3", fontsize=6, color="#475569", pad=1)
+                for spine in inset.spines.values():
+                    spine.set_visible(False)
             if col_idx == 0:
                 ax.set_ylabel(row_title, rotation=0, labelpad=40, va="center", fontsize=11, fontweight="bold")
             if row_idx == 0:
@@ -4716,7 +5602,8 @@ def _render_population_state_matrix_png(
             ax.set_yticks([])
 
     handles = [Patch(facecolor=state_palette[idx], label=_state_label(state)) for idx, state in enumerate(STATE_SEQUENCE)]
-    fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 0.958), frameon=False, fontsize=10)
+    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"Cause S3 - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
+    fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.958), frameon=False, fontsize=9)
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.991)
     fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=11)
     fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.88))
@@ -4745,6 +5632,111 @@ def _page7_block(artifacts: AuxiliaryArtifacts, *keys: str) -> Any:
     else:
         data = None
     return _dict_path_get(data, *keys)
+
+
+def _strict_graph_source_error(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    graph_name: str,
+    key_path: str,
+    detail: str,
+) -> RuntimeError:
+    payload_path = Path(artifacts.complete_analysis.payload_path)
+    path_parts = list(payload_path.parts)
+    derived_run_id = None
+    if "complete-analysis-runs" in path_parts:
+        idx = path_parts.index("complete-analysis-runs")
+        if idx + 1 < len(path_parts):
+            derived_run_id = path_parts[idx + 1]
+    run_id = str(
+        _dict_path_get(artifacts.complete_analysis.payload, "meta", "run_id")
+        or artifacts.complete_analysis.payload.get("run_id")
+        or derived_run_id
+        or "unknown-run"
+    )
+    territory = artifacts.territory
+    return RuntimeError(
+        f"Strict scientific graph input missing or forbidden: run_id={run_id}, territory={territory}, "
+        f"graph={graph_name}, key={key_path}, detail={detail}"
+    )
+
+
+def _scientific_summary_payload(artifacts: AuxiliaryArtifacts) -> dict[str, Any]:
+    if artifacts.scientific_web_summary is None:
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name="scientific_summary",
+            key_path="scientific_web_summary",
+            detail="missing required *-scientific-web-summary.json",
+        )
+    payload = artifacts.scientific_web_summary.payload
+    if not isinstance(payload, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name="scientific_summary",
+            key_path="scientific_web_summary",
+            detail="invalid summary payload",
+        )
+    return payload
+
+
+def _scientific_graph_inputs(artifacts: AuxiliaryArtifacts, *, graph_name: str) -> dict[str, Any]:
+    summary_payload = _scientific_summary_payload(artifacts)
+    summary_graph_inputs = summary_payload.get("scientific_graph_inputs")
+    complete_graph_inputs = artifacts.complete_analysis.payload.get("scientific_graph_inputs")
+    complete_pml_inputs = artifacts.complete_analysis.payload.get("pml_network_graph_inputs")
+    if _graph_inputs_have_required_scenarios(summary_graph_inputs):
+        return summary_graph_inputs
+    if _graph_inputs_have_required_scenarios(complete_graph_inputs):
+        return complete_graph_inputs
+    if _graph_inputs_have_required_scenarios(complete_pml_inputs):
+        return complete_pml_inputs
+    if isinstance(summary_graph_inputs, dict):
+        return summary_graph_inputs
+    if isinstance(complete_graph_inputs, dict):
+        return complete_graph_inputs
+    raise _strict_graph_source_error(
+        artifacts,
+        graph_name=graph_name,
+        key_path="scientific_graph_inputs|pml_network_graph_inputs",
+        detail="missing complete-analysis graph contract",
+    )
+
+
+def _scientific_graph_scenario_rows(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    graph_name: str,
+    scenario: str,
+    key: str,
+) -> Any:
+    graph_inputs = _scientific_graph_inputs(artifacts, graph_name=graph_name)
+    block = graph_inputs.get(key) if isinstance(graph_inputs.get(key), dict) else {}
+    value = block.get(scenario)
+    if key == "state_damage_tables":
+        if not isinstance(value, list) or not value:
+            raise _strict_graph_source_error(
+                artifacts,
+                graph_name=graph_name,
+                key_path=f"scientific_graph_inputs.{key}.{scenario}",
+                detail="strict scientific rows are unavailable; page-analysis is forbidden",
+            )
+    elif key == "damage_breakdown_by_scenario":
+        if not isinstance(value, dict) or (
+            not isinstance(value.get("storm"), list) and not isinstance(value.get("storm_cmcc"), list)
+        ):
+            raise _strict_graph_source_error(
+                artifacts,
+                graph_name=graph_name,
+                key_path=f"scientific_graph_inputs.{key}.{scenario}",
+                detail="strict scientific breakdown is unavailable; page-analysis is forbidden",
+            )
+    return value
+
+
+def _complete_asset_results(artifacts: AuxiliaryArtifacts) -> list[dict[str, Any]]:
+    asset_results = artifacts.complete_analysis.payload.get("asset_results")
+    return [item for item in asset_results if isinstance(item, dict)] if isinstance(asset_results, list) else []
 
 
 def _wind_map_block(artifacts: AuxiliaryArtifacts, hazard: str) -> dict[str, Any] | None:
@@ -4806,6 +5798,51 @@ def _network_filter_config(network_key: str) -> tuple[list[str] | None, list[str
     return None, None
 
 
+def _summary_service_key_for_network(network_key: str) -> str | None:
+    if network_key == "aep":
+        return "eau_aep"
+    if network_key == "eu":
+        return "eau_eu"
+    if network_key == "elec":
+        return "elec"
+    return None
+
+
+def _network_state_counts_from_summary(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    metric_suffix: str,
+    hazard: str,
+    service_key: str,
+) -> dict[str, int]:
+    scientific_summary = _scientific_summary_payload(artifacts)
+    scenario_distribution = _dict_path_get(scientific_summary, "network_states", "scenario_service_state_distribution")
+    if not isinstance(scenario_distribution, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=f"network_state_counts_{service_key}_{metric_suffix}_{hazard}",
+            key_path="network_states.scenario_service_state_distribution",
+            detail="missing strict scientific network-state distribution",
+        )
+    scenario_hazard = _dict_path_get(scenario_distribution, metric_suffix, hazard)
+    if not isinstance(scenario_hazard, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=f"network_state_counts_{service_key}_{metric_suffix}_{hazard}",
+            key_path=f"network_states.scenario_service_state_distribution.{metric_suffix}.{hazard}",
+            detail="missing strict scientific network-state scenario",
+        )
+    service_counts = scenario_hazard.get(service_key)
+    if not isinstance(service_counts, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=f"network_state_counts_{service_key}_{metric_suffix}_{hazard}",
+            key_path=f"network_states.scenario_service_state_distribution.{metric_suffix}.{hazard}.{service_key}",
+            detail="missing strict scientific service state counts",
+        )
+    return {state: int(service_counts.get(state, 0) or 0) for state in STATE_SEQUENCE}
+
+
 def _render_auxiliary_output(
     plt: Any,
     output_path: Path,
@@ -4820,6 +5857,8 @@ def _render_auxiliary_output(
         _render_bar_png(plt, payload, output_path)
     elif plot_type == "grouped_bar":
         _render_grouped_bar_png(plt, payload, output_path)
+    elif plot_type == "grouped_stacked_bar":
+        _render_grouped_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "stacked_bar":
         _render_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "network_state_matrix":
@@ -4936,7 +5975,12 @@ def _build_wind_hist_payload(
 
 
 def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, title: str) -> dict[str, Any] | None:
-    entries = _page7_block(artifacts, "impact", "damage_breakdown_by_scenario", "annual")
+    entries = _scientific_graph_scenario_rows(
+        artifacts,
+        graph_name=title,
+        scenario="rp10",
+        key="damage_breakdown_by_scenario",
+    )
     if not isinstance(entries, dict):
         return None
     prefix = "eau_" if family == "water" else "elec_"
@@ -5000,16 +6044,37 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
 
 
 def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, family: str, title: str) -> dict[str, Any] | None:
-    damage_by_scenario = _page7_block(artifacts, "impact", "damage_breakdown_by_scenario")
+    damage_by_scenario = _scientific_graph_inputs(artifacts, graph_name=title).get("damage_breakdown_by_scenario")
     if not isinstance(damage_by_scenario, dict):
-        return None
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=title,
+            key_path="scientific_graph_inputs.damage_breakdown_by_scenario",
+            detail="missing strict scientific scenario damage breakdown",
+        )
     prefix = "eau_" if family == "water" else "elec_"
-    scenario_keys = [("annual", "Annuel"), ("rp50", "RP50"), ("rp100", "RP100"), ("p99", "P99")]
+    scenario_labels = {
+        "rp10": "RP10",
+        "rp50": "RP50",
+        "rp100": "RP100",
+        "rp1000": "RP1000",
+    }
+    scenario_keys = [(scenario, scenario_labels[scenario]) for scenario in SCIENTIFIC_SCENARIOS]
     storm_values: list[float] = []
     cmcc_values: list[float] = []
     categories: list[str] = []
     for scenario_key, label in scenario_keys:
         scenario_block = damage_by_scenario.get(scenario_key) if isinstance(damage_by_scenario.get(scenario_key), dict) else {}
+        if not scenario_block or (
+            not isinstance(scenario_block.get("storm"), list)
+            and not isinstance(scenario_block.get("storm_cmcc"), list)
+        ):
+            raise _strict_graph_source_error(
+                artifacts,
+                graph_name=title,
+                key_path=f"scientific_graph_inputs.damage_breakdown_by_scenario.{scenario_key}",
+                detail="strict scientific return-period breakdown is unavailable; page-analysis is forbidden",
+            )
         storm_entries = scenario_block.get("storm") if isinstance(scenario_block.get("storm"), list) else []
         cmcc_entries = scenario_block.get("storm_cmcc") if isinstance(scenario_block.get("storm_cmcc"), list) else []
         storm_total = sum(
@@ -5053,25 +6118,27 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
 
 
 def _resolve_family_total_value_eur(artifacts: AuxiliaryArtifacts, family: str) -> float:
-    exposition = _page7_block(artifacts, "exposition")
-    totals = exposition.get("total_value_by_type_eur") if isinstance(exposition, dict) and isinstance(exposition.get("total_value_by_type_eur"), dict) else {}
     prefix = "eau_" if family == "water" else "elec_"
     total_value = sum(
-        _safe_float(value)
-        for key, value in totals.items()
-        if str(key or "").startswith(prefix)
+        _safe_float(item.get("exposure_eur"))
+        for item in _complete_asset_results(artifacts)
+        if str(item.get("asset_type") or "").startswith(prefix)
     )
     if total_value > 0.0:
         return round(total_value, 2)
-    annual_rows = _page7_block(artifacts, "impact", "state_damage_tables", "annual")
-    if isinstance(annual_rows, list):
-        fallback_total = sum(
-            _safe_float(_dict_path_get(item, "storm", "exposure_eur"))
-            for item in annual_rows
-            if isinstance(item, dict) and str(item.get("class_key") or "").startswith(prefix)
-        )
-        if fallback_total > 0.0:
-            return round(fallback_total, 2)
+    state_tables = _scientific_graph_inputs(artifacts, graph_name=f"{family}_family_total_value").get("state_damage_tables", {})
+    if isinstance(state_tables, dict):
+        for scenario in SCIENTIFIC_SCENARIOS:
+            rows = state_tables.get(scenario)
+            if not isinstance(rows, list):
+                continue
+            scenario_total = sum(
+                _safe_float(_dict_path_get(item, "storm", "exposure_eur"))
+                for item in rows
+                if isinstance(item, dict) and str(item.get("class_key") or "").startswith(prefix)
+            )
+            if scenario_total > 0.0:
+                return round(scenario_total, 2)
     return 0.0
 
 
@@ -5125,28 +6192,56 @@ def _build_network_state_matrix_payload(
     hazard: str,
     title: str,
 ) -> dict[str, Any] | None:
-    state_damage_tables = _page7_block(artifacts, "impact", "state_damage_tables")
-    if not isinstance(state_damage_tables, dict):
-        return None
-    length_weights = _network_state_length_weights(artifacts)
+    scientific_summary = _scientific_summary_payload(artifacts)
+    scenario_distribution = _dict_path_get(scientific_summary, "network_states", "scenario_service_state_distribution")
+    if not isinstance(scenario_distribution, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=title,
+            key_path="network_states.scenario_service_state_distribution",
+            detail="missing strict scientific network-state distribution",
+        )
     cells: list[list[dict[str, float]]] = []
+    outage_cause_cells: list[list[dict[str, float] | None]] = []
     has_non_zero = False
+    complete_payload = artifacts.complete_analysis.payload
     for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
-        rows = state_damage_tables.get(scenario_key)
-        if not isinstance(rows, list):
-            return None
-        scenario_cells: list[dict[str, float]] = []
-        for _column_key, _column_label, class_keys in NETWORK_STATE_MATRIX_COLUMNS:
-            aggregated = _aggregate_state_distribution_rows(
-                rows,
-                hazard=hazard,
-                class_keys=class_keys,
-                length_weights=length_weights,
+        scenario_hazard = _dict_path_get(scenario_distribution, scenario_key, hazard)
+        if not isinstance(scenario_hazard, dict):
+            raise _strict_graph_source_error(
+                artifacts,
+                graph_name=title,
+                key_path=f"network_states.scenario_service_state_distribution.{scenario_key}.{hazard}",
+                detail="missing strict scientific network-state scenario",
             )
+        scenario_cells: list[dict[str, float]] = []
+        scenario_cause_cells: list[dict[str, float] | None] = []
+        for _column_key, _column_label, class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+            service_key = next(
+                (
+                    key
+                    for key in class_keys
+                    if isinstance(scenario_hazard.get(key), dict)
+                ),
+                class_keys[0],
+            )
+            counts = {
+                state: int(_dict_path_get(scenario_hazard, service_key, state) or 0)
+                for state in STATE_SEQUENCE
+            }
+            aggregated = _state_percentages(counts)
             if any(_safe_float(aggregated.get(state)) > 0.0 for state in ("S1", "S2", "S3")):
                 has_non_zero = True
             scenario_cells.append(aggregated)
+            if service_key in {"eau_aep", "eau_eu"}:
+                scenario_cause_cells.append(
+                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, service_key)
+                    or {"direct": 0.0, "indirect": 0.0}
+                )
+            else:
+                scenario_cause_cells.append(None)
         cells.append(scenario_cells)
+        outage_cause_cells.append(scenario_cause_cells)
     if not has_non_zero and not cells:
         return None
     return {
@@ -5155,17 +6250,30 @@ def _build_network_state_matrix_payload(
         "column_titles": [label for _column_key, label, _class_keys in NETWORK_STATE_MATRIX_COLUMNS],
         "row_titles": [label for _scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
         "cells": cells,
+        "outage_cause_cells": outage_cause_cells,
         "note": (
             "Chaque vignette montre la repartition des etats de service du reseau de Opérationnel (S0) a Hors service (S3) pour un scenario et un type d'infrastructure. "
-            "Les colonnes elec aerien et elec souterrain agregent BT et HTA en ponderant par les longueurs de reseau."
+            "Pour les reseaux d'eau, la petite barre a droite ventile le hors service entre dommage direct reseau et dommage indirect depuis ouvrages/zonage hydraulique quand cette decomposition est disponible."
         ),
     }
 
 
 def _build_network_state_chart_payload(artifacts: AuxiliaryArtifacts, network_key: str, metric_suffix: str, title: str) -> dict[str, Any] | None:
-    layer_keys, network_kinds = _network_filter_config(network_key)
-    storm_counts = _state_counts_for_metric(artifacts, layer_keys=layer_keys, network_kinds=network_kinds, metric_suffix=metric_suffix, hazard="storm")
-    cmcc_counts = _state_counts_for_metric(artifacts, layer_keys=layer_keys, network_kinds=network_kinds, metric_suffix=metric_suffix, hazard="storm_cmcc")
+    service_key = _summary_service_key_for_network(network_key)
+    if service_key is None:
+        return None
+    storm_counts = _network_state_counts_from_summary(
+        artifacts,
+        metric_suffix=metric_suffix,
+        hazard="storm",
+        service_key=service_key,
+    )
+    cmcc_counts = _network_state_counts_from_summary(
+        artifacts,
+        metric_suffix=metric_suffix,
+        hazard="storm_cmcc",
+        service_key=service_key,
+    )
     if not storm_counts and not cmcc_counts:
         return None
     storm_pct = _state_percentages(storm_counts)
@@ -5192,8 +6300,15 @@ def _build_network_state_distribution_payload(artifacts: AuxiliaryArtifacts, met
     non_zero = False
     counts_by_network: dict[str, dict[str, float]] = {}
     for network_key in ("elec", "aep", "eu"):
-        layer_keys, network_kinds = _network_filter_config(network_key)
-        counts = _state_counts_for_metric(artifacts, layer_keys=layer_keys, network_kinds=network_kinds, metric_suffix=metric_suffix, hazard="storm")
+        service_key = _summary_service_key_for_network(network_key)
+        if service_key is None:
+            continue
+        counts = _network_state_counts_from_summary(
+            artifacts,
+            metric_suffix=metric_suffix,
+            hazard="storm",
+            service_key=service_key,
+        )
         counts_by_network[network_key] = _state_percentages(counts)
     for state, color in (("S0", STATE_COLORS["S0"]), ("S1", HAZARD_COLORS["s1"]), ("S2", HAZARD_COLORS["s2"]), ("S3", HAZARD_COLORS["s3"])):
         values = []
@@ -5236,11 +6351,21 @@ def _build_state_summary_rows(entries: list[dict[str, Any]], metric_key: str) ->
 
 
 def _build_impact_table_payload(artifacts: AuxiliaryArtifacts, table_kind: str, title: str) -> dict[str, Any] | None:
-    if table_kind == "p99":
-        entries = _page7_block(artifacts, "impact", "state_damage_table")
-        metric_key = "p99_loss_eur"
+    if table_kind == "rp1000":
+        entries = _scientific_graph_scenario_rows(
+            artifacts,
+            graph_name=title,
+            scenario="rp1000",
+            key="state_damage_tables",
+        )
+        metric_key = "damage_eur"
     else:
-        entries = _page7_block(artifacts, "impact", "state_damage_tables", "rp100")
+        entries = _scientific_graph_scenario_rows(
+            artifacts,
+            graph_name=title,
+            scenario="rp100",
+            key="state_damage_tables",
+        )
         metric_key = "damage_eur"
     if not isinstance(entries, list):
         return None
@@ -5354,22 +6479,25 @@ def _build_exposure_ouvrage_table_payload(artifacts: AuxiliaryArtifacts, title: 
 
 
 def _build_social_impact_table_payload(artifacts: AuxiliaryArtifacts, title: str) -> dict[str, Any] | None:
-    portfolio = artifacts.complete_analysis.payload.get("portfolio_results")
-    if not isinstance(portfolio, dict):
-        return None
-    summary = portfolio.get("social_impact_summary") if isinstance(portfolio.get("social_impact_summary"), dict) else {}
-    storm = summary.get("storm") if isinstance(summary.get("storm"), dict) else {}
-    cmcc = summary.get("storm_cmcc") if isinstance(summary.get("storm_cmcc"), dict) else {}
+    scientific_summary = _scientific_summary_payload(artifacts)
+    summary = _dict_path_get(scientific_summary, "social_impact", "scenario_summary", "rp1000")
+    storm = summary.get("storm") if isinstance(summary, dict) and isinstance(summary.get("storm"), dict) else {}
+    cmcc = summary.get("storm_cmcc") if isinstance(summary, dict) and isinstance(summary.get("storm_cmcc"), dict) else {}
     if not storm and not cmcc:
-        return None
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=title,
+            key_path="social_impact.scenario_summary.rp1000",
+            detail="missing strict scientific social impact rp1000 summary",
+        )
     metric_rows = [
         ("Population totale affectee (Dégradé (S1) / Critique (S2) / Hors service (S3))", "total_population_affected_any_network"),
         ("Population sans electricite (Hors service (S3))", "total_without_elec"),
-        ("Population sans eau potable AEP (Hors service (S3))", "total_without_water_aep"),
-        ("Population sans eau EU (Hors service (S3))", "total_without_water_eu"),
+        ("Population sans eau potable AEP (Hors service (S3))", "total_without_eau_aep"),
+        ("Population sans eau EU (Hors service (S3))", "total_without_eau_eu"),
         ("Population electricite degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_elec"),
-        ("Population eau potable degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_water_aep"),
-        ("Population eau EU degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_water_eu"),
+        ("Population eau potable degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_eau_aep"),
+        ("Population eau EU degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_eau_eu"),
     ]
     rows: list[list[str]] = []
     for label, key in metric_rows:
@@ -5388,38 +6516,38 @@ def _build_social_impact_table_payload(artifacts: AuxiliaryArtifacts, title: str
         "title": title,
         "headers": ["Indicateur", "STORM", "STORM_CMCC", "Delta"],
         "rows": rows,
-        "note": "Les metriques sociales publiees dans le contrat current exporte correspondent au scenario p99.",
+        "note": "Les metriques sociales publiees ici proviennent strictement du scenario scientifique RP1000.",
     }
 
 
 def _build_population_coverage_table_payload(artifacts: AuxiliaryArtifacts, title: str) -> dict[str, Any] | None:
-    portfolio = artifacts.complete_analysis.payload.get("portfolio_results")
-    if not isinstance(portfolio, dict):
-        return None
-    distributions = (
-        portfolio.get("social_impact_population_state_distribution")
-        if isinstance(portfolio.get("social_impact_population_state_distribution"), dict)
-        else {}
-    )
-    storm_distribution = distributions.get("storm") if isinstance(distributions.get("storm"), dict) else {}
+    scientific_summary = _scientific_summary_payload(artifacts)
+    distributions = _dict_path_get(scientific_summary, "social_impact", "scenario_population_state_distribution", "rp1000")
+    storm_distribution = distributions.get("storm") if isinstance(distributions, dict) and isinstance(distributions.get("storm"), dict) else {}
     if not storm_distribution:
-        return None
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=title,
+            key_path="social_impact.scenario_population_state_distribution.rp1000.storm",
+            detail="missing strict scientific population-state distribution for rp1000/storm",
+        )
     rows: list[list[str]] = []
     service_rows = [
         ("Electricite", "elec"),
-        ("Eau potable AEP", "water_aep"),
-        ("Eau EU", "water_eu"),
+        ("Eau potable AEP", "eau_aep"),
+        ("Eau EU", "eau_eu"),
     ]
     for label, service_key in service_rows:
         metrics = storm_distribution.get(service_key) if isinstance(storm_distribution.get(service_key), dict) else {}
         if not metrics:
             continue
+        total_population = sum(_safe_float(metrics.get(state)) for state in STATE_SEQUENCE)
         rows.append(
             [
                 label,
-                str(int(round(_safe_float(metrics.get("island_population_total"))))),
-                str(int(round(_safe_float(metrics.get("covered_population"))))),
-                _format_percent(_safe_float(metrics.get("coverage_rate")) * 100.0),
+                str(int(round(total_population))),
+                str(int(round(total_population))),
+                _format_percent(100.0 if total_population > 0.0 else 0.0),
             ]
         )
     if not rows:
@@ -5429,7 +6557,7 @@ def _build_population_coverage_table_payload(artifacts: AuxiliaryArtifacts, titl
         "title": title,
         "headers": ["Service", "Population totale", "Population couverte", "% population couverte"],
         "rows": rows,
-        "note": "La couverture est scenario-independante dans le contrat exporte; la table reprend les valeurs publiees cote STORM.",
+        "note": "La table est reconstruite a partir de la distribution scientifique de population par etat de service au scenario RP1000/STORM.",
     }
 
 
@@ -5624,8 +6752,8 @@ def _build_guadeloupe_hazard_supergraph_payload(artifacts: AuxiliaryArtifacts, t
         {"key": "rp100", "label": "RP100"},
     ]
     columns = [
-        {"key": "wind", "label": "Vent", "colorbar_label": "Vent (km/h)", "lower_pad_ratio": 0.2, "upper_pad_ratio": 0.2, "floor_zero": True},
-        {"key": "rain", "label": "Pluie", "colorbar_label": "Pluie (mm)", "lower_pad_ratio": 0.2, "upper_pad_ratio": 0.2, "floor_zero": True},
+        {"key": "wind", "label": "Vent", "colorbar_label": "Vent (km/h)", "upper_pad_ratio": 0.08, "force_zero_baseline": True, "round_step": 25.0},
+        {"key": "rain", "label": "Pluie", "colorbar_label": "Pluie (mm)", "upper_pad_ratio": 0.08, "force_zero_baseline": True, "round_step": 50.0},
         {"key": "surge", "label": "Inondation cotiere", "colorbar_label": "Submersion (m)"},
         {"key": "landslide", "label": "Mouvements de terrain", "colorbar_label": "Score glissement"},
     ]
@@ -5646,6 +6774,10 @@ def _build_guadeloupe_hazard_supergraph_payload(artifacts: AuxiliaryArtifacts, t
         )
         if bounds is None:
             continue
+        if bool(column.get("force_zero_baseline")):
+            step = max(_safe_float(column.get("round_step"), default=1.0), 1.0)
+            upper = max(bounds[1], 1.0)
+            bounds = (0.0, math.ceil(upper / step) * step)
         for row_index in range(len(rows)):
             cells[row_index][column_index]["vmin"] = bounds[0]
             cells[row_index][column_index]["vmax"] = bounds[1]
@@ -5853,18 +6985,10 @@ def _render_integrated_vincennes_assets(
             (charts_dir / f"{territory}_vent_max_par_evenement.png", _build_wind_hist_payload(artifacts, "track_max_hist", f"{territory_label(territory)} - Vent max par evenement")),
             (charts_dir / f"{territory}_vent_max_par_annee_1_point_sur_2.png", _build_wind_hist_payload(artifacts, "year_max_hist", f"{territory_label(territory)} - Vent max par annee", point_divisor=2)),
             (charts_dir / f"{territory}_vent_max_par_evenement_1_point_sur_2.png", _build_wind_hist_payload(artifacts, "track_max_hist", f"{territory_label(territory)} - Vent max par evenement", point_divisor=2)),
-            (charts_dir / f"{territory}_degats_eau_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau par scenario")),
-            (charts_dir / f"{territory}_degats_elec_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite par scenario")),
-            (charts_dir / f"{territory}_degats_eau_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau par temps de retour")),
-            (charts_dir / f"{territory}_degats_elec_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite par temps de retour")),
-            (charts_dir / f"{territory}_etat_reseaux_aep_percentile_99.png", _build_network_state_chart_payload(artifacts, "aep", "p99", f"{territory_label(territory)} - Etats reseaux AEP P99")),
-            (charts_dir / f"{territory}_etat_reseaux_aep_retour_100_ans.png", _build_network_state_chart_payload(artifacts, "aep", "rp100", f"{territory_label(territory)} - Etats reseaux AEP RP100")),
-            (charts_dir / f"{territory}_etat_reseaux_elec_percentile_99.png", _build_network_state_chart_payload(artifacts, "elec", "p99", f"{territory_label(territory)} - Etats reseaux ELEC P99")),
-            (charts_dir / f"{territory}_etat_reseaux_elec_retour_100_ans.png", _build_network_state_chart_payload(artifacts, "elec", "rp100", f"{territory_label(territory)} - Etats reseaux ELEC RP100")),
-            (charts_dir / f"{territory}_etat_reseaux_eu_percentile_99.png", _build_network_state_chart_payload(artifacts, "eu", "p99", f"{territory_label(territory)} - Etats reseaux EU P99")),
-            (charts_dir / f"{territory}_etat_reseaux_eu_retour_100_ans.png", _build_network_state_chart_payload(artifacts, "eu", "rp100", f"{territory_label(territory)} - Etats reseaux EU RP100")),
-            (charts_dir / f"{territory}_repartition_etats_reseaux_percentile_99.png", _build_network_state_distribution_payload(artifacts, "p99", f"{territory_label(territory)} - Repartition etats reseaux P99")),
-            (charts_dir / f"{territory}_repartition_etats_reseaux_retour_100_ans.png", _build_network_state_distribution_payload(artifacts, "rp100", f"{territory_label(territory)} - Repartition etats reseaux RP100")),
+            (charts_dir / f"{territory}_degats_eau_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau par classe RP10")),
+            (charts_dir / f"{territory}_degats_elec_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite par classe RP10")),
+            (charts_dir / f"{territory}_degats_eau_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau dans les scenarios globaux de retour")),
+            (charts_dir / f"{territory}_degats_elec_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite dans les scenarios globaux de retour")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm.png", _build_network_state_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice etats reseaux STORM")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm_cmcc.png", _build_network_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_label(territory)} - Matrice etats reseaux STORM_CMCC")),
         ]
@@ -5877,6 +7001,50 @@ def _render_integrated_vincennes_assets(
                 generated_paths.append(str(output_path))
             except Exception as exc:
                 warnings.append(_warning_message(territory, output_path.name, f"render failed: {type(exc).__name__}: {exc}"))
+
+        service_rp_payload = _build_service_rp_curve_payload(
+            record,
+            artifacts,
+            f"{territory_label(territory)} - Courbes RP par service eau/elec",
+        )
+        service_rp_chart_path = charts_dir / f"{territory}_courbes_rp_eau_elec_par_service.png"
+        if service_rp_payload is None:
+            warnings.append(_warning_message(territory, service_rp_chart_path.name, "missing service RP checkpoint inputs"))
+        else:
+            try:
+                _render_auxiliary_output(plt, service_rp_chart_path, service_rp_payload)
+                generated_paths.append(str(service_rp_chart_path))
+                service_rp = _compute_service_rp_curves_from_checkpoints(record, artifacts)
+                rows = list((service_rp or {}).get("rows") or [])
+                _write_csv_table(
+                    tables_dir / f"{territory}_courbes_rp_eau_elec_par_service.csv",
+                    [
+                        "territory",
+                        "service",
+                        "hazard",
+                        "return_period_years",
+                        "damage_eur",
+                        "quality",
+                        "mixed_shards",
+                        "total_shards",
+                    ],
+                    [
+                        [
+                            str(row.get("territory") or ""),
+                            str(row.get("service") or ""),
+                            str(row.get("hazard") or ""),
+                            str(row.get("return_period_years") or ""),
+                            f"{float(row.get('damage_eur') or 0.0):.6f}",
+                            str(row.get("quality") or ""),
+                            str(row.get("mixed_shards") or 0),
+                            str(row.get("total_shards") or 0),
+                        ]
+                        for row in rows
+                    ],
+                )
+                generated_paths.append(str(tables_dir / f"{territory}_courbes_rp_eau_elec_par_service.csv"))
+            except Exception as exc:
+                warnings.append(_warning_message(territory, service_rp_chart_path.name, f"service RP render failed: {type(exc).__name__}: {exc}"))
 
         map_specs = [
             (
@@ -5902,15 +7070,15 @@ def _render_integrated_vincennes_assets(
                 } if artifacts.water_infra_path else None,
             ),
             (
-                maps_dir / f"{territory}_etat_reseaux_aep_climat_actuel_p99.png",
+                maps_dir / f"{territory}_etat_reseaux_aep_retour_1000_ans.png",
                 {
                     "type": "geojson_map",
-                    "title": f"{territory_label(territory)} - Etat reseaux AEP climat actuel P99",
+                    "title": f"{territory_label(territory)} - Etat reseaux AEP retour 1000 ans",
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
                     "filter_values": ["eau_aep"],
-                    "state_column": "state_p99_storm",
+                    "state_column": "state_rp1000_storm",
                 } if artifacts.network_states_path else None,
             ),
             (
@@ -5926,39 +7094,67 @@ def _render_integrated_vincennes_assets(
                 } if artifacts.network_states_path else None,
             ),
             (
-                maps_dir / f"{territory}_etat_reseaux_elec_climat_actuel_p99.png",
+                maps_dir / f"{territory}_etat_reseaux_elec_aerien_retour_1000_ans.png",
                 {
                     "type": "geojson_map",
-                    "title": f"{territory_label(territory)} - Etat reseaux ELEC climat actuel P99",
+                    "title": f"{territory_label(territory)} - Etat reseaux ELEC aerien retour 1000 ans",
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
-                    "filter_values": list(ELECTRIC_STATE_LAYER_KEYS),
-                    "state_column": "state_p99_storm",
+                    "filter_values": ["elec_grid_0p1deg", "elec_bt_aerien", "elec_hta_aerien"],
+                    "source_filter_values": ["elec_bt_aerien", "elec_hta_aerien"],
+                    "state_column": "state_rp1000_storm",
                 } if artifacts.network_states_path else None,
             ),
             (
-                maps_dir / f"{territory}_etat_reseaux_elec_retour_100_ans.png",
+                maps_dir / f"{territory}_etat_reseaux_elec_aerien_retour_100_ans.png",
                 {
                     "type": "geojson_map",
-                    "title": f"{territory_label(territory)} - Etat reseaux ELEC retour 100 ans",
+                    "title": f"{territory_label(territory)} - Etat reseaux ELEC aerien retour 100 ans",
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
-                    "filter_values": list(ELECTRIC_STATE_LAYER_KEYS),
+                    "filter_values": ["elec_grid_0p1deg", "elec_bt_aerien", "elec_hta_aerien"],
+                    "source_filter_values": ["elec_bt_aerien", "elec_hta_aerien"],
                     "state_column": "state_rp100_storm",
                 } if artifacts.network_states_path else None,
             ),
             (
-                maps_dir / f"{territory}_etat_reseaux_eu_climat_actuel_p99.png",
+                maps_dir / f"{territory}_etat_reseaux_elec_souterrain_retour_1000_ans.png",
                 {
                     "type": "geojson_map",
-                    "title": f"{territory_label(territory)} - Etat reseaux EU climat actuel P99",
+                    "title": f"{territory_label(territory)} - Etat reseaux ELEC souterrain retour 1000 ans",
+                    "geojson_path": artifacts.network_states_path,
+                    "source_geojson_path": artifacts.water_infra_path,
+                    "filter_column": "layer_key",
+                    "filter_values": ["elec_grid_0p1deg", "elec_bt_souterrain", "elec_hta_souterrain"],
+                    "source_filter_values": ["elec_bt_souterrain", "elec_hta_souterrain"],
+                    "state_column": "state_rp1000_storm",
+                } if artifacts.network_states_path else None,
+            ),
+            (
+                maps_dir / f"{territory}_etat_reseaux_elec_souterrain_retour_100_ans.png",
+                {
+                    "type": "geojson_map",
+                    "title": f"{territory_label(territory)} - Etat reseaux ELEC souterrain retour 100 ans",
+                    "geojson_path": artifacts.network_states_path,
+                    "source_geojson_path": artifacts.water_infra_path,
+                    "filter_column": "layer_key",
+                    "filter_values": ["elec_grid_0p1deg", "elec_bt_souterrain", "elec_hta_souterrain"],
+                    "source_filter_values": ["elec_bt_souterrain", "elec_hta_souterrain"],
+                    "state_column": "state_rp100_storm",
+                } if artifacts.network_states_path else None,
+            ),
+            (
+                maps_dir / f"{territory}_etat_reseaux_eu_retour_1000_ans.png",
+                {
+                    "type": "geojson_map",
+                    "title": f"{territory_label(territory)} - Etat reseaux EU retour 1000 ans",
                     "geojson_path": artifacts.network_states_path,
                     "source_geojson_path": artifacts.water_infra_path,
                     "filter_column": "layer_key",
                     "filter_values": ["eau_eu"],
-                    "state_column": "state_p99_storm",
+                    "state_column": "state_rp1000_storm",
                 } if artifacts.network_states_path else None,
             ),
             (
@@ -5974,12 +7170,24 @@ def _render_integrated_vincennes_assets(
                 } if artifacts.network_states_path else None,
             ),
             (
+                maps_dir / f"{territory}_storm_vent_rp50.png",
+                hazard_map_payloads["wind_rp50"],
+            ),
+            (
                 maps_dir / f"{territory}_storm_vent_rp100.png",
                 hazard_map_payloads["wind_rp100"],
             ),
             (
+                maps_dir / f"{territory}_pluie_rp50.png",
+                hazard_map_payloads["rain_rp50"],
+            ),
+            (
                 maps_dir / f"{territory}_pluie_rp100.png",
                 hazard_map_payloads["rain_rp100"],
+            ),
+            (
+                maps_dir / f"{territory}_inondation_cotiere_rp50.png",
+                hazard_map_payloads["surge_rp50"],
             ),
             (
                 maps_dir / f"{territory}_inondation_cotiere_rp100.png",
@@ -5988,6 +7196,10 @@ def _render_integrated_vincennes_assets(
             (
                 maps_dir / f"{territory}_mouvements_de_terrain.png",
                 hazard_map_payloads["landslide_mean"],
+            ),
+            (
+                maps_dir / f"{territory}_mouvements_de_terrain_rp50.png",
+                hazard_map_payloads["landslide_rp50"],
             ),
             (
                 maps_dir / f"{territory}_mouvements_de_terrain_rp100.png",
@@ -6034,7 +7246,7 @@ def _render_integrated_vincennes_assets(
                 warnings.append(_warning_message(territory, "guadeloupe_comparaison_aleas_validation.csv", "validation source CSV is missing"))
 
         table_specs = [
-            (tables_dir / f"{territory}_tableau_impacts_percentile_99.csv", _build_impact_table_payload(artifacts, "p99", f"{territory_label(territory)} - Tableau impacts P99")),
+            (tables_dir / f"{territory}_tableau_impacts_retour_1000_ans.csv", _build_impact_table_payload(artifacts, "rp1000", f"{territory_label(territory)} - Tableau impacts retour 1000 ans")),
             (tables_dir / f"{territory}_tableau_impacts_retour_100_ans.csv", _build_impact_table_payload(artifacts, "rp100", f"{territory_label(territory)} - Tableau impacts retour 100 ans")),
             (tables_dir / f"{territory}_tableau_exposition_reseaux.csv", _build_exposure_network_table_payload(artifacts, f"{territory_label(territory)} - Valorisation monetaire des reseaux")),
             (tables_dir / f"{territory}_tableau_exposition_ouvrages.csv", _build_exposure_ouvrage_table_payload(artifacts, f"{territory_label(territory)} - Valorisation monetaire des ouvrages")),
@@ -6084,6 +7296,8 @@ def render_png_graphs(graphs: list[GraphSpec], png_dir: Path) -> list[str]:
             _render_horizontal_bar_png(plt, payload, output_path)
         elif plot_type == "grouped_bar":
             _render_grouped_bar_png(plt, payload, output_path)
+        elif plot_type == "grouped_stacked_bar":
+            _render_grouped_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "stacked_bar":
             _render_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "stacked_bar_with_line":
@@ -6212,12 +7426,6 @@ def main(argv: list[str] | None = None) -> int:
         for territory in selected_territories:
             graphs.extend(build_targeted_graphs_for_territory(territory, payloads[territory], selected_hazards))
     else:
-        annual_fec_all_graph = build_annual_fec_all_territories_graph(selected_record, payloads, selected_territories, selected_hazards)
-        if annual_fec_all_graph is not None:
-            graphs.append(annual_fec_all_graph)
-        annual_fec_all_pct_graph = build_annual_fec_all_territories_pct_graph(selected_record, payloads, selected_territories, selected_hazards)
-        if annual_fec_all_pct_graph is not None:
-            graphs.append(annual_fec_all_pct_graph)
         for territory in selected_territories:
             graphs.extend(build_graphs_for_territory(selected_record, territory, payloads[territory], selected_hazards))
     graphs = filter_graphs(graphs, selected_graph_types)

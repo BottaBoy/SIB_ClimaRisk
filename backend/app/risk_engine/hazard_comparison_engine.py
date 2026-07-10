@@ -54,6 +54,7 @@ _COMPARISON_DELTA_METRIC_KEYS = (
     "frequency_sum_annual",
     "positive_centroid_fraction",
     "intensity_max",
+    "p99_event_intensity",
     "intensity_mean_positive",
     "intensity_p95_positive",
     "event_footprint_mean_fraction",
@@ -61,7 +62,7 @@ _COMPARISON_DELTA_METRIC_KEYS = (
     "event_footprint_max_fraction",
 )
 _PHASE5_PLOT_METRIC_KEYS = (
-    "intensity_max",
+    "p99_event_intensity",
     "positive_centroid_fraction",
     "event_footprint_p95_fraction",
 )
@@ -77,6 +78,7 @@ _PHASE5_METRIC_LABELS = {
     "frequency_sum_annual": "Frequence annuelle cumulee",
     "positive_centroid_fraction": "Part des centroides positifs",
     "intensity_max": "Intensite maximale",
+    "p99_event_intensity": "Intensite P99 evenementielle",
     "intensity_max_return_periods": "Intensite maximale par temps de retour",
     "intensity_mean_positive": "Intensite moyenne positive",
     "intensity_p95_positive": "Intensite positive P95",
@@ -553,7 +555,8 @@ def _component_label(component_id: str) -> str:
 
 
 def _metric_is_intensity(metric_key: str) -> bool:
-    return str(metric_key).startswith("intensity_")
+    normalized = str(metric_key)
+    return normalized.startswith("intensity_") or normalized.endswith("_intensity")
 
 
 def _phase5_display_units(component_id: str, units: str, metric_key: str) -> str:
@@ -1654,6 +1657,9 @@ def _summarize_hazard_comparison_metrics(np: Any, hazard_obj: Any, *, output_pat
             float(positive_centroid_count) / float(max(centroid_count, 1)),
         ),
         "intensity_max": _round_metric(positive_values.max() if positive_values.size else 0.0),
+        "p99_event_intensity": _round_metric(
+            np.percentile(event_positive_maxima, 99) if event_positive_maxima.size else 0.0
+        ),
         "intensity_max_return_periods": _compute_return_period_curve(np, event_positive_maxima, frequency, RETURN_PERIODS),
         "intensity_mean_positive": _round_metric(positive_values.mean() if positive_values.size else 0.0),
         "intensity_p95_positive": _round_metric(np.percentile(positive_values, 95) if positive_values.size else 0.0),

@@ -142,6 +142,7 @@
     "guyane": {
       "label": "Guyane",
       "include_in_comparison": true,
+      "surge_grid_deg_override": 0.05,
       "aliases": [
         "guyane",
         "guy",
@@ -376,6 +377,7 @@
     "nouvelle_caledonie": {
       "label": "Nouvelle-Caledonie",
       "include_in_comparison": true,
+      "surge_grid_deg_override": 0.1,
       "aliases": [
         "nouvelle_caledonie",
         "nouvelle-caledonie",

@@ -7,6 +7,32 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:  # pragma: no cover - import path depends on module vs CLI execution
+    from scripts.scientific_graph_postprocess import (  # type: ignore
+        needs_strict_scientific_rebuild,
+        rebuild_scientific_graph_inputs,
+    )
+    from scripts.scientific_publication_contract import (  # type: ignore
+        EVENT_SELECTION_BASIS,
+        PUBLIC_SERVICE_KEYS,
+        SCIENTIFIC_SCENARIOS,
+        SCIENTIFIC_WEB_CONTRACT_VERSION,
+        SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+        SERVICE_LAYER_TO_PUBLIC_KEY,
+    )
+except ModuleNotFoundError:  # pragma: no cover
+    from scientific_graph_postprocess import (  # type: ignore
+        needs_strict_scientific_rebuild,
+        rebuild_scientific_graph_inputs,
+    )
+    from scientific_publication_contract import (  # type: ignore
+        EVENT_SELECTION_BASIS,
+        PUBLIC_SERVICE_KEYS,
+        SCIENTIFIC_SCENARIOS,
+        SCIENTIFIC_WEB_CONTRACT_VERSION,
+        SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+        SERVICE_LAYER_TO_PUBLIC_KEY,
+    )
 
 UTC = timezone.utc
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,38 +59,14 @@ DAMAGE_BREAKDOWN_LABELS = {
     "eau_eu_step": "STEP",
 }
 
-ASSET_TYPE_TO_NETWORK_CLASS = {
-    "eau_aep_cana": "eau_aep",
-    "eau_eu_cana": "eau_eu",
-    "elec_bt_souterrain": "elec_bt_souterrain",
-    "elec_bt_aerien": "elec_bt_aerien",
-    "elec_hta_souterrain": "elec_hta_souterrain",
-    "elec_hta_aerien": "elec_hta_aerien",
-}
-
-ASSET_TYPE_TO_BREAKDOWN_CLASS = {
-    **ASSET_TYPE_TO_NETWORK_CLASS,
-    "eau_aep_ouvrage_cap": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_stpmp": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_ouveb": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_trait": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_cuv": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_captage": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_production_traitement": "eau_aep_ouvrages",
-    "eau_aep_ouvrage_stockage": "eau_aep_ouvrages",
-    "eau_eu_pr": "eau_eu_pr",
-    "eau_eu_step": "eau_eu_step",
-}
-
 HAZARD_KEYS = ("storm", "storm_cmcc")
-SCENARIOS = ("annual", "rp50", "rp100", "p99")
+SCENARIOS = SCIENTIFIC_SCENARIOS
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 STATE_CODES = ("S0", "S1", "S2", "S3")
-SCIENTIFIC_WEB_CONTRACT_VERSION = "scientific_web_contract_v2"
-CANONICAL_SERVICE_LAYER_TO_KEY = {
-    "eau_aep": "water_aep",
-    "eau_eu": "water_eu",
-    "elec_grid_0p1deg": "elec",
+CANONICAL_SERVICE_LAYER_TO_KEY = SERVICE_LAYER_TO_PUBLIC_KEY
+LEGACY_PUBLIC_SERVICE_KEY_MAP = {
+    "water_aep": "eau_aep",
+    "water_eu": "eau_eu",
 }
 
 
@@ -90,6 +92,59 @@ def _safe_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _graph_inputs_have_required_rows(value: Any) -> bool:
+    graph_inputs = _safe_dict(value)
+    if list(graph_inputs.get("scenarios") or []) != list(SCENARIOS):
+        return False
+    state_tables = _safe_dict(graph_inputs.get("state_damage_tables"))
+    breakdowns = _safe_dict(graph_inputs.get("damage_breakdown_by_scenario"))
+    for scenario in SCENARIOS:
+        if not _safe_list(state_tables.get(scenario)):
+            return False
+        scenario_breakdown = _safe_dict(breakdowns.get(scenario))
+        if not _safe_list(scenario_breakdown.get("storm")) or not _safe_list(scenario_breakdown.get("storm_cmcc")):
+            return False
+    return True
+
+
+def _select_graph_inputs_from_complete_analysis(complete_analysis: dict[str, Any]) -> dict[str, Any]:
+    strict_inputs = _safe_dict(complete_analysis.get("scientific_graph_inputs"))
+    if _graph_inputs_have_required_rows(strict_inputs) and not needs_strict_scientific_rebuild(complete_analysis):
+        return strict_inputs
+    pml_inputs = _safe_dict(complete_analysis.get("pml_network_graph_inputs"))
+    if _graph_inputs_have_required_rows(pml_inputs):
+        return pml_inputs
+    if _graph_inputs_have_required_rows(strict_inputs):
+        return strict_inputs
+    return strict_inputs
+
+
+def _canonicalize_public_service_text(value: str) -> str:
+    out = str(value)
+    for legacy_key, canonical_key in LEGACY_PUBLIC_SERVICE_KEY_MAP.items():
+        out = out.replace(legacy_key, canonical_key)
+    return out
+
+
+def _canonicalize_public_service_keys(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_canonicalize_public_service_keys(item) for item in value]
+    if not isinstance(value, dict):
+        if isinstance(value, str):
+            return _canonicalize_public_service_text(value)
+        return value
+
+    out: dict[str, Any] = {}
+    for key, item in value.items():
+        canonical_key = _canonicalize_public_service_text(str(key))
+        canonical_item = _canonicalize_public_service_keys(item)
+        if canonical_key in out and isinstance(out[canonical_key], dict) and isinstance(canonical_item, dict):
+            out[canonical_key].update(canonical_item)
+        else:
+            out[canonical_key] = canonical_item
+    return out
+
+
 def _state_code(value: Any) -> str:
     state = str(value or "S0").strip().upper()
     return state if state in STATE_CODES else "S0"
@@ -100,129 +155,12 @@ def _portfolio_summary(portfolio: dict[str, Any]) -> dict[str, Any]:
     for hazard in HAZARD_KEYS:
         payload = _safe_dict(portfolio.get(hazard))
         out[hazard] = {
-            "annual_eur": _round2(payload.get("eai_eur")),
+            "rp10_eur": _round2(payload.get("pml_10_eur")),
             "rp50_eur": _round2(payload.get("pml_50_eur")),
             "rp100_eur": _round2(payload.get("pml_100_eur")),
-            "p99_eur": _round2(payload.get("percentile_99_loss_eur")),
-            "pml_1000_eur": _round2(payload.get("pml_1000_eur")),
-            "direct_annual_eur": _round2(payload.get("eai_direct_eur")),
-            "indirect_annual_eur": _round2(payload.get("eai_indirect_eur")),
+            "rp1000_eur": _round2(payload.get("pml_1000_eur")),
         }
     out["delta"] = _safe_dict(portfolio.get("delta"))
-    return out
-
-
-def _normalized_asset_type(asset_type_raw: Any) -> str:
-    return str(asset_type_raw or "").strip().lower()
-
-
-def _blank_component_map() -> dict[str, float]:
-    return {component: 0.0 for component in COMPONENT_ORDER}
-
-
-def _new_damage_bucket() -> dict[str, float]:
-    return {
-        "exposure_eur": 0.0,
-        "damage_eur": 0.0,
-        "direct_damage_eur": 0.0,
-        "indirect_damage_eur": 0.0,
-    }
-
-
-def _group_asset_results(asset_results: list[dict[str, Any]], class_mapping: dict[str, str]) -> dict[str, dict[str, dict[str, float]]]:
-    grouped: dict[str, dict[str, dict[str, float]]] = {}
-    for asset in asset_results:
-        if not isinstance(asset, dict):
-            continue
-        class_key = class_mapping.get(_normalized_asset_type(asset.get("asset_type")))
-        if not class_key:
-            continue
-        class_bucket = grouped.setdefault(
-            class_key,
-            {
-                "storm": _new_damage_bucket(),
-                "storm_cmcc": _new_damage_bucket(),
-            },
-        )
-        exposure = _round2(asset.get("exposure_eur"))
-        for hazard in HAZARD_KEYS:
-            bucket = class_bucket[hazard]
-            bucket["exposure_eur"] += exposure
-            if hazard == "storm":
-                bucket["damage_eur"] += _round2(asset.get("eai_storm_eur"))
-                bucket["direct_damage_eur"] += _round2(asset.get("eai_storm_direct_eur"))
-                bucket["indirect_damage_eur"] += _round2(asset.get("eai_storm_indirect_eur"))
-            else:
-                bucket["damage_eur"] += _round2(asset.get("eai_cmcc_eur"))
-                bucket["direct_damage_eur"] += _round2(asset.get("eai_cmcc_direct_eur"))
-                bucket["indirect_damage_eur"] += _round2(asset.get("eai_cmcc_indirect_eur"))
-    return grouped
-
-
-def _build_annual_rows(grouped: dict[str, dict[str, dict[str, float]]], labels: dict[str, str]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for class_key in labels.keys():
-        by_hazard = grouped.get(class_key) or {"storm": _new_damage_bucket(), "storm_cmcc": _new_damage_bucket()}
-        rows.append(
-            {
-                "class_key": class_key,
-                "class_label": labels[class_key],
-                "storm": {
-                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
-                    "exposure_eur": _round2(by_hazard["storm"].get("exposure_eur")),
-                    "damage_eur": _round2(by_hazard["storm"].get("damage_eur")),
-                    "direct_damage_eur": _round2(by_hazard["storm"].get("direct_damage_eur")),
-                    "indirect_damage_eur": _round2(by_hazard["storm"].get("indirect_damage_eur")),
-                    "damage_components_eur": _blank_component_map(),
-                },
-                "storm_cmcc": {
-                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
-                    "exposure_eur": _round2(by_hazard["storm_cmcc"].get("exposure_eur")),
-                    "damage_eur": _round2(by_hazard["storm_cmcc"].get("damage_eur")),
-                    "direct_damage_eur": _round2(by_hazard["storm_cmcc"].get("direct_damage_eur")),
-                    "indirect_damage_eur": _round2(by_hazard["storm_cmcc"].get("indirect_damage_eur")),
-                    "damage_components_eur": _blank_component_map(),
-                },
-            }
-        )
-    return rows
-
-
-def _build_annual_breakdown_rows(grouped: dict[str, dict[str, dict[str, float]]], labels: dict[str, str]) -> dict[str, list[dict[str, Any]]]:
-    by_hazard: dict[str, list[dict[str, Any]]] = {"storm": [], "storm_cmcc": []}
-    for class_key in labels.keys():
-        grouped_row = grouped.get(class_key) or {"storm": _new_damage_bucket(), "storm_cmcc": _new_damage_bucket()}
-        for hazard in HAZARD_KEYS:
-            bucket = grouped_row[hazard]
-            by_hazard[hazard].append(
-                {
-                    "class_key": class_key,
-                    "class_label": labels[class_key],
-                    "exposure_eur": _round2(bucket.get("exposure_eur")),
-                    "damage_eur": _round2(bucket.get("damage_eur")),
-                    "direct_damage_eur": _round2(bucket.get("direct_damage_eur")),
-                    "indirect_damage_eur": _round2(bucket.get("indirect_damage_eur")),
-                    "damage_components_eur": _blank_component_map(),
-                }
-            )
-    return by_hazard
-
-
-def _service_state_distribution(network_states_native: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for hazard in HAZARD_KEYS:
-        by_service = _safe_dict(network_states_native.get(hazard))
-        out[hazard] = {}
-        for service_key, service_map_raw in by_service.items():
-            service_map = _safe_dict(service_map_raw)
-            counts = {"S0": 0, "S1": 0, "S2": 0, "S3": 0}
-            for state_row in service_map.values():
-                if not isinstance(state_row, dict):
-                    continue
-                state = _state_code(state_row.get("state"))
-                counts[state] += 1
-            counts["total_units"] = int(sum(counts.values()))
-            out[hazard][service_key] = counts
     return out
 
 
@@ -265,18 +203,22 @@ def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
     return _load_json(path)
 
 
+def _has_network_state_features(network_states_geojson: dict[str, Any] | None) -> bool:
+    return bool(_safe_list(_safe_dict(network_states_geojson).get("features")))
+
+
 def _build_network_state_distribution_from_geojson(
     network_states_geojson: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, bool], dict[str, dict[str, int]]]:
     features = _safe_list(_safe_dict(network_states_geojson).get("features"))
     distribution: dict[str, Any] = {scenario: {hazard: {} for hazard in HAZARD_KEYS} for scenario in SCENARIOS}
     canonical_service_unit_counts: dict[str, dict[str, int]] = {
-        hazard: {service_key: 0 for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values()}
+        hazard: {service_key: 0 for service_key in PUBLIC_SERVICE_KEYS}
         for hazard in HAZARD_KEYS
     }
     seen_units: dict[str, dict[str, dict[str, set[str]]]] = {
         scenario: {
-            hazard: {service_key: set() for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values()}
+            hazard: {service_key: set() for service_key in PUBLIC_SERVICE_KEYS}
             for hazard in HAZARD_KEYS
         }
         for scenario in SCENARIOS
@@ -304,17 +246,60 @@ def _build_network_state_distribution_from_geojson(
                 seen_units[scenario][hazard][service_key].add(service_unit_id)
 
     for hazard in HAZARD_KEYS:
-        for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values():
+        for service_key in PUBLIC_SERVICE_KEYS:
             canonical_service_unit_counts[hazard][service_key] = int(
-                len(seen_units["p99"][hazard][service_key])
+                len(seen_units[SCENARIOS[-1]][hazard][service_key])
             )
 
     scenario_availability: dict[str, bool] = {}
     for scenario in SCENARIOS:
         scenario_availability[scenario] = all(
-            any(int(_safe_dict(distribution[scenario][hazard].get(service_key)).get("total_units", 0)) > 0 for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values())
+            any(int(_safe_dict(distribution[scenario][hazard].get(service_key)).get("total_units", 0)) > 0 for service_key in PUBLIC_SERVICE_KEYS)
             for hazard in HAZARD_KEYS
         )
+    return distribution, scenario_availability, canonical_service_unit_counts
+
+
+def _has_precomputed_network_distribution(graph_inputs: dict[str, Any]) -> bool:
+    distribution = _safe_dict(graph_inputs.get("network_state_service_distribution_by_scenario"))
+    return all(
+        isinstance(_safe_dict(distribution.get(scenario)).get("storm"), dict)
+        and isinstance(_safe_dict(distribution.get(scenario)).get("storm_cmcc"), dict)
+        for scenario in SCENARIOS
+    )
+
+
+def _build_network_state_distribution_from_graph_inputs(
+    graph_inputs: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, bool], dict[str, dict[str, int]]]:
+    distribution = {
+        scenario: {
+            hazard: {
+                service_key: {
+                    state: int(_safe_dict(_safe_dict(_safe_dict(graph_inputs.get("network_state_service_distribution_by_scenario")).get(scenario)).get(hazard)).get(service_key, {}).get(state, 0) or 0)
+                    for state in (*STATE_CODES, "total_units")
+                }
+                for service_key in PUBLIC_SERVICE_KEYS
+            }
+            for hazard in HAZARD_KEYS
+        }
+        for scenario in SCENARIOS
+    }
+    unit_counts_block = _safe_dict(graph_inputs.get("network_state_service_unit_counts"))
+    canonical_service_unit_counts = {
+        hazard: {
+            service_key: int(_safe_dict(unit_counts_block.get(hazard)).get(service_key, 0) or 0)
+            for service_key in PUBLIC_SERVICE_KEYS
+        }
+        for hazard in HAZARD_KEYS
+    }
+    scenario_availability = {
+        scenario: all(
+            any(int(_safe_dict(distribution[scenario][hazard].get(service_key)).get("total_units", 0) or 0) > 0 for service_key in PUBLIC_SERVICE_KEYS)
+            for hazard in HAZARD_KEYS
+        )
+        for scenario in SCENARIOS
+    }
     return distribution, scenario_availability, canonical_service_unit_counts
 
 
@@ -406,7 +391,7 @@ def _build_social_impact_from_geojson(
             for hazard in HAZARD_KEYS:
                 service_states = worst_states[scenario][hazard].setdefault(
                     cell_id,
-                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                    {"elec": "S0", "eau_aep": "S0", "eau_eu": "S0"},
                 )
                 state_code = _state_code(props.get(f"state_{scenario}_{hazard}"))
                 if _state_severity(state_code) > _state_severity(service_states.get(service_key)):
@@ -423,16 +408,16 @@ def _build_social_impact_from_geojson(
             totals = {
                 "total_population_affected_any_network": 0.0,
                 "total_without_elec": 0.0,
-                "total_without_water_aep": 0.0,
-                "total_without_water_eu": 0.0,
-                "total_without_water": 0.0,
+                "total_without_eau_aep": 0.0,
+                "total_without_eau_eu": 0.0,
+                "total_without_eau": 0.0,
                 "total_with_degraded_elec": 0.0,
-                "total_with_degraded_water_aep": 0.0,
-                "total_with_degraded_water_eu": 0.0,
+                "total_with_degraded_eau_aep": 0.0,
+                "total_with_degraded_eau_eu": 0.0,
                 "state_breakdown": {
                     "elec": _empty_state_breakdown_row(),
-                    "water_aep": _empty_state_breakdown_row(),
-                    "water_eu": _empty_state_breakdown_row(),
+                    "eau_aep": _empty_state_breakdown_row(),
+                    "eau_eu": _empty_state_breakdown_row(),
                 },
             }
             for cell_id, population in population_by_cell.items():
@@ -440,39 +425,148 @@ def _build_social_impact_from_geojson(
                     continue
                 states = worst_states[scenario][hazard].get(
                     cell_id,
-                    {"elec": "S0", "water_aep": "S0", "water_eu": "S0"},
+                    {"elec": "S0", "eau_aep": "S0", "eau_eu": "S0"},
                 )
                 elec_state = _state_code(states.get("elec"))
-                water_aep_state = _state_code(states.get("water_aep"))
-                water_eu_state = _state_code(states.get("water_eu"))
+                water_aep_state = _state_code(states.get("eau_aep"))
+                water_eu_state = _state_code(states.get("eau_eu"))
                 totals["state_breakdown"]["elec"][elec_state] += population
-                totals["state_breakdown"]["water_aep"][water_aep_state] += population
-                totals["state_breakdown"]["water_eu"][water_eu_state] += population
+                totals["state_breakdown"]["eau_aep"][water_aep_state] += population
+                totals["state_breakdown"]["eau_eu"][water_eu_state] += population
                 if elec_state != "S0" or water_aep_state != "S0" or water_eu_state != "S0":
                     totals["total_population_affected_any_network"] += population
                 if elec_state == "S3":
                     totals["total_without_elec"] += population
                 if water_aep_state == "S3":
-                    totals["total_without_water_aep"] += population
+                    totals["total_without_eau_aep"] += population
                 if water_eu_state == "S3":
-                    totals["total_without_water_eu"] += population
+                    totals["total_without_eau_eu"] += population
                 if elec_state in {"S1", "S2"}:
                     totals["total_with_degraded_elec"] += population
                 if water_aep_state in {"S1", "S2"}:
-                    totals["total_with_degraded_water_aep"] += population
+                    totals["total_with_degraded_eau_aep"] += population
                 if water_eu_state in {"S1", "S2"}:
-                    totals["total_with_degraded_water_eu"] += population
-            totals["total_without_water"] = (
-                float(totals["total_without_water_aep"]) + float(totals["total_without_water_eu"])
+                    totals["total_with_degraded_eau_eu"] += population
+            totals["total_without_eau"] = (
+                float(totals["total_without_eau_aep"]) + float(totals["total_without_eau_eu"])
             )
             summary[scenario][hazard] = totals
             population_distribution[scenario][hazard] = totals["state_breakdown"]
     return summary, population_distribution, scenario_availability
 
 
-def _load_page_analysis_impact(page_analysis: dict[str, Any] | None) -> dict[str, Any]:
-    impact = _safe_dict(_safe_dict(page_analysis).get("impact"))
-    return impact if impact else {}
+def _has_precomputed_social_outputs(graph_inputs: dict[str, Any]) -> bool:
+    summary = _safe_dict(graph_inputs.get("social_impact_by_scenario"))
+    population_distribution = _safe_dict(graph_inputs.get("social_population_state_distribution_by_scenario"))
+    return all(
+        isinstance(_safe_dict(summary.get(scenario)).get("storm"), dict)
+        and isinstance(_safe_dict(summary.get(scenario)).get("storm_cmcc"), dict)
+        and isinstance(_safe_dict(population_distribution.get(scenario)).get("storm"), dict)
+        and isinstance(_safe_dict(population_distribution.get(scenario)).get("storm_cmcc"), dict)
+        for scenario in SCENARIOS
+    )
+
+
+def _build_social_impact_from_graph_inputs(
+    graph_inputs: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, bool]]:
+    summary = {
+        scenario: {
+            hazard: _safe_dict(_safe_dict(_safe_dict(graph_inputs.get("social_impact_by_scenario")).get(scenario)).get(hazard))
+            for hazard in HAZARD_KEYS
+        }
+        for scenario in SCENARIOS
+    }
+    population_distribution = {
+        scenario: {
+            hazard: _safe_dict(_safe_dict(_safe_dict(graph_inputs.get("social_population_state_distribution_by_scenario")).get(scenario)).get(hazard))
+            for hazard in HAZARD_KEYS
+        }
+        for scenario in SCENARIOS
+    }
+    scenario_availability = {
+        scenario: all(
+            bool(_safe_dict(summary[scenario].get(hazard))) and bool(_safe_dict(population_distribution[scenario].get(hazard)))
+            for hazard in HAZARD_KEYS
+        )
+        for scenario in SCENARIOS
+    }
+    return summary, population_distribution, scenario_availability
+
+
+def _scenario_breakdown_has_rows(value: Any) -> bool:
+    block = _safe_dict(value)
+    return bool(_safe_list(block.get("storm")) or _safe_list(block.get("storm_cmcc")))
+
+
+def _build_scientific_graph_inputs(
+    *,
+    complete_analysis: dict[str, Any],
+    network_state_distribution: dict[str, Any],
+    network_service_unit_counts: dict[str, Any],
+    social_summaries: dict[str, Any],
+    social_population_distribution: dict[str, Any],
+    network_state_availability: dict[str, bool],
+    social_availability: dict[str, bool],
+) -> dict[str, Any]:
+    existing = _select_graph_inputs_from_complete_analysis(complete_analysis)
+    existing_source = str(existing.get("source_of_truth") or "").strip()
+    if existing_source and existing_source != "complete_analysis":
+        raise ValueError(
+            "complete-analysis graph inputs source_of_truth must be 'complete_analysis'"
+        )
+
+    existing_state_tables = _safe_dict(existing.get("state_damage_tables"))
+    existing_breakdowns = _safe_dict(existing.get("damage_breakdown_by_scenario"))
+
+    state_damage_tables: dict[str, list[dict[str, Any]]] = {
+        scenario: _safe_list(existing_state_tables.get(scenario))
+        for scenario in SCENARIOS
+    }
+    damage_breakdowns: dict[str, dict[str, list[dict[str, Any]]]] = {
+        scenario: _safe_dict(existing_breakdowns.get(scenario)) or {"storm": [], "storm_cmcc": []}
+        for scenario in SCENARIOS
+    }
+
+    scenario_availability: dict[str, dict[str, bool]] = {}
+    for scenario in SCENARIOS:
+        scenario_availability[scenario] = {
+            "state_damage_tables": bool(state_damage_tables.get(scenario)),
+            "damage_breakdown_by_scenario": _scenario_breakdown_has_rows(damage_breakdowns.get(scenario)),
+            "social_impact_by_scenario": bool(social_availability.get(scenario)),
+            "network_states": bool(network_state_availability.get(scenario)),
+        }
+
+    return {
+        "source_of_truth": "complete_analysis",
+        "event_selection_basis": EVENT_SELECTION_BASIS,
+        "source_method": str(existing.get("method") or "strict_scientific_v4"),
+        "source_schema_version": str(existing.get("schema_version") or "") or None,
+        "approximation": bool(existing.get("approximation")),
+        "scenarios": list(SCENARIOS),
+        "state_damage_tables": state_damage_tables,
+        "damage_breakdown_by_scenario": damage_breakdowns,
+        "social_impact_by_scenario": {
+            scenario: _safe_dict(social_summaries.get(scenario))
+            for scenario in SCENARIOS
+        },
+        "social_population_state_distribution_by_scenario": {
+            scenario: _safe_dict(social_population_distribution.get(scenario))
+            for scenario in SCENARIOS
+        },
+        "network_state_service_distribution_by_scenario": {
+            scenario: _safe_dict(network_state_distribution.get(scenario))
+            for scenario in SCENARIOS
+        },
+        "network_state_service_unit_counts": {
+            hazard: {
+                service_key: int(_safe_dict(network_service_unit_counts.get(hazard)).get(service_key, 0) or 0)
+                for service_key in PUBLIC_SERVICE_KEYS
+            }
+            for hazard in HAZARD_KEYS
+        },
+        "scenario_availability": scenario_availability,
+    }
 
 
 def _build_scientific_web_summary(
@@ -480,69 +574,64 @@ def _build_scientific_web_summary(
     territory: str,
     *,
     network_states_geojson: dict[str, Any] | None = None,
-    page_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = _safe_dict(complete_analysis.get("meta"))
     portfolio = _safe_dict(complete_analysis.get("portfolio_results"))
-    asset_results = [row for row in _safe_list(complete_analysis.get("asset_results")) if isinstance(row, dict)]
-    grouped_network = _group_asset_results(asset_results, ASSET_TYPE_TO_NETWORK_CLASS)
-    grouped_breakdown = _group_asset_results(asset_results, ASSET_TYPE_TO_BREAKDOWN_CLASS)
+    existing_graph_inputs = _select_graph_inputs_from_complete_analysis(complete_analysis)
 
     portfolio_summary = _portfolio_summary(portfolio)
-    network_tables_annual = _build_annual_rows(grouped_network, NETWORK_CLASS_LABELS)
-    breakdown_annual = _build_annual_breakdown_rows(grouped_breakdown, DAMAGE_BREAKDOWN_LABELS)
-    page_impact = _load_page_analysis_impact(page_analysis)
-    network_state_distribution, network_state_availability, canonical_service_unit_counts = (
-        _build_network_state_distribution_from_geojson(network_states_geojson)
-    )
-    social_summaries, social_population_distribution, social_availability = _build_social_impact_from_geojson(
+    has_network_state_geojson = _has_network_state_features(network_states_geojson)
+    if has_network_state_geojson:
+        network_state_distribution, network_state_availability, canonical_service_unit_counts = (
+            _build_network_state_distribution_from_geojson(network_states_geojson)
+        )
+    elif _has_precomputed_network_distribution(existing_graph_inputs):
+        network_state_distribution, network_state_availability, canonical_service_unit_counts = (
+            _build_network_state_distribution_from_graph_inputs(existing_graph_inputs)
+        )
+    else:
+        network_state_distribution, network_state_availability, canonical_service_unit_counts = (
+            _build_network_state_distribution_from_geojson(network_states_geojson)
+        )
+    if has_network_state_geojson:
+        social_summaries, social_population_distribution, social_availability = _build_social_impact_from_geojson(
+            complete_analysis=complete_analysis,
+            network_states_geojson=network_states_geojson,
+        )
+    elif _has_precomputed_social_outputs(existing_graph_inputs):
+        social_summaries, social_population_distribution, social_availability = (
+            _build_social_impact_from_graph_inputs(existing_graph_inputs)
+        )
+    else:
+        social_summaries, social_population_distribution, social_availability = _build_social_impact_from_geojson(
+            complete_analysis=complete_analysis,
+            network_states_geojson=network_states_geojson,
+        )
+    scientific_graph_inputs = _build_scientific_graph_inputs(
         complete_analysis=complete_analysis,
-        network_states_geojson=network_states_geojson,
+        network_state_distribution=network_state_distribution,
+        network_service_unit_counts=canonical_service_unit_counts,
+        social_summaries=social_summaries,
+        social_population_distribution=social_population_distribution,
+        network_state_availability=network_state_availability,
+        social_availability=social_availability,
     )
-
-    fallback_state_tables = {
-        "annual": network_tables_annual,
-        "rp50": [],
-        "rp100": [],
-        "p99": [],
-    }
-    fallback_breakdowns = {
-        "annual": {
-            "storm": breakdown_annual["storm"],
-            "storm_cmcc": breakdown_annual["storm_cmcc"],
-        },
-        "rp50": {"storm": [], "storm_cmcc": []},
-        "rp100": {"storm": [], "storm_cmcc": []},
-        "p99": {"storm": [], "storm_cmcc": []},
-    }
-
-    page_state_tables = _safe_dict(page_impact.get("state_damage_tables"))
-    page_breakdowns = _safe_dict(page_impact.get("damage_breakdown_by_scenario"))
-    page_component_order = page_impact.get("component_order")
-    damage_table_availability = {
-        scenario: bool(_safe_list(page_state_tables.get(scenario)))
-        for scenario in SCENARIOS
-    }
-    if not any(damage_table_availability.values()):
-        damage_table_availability = {
-            "annual": True,
-            "rp50": False,
-            "rp100": False,
-            "p99": False,
-        }
+    state_damage_tables = _safe_dict(scientific_graph_inputs.get("state_damage_tables"))
+    damage_breakdowns = _safe_dict(scientific_graph_inputs.get("damage_breakdown_by_scenario"))
+    scenario_availability = _safe_dict(scientific_graph_inputs.get("scenario_availability"))
 
     summary_metrics = {
         "storm": {
-            "eai_total_eur": _round2(portfolio_summary["storm"].get("annual_eur")),
+            "rp10_total_loss_eur": _round2(portfolio_summary["storm"].get("rp10_eur")),
             "rp50_total_loss_eur": _round2(portfolio_summary["storm"].get("rp50_eur")),
             "rp100_total_loss_eur": _round2(portfolio_summary["storm"].get("rp100_eur")),
-            "p99_total_loss_eur": _round2(portfolio_summary["storm"].get("p99_eur")),
+            "rp1000_total_loss_eur": _round2(portfolio_summary["storm"].get("rp1000_eur")),
         },
         "storm_cmcc": {
-            "eai_total_eur": _round2(portfolio_summary["storm_cmcc"].get("annual_eur")),
+            "rp10_total_loss_eur": _round2(portfolio_summary["storm_cmcc"].get("rp10_eur")),
             "rp50_total_loss_eur": _round2(portfolio_summary["storm_cmcc"].get("rp50_eur")),
             "rp100_total_loss_eur": _round2(portfolio_summary["storm_cmcc"].get("rp100_eur")),
-            "p99_total_loss_eur": _round2(portfolio_summary["storm_cmcc"].get("p99_eur")),
+            "rp1000_total_loss_eur": _round2(portfolio_summary["storm_cmcc"].get("rp1000_eur")),
         },
     }
 
@@ -553,7 +642,7 @@ def _build_scientific_web_summary(
             "generated_at": datetime.now(UTC).isoformat(),
             "dynamic_max_tracks": meta.get("requested_dynamic_max_tracks"),
             "scientific_source": True,
-            "schema_version": "scientific_web_summary_v2",
+            "schema_version": SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
             "contract_version": SCIENTIFIC_WEB_CONTRACT_VERSION,
             "source_artifact": f"{territory}-complete-analysis.json",
             "source_of_truth": "scientific_web_summary",
@@ -562,35 +651,20 @@ def _build_scientific_web_summary(
             "comparability_guaranteed": True,
         },
         "portfolio_summary": portfolio_summary,
+        "scientific_graph_inputs": scientific_graph_inputs,
         "network_damage_tables": {
-            "annual": _safe_list(page_state_tables.get("annual")) or fallback_state_tables["annual"],
-            "rp50": _safe_list(page_state_tables.get("rp50")),
-            "rp100": _safe_list(page_state_tables.get("rp100")),
-            "p99": _safe_list(page_state_tables.get("p99")),
+            **{scenario: _safe_list(state_damage_tables.get(scenario)) for scenario in SCENARIOS},
             "scenario_availability": {
                 scenario: (
                     "scientific_widget_contract"
-                    if damage_table_availability.get(scenario)
+                    if bool(_safe_dict(scenario_availability.get(scenario)).get("state_damage_tables"))
                     else "unavailable"
                 )
                 for scenario in SCENARIOS
             },
         },
         "component_breakdowns": {
-            "annual": _safe_dict(page_breakdowns.get("annual")) or fallback_breakdowns["annual"],
-            "rp50": _safe_dict(page_breakdowns.get("rp50")) or fallback_breakdowns["rp50"],
-            "rp100": _safe_dict(page_breakdowns.get("rp100")) or fallback_breakdowns["rp100"],
-            "p99": _safe_dict(page_breakdowns.get("p99")) or fallback_breakdowns["p99"],
-            "portfolio_component_totals": {
-                "annual": {
-                    "storm": _safe_dict(_safe_dict(portfolio.get("storm")).get("components_direct_eai_eur")),
-                    "storm_cmcc": _safe_dict(_safe_dict(portfolio.get("storm_cmcc")).get("components_direct_eai_eur")),
-                },
-                "p99": {
-                    "storm": _safe_dict(_safe_dict(portfolio.get("storm")).get("components_direct_percentile_99_loss_eur")),
-                    "storm_cmcc": _safe_dict(_safe_dict(portfolio.get("storm_cmcc")).get("components_direct_percentile_99_loss_eur")),
-                },
-            },
+            **{scenario: _safe_dict(damage_breakdowns.get(scenario)) for scenario in SCENARIOS},
         },
         "network_states": {
             "contract": {
@@ -598,7 +672,7 @@ def _build_scientific_web_summary(
                 "aggregation_unit": "scientific_service_unit",
                 "contract_version": SCIENTIFIC_WEB_CONTRACT_VERSION,
                 "canonical_service_layer_keys": list(CANONICAL_SERVICE_LAYER_TO_KEY.keys()),
-                "service_keys": list(CANONICAL_SERVICE_LAYER_TO_KEY.values()),
+                "service_keys": list(PUBLIC_SERVICE_KEYS),
                 "scenarios": list(SCENARIOS),
                 "comparable_widgets": [
                     "network_state_map",
@@ -609,16 +683,16 @@ def _build_scientific_web_summary(
             },
             "scenario_service_state_distribution": network_state_distribution,
             "canonical_service_unit_counts": canonical_service_unit_counts,
-            "worst_case_native_service_states": _safe_dict(portfolio.get("network_states_native")),
-            "worst_case_projected_service_states": _safe_dict(portfolio.get("network_states_projected")),
-            "worst_case_projected_service_coverage": _safe_dict(portfolio.get("network_states_projected_coverage")),
+            "worst_case_native_service_states": _canonicalize_public_service_keys(_safe_dict(portfolio.get("network_states_native"))),
+            "worst_case_projected_service_states": _canonicalize_public_service_keys(_safe_dict(portfolio.get("network_states_projected"))),
+            "worst_case_projected_service_coverage": _canonicalize_public_service_keys(_safe_dict(portfolio.get("network_states_projected_coverage"))),
             "scenario_availability": network_state_availability,
         },
         "social_impact": {
             "scenario_summary": social_summaries,
             "scenario_population_state_distribution": social_population_distribution,
-            "worst_case_summary": _safe_dict(portfolio.get("social_impact_summary")),
-            "worst_case_population_state_distribution": _safe_dict(portfolio.get("social_impact_population_state_distribution")),
+            "worst_case_summary": _canonicalize_public_service_keys(_safe_dict(portfolio.get("social_impact_summary"))),
+            "worst_case_population_state_distribution": _canonicalize_public_service_keys(_safe_dict(portfolio.get("social_impact_population_state_distribution"))),
             "scenario_availability": social_availability,
         },
         "frontend": {
@@ -629,27 +703,23 @@ def _build_scientific_web_summary(
                 "strict_widget_source": True,
             },
             "impact": {
-                "component_order": (
-                    list(page_component_order)
-                    if isinstance(page_component_order, list) and page_component_order
-                    else list(COMPONENT_ORDER)
-                ),
+                "component_order": list(COMPONENT_ORDER),
                 "summary_metrics": summary_metrics,
                 "state_damage_tables": {
-                    scenario: _safe_list(page_state_tables.get(scenario)) or fallback_state_tables[scenario]
+                    scenario: _safe_list(state_damage_tables.get(scenario))
                     for scenario in SCENARIOS
                 },
                 "damage_breakdown_by_scenario": {
-                    scenario: _safe_dict(page_breakdowns.get(scenario)) or fallback_breakdowns[scenario]
+                    scenario: _safe_dict(damage_breakdowns.get(scenario))
                     for scenario in SCENARIOS
                 },
-                "map_defaults": _safe_dict(page_impact.get("map_defaults")) or {"hazard": "storm", "scenario": "p99"},
+                "map_defaults": {"hazard": "storm", "scenario": "rp1000"},
             },
             "scenario_availability": {
                 scenario: {
-                    "damage_tables": bool(damage_table_availability.get(scenario)),
-                    "social_impact": bool(social_availability.get(scenario)),
-                    "network_states": bool(network_state_availability.get(scenario)),
+                    "damage_tables": bool(_safe_dict(scenario_availability.get(scenario)).get("state_damage_tables")),
+                    "social_impact": bool(_safe_dict(scenario_availability.get(scenario)).get("social_impact_by_scenario")),
+                    "network_states": bool(_safe_dict(scenario_availability.get(scenario)).get("network_states")),
                 }
                 for scenario in SCENARIOS
             },
@@ -658,7 +728,7 @@ def _build_scientific_web_summary(
             "Ce payload aligne les widgets web sur une source scientifique unique.",
             "Les totaux portefeuille proviennent du complete-analysis publie.",
             "Les distributions d etat reseau et les impacts sociaux par scenario sont recomptes depuis la couche canonique network-states.geojson.",
-            "Les tableaux d impact front sont republies ici pour eviter tout fallback metier silencieux dans le client.",
+            "Les tableaux d impact front proviennent de complete_analysis.scientific_graph_inputs strict si disponible, sinon de complete_analysis.pml_network_graph_inputs.",
         ],
     }
     return scientific_summary
@@ -670,17 +740,57 @@ def build_scientific_web_summary(
     complete_analysis_path: Path,
     out_path: Path,
     network_states_geojson_path: Path | None = None,
-    page_analysis_path: Path | None = None,
+    repair_legacy_scientific_inputs: bool = False,
 ) -> Path:
     complete_analysis = _load_json(complete_analysis_path)
+    has_pml_network_graph_inputs = _graph_inputs_have_required_rows(
+        complete_analysis.get("pml_network_graph_inputs")
+    )
+    if needs_strict_scientific_rebuild(complete_analysis) and not has_pml_network_graph_inputs:
+        if not repair_legacy_scientific_inputs:
+            raise RuntimeError(
+                "complete-analysis is missing strict V4 scientific_graph_inputs and PML-light network graph inputs; "
+                "new runs must produce pml_network_graph_inputs natively before scientific publication. "
+                "For archived/pre-V4 runs only, rerun this command with "
+                "--repair-legacy-scientific-inputs."
+            )
+        rebuild_scientific_graph_inputs(
+            territory=territory,
+            complete_analysis_path=complete_analysis_path,
+        )
+        complete_analysis = _load_json(complete_analysis_path)
+        archived_network_states_path = complete_analysis_path.parent / f"{territory}-network-states.geojson"
+        if archived_network_states_path.exists():
+            network_states_geojson_path = archived_network_states_path
     network_states_geojson = _load_optional_json(network_states_geojson_path)
-    page_analysis = _load_optional_json(page_analysis_path)
     payload = _build_scientific_web_summary(
         complete_analysis,
         territory,
         network_states_geojson=network_states_geojson,
-        page_analysis=page_analysis,
     )
+    scientific_graph_inputs = _safe_dict(payload.get("scientific_graph_inputs"))
+    if complete_analysis.get("scientific_graph_inputs") != scientific_graph_inputs:
+        complete_analysis["scientific_graph_inputs"] = scientific_graph_inputs
+        complete_analysis_path.write_text(
+            json.dumps(complete_analysis, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    default_complete_analysis_path = WEB_DATA_DIR / f"{territory}-complete-analysis.json"
+    if complete_analysis_path.resolve() != default_complete_analysis_path.resolve() and default_complete_analysis_path.exists():
+        default_complete_analysis = _load_json(default_complete_analysis_path)
+        source_run_id = str(_safe_dict(complete_analysis.get("meta")).get("run_id") or "").strip()
+        default_run_id = str(_safe_dict(default_complete_analysis.get("meta")).get("run_id") or "").strip()
+        if source_run_id and default_run_id and source_run_id != default_run_id:
+            raise RuntimeError(
+                "Refusing to mirror scientific_graph_inputs to mutable web complete-analysis "
+                f"because run_id differs: source={source_run_id} web={default_run_id}"
+            )
+        if default_complete_analysis.get("scientific_graph_inputs") != scientific_graph_inputs:
+            default_complete_analysis["scientific_graph_inputs"] = scientific_graph_inputs
+            default_complete_analysis_path.write_text(
+                json.dumps(default_complete_analysis, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return out_path
@@ -692,7 +802,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--complete-analysis-json", default=None)
     parser.add_argument("--out-json", default=None)
     parser.add_argument("--network-states-geojson", default=None)
-    parser.add_argument("--page-analysis-json", default=None)
+    parser.add_argument(
+        "--repair-legacy-scientific-inputs",
+        action="store_true",
+        help=(
+            "Explicitly repair archived/pre-V4 complete-analysis payloads by running the "
+            "heavy scientific_graph_postprocess reconstruction. New V4 runs should not use this."
+        ),
+    )
     args = parser.parse_args(argv)
 
     territory = str(args.territory).strip().lower()
@@ -711,18 +828,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.network_states_geojson
         else (WEB_DATA_DIR / f"{territory}-network-states.geojson")
     )
-    page_suffix = "page7" if territory == "saint-barthelemy" else ("page2" if territory == "martinique" else "page1")
-    page_analysis_path = (
-        Path(args.page_analysis_json)
-        if args.page_analysis_json
-        else (WEB_DATA_DIR / f"{territory}-{page_suffix}-analysis.json")
-    )
     build_scientific_web_summary(
         territory=territory,
         complete_analysis_path=complete_analysis_path,
         out_path=out_path,
         network_states_geojson_path=network_states_geojson_path,
-        page_analysis_path=page_analysis_path,
+        repair_legacy_scientific_inputs=bool(args.repair_legacy_scientific_inputs),
     )
     print(out_path)
     return 0

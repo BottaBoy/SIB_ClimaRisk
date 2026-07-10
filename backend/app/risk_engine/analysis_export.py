@@ -113,6 +113,13 @@ def build_result_payload(
                 "population_projected_service_states_key": "population_projected_service_states",
                 "population_projected_service_states_coverage_key": "population_projected_service_states_coverage",
             }
+    pml_network_graph_inputs = (
+        comp.artifacts.get("pml_network_graph_inputs")
+        if isinstance(comp.artifacts, dict)
+        else None
+    )
+    if isinstance(pml_network_graph_inputs, dict):
+        payload["pml_network_graph_inputs"] = pml_network_graph_inputs
     return payload
 
 

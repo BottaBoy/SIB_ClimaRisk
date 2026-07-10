@@ -47,7 +47,7 @@ except Exception:  # pragma: no cover - surfaced through empty fallback at runti
 
 
 DAMAGE_BREAKDOWN_LABELS: dict[str, str] = {}
-MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
+MAP_SCENARIOS = ("annual", "rp10", "rp50", "rp100", "rp1000", "event_max", "top10", "top5")
 _HELPERS_LOADED = False
 PROXY_CLIMADA_MEMORY_BUDGET_GB = 0.75
 PROXY_CLIMADA_MAX_POINTS_PER_SHARD = 64
@@ -340,10 +340,10 @@ def _scenario_loss_from_result(result: Any, scenario: str) -> float:
         return 0.0
     if scenario_key == "annual":
         return float(np.asarray(getattr(result, "eai_direct_by_point", []), dtype=float).sum())
-    if scenario_key == "rp50":
-        return float((getattr(result, "pml_eur", {}) or {}).get(50, 0.0) or 0.0)
-    if scenario_key == "rp100":
-        return float((getattr(result, "pml_eur", {}) or {}).get(100, 0.0) or 0.0)
+    match = re.fullmatch(r"rp(\d+)", scenario_key)
+    if match:
+        return_period = int(match.group(1))
+        return float((getattr(result, "pml_eur", {}) or {}).get(return_period, 0.0) or 0.0)
     if scenario_key == "event_max":
         return float(getattr(result, "max_event_loss_eur", 0.0) or 0.0)
     return float(np.asarray(getattr(result, "eai_direct_by_point", []), dtype=float).sum())
@@ -408,10 +408,8 @@ def _surge_depth_from_map_cell(cell: dict[str, Any], scenario: str) -> float:
     scenario_key = str(scenario or "annual").strip().lower()
     if scenario_key in {"annual", "top10", "top5"}:
         value = float(cell.get("mean_surge_m") or 0.0)
-    elif scenario_key == "rp50":
-        value = float(cell.get("rp50_surge_m") or 0.0)
-    elif scenario_key == "rp100":
-        value = float(cell.get("rp100_surge_m") or 0.0)
+    elif scenario_key.startswith("rp"):
+        value = float(cell.get(f"{scenario_key}_surge_m") or 0.0)
     elif scenario_key == "event_max":
         value = float(cell.get("event_max_surge_m") or 0.0)
     else:
@@ -642,8 +640,10 @@ def _compute_landslide_proxy_source_payload(
     metrics_stub = SimpleNamespace(
         aai_agg_eur=float(annual_arr.sum()),
         pml_eur={
+            10: _loss_at_return_period(yearly_losses, yearly_freq, 10.0),
             50: _loss_at_return_period(yearly_losses, yearly_freq, 50.0),
             100: _loss_at_return_period(yearly_losses, yearly_freq, 100.0),
+            1000: _loss_at_return_period(yearly_losses, yearly_freq, 1000.0),
         },
         max_event_loss_eur=float(np.max(yearly_losses)) if yearly_losses.size else 0.0,
     )

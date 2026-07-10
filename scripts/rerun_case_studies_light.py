@@ -585,6 +585,8 @@ def main(*, journal_path: Path | None = None) -> int:
             territory=territory,
             step="build_vulnerability_curve_artifacts",
         )
+        network_states_json = REPO_ROOT / "web" / "data" / f"{territory}-network-states.geojson"
+        scientific_summary_json = REPO_ROOT / "web" / "data" / f"{territory}-scientific-web-summary.json"
         _info(f"[{territory}] impacts -> mouvement de terrain (rebuild case-study page analysis)")
         _run(
             [
@@ -593,6 +595,10 @@ def main(*, journal_path: Path | None = None) -> int:
                 "--territory",
                 territory,
                 *complete_analysis_args,
+                "--out-json",
+                str(page_json),
+                "--out-state-geojson",
+                str(network_states_json),
                 "--spacing-m",
                 str(page_spacing_m),
                 "--component-light-spacing-m",
@@ -609,8 +615,7 @@ def main(*, journal_path: Path | None = None) -> int:
                 str(proxy_json),
                 "--case-study-run-id",
                 run_id,
-            ]
-            ,
+            ],
             env=territory_env,
             journal_path=journal_path,
             territory=territory,
@@ -623,12 +628,10 @@ def main(*, journal_path: Path | None = None) -> int:
                 "--territory",
                 territory,
                 *complete_analysis_args,
-                "--page-analysis-json",
-                str(page_json),
                 "--network-states-geojson",
-                str(REPO_ROOT / "web" / "data" / f"{territory}-network-states.geojson"),
+                str(network_states_json),
                 "--out-json",
-                str(REPO_ROOT / "web" / "data" / f"{territory}-scientific-web-summary.json"),
+                str(scientific_summary_json),
             ],
             env=territory_env,
             journal_path=journal_path,

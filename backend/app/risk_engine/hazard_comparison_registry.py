@@ -181,6 +181,16 @@ def validate_hazard_comparison_registry(
         bbox = entry.get("comparison_bbox_hint")
         _validate_bbox(errors, territory_id, bbox)
 
+        surge_grid_override = entry.get("surge_grid_deg_override")
+        if surge_grid_override is not None:
+            try:
+                surge_grid_override_value = float(surge_grid_override)
+            except (TypeError, ValueError):
+                errors.append(f"{territory_id}: surge_grid_deg_override must be numeric")
+            else:
+                if not math.isfinite(surge_grid_override_value) or surge_grid_override_value <= 0.0:
+                    errors.append(f"{territory_id}: surge_grid_deg_override must be > 0")
+
         admin_mask = entry.get("admin_mask")
         if not isinstance(admin_mask, dict):
             errors.append(f"{territory_id}: admin_mask must be an object")

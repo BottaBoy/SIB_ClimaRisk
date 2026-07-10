@@ -312,38 +312,28 @@ def resolve_scenario_payloads(parent_manifest: dict[str, Any]) -> list[ScenarioP
         label = str(scenario.get("label") or scenario_id)
         parameter_key = str(scenario.get("parameter_key") or "")
         status = str(scenario.get("status") or "")
-
-        payload_candidates: list[Path] = []
-        child_manifest_candidates: list[Path] = []
-
-        child_manifest_raw = scenario.get("child_manifest_path")
-        if child_manifest_raw:
-            child_manifest_path = Path(str(child_manifest_raw))
-            child_manifest_candidates.append(child_manifest_path)
-            payload_candidates.extend(payload_paths_from_child_manifest(child_manifest_path))
-
-        log_text = read_log_text(Path(str(scenario.get("log_path"))) if scenario.get("log_path") else None)
-        log_payloads, log_manifests = find_paths_in_log(log_text)
-        payload_candidates.extend(log_payloads)
-        child_manifest_candidates.extend(log_manifests)
-
-        for child_manifest_path in log_manifests:
-            payload_candidates.extend(payload_paths_from_child_manifest(child_manifest_path))
-
-        payload_candidates = [path for path in dict.fromkeys(payload_candidates) if path.exists()]
-        child_manifest_candidates = [path for path in dict.fromkeys(child_manifest_candidates) if path.exists()]
-
-        for payload_path in payload_candidates:
-            results.append(
-                ScenarioPayload(
-                    scenario_id=scenario_id,
-                    scenario_label=label,
-                    parameter_key=parameter_key,
-                    status=status,
-                    payload_path=payload_path,
-                    child_manifest_path=child_manifest_candidates[-1] if child_manifest_candidates else None,
-                )
+        payload_raw = str(scenario.get("complete_analysis_json_path") or "").strip()
+        if not payload_raw:
+            raise RuntimeError(
+                f"Scenario {scenario_id} is missing complete_analysis_json_path in the sensitivity manifest"
             )
+        payload_path = Path(payload_raw)
+        if not payload_path.exists():
+            raise RuntimeError(
+                f"Scenario {scenario_id} references a missing complete-analysis payload: {payload_path}"
+            )
+        child_manifest_raw = str(scenario.get("child_manifest_path") or "").strip()
+        child_manifest_path = Path(child_manifest_raw) if child_manifest_raw and Path(child_manifest_raw).exists() else None
+        results.append(
+            ScenarioPayload(
+                scenario_id=scenario_id,
+                scenario_label=label,
+                parameter_key=parameter_key,
+                status=status,
+                payload_path=payload_path,
+                child_manifest_path=child_manifest_path,
+            )
+        )
 
     return results
 
@@ -2689,8 +2679,8 @@ def main() -> int:
     print(f"[info] Rows: {len(df)}")
 
     if df.empty:
-        print("[warning] No scientific payload could be resolved from the sensitivity manifest/logs.")
-        print("[warning] Check log_path, child_manifest_path, and complete-analysis JSON paths.")
+        print("[warning] No scientific payload could be resolved from explicit complete_analysis_json_path entries.")
+        print("[warning] The sensitivity manifest is missing strict scientific payload paths or points to non-existent files.")
         quality_report = build_quality_report(df)
         quality_report.setdefault("alerts", []).extend(extraction_warnings)
         summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, [], quality_report)

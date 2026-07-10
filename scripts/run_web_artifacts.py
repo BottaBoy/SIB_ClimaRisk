@@ -7,6 +7,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:  # pragma: no cover - import path depends on module vs CLI execution
+    from scripts.scientific_publication_contract import (  # type: ignore
+        EVENT_SELECTION_BASIS,
+        FORBIDDEN_PUBLIC_SERVICE_KEYS,
+        FORBIDDEN_SCIENTIFIC_SCENARIOS,
+        PUBLIC_SERVICE_KEYS,
+        SCIENTIFIC_SCENARIOS,
+        SCIENTIFIC_WEB_CONTRACT_VERSION,
+        SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+        SERVICE_LAYER_TO_PUBLIC_KEY,
+    )
+except ModuleNotFoundError:  # pragma: no cover
+    from scientific_publication_contract import (  # type: ignore
+        EVENT_SELECTION_BASIS,
+        FORBIDDEN_PUBLIC_SERVICE_KEYS,
+        FORBIDDEN_SCIENTIFIC_SCENARIOS,
+        PUBLIC_SERVICE_KEYS,
+        SCIENTIFIC_SCENARIOS,
+        SCIENTIFIC_WEB_CONTRACT_VERSION,
+        SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+        SERVICE_LAYER_TO_PUBLIC_KEY,
+    )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
@@ -19,21 +41,7 @@ FORBIDDEN_PUBLICATION_SOURCE_MODES = {
     "complete_analysis_component_ratios",
     "complete_analysis_asset_fallback",
 }
-PUBLIC_COMPLETE_ANALYSIS_FIELD_MAP = {
-    "annual": "eai_eur",
-    "rp50": "pml_50_eur",
-    "rp100": "pml_100_eur",
-    "event_max": "percentile_99_loss_eur",
-}
-PAGE_ANALYSIS_SUMMARY_FIELD_MAP = {
-    "annual": "eai_total_eur",
-    "rp50": "rp50_total_loss_eur",
-    "rp100": "rp100_total_loss_eur",
-    "event_max": "p99_total_loss_eur",
-}
-PROXY_BREAKDOWN_SHARE_SCENARIOS = ("annual", "rp50", "rp100")
 PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR = 0.5
-PUBLIC_LOSS_ALIGNMENT_REL_TOLERANCE = 1e-8
 REQUIRED_NETWORK_STATES_METADATA = {
     "state_geometry_mode": "hydraulic_zoning_v2",
     "water_state_geometry_mode": "hydraulic_zoning_v2",
@@ -46,14 +54,8 @@ REQUIRED_NETWORK_STATES_METADATA = {
     "geometry_semantics": "native_service_geometry",
     "methodology_breaks_comparability": True,
 }
-SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION = "scientific_web_summary_v2"
-SCIENTIFIC_WEB_CONTRACT_VERSION = "scientific_web_contract_v2"
-SCIENTIFIC_WEB_SCENARIOS = ("annual", "rp50", "rp100", "p99")
-CANONICAL_SERVICE_LAYER_TO_KEY = {
-    "eau_aep": "water_aep",
-    "eau_eu": "water_eu",
-    "elec_grid_0p1deg": "elec",
-}
+SCIENTIFIC_WEB_SCENARIOS = SCIENTIFIC_SCENARIOS
+CANONICAL_SERVICE_LAYER_TO_KEY = SERVICE_LAYER_TO_PUBLIC_KEY
 
 
 def _coerce_int(raw_value: object, *, default: int = 0) -> int:
@@ -405,176 +407,6 @@ def _payload_publication_trace(payload: dict[str, Any] | None) -> dict[str, Any]
     }
 
 
-def _extract_complete_analysis_public_loss_targets(
-    payload: dict[str, Any] | None,
-    hazard_key: str,
-) -> dict[str, float]:
-    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
-    hazard_payload = portfolio.get(hazard_key) if isinstance(portfolio, dict) else None
-    if not isinstance(hazard_payload, dict):
-        return {}
-
-    targets: dict[str, float] = {}
-    for scenario, field in PUBLIC_COMPLETE_ANALYSIS_FIELD_MAP.items():
-        value = _coerce_float(hazard_payload.get(field), default=0.0)
-        if value > 0.0:
-            targets[scenario] = value
-    return targets
-
-
-def _extract_page_analysis_public_loss_totals(
-    payload: dict[str, Any] | None,
-    hazard_key: str,
-) -> dict[str, float]:
-    impact = payload.get("impact") if isinstance(payload, dict) else None
-    summary_metrics = impact.get("summary_metrics") if isinstance(impact, dict) else None
-    hazard_payload = summary_metrics.get(hazard_key) if isinstance(summary_metrics, dict) else None
-    if not isinstance(hazard_payload, dict):
-        return {}
-
-    totals: dict[str, float] = {}
-    for scenario, field in PAGE_ANALYSIS_SUMMARY_FIELD_MAP.items():
-        value = _coerce_float(hazard_payload.get(field), default=0.0)
-        if value > 0.0:
-            totals[scenario] = value
-    return totals
-
-
-def _public_loss_alignment_tolerance(expected_total: float) -> float:
-    return max(
-        float(PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR),
-        abs(float(expected_total)) * float(PUBLIC_LOSS_ALIGNMENT_REL_TOLERANCE),
-    )
-
-
-def _validate_page_analysis_public_loss_alignment(
-    *,
-    run_id: str,
-    territory: str,
-    complete_payload: dict[str, Any] | None,
-    page_payload: dict[str, Any] | None,
-) -> dict[str, dict[str, dict[str, float]]]:
-    if not isinstance(page_payload, dict):
-        raise RuntimeError(f"{territory} page-analysis payload is missing or invalid for run {run_id}")
-
-    alignment: dict[str, dict[str, dict[str, float]]] = {}
-    for hazard_key in ("storm", "storm_cmcc"):
-        expected_totals = _extract_complete_analysis_public_loss_targets(complete_payload, hazard_key)
-        if not expected_totals:
-            continue
-
-        observed_totals = _extract_page_analysis_public_loss_totals(page_payload, hazard_key)
-        if not observed_totals:
-            raise RuntimeError(
-                f"{territory} page-analysis is missing impact.summary_metrics.{hazard_key} for run {run_id}"
-            )
-
-        hazard_alignment: dict[str, dict[str, float]] = {}
-        for scenario, expected_total in expected_totals.items():
-            if scenario not in observed_totals:
-                raise RuntimeError(
-                    f"{territory} page-analysis is missing public total {hazard_key}.{scenario} for run {run_id}"
-                )
-            observed_total = float(observed_totals[scenario])
-            abs_diff = abs(observed_total - float(expected_total))
-            tolerance = _public_loss_alignment_tolerance(expected_total)
-            if abs_diff > tolerance:
-                raise RuntimeError(
-                    f"{territory} page-analysis public loss totals mismatch complete-analysis for {hazard_key}.{scenario}: "
-                    f"observed={observed_total:.6f} expected={float(expected_total):.6f} diff={abs_diff:.6f} tol={tolerance:.6f}"
-                )
-            hazard_alignment[scenario] = {
-                "expected_eur": float(expected_total),
-                "observed_eur": observed_total,
-                "abs_diff_eur": abs_diff,
-            }
-        alignment[hazard_key] = hazard_alignment
-    return alignment
-
-
-def _normalized_float_mapping(raw_value: object) -> dict[str, float]:
-    if not isinstance(raw_value, dict):
-        return {}
-    normalized: dict[str, float] = {}
-    for key, value in raw_value.items():
-        name = str(key or "").strip()
-        if not name:
-            continue
-        normalized[name] = _coerce_float(value, default=0.0)
-    return normalized
-
-
-def _float_mappings_equal(
-    left: dict[str, float],
-    right: dict[str, float],
-    *,
-    tolerance: float = 1e-12,
-) -> bool:
-    if not left or not right:
-        return False
-    keys = sorted(set(left.keys()) | set(right.keys()))
-    return all(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) <= tolerance for key in keys)
-
-
-def _float_mappings_differ(
-    left: dict[str, float],
-    right: dict[str, float],
-    *,
-    tolerance: float = 1e-6,
-) -> bool:
-    keys = sorted(set(left.keys()) | set(right.keys()))
-    return any(abs(float(left.get(key, 0.0)) - float(right.get(key, 0.0))) > tolerance for key in keys)
-
-
-def _validate_proxy_breakdown_share_variation(
-    *,
-    run_id: str,
-    territory: str,
-    proxy_payload: dict[str, Any] | None,
-) -> dict[str, dict[str, dict[str, bool]]]:
-    hazards = proxy_payload.get("hazards") if isinstance(proxy_payload, dict) else None
-    if not isinstance(hazards, dict):
-        raise RuntimeError(f"{territory} multi-hazard proxy is missing hazards payload for run {run_id}")
-
-    validation: dict[str, dict[str, dict[str, bool]]] = {}
-    scenario_pairs = (("annual", "rp50"), ("annual", "rp100"), ("rp50", "rp100"))
-    for hazard_key in ("storm", "storm_cmcc"):
-        hazard_payload = hazards.get(hazard_key)
-        scenarios = hazard_payload.get("scenarios") if isinstance(hazard_payload, dict) else None
-        if not isinstance(scenarios, dict):
-            raise RuntimeError(
-                f"{territory} multi-hazard proxy is missing hazards.{hazard_key}.scenarios for run {run_id}"
-            )
-
-        hazard_checks: dict[str, dict[str, bool]] = {}
-        for left_scenario, right_scenario in scenario_pairs:
-            left_payload = scenarios.get(left_scenario) if isinstance(scenarios.get(left_scenario), dict) else None
-            right_payload = scenarios.get(right_scenario) if isinstance(scenarios.get(right_scenario), dict) else None
-            if left_payload is None or right_payload is None:
-                raise RuntimeError(
-                    f"{territory} multi-hazard proxy is missing {hazard_key} scenario pair {left_scenario}/{right_scenario} for run {run_id}"
-                )
-
-            left_ratios = _normalized_float_mapping(left_payload.get("component_ratios"))
-            right_ratios = _normalized_float_mapping(right_payload.get("component_ratios"))
-            left_shares = _normalized_float_mapping(left_payload.get("breakdown_shares"))
-            right_shares = _normalized_float_mapping(right_payload.get("breakdown_shares"))
-
-            ratios_differ = _float_mappings_differ(left_ratios, right_ratios)
-            shares_equal = _float_mappings_equal(left_shares, right_shares)
-            if ratios_differ and shares_equal:
-                raise RuntimeError(
-                    f"{territory} multi-hazard proxy has frozen breakdown_shares for {hazard_key} between "
-                    f"{left_scenario} and {right_scenario} despite differing component ratios"
-                )
-            hazard_checks[f"{left_scenario}_vs_{right_scenario}"] = {
-                "component_ratios_differ": bool(ratios_differ),
-                "breakdown_shares_equal": bool(shares_equal),
-            }
-        validation[hazard_key] = hazard_checks
-    return validation
-
-
 def _requires_publication_trace(relative_path: str) -> bool:
     path = str(relative_path or "").strip().lower()
     return path.endswith("-multi-hazard-proxy.json") or path.endswith("-analysis.json")
@@ -708,13 +540,13 @@ def _scientific_network_distribution_from_geojson(
     }
     seen_units: dict[str, dict[str, dict[str, set[str]]]] = {
         scenario: {
-            hazard: {service_key: set() for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values()}
+            hazard: {service_key: set() for service_key in PUBLIC_SERVICE_KEYS}
             for hazard in ("storm", "storm_cmcc")
         }
         for scenario in SCIENTIFIC_WEB_SCENARIOS
     }
     duplicates: dict[str, dict[str, list[str]]] = {
-        hazard: {service_key: [] for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values()}
+        hazard: {service_key: [] for service_key in PUBLIC_SERVICE_KEYS}
         for hazard in ("storm", "storm_cmcc")
     }
 
@@ -729,7 +561,7 @@ def _scientific_network_distribution_from_geojson(
             raise RuntimeError("Canonical network-state feature is missing service unit identifier")
         properties = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
         for hazard in ("storm", "storm_cmcc"):
-            if service_unit_id in seen_units["p99"][hazard][service_key]:
+            if service_unit_id in seen_units[SCIENTIFIC_WEB_SCENARIOS[-1]][hazard][service_key]:
                 duplicates[hazard][service_key].append(service_unit_id)
         for scenario in SCIENTIFIC_WEB_SCENARIOS:
             for hazard in ("storm", "storm_cmcc"):
@@ -774,7 +606,6 @@ def _validate_scientific_web_summary_alignment(
     complete_payload: dict[str, Any],
     summary_payload: dict[str, Any],
     network_states_payload: dict[str, Any] | None = None,
-    page_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = summary_payload.get("meta") if isinstance(summary_payload.get("meta"), dict) else {}
     if not bool(meta.get("scientific_source")):
@@ -807,12 +638,12 @@ def _validate_scientific_web_summary_alignment(
 
     portfolio = complete_payload.get("portfolio_results") if isinstance(complete_payload.get("portfolio_results"), dict) else {}
     published = summary_payload.get("portfolio_summary") if isinstance(summary_payload.get("portfolio_summary"), dict) else {}
-    alignment: dict[str, Any] = {"hazards": {}, "network_states": {}, "page_alignment": {}}
+    alignment: dict[str, Any] = {"hazards": {}, "network_states": {}, "scientific_graph_inputs": {}}
     field_map = {
-        "annual_eur": "eai_eur",
+        "rp10_eur": "pml_10_eur",
         "rp50_eur": "pml_50_eur",
         "rp100_eur": "pml_100_eur",
-        "p99_eur": "percentile_99_loss_eur",
+        "rp1000_eur": "pml_1000_eur",
     }
     for hazard_key in ("storm", "storm_cmcc"):
         source_row = portfolio.get(hazard_key) if isinstance(portfolio.get(hazard_key), dict) else {}
@@ -843,14 +674,45 @@ def _validate_scientific_web_summary_alignment(
         frontend_row = frontend_availability.get(scenario) if isinstance(frontend_availability, dict) else None
         if not isinstance(frontend_row, dict):
             raise RuntimeError(f"{territory} scientific web summary is missing frontend.scenario_availability.{scenario}")
-        if frontend_row.get("network_states") is not True:
+        if bool(frontend_row.get("network_states")) is not True:
             raise RuntimeError(
                 f"{territory} scientific web summary must expose network_states for scenario {scenario}"
             )
-        if network_availability.get(scenario) is not True:
+        if bool(network_availability.get(scenario)) is not True:
             raise RuntimeError(
                 f"{territory} scientific web summary must declare network_states.scenario_availability.{scenario}=true"
             )
+
+    complete_graph_inputs = (
+        complete_payload.get("scientific_graph_inputs")
+        if isinstance(complete_payload.get("scientific_graph_inputs"), dict)
+        else {}
+    )
+    if not complete_graph_inputs:
+        raise RuntimeError(f"{territory} complete-analysis is missing scientific_graph_inputs")
+    if str(complete_graph_inputs.get("source_of_truth") or "").strip() != "complete_analysis":
+        raise RuntimeError(
+            f"{territory} complete-analysis scientific_graph_inputs must declare source_of_truth=complete_analysis"
+        )
+    if list(complete_graph_inputs.get("scenarios") or []) != list(SCIENTIFIC_WEB_SCENARIOS):
+        raise RuntimeError(
+            f"{territory} complete-analysis scientific_graph_inputs.scenarios must equal {list(SCIENTIFIC_WEB_SCENARIOS)}"
+        )
+    if str(complete_graph_inputs.get("event_selection_basis") or "").strip() != EVENT_SELECTION_BASIS:
+        raise RuntimeError(
+            f"{territory} complete-analysis scientific_graph_inputs.event_selection_basis must equal {EVENT_SELECTION_BASIS}"
+        )
+
+    forbidden_scenarios = set()
+    for key in ("state_damage_tables", "damage_breakdown_by_scenario", "social_impact_by_scenario", "scenario_availability"):
+        block = complete_graph_inputs.get(key)
+        if isinstance(block, dict):
+            forbidden_scenarios.update(set(block.keys()) & FORBIDDEN_SCIENTIFIC_SCENARIOS)
+    if forbidden_scenarios:
+        raise RuntimeError(
+            f"{territory} complete-analysis scientific_graph_inputs contains forbidden scenarios: "
+            f"{', '.join(sorted(forbidden_scenarios))}"
+        )
 
     if network_states_payload is not None:
         published_distribution = (
@@ -877,7 +739,7 @@ def _validate_scientific_web_summary_alignment(
                     if isinstance(published_distribution, dict)
                     else {}
                 )
-                for service_key in CANONICAL_SERVICE_LAYER_TO_KEY.values():
+                for service_key in PUBLIC_SERVICE_KEYS:
                     expected_row = expected_hazard.get(service_key, {"S0": 0, "S1": 0, "S2": 0, "S3": 0, "total_units": 0})
                     published_row = published_hazard.get(service_key, {"S0": 0, "S1": 0, "S2": 0, "S3": 0, "total_units": 0})
                     if any(
@@ -892,47 +754,78 @@ def _validate_scientific_web_summary_alignment(
                         "total_units": int(expected_row.get("total_units", 0)),
                     }
 
-    if page_payload is not None:
-        page_impact = page_payload.get("impact") if isinstance(page_payload.get("impact"), dict) else {}
-        scientific_frontend = summary_payload.get("frontend") if isinstance(summary_payload.get("frontend"), dict) else {}
-        scientific_impact = scientific_frontend.get("impact") if isinstance(scientific_frontend.get("impact"), dict) else {}
-        page_summary_metrics = page_impact.get("summary_metrics") if isinstance(page_impact.get("summary_metrics"), dict) else {}
-        scientific_summary_metrics = scientific_impact.get("summary_metrics") if isinstance(scientific_impact.get("summary_metrics"), dict) else {}
-        for hazard_key in ("storm", "storm_cmcc"):
-            for field in ("eai_total_eur", "rp50_total_loss_eur", "rp100_total_loss_eur", "p99_total_loss_eur"):
-                expected = _coerce_float(page_summary_metrics.get(hazard_key, {}).get(field))
-                observed = _coerce_float(scientific_summary_metrics.get(hazard_key, {}).get(field))
-                if abs(observed - expected) > PUBLIC_LOSS_ALIGNMENT_ABS_TOLERANCE_EUR:
-                    raise RuntimeError(
-                        f"{territory} scientific summary frontend mismatch for page-analysis "
-                        f"{hazard_key}.{field}: expected {expected}, observed {observed}"
-                    )
-        page_tables = page_impact.get("state_damage_tables") if isinstance(page_impact.get("state_damage_tables"), dict) else {}
-        scientific_tables = scientific_impact.get("state_damage_tables") if isinstance(scientific_impact.get("state_damage_tables"), dict) else {}
-        page_breakdowns = (
-            page_impact.get("damage_breakdown_by_scenario")
-            if isinstance(page_impact.get("damage_breakdown_by_scenario"), dict)
-            else {}
+    summary_graph_inputs = (
+        summary_payload.get("scientific_graph_inputs")
+        if isinstance(summary_payload.get("scientific_graph_inputs"), dict)
+        else {}
+    )
+    if summary_graph_inputs != complete_graph_inputs:
+        raise RuntimeError(
+            f"{territory} scientific web summary must republish complete-analysis scientific_graph_inputs 1:1"
         )
-        scientific_breakdowns = (
-            scientific_impact.get("damage_breakdown_by_scenario")
-            if isinstance(scientific_impact.get("damage_breakdown_by_scenario"), dict)
-            else {}
+    summary_text = json.dumps(summary_payload, ensure_ascii=False)
+    forbidden_service_keys = sorted(key for key in FORBIDDEN_PUBLIC_SERVICE_KEYS if f'"{key}"' in summary_text)
+    if forbidden_service_keys:
+        raise RuntimeError(
+            f"{territory} scientific web summary contains non-canonical service keys: "
+            f"{', '.join(forbidden_service_keys)}"
         )
-        for scenario in SCIENTIFIC_WEB_SCENARIOS:
-            if scientific_tables.get(scenario) != page_tables.get(scenario):
-                raise RuntimeError(
-                    f"{territory} scientific summary frontend.state_damage_tables.{scenario} "
-                    "must match page-analysis exactly"
-                )
-            if scientific_breakdowns.get(scenario) != page_breakdowns.get(scenario):
-                raise RuntimeError(
-                    f"{territory} scientific summary frontend.damage_breakdown_by_scenario.{scenario} "
-                    "must match page-analysis exactly"
-                )
-            alignment["page_alignment"][scenario] = {
-                "table_rows": len(page_tables.get(scenario) or []),
-            }
+
+    scientific_frontend = summary_payload.get("frontend") if isinstance(summary_payload.get("frontend"), dict) else {}
+    scientific_impact = scientific_frontend.get("impact") if isinstance(scientific_frontend.get("impact"), dict) else {}
+    scientific_tables = scientific_impact.get("state_damage_tables") if isinstance(scientific_impact.get("state_damage_tables"), dict) else {}
+    scientific_breakdowns = (
+        scientific_impact.get("damage_breakdown_by_scenario")
+        if isinstance(scientific_impact.get("damage_breakdown_by_scenario"), dict)
+        else {}
+    )
+    complete_tables = (
+        complete_graph_inputs.get("state_damage_tables")
+        if isinstance(complete_graph_inputs.get("state_damage_tables"), dict)
+        else {}
+    )
+    complete_breakdowns = (
+        complete_graph_inputs.get("damage_breakdown_by_scenario")
+        if isinstance(complete_graph_inputs.get("damage_breakdown_by_scenario"), dict)
+        else {}
+    )
+    complete_availability = (
+        complete_graph_inputs.get("scenario_availability")
+        if isinstance(complete_graph_inputs.get("scenario_availability"), dict)
+        else {}
+    )
+    for scenario in SCIENTIFIC_WEB_SCENARIOS:
+        if scientific_tables.get(scenario) != complete_tables.get(scenario):
+            raise RuntimeError(
+                f"{territory} scientific summary frontend.state_damage_tables.{scenario} "
+                "must match complete-analysis scientific_graph_inputs exactly"
+            )
+        if scientific_breakdowns.get(scenario) != complete_breakdowns.get(scenario):
+            raise RuntimeError(
+                f"{territory} scientific summary frontend.damage_breakdown_by_scenario.{scenario} "
+                "must match complete-analysis scientific_graph_inputs exactly"
+            )
+        expected_availability = complete_availability.get(scenario) if isinstance(complete_availability.get(scenario), dict) else {}
+        frontend_row = frontend_availability.get(scenario) if isinstance(frontend_availability, dict) else {}
+        if not isinstance(frontend_row, dict):
+            frontend_row = {}
+        if bool(frontend_row.get("damage_tables")) != bool(expected_availability.get("state_damage_tables")):
+            raise RuntimeError(
+                f"{territory} frontend.scenario_availability.{scenario}.damage_tables "
+                "must match complete-analysis scientific_graph_inputs.scenario_availability"
+            )
+        if bool(frontend_row.get("social_impact")) != bool(expected_availability.get("social_impact_by_scenario")):
+            raise RuntimeError(
+                f"{territory} frontend.scenario_availability.{scenario}.social_impact "
+                "must match complete-analysis scientific_graph_inputs.scenario_availability"
+            )
+        alignment["scientific_graph_inputs"][scenario] = {
+            "table_rows": len(complete_tables.get(scenario) or []),
+            "has_breakdown_rows": bool(
+                (complete_breakdowns.get(scenario) or {}).get("storm")
+                or (complete_breakdowns.get(scenario) or {}).get("storm_cmcc")
+            ),
+        }
     return alignment
 
 
@@ -994,13 +887,10 @@ def validate_territory_web_snapshot(
         "publication_trace": {},
         "public_loss_alignment": {},
         "scientific_web_summary_alignment": {},
-        "proxy_breakdown_share_validation": {},
         "geojson_contract": {},
     }
 
     case_study_run_ids: dict[str, str] = {}
-    proxy_payload: dict[str, Any] | None = None
-    page_payload: dict[str, Any] | None = None
     scientific_summary_payload: dict[str, Any] | None = None
     network_states_payload: dict[str, Any] | None = None
     for relative_path in required_frontend:
@@ -1074,11 +964,6 @@ def validate_territory_web_snapshot(
                     )
                 validation["publication_trace"][relative_path] = publication_trace
 
-            if relative_path.endswith("-multi-hazard-proxy.json"):
-                proxy_payload = payload
-            elif relative_path.endswith("-analysis.json"):
-                page_payload = payload
-
     distinct_case_study_run_ids = sorted({value for value in case_study_run_ids.values() if value})
     if len(distinct_case_study_run_ids) != 1:
         raise RuntimeError(
@@ -1086,40 +971,6 @@ def validate_territory_web_snapshot(
         )
 
     validation["case_study_run_id"] = distinct_case_study_run_ids[0]
-    proxy_key = next(
-        (path for path in validation["publication_trace"].keys() if str(path).endswith("-multi-hazard-proxy.json")),
-        None,
-    )
-    page_key = next(
-        (path for path in validation["publication_trace"].keys() if str(path).endswith("-analysis.json")),
-        None,
-    )
-    if proxy_key and page_key:
-        proxy_trace = validation["publication_trace"].get(proxy_key) or {}
-        page_trace = validation["publication_trace"].get(page_key) or {}
-        if bool(proxy_trace.get("fallback_active")) != bool(page_trace.get("multi_hazard_proxy_fallback_active")):
-            raise RuntimeError(
-                f"Incoherent publication trace for {normalized_territory}: proxy fallback state does not match page-analysis upstream proxy state"
-            )
-        proxy_source_mode = str(proxy_trace.get("source_mode") or "")
-        page_proxy_source_mode = str(page_trace.get("multi_hazard_proxy_source_mode") or "")
-        if proxy_source_mode and page_proxy_source_mode and proxy_source_mode != page_proxy_source_mode:
-            raise RuntimeError(
-                f"Incoherent publication trace for {normalized_territory}: proxy source mode {proxy_source_mode} != page-analysis upstream proxy source mode {page_proxy_source_mode}"
-            )
-    if proxy_payload is not None:
-        validation["proxy_breakdown_share_validation"] = _validate_proxy_breakdown_share_variation(
-            run_id=resolved_run_id,
-            territory=normalized_territory,
-            proxy_payload=proxy_payload,
-        )
-    if page_payload is not None:
-        validation["public_loss_alignment"] = _validate_page_analysis_public_loss_alignment(
-            run_id=resolved_run_id,
-            territory=normalized_territory,
-            complete_payload=complete_payload,
-            page_payload=page_payload,
-        )
     if scientific_summary_payload is not None:
         validation["scientific_web_summary_alignment"] = _validate_scientific_web_summary_alignment(
             run_id=resolved_run_id,
@@ -1127,7 +978,6 @@ def validate_territory_web_snapshot(
             complete_payload=complete_payload,
             summary_payload=scientific_summary_payload,
             network_states_payload=network_states_payload,
-            page_payload=page_payload,
         )
     validation["publication_fallback_present"] = any(
         bool(trace.get("fallback_active")) or bool(trace.get("multi_hazard_proxy_fallback_active"))

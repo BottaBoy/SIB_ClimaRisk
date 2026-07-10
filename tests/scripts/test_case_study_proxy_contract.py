@@ -35,8 +35,10 @@ def _full_proxy_payload(*, fallback_active: bool = False) -> dict:
         scenario: {
             "component_ratios": {
                 "annual": {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0},
+                "rp10": {"wind": 0.5, "rain": 0.25, "surge": 0.25, "landslide": 0.0},
                 "rp50": {"wind": 0.4, "rain": 0.3, "surge": 0.3, "landslide": 0.0},
                 "rp100": {"wind": 0.2, "rain": 0.3, "surge": 0.5, "landslide": 0.0},
+                "rp1000": {"wind": 0.15, "rain": 0.25, "surge": 0.6, "landslide": 0.0},
                 "event_max": {"wind": 0.1, "rain": 0.2, "surge": 0.7, "landslide": 0.0},
                 "top10": {"wind": 0.8, "rain": 0.1, "surge": 0.1, "landslide": 0.0},
                 "top5": {"wind": 0.7, "rain": 0.1, "surge": 0.2, "landslide": 0.0},
@@ -91,6 +93,12 @@ def test_load_multi_hazard_proxy_strict_preserves_scenario_specific_ratios(tmp_p
         "surge": 0.0,
         "landslide": 0.0,
     }
+    assert proxy["storm"]["component_ratios"]["rp10"] == {
+        "wind": 0.5,
+        "rain": 0.25,
+        "surge": 0.25,
+        "landslide": 0.0,
+    }
     assert proxy["storm"]["component_ratios"]["rp50"] == {
         "wind": 0.4,
         "rain": 0.3,
@@ -101,5 +109,11 @@ def test_load_multi_hazard_proxy_strict_preserves_scenario_specific_ratios(tmp_p
         "wind": 0.2,
         "rain": 0.3,
         "surge": 0.5,
+        "landslide": 0.0,
+    }
+    assert proxy["storm"]["component_ratios"]["rp1000"] == {
+        "wind": 0.15,
+        "rain": 0.25,
+        "surge": 0.6,
         "landslide": 0.0,
     }

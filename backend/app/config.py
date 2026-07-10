@@ -115,6 +115,7 @@ class Settings:
     storm_cmcc_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     hazard_prefer_dynamic_from_parquet: bool = True
     hazard_fallback_to_precomputed: bool = False
+    hazard_track_sample_manifest_path: Path | None = None
     storm_wind_unit_in: str = "m/s"
     storm_convert_10min_to_1min: bool = True
     storm_radius_unit_in: str = "km"
@@ -293,6 +294,11 @@ def load_settings() -> Settings:
         storm_cmcc_parquet_path=storm_cmcc_parquet_path,
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
         hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
+        hazard_track_sample_manifest_path=(
+            Path(env["SIB_RISK_HAZARD_TRACK_SAMPLE_MANIFEST"])
+            if env.get("SIB_RISK_HAZARD_TRACK_SAMPLE_MANIFEST")
+            else None
+        ),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
         storm_convert_10min_to_1min=_env_bool(env, "SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN", True),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),

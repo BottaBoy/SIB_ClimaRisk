@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at": "2026-03-27T12:41:39Z",
+    "generated_at": "2026-07-10T10:32:30Z",
     "version": 1,
     "updated_basins": [
       "na",
@@ -10,6 +10,12 @@
     "colormap": "turbo",
     "fill_mode": "nearest",
     "fill_max_distance_cells": 1.5,
+    "cmcc_low_band_hidden_mps_lte": 18.0,
+    "cmcc_low_band_hidden_metrics": [
+      "event_max",
+      "rp100",
+      "rp50"
+    ],
     "cmcc_rp_low_band_hidden_mps_lte": 18.0
   },
   "basins": {

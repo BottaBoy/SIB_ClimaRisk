@@ -55,6 +55,7 @@ from build_basin_wind_leaflet_overlays import (  # noqa: E402
     _build_value_grid,
     _extract_bounds_and_grid,
     _fill_nan_nearest_with_mask,
+    _mask_cmcc_low_band,
     _metric_max_key,
     _metric_min_key,
     _metric_value_key,
@@ -181,14 +182,6 @@ def _require_runtime_deps() -> None:
         )
 
 
-def _latest_existing_basin_json(basin_code: str) -> Path | None:
-    pattern = f"outputs/{basin_code}_wind_maps_*/Hazard_maps/{basin_code}-wind-maps-mean-rp50-rp100-eventmax.json"
-    matches = sorted(REPO_ROOT.glob(pattern))
-    if not matches:
-        return None
-    return matches[-1]
-
-
 def _storm_patterns_from_registry(registry_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
     shared = registry_payload.get("shared_sources") if isinstance(registry_payload.get("shared_sources"), dict) else {}
     raw_catalogs = shared.get("raw_track_catalogs") if isinstance(shared.get("raw_track_catalogs"), dict) else {}
@@ -253,10 +246,6 @@ def _resolve_basin_source_json(
     cell_deg: float,
     wind_unit_in: str,
 ) -> tuple[Path, str]:
-    existing = _latest_existing_basin_json(basin_code)
-    if existing is not None:
-        return existing, "reused_existing"
-
     patterns_by_basin = _storm_patterns_from_registry(registry_payload)
     basin_patterns = patterns_by_basin[basin_code]
     storm_files = _iter_input_files(storm_dir, basin_patterns["storm"])
@@ -361,7 +350,7 @@ def _render_basin_panel(
                 FuncFormatter(lambda value, _pos: f"{(value - 360.0) if value > 180.0 else value:.0f}")
             )
 
-    ax.set_title(title, fontsize=12, fontweight="bold")
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=12)
     return image
 
 
@@ -472,6 +461,8 @@ def _render_basin_maps(
                     grid,
                     max_distance_cells=float(fill_max_distance_cells),
                 )
+                grid = _mask_cmcc_low_band(grid, provider, metric)
+                render_mask = render_mask & np.isfinite(grid)
                 image = _render_basin_panel(
                     axes[axis_index],
                     grid=grid,
@@ -485,7 +476,7 @@ def _render_basin_maps(
                 )
 
             figure_title = f"Bassin {basin_code.upper()} - {METRIC_LABELS[metric]}"
-            fig.suptitle(figure_title, fontsize=14, fontweight="bold")
+            fig.suptitle(figure_title, fontsize=19, fontweight="bold")
             if image is not None:
                 ticks = _build_basin_colorbar_ticks(scale_vmin_mps, scale_vmax_mps)
                 cax = fig.add_axes([0.92, 0.17, 0.015, 0.62])
@@ -766,7 +757,7 @@ def _build_territory_supergraph_figure(
             )
         ax.set_title(
             _territory_subplot_title(spec.label, territory_counts[spec.territory_id]),
-            fontsize=9.25,
+            fontsize=11.5,
             fontweight="bold",
         )
         ax.set_xlim(*x_limits)
@@ -782,7 +773,7 @@ def _build_territory_supergraph_figure(
     fig.subplots_adjust(top=0.82, hspace=0.32, wspace=0.16)
     fig.suptitle(
         title,
-        fontsize=15,
+        fontsize=19,
         fontweight="bold",
         y=0.975,
     )

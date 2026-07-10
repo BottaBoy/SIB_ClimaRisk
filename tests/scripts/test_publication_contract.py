@@ -14,6 +14,12 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from scripts import journal_guamar_run, run_web_artifacts
+from scripts.scientific_publication_contract import (
+    EVENT_SELECTION_BASIS,
+    SCIENTIFIC_SCENARIOS,
+    SCIENTIFIC_WEB_CONTRACT_VERSION,
+    SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+)
 
 
 def test_publication_policy_requires_1500_tracks() -> None:
@@ -35,6 +41,8 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _complete_analysis_payload(*, updated_at: str) -> dict:
+    state_tables = _state_damage_tables_payload()
+    breakdowns = _damage_breakdowns_payload()
     return {
         "updated_at": updated_at,
         "meta": {
@@ -54,15 +62,42 @@ def _complete_analysis_payload(*, updated_at: str) -> dict:
         "portfolio_results": {
             "storm": {
                 "eai_eur": 10.0,
+                "pml_10_eur": 10.0,
                 "pml_50_eur": 50.0,
                 "pml_100_eur": 100.0,
+                "pml_1000_eur": 150.0,
                 "percentile_99_loss_eur": 150.0,
             },
             "storm_cmcc": {
                 "eai_eur": 12.0,
+                "pml_10_eur": 12.0,
                 "pml_50_eur": 55.0,
                 "pml_100_eur": 110.0,
+                "pml_1000_eur": 160.0,
                 "percentile_99_loss_eur": 160.0,
+            },
+        },
+        "scientific_graph_inputs": {
+            "source_of_truth": "complete_analysis",
+            "event_selection_basis": EVENT_SELECTION_BASIS,
+            "scenarios": list(SCIENTIFIC_SCENARIOS),
+            "state_damage_tables": state_tables,
+            "damage_breakdown_by_scenario": breakdowns,
+            "social_impact_by_scenario": {
+                scenario: {
+                    "storm": {"total_population_affected_any_network": 10.0},
+                    "storm_cmcc": {"total_population_affected_any_network": 12.0},
+                }
+                for scenario in SCIENTIFIC_SCENARIOS
+            },
+            "scenario_availability": {
+                scenario: {
+                    "state_damage_tables": True,
+                    "damage_breakdown_by_scenario": True,
+                    "social_impact_by_scenario": True,
+                    "network_states": True,
+                }
+                for scenario in SCIENTIFIC_SCENARIOS
             },
         },
     }
@@ -77,14 +112,14 @@ def _network_states_payload(*, metadata: dict | None = None) -> dict:
                 "layer_key": "eau_aep",
                 "service_feature_id": "AEP_001",
                 "zone_component_key": "AEP_001",
-                "state_annual_storm": "S1",
+                "state_rp10_storm": "S1",
                 "state_rp50_storm": "S2",
                 "state_rp100_storm": "S3",
-                "state_p99_storm": "S3",
-                "state_annual_storm_cmcc": "S2",
+                "state_rp1000_storm": "S3",
+                "state_rp10_storm_cmcc": "S2",
                 "state_rp50_storm_cmcc": "S2",
                 "state_rp100_storm_cmcc": "S3",
-                "state_p99_storm_cmcc": "S3",
+                "state_rp1000_storm_cmcc": "S3",
             },
             "geometry": {"type": "Point", "coordinates": [-61.5, 16.2]},
         },
@@ -95,14 +130,14 @@ def _network_states_payload(*, metadata: dict | None = None) -> dict:
                 "layer_key": "eau_eu",
                 "service_feature_id": "EU_001",
                 "zone_component_key": "EU_001",
-                "state_annual_storm": "S0",
+                "state_rp10_storm": "S0",
                 "state_rp50_storm": "S1",
                 "state_rp100_storm": "S2",
-                "state_p99_storm": "S3",
-                "state_annual_storm_cmcc": "S1",
+                "state_rp1000_storm": "S3",
+                "state_rp10_storm_cmcc": "S1",
                 "state_rp50_storm_cmcc": "S2",
                 "state_rp100_storm_cmcc": "S2",
-                "state_p99_storm_cmcc": "S3",
+                "state_rp1000_storm_cmcc": "S3",
             },
             "geometry": {"type": "Point", "coordinates": [-61.4, 16.3]},
         },
@@ -113,14 +148,14 @@ def _network_states_payload(*, metadata: dict | None = None) -> dict:
                 "layer_key": "elec_grid_0p1deg",
                 "service_feature_id": "",
                 "zone_component_key": "",
-                "state_annual_storm": "S0",
+                "state_rp10_storm": "S0",
                 "state_rp50_storm": "S1",
                 "state_rp100_storm": "S2",
-                "state_p99_storm": "S3",
-                "state_annual_storm_cmcc": "S1",
+                "state_rp1000_storm": "S3",
+                "state_rp10_storm_cmcc": "S1",
                 "state_rp50_storm_cmcc": "S1",
                 "state_rp100_storm_cmcc": "S2",
-                "state_p99_storm_cmcc": "S3",
+                "state_rp1000_storm_cmcc": "S3",
             },
             "geometry": {"type": "Point", "coordinates": [-61.6, 16.2]},
         },
@@ -190,7 +225,7 @@ def _proxy_payload(*, case_study_run_id: str, complete_analysis_run_id: str, fro
 
 def _state_damage_tables_payload(*, storm_rp100: float = 100.0) -> dict:
     return {
-        "annual": [
+        "rp10": [
             {
                 "class_key": "eau_aep",
                 "class_label": "Reseau eau AEP",
@@ -256,7 +291,7 @@ def _state_damage_tables_payload(*, storm_rp100: float = 100.0) -> dict:
                 },
             }
         ],
-        "p99": [
+        "rp1000": [
             {
                 "class_key": "eau_aep",
                 "class_label": "Reseau eau AEP",
@@ -309,10 +344,10 @@ def _damage_breakdowns_payload(*, storm_rp100: float = 100.0) -> dict:
         }
 
     return {
-        "annual": _row(10.0, 12.0),
+        "rp10": _row(10.0, 12.0),
         "rp50": _row(50.0, 55.0),
         "rp100": _row(storm_rp100, 110.0),
-        "p99": _row(150.0, 160.0),
+        "rp1000": _row(150.0, 160.0),
     }
 
 
@@ -370,6 +405,29 @@ def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe
     storm_rp100 = 99.0 if mismatch_rp100 else 100.0
     state_tables = _state_damage_tables_payload(storm_rp100=storm_rp100)
     breakdowns = _damage_breakdowns_payload(storm_rp100=storm_rp100)
+    scientific_graph_inputs = {
+        "source_of_truth": "complete_analysis",
+        "event_selection_basis": EVENT_SELECTION_BASIS,
+        "scenarios": list(SCIENTIFIC_SCENARIOS),
+        "state_damage_tables": state_tables,
+        "damage_breakdown_by_scenario": breakdowns,
+        "social_impact_by_scenario": {
+            scenario: {
+                "storm": {"total_population_affected_any_network": 10.0},
+                "storm_cmcc": {"total_population_affected_any_network": 12.0},
+            }
+            for scenario in SCIENTIFIC_SCENARIOS
+        },
+        "scenario_availability": {
+            scenario: {
+                "state_damage_tables": True,
+                "damage_breakdown_by_scenario": True,
+                "social_impact_by_scenario": True,
+                "network_states": True,
+            }
+            for scenario in SCIENTIFIC_SCENARIOS
+        },
+    }
     return {
         "meta": {
             "territory": territory,
@@ -377,102 +435,103 @@ def _scientific_web_summary_payload(*, run_id: str, territory: str = "guadeloupe
             "generated_at": "2026-05-11T18:04:30+00:00",
             "dynamic_max_tracks": 1500,
             "scientific_source": True,
-            "schema_version": "scientific_web_summary_v2",
-            "contract_version": "scientific_web_contract_v2",
+            "schema_version": SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
+            "contract_version": SCIENTIFIC_WEB_CONTRACT_VERSION,
             "source_of_truth": "scientific_web_summary",
             "aggregation_unit": "scientific_service_unit",
         },
         "portfolio_summary": {
             "storm": {
-                "annual_eur": 10.0,
+                "rp10_eur": 10.0,
                 "rp50_eur": 50.0,
                 "rp100_eur": 100.0,
-                "p99_eur": 150.0,
+                "rp1000_eur": 150.0,
             },
             "storm_cmcc": {
-                "annual_eur": 12.0,
+                "rp10_eur": 12.0,
                 "rp50_eur": 55.0,
                 "rp100_eur": 110.0,
-                "p99_eur": 160.0,
+                "rp1000_eur": 160.0,
             },
         },
         "network_states": {
             "scenario_service_state_distribution": {
-                "annual": {
+                "rp10": {
                     "storm": {
-                        "water_aep": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
-                        "water_eu": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "eau_eu": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
                         "elec": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
                     },
                     "storm_cmcc": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
                         "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
                     },
                 },
                 "rp50": {
                     "storm": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
                         "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
                     },
                     "storm_cmcc": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
                         "elec": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
                     },
                 },
                 "rp100": {
                     "storm": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
                         "elec": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
                     },
                     "storm_cmcc": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
                         "elec": {"S0": 0, "S1": 0, "S2": 1, "S3": 0, "total_units": 1},
                     },
                 },
-                "p99": {
+                "rp1000": {
                     "storm": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
                         "elec": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
                     },
                     "storm_cmcc": {
-                        "water_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
-                        "water_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_aep": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
+                        "eau_eu": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
                         "elec": {"S0": 0, "S1": 0, "S2": 0, "S3": 1, "total_units": 1},
                     },
                 },
             },
-            "scenario_availability": {"annual": True, "rp50": True, "rp100": True, "p99": True},
+            "scenario_availability": {"rp10": True, "rp50": True, "rp100": True, "rp1000": True},
         },
+        "scientific_graph_inputs": scientific_graph_inputs,
         "frontend": {
             "impact": {
                 "summary_metrics": {
                     "storm": {
-                        "eai_total_eur": 10.0,
+                        "rp10_total_loss_eur": 10.0,
                         "rp50_total_loss_eur": 50.0,
                         "rp100_total_loss_eur": storm_rp100,
-                        "p99_total_loss_eur": 150.0,
+                        "rp1000_total_loss_eur": 150.0,
                     },
                     "storm_cmcc": {
-                        "eai_total_eur": 12.0,
+                        "rp10_total_loss_eur": 12.0,
                         "rp50_total_loss_eur": 55.0,
                         "rp100_total_loss_eur": 110.0,
-                        "p99_total_loss_eur": 160.0,
+                        "rp1000_total_loss_eur": 160.0,
                     },
                 },
                 "state_damage_tables": state_tables,
                 "damage_breakdown_by_scenario": breakdowns,
             },
             "scenario_availability": {
-                "annual": {"damage_tables": True, "social_impact": True, "network_states": True},
+                "rp10": {"damage_tables": True, "social_impact": True, "network_states": True},
                 "rp50": {"damage_tables": True, "social_impact": True, "network_states": True},
                 "rp100": {"damage_tables": True, "social_impact": True, "network_states": True},
-                "p99": {"damage_tables": True, "social_impact": True, "network_states": True},
+                "rp1000": {"damage_tables": True, "social_impact": True, "network_states": True},
             },
         },
     }
@@ -579,7 +638,7 @@ def _write_publication_ready_fixture(
     )
     _write_json(
         data_dir / "guadeloupe-scientific-web-summary.json",
-        _scientific_web_summary_payload(run_id=run_id),
+        _scientific_web_summary_payload(run_id=run_id, mismatch_rp100=mismatch_rp100),
     )
     for component in ("wind", "rain", "surge", "landslide"):
         _write_json(
@@ -694,7 +753,7 @@ def test_validate_territory_web_snapshot_rejects_public_loss_total_mismatch(
 
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
 
-    with pytest.raises(RuntimeError, match="public loss totals mismatch complete-analysis"):
+    with pytest.raises(RuntimeError, match="scientific web summary must republish"):
         run_web_artifacts.validate_territory_web_snapshot(
             run_id,
             "guadeloupe",
@@ -729,7 +788,7 @@ def test_validate_territory_web_snapshot_rejects_network_states_without_hydrauli
         )
 
 
-def test_validate_territory_web_snapshot_rejects_frozen_proxy_breakdown_shares(
+def test_validate_territory_web_snapshot_ignores_legacy_proxy_breakdown_shares(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -742,12 +801,12 @@ def test_validate_territory_web_snapshot_rejects_frozen_proxy_breakdown_shares(
 
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
 
-    with pytest.raises(RuntimeError, match="frozen breakdown_shares"):
-        run_web_artifacts.validate_territory_web_snapshot(
-            run_id,
-            "guadeloupe",
-            source_web_dir=web_dir,
-        )
+    validation = run_web_artifacts.validate_territory_web_snapshot(
+        run_id,
+        "guadeloupe",
+        source_web_dir=web_dir,
+    )
+    assert "proxy_breakdown_share_validation" not in validation
 
 
 def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
@@ -768,16 +827,14 @@ def test_validate_territory_web_snapshot_accepts_aligned_publication_fixture(
         source_web_dir=web_dir,
     )
 
-    assert validation["public_loss_alignment"]["storm"]["rp100"]["abs_diff_eur"] == pytest.approx(0.0)
-    assert validation["proxy_breakdown_share_validation"]["storm"]["annual_vs_rp50"]["component_ratios_differ"] is True
     assert validation["geojson_contract"]["data/guadeloupe-network-states.geojson"]["water_service_unit"] == "zone_component_key"
     assert validation["geojson_contract"]["data/guadeloupe-network-states.geojson"]["schema_version"] == "aggregated_service_state_v1"
     assert validation["complete_analysis_contract"]["aggregation_method"] == "aggregated_service_state"
     assert validation["complete_analysis_contract"]["population_projected_service_states_key"] == "population_projected_service_states"
-    assert validation["scientific_web_summary_alignment"]["hazards"]["storm"]["annual_eur"] == pytest.approx(10.0)
-    assert validation["scientific_web_summary_alignment"]["hazards"]["storm_cmcc"]["p99_eur"] == pytest.approx(160.0)
-    assert validation["scientific_web_summary_alignment"]["network_states"]["rp100"]["storm"]["water_aep"]["total_units"] == 1
-    assert validation["scientific_web_summary_alignment"]["page_alignment"]["annual"]["table_rows"] == 1
+    assert validation["scientific_web_summary_alignment"]["hazards"]["storm"]["rp10_eur"] == pytest.approx(10.0)
+    assert validation["scientific_web_summary_alignment"]["hazards"]["storm_cmcc"]["rp1000_eur"] == pytest.approx(160.0)
+    assert validation["scientific_web_summary_alignment"]["network_states"]["rp100"]["storm"]["eau_aep"]["total_units"] == 1
+    assert validation["scientific_web_summary_alignment"]["scientific_graph_inputs"]["rp10"]["table_rows"] == 1
 
 
 def test_validate_territory_web_snapshot_rejects_scientific_summary_network_state_mismatch(
@@ -791,8 +848,8 @@ def test_validate_territory_web_snapshot_rejects_scientific_summary_network_stat
     )
     summary_path = web_dir / "data" / "guadeloupe-scientific-web-summary.json"
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["water_aep"]["S3"] = 0
-    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["water_aep"]["S2"] = 1
+    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["eau_aep"]["S3"] = 0
+    summary_payload["network_states"]["scenario_service_state_distribution"]["rp100"]["storm"]["eau_aep"]["S2"] = 1
     _write_json(summary_path, summary_payload)
 
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
@@ -959,5 +1016,5 @@ def test_build_staging_web_dir_revalidates_archived_snapshot(monkeypatch, tmp_pa
 
     monkeypatch.setattr(run_web_artifacts, "RUN_OUTPUTS_DIR", outputs_dir)
 
-    with pytest.raises(RuntimeError, match="public loss totals mismatch complete-analysis"):
+    with pytest.raises(RuntimeError, match="scientific web summary must republish"):
         run_web_artifacts.build_staging_web_dir_from_run(run_id, base_web_dir=web_dir)

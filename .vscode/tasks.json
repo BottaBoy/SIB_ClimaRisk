@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "lalalalalalalalal",
+      "label": "SIB: Run Complete Analysis (Full Tracks: Guadeloupe Only, No Deploy)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
@@ -10,7 +10,46 @@
         "--territories",
         "gua",
         "--dynamic-max-tracks",
-        "1200",
+        "0",
+        "--no-deploy",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Guadeloupe Only, No Deploy, 1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--dynamic-max-tracks",
+        "1500",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "3000",
+        "--no-deploy",
         "--memory-budget-gb",
         "6"
       ],
@@ -152,42 +191,23 @@
       }
     },
     {
-      "label": "SIB: Run Complete Analysis (Fast: 800 tracks)",
+      "label": "SIB: Run Complete Analysis (Guadeloupe Only, No Deploy, 800 tracks)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
         "scripts/run_complete_analysis.py",
-        "--dynamic-max-tracks",
-        "800",
-        "--memory-budget-gb",
-        "6"
-      ],
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": false
-      },
-      "presentation": {
-        "echo": true,
-        "reveal": "always",
-        "focus": false,
-        "panel": "shared",
-        "showReuseMessage": true,
-        "clear": false
-      }
-    },
-    {
-      "label": "SIB: Run Complete Analysis (Very Fast: 150 tracks)",
-      "type": "shell",
-      "command": "${workspaceFolder}/backend/.venv/bin/python",
-      "args": [
-        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
         "--no-deploy",
         "--dynamic-max-tracks",
-        "150",
+        "800",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0800/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "5000",
         "--memory-budget-gb",
         "6"
       ],
@@ -209,13 +229,98 @@
       }
     },
     {
-      "label": "SIB: Run Complete Analysis (Rich: 1500 tracks)",
+      "label": "SIB: Run Complete Analysis (Guadeloupe Only, No Deploy, 100 tracks)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
         "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "100",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0100/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "15000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Guadeloupe Only, No Deploy, 50 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "50",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0050/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "20000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Guadeloupe Only, 1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
         "--dynamic-max-tracks",
         "1500",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "3000",
         "--memory-budget-gb",
         "6"
       ],
@@ -693,6 +798,33 @@
       }
     },
     {
+      "label": "SIB: Monitor Scientific Graph Post-Process",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/monitor_scientific_postprocess.sh",
+        "${workspaceFolder}",
+        "${input:sibScientificPostprocessRunId}",
+        "${input:sibScientificPostprocessTerritory}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
       "label": "SIB: Deploy Only (Live shared root)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
@@ -989,9 +1121,115 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "scripts/generate_run_graphs.py",
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
         "--run-id",
         "${input:sibGraphRunId}",
+        "--formats",
+        "html,png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Generate Run Graphs (Selected Run - HTML, Guadeloupe)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "guadeloupe",
+        "--formats",
+        "html,png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Generate Run Graphs (Selected Run - HTML, Martinique)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "martinique",
+        "--formats",
+        "html,png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Generate Run Graphs (Selected Run - HTML, Saint-Barthélemy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "saint-barthelemy",
         "--formats",
         "html,png"
       ],
@@ -1017,9 +1255,81 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "scripts/generate_run_graphs.py",
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
         "--run-id",
         "${input:sibGraphRunId}",
+        "--formats",
+        "png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Export Run Graphs (Selected Run - PNG, Guadeloupe)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "guadeloupe",
+        "--formats",
+        "png"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Export Run Graphs (Selected Run - PNG, Martinique)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
+        "--run-id",
+        "${input:sibGraphRunId}",
+        "--territories",
+        "martinique",
         "--formats",
         "png"
       ],
@@ -1045,7 +1355,11 @@
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "scripts/generate_run_graphs.py",
+        "scripts/generate_run_graphs_when_ready.py",
+        "--wait-timeout-seconds",
+        "21600",
+        "--poll-seconds",
+        "30",
         "--run-id",
         "${input:sibGraphRunId}",
         "--territories",
@@ -1126,6 +1440,36 @@
       }
     },
     {
+      "label": "SIB Run targeted Cyclone",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_targeted_cyclone_analysis.py",
+        "--cyclones",
+        "${input:targetedCyclonePreset}",
+        "--territory",
+        "${input:targetedCycloneTerritory}",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
       "label": "SIB: Babysit Sensitivity Analysis Run",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/launch_babysit_tmux.sh",
@@ -1149,6 +1493,30 @@
     }
   ],
   "inputs": [
+    {
+      "id": "targetedCyclonePreset",
+      "type": "pickString",
+      "description": "Choisir le cyclone historique a transposer sur le territoire cible",
+      "options": [
+        "haiyan-2013",
+        "katrina-2005",
+        "idai-2019",
+        "irma-2017",
+        "maria-2017"
+      ],
+      "default": "irma-2017"
+    },
+    {
+      "id": "targetedCycloneTerritory",
+      "type": "pickString",
+      "description": "Choisir le territoire sur lequel faire passer le cyclone",
+      "options": [
+        "guadeloupe",
+        "martinique",
+        "saint-barthelemy"
+      ],
+      "default": "saint-barthelemy"
+    },
     {
       "id": "completeAnalysisRunId",
       "type": "promptString",
@@ -1190,6 +1558,23 @@
       "type": "promptString",
       "description": "Scenario IDs separes par des virgules. Laisser vide pour utiliser le pack par defaut complet.",
       "default": ""
+    },
+    {
+      "id": "sibScientificPostprocessRunId",
+      "type": "promptString",
+      "description": "Run ID du complete-analysis a suivre pour le post-process scientifique.",
+      "default": "20260701_071828"
+    },
+    {
+      "id": "sibScientificPostprocessTerritory",
+      "type": "pickString",
+      "description": "Territoire du complete-analysis a suivre pour le post-process scientifique.",
+      "options": [
+        "guadeloupe",
+        "martinique",
+        "saint-barthelemy"
+      ],
+      "default": "guadeloupe"
     }
   ]
 }

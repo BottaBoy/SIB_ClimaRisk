@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -53,6 +55,9 @@ class HazardBundle:
     global_hazards_built: bool = True
     storm_track_load_spec: _DynamicTrackLoadSpec | None = None
     storm_cmcc_track_load_spec: _DynamicTrackLoadSpec | None = None
+    track_sample_manifest_path: Path | None = None
+    track_sample_id: str | None = None
+    track_sample_size_by_provider: dict[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -77,11 +82,40 @@ class _DynamicTrackLoadSpec:
     radius_unit_in: str
     env_pressure_hpa: float
     track_cache_max_entries: int | None = None
+    track_sample_provider: TrackSampleProvider | None = None
+
+
+@dataclass(frozen=True)
+class TrackSampleEntry:
+    year: int
+    track_id: str
+    track_instance_id: str
+    sample_weight: float
+    frequency_annual: float | None = None
+    stratum: str | None = None
+    loss_eur: float | None = None
+    rank: int | None = None
+
+
+@dataclass(frozen=True)
+class TrackSampleProvider:
+    provider_key: str
+    provider_name: str
+    manifest_path: Path
+    manifest_id: str
+    source_hash: str
+    sample_size: int
+    population_track_count: int | None
+    entries_by_instance_id: dict[str, TrackSampleEntry]
+
+    @property
+    def selected_instance_ids(self) -> set[str]:
+        return set(self.entries_by_instance_id.keys())
 
 
 _TRACK_CACHE_LOCK = threading.Lock()
 _TRACK_CACHE: OrderedDict[
-    tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int],
+    tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int, str | None],
     Any,
 ] = OrderedDict()
 
@@ -93,6 +127,132 @@ DEFAULT_TRACK_CACHE_MAX_ENTRIES = 8
 DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
 DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
 STORM_10MIN_TO_1MIN_WIND_FACTOR = 1.0 / 0.88
+
+
+def _provider_key_from_name(provider_name: str) -> str:
+    normalized = str(provider_name or "").strip().lower().replace("-", "_")
+    if normalized in {"storm_cmcc", "cmcc", "stormcmcc"}:
+        return "storm_cmcc"
+    return "storm"
+
+
+def _track_instance_id(year: Any, track_id: Any, provider_key: str | None = None) -> str:
+    base_id = f"{int(year)}|{str(track_id)}"
+    if provider_key:
+        return f"{_provider_key_from_name(provider_key)}|{base_id}"
+    return base_id
+
+
+def _sample_cache_key(track_sample_provider: TrackSampleProvider | None) -> str | None:
+    if track_sample_provider is None:
+        return None
+    return (
+        f"{track_sample_provider.manifest_id}:"
+        f"{track_sample_provider.provider_key}:"
+        f"{track_sample_provider.source_hash}:"
+        f"{track_sample_provider.sample_size}"
+    )
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _load_track_sample_manifest(track_sample_manifest_path: Path | None) -> dict[str, TrackSampleProvider] | None:
+    if track_sample_manifest_path is None:
+        return None
+    path = Path(track_sample_manifest_path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Track sample manifest not found: {path}")
+
+    raw_text = path.read_text(encoding="utf-8")
+    source_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
+    payload = json.loads(raw_text)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid track sample manifest payload at {path}")
+
+    providers = payload.get("providers")
+    if not isinstance(providers, dict) or not providers:
+        raise ValueError(f"Track sample manifest must contain a non-empty providers object: {path}")
+
+    manifest_id = str(payload.get("sample_id") or payload.get("id") or path.stem).strip() or path.stem
+    storm_years = int(payload.get("storm_years") or 0)
+    out: dict[str, TrackSampleProvider] = {}
+
+    for raw_key, raw_provider in providers.items():
+        if not isinstance(raw_provider, dict):
+            continue
+        provider_name = str(raw_provider.get("provider_name") or raw_provider.get("provider") or raw_key).strip()
+        provider_key = _provider_key_from_name(provider_name or str(raw_key))
+        tracks = raw_provider.get("tracks")
+        if not isinstance(tracks, list) or not tracks:
+            raise ValueError(f"Track sample provider '{raw_key}' has no tracks in {path}")
+
+        entries: dict[str, TrackSampleEntry] = {}
+        for index, raw_entry in enumerate(tracks):
+            if not isinstance(raw_entry, dict):
+                raise ValueError(f"Invalid track entry #{index} for provider '{raw_key}' in {path}")
+            if raw_entry.get("year") is None or raw_entry.get("track_id") is None:
+                raise ValueError(f"Track entry #{index} for provider '{raw_key}' must contain year and track_id")
+            year = int(raw_entry.get("year"))
+            track_id = str(raw_entry.get("track_id"))
+            base_track_instance_id = _track_instance_id(year, track_id)
+            canonical_track_instance_id = _track_instance_id(year, track_id, provider_key=provider_key)
+            raw_track_instance_id = str(raw_entry.get("track_instance_id") or canonical_track_instance_id)
+            track_instance_id = (
+                canonical_track_instance_id
+                if raw_track_instance_id in {base_track_instance_id, canonical_track_instance_id}
+                else raw_track_instance_id
+            )
+            sample_weight = _coerce_optional_float(
+                raw_entry.get("sample_weight", raw_entry.get("weight"))
+            )
+            frequency_annual = _coerce_optional_float(raw_entry.get("frequency_annual"))
+            if sample_weight is None:
+                if frequency_annual is None or storm_years <= 0:
+                    raise ValueError(
+                        f"Track entry {track_instance_id!r} for provider '{raw_key}' must contain sample_weight "
+                        "or frequency_annual plus manifest storm_years"
+                    )
+                sample_weight = float(frequency_annual) * float(storm_years)
+            if sample_weight <= 0.0:
+                raise ValueError(f"Track entry {track_instance_id!r} has non-positive sample_weight={sample_weight}")
+            if frequency_annual is not None and frequency_annual <= 0.0:
+                raise ValueError(f"Track entry {track_instance_id!r} has non-positive frequency_annual={frequency_annual}")
+            if track_instance_id in entries:
+                raise ValueError(f"Duplicate sampled track {track_instance_id!r} for provider '{raw_key}' in {path}")
+            entries[track_instance_id] = TrackSampleEntry(
+                year=year,
+                track_id=track_id,
+                track_instance_id=track_instance_id,
+                sample_weight=float(sample_weight),
+                frequency_annual=frequency_annual,
+                stratum=(str(raw_entry.get("stratum")) if raw_entry.get("stratum") is not None else None),
+                loss_eur=_coerce_optional_float(raw_entry.get("loss_eur")),
+                rank=(int(raw_entry.get("rank")) if raw_entry.get("rank") is not None else None),
+            )
+
+        out[provider_key] = TrackSampleProvider(
+            provider_key=provider_key,
+            provider_name=provider_name or ("STORM_CMCC" if provider_key == "storm_cmcc" else "STORM"),
+            manifest_path=path,
+            manifest_id=manifest_id,
+            source_hash=source_hash,
+            sample_size=int(raw_provider.get("sample_size") or len(entries)),
+            population_track_count=(
+                int(raw_provider.get("population_track_count"))
+                if raw_provider.get("population_track_count") is not None
+                else None
+            ),
+            entries_by_instance_id=entries,
+        )
+
+    return out
 
 
 def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
@@ -160,6 +320,71 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
             type(exc).__name__,
             exc,
         )
+    return hazard_copy
+
+
+def _track_frequency_annual_from_tracks(tracks: Any, storm_years: int) -> Any | None:
+    data = list(getattr(tracks, "data", []) or [])
+    if not data:
+        return None
+    try:
+        import numpy as np  # type: ignore
+    except Exception:
+        return None
+
+    annual_values: list[float] = []
+    weights: list[float] = []
+    has_any_sample_attr = False
+    all_annual = True
+    all_weights = True
+    for ds in data:
+        attrs = getattr(ds, "attrs", {}) or {}
+        annual_raw = attrs.get("sib_frequency_annual")
+        weight_raw = attrs.get("sib_sample_weight")
+        if annual_raw is not None or weight_raw is not None:
+            has_any_sample_attr = True
+        try:
+            annual_values.append(float(annual_raw))
+        except Exception:
+            all_annual = False
+            annual_values.append(float("nan"))
+        try:
+            weights.append(float(weight_raw))
+        except Exception:
+            all_weights = False
+            weights.append(float("nan"))
+
+    if not has_any_sample_attr:
+        return None
+    if all_annual and all(value > 0.0 and np.isfinite(value) for value in annual_values):
+        return np.asarray(annual_values, dtype=float)
+    if all_weights and all(value > 0.0 and np.isfinite(value) for value in weights):
+        return np.asarray(weights, dtype=float) / float(max(1, int(storm_years)))
+    return None
+
+
+def normalize_hazard_frequency_from_tracks(hazard_obj: Any, tracks: Any, storm_years: int) -> Any:
+    annual_frequency = _track_frequency_annual_from_tracks(tracks, storm_years)
+    if annual_frequency is None:
+        return _normalize_frequency_safe(hazard_obj, storm_years)
+
+    hazard_copy = copy.copy(hazard_obj)
+    existing = getattr(hazard_copy, "frequency", None)
+    try:
+        existing_len = len(existing) if existing is not None else int(annual_frequency.size)
+    except Exception:
+        existing_len = int(annual_frequency.size)
+    if int(existing_len) != int(annual_frequency.size):
+        logger.warning(
+            "Sample-weighted hazard frequency length mismatch: hazard=%s sample=%s; falling back to uniform normalization.",
+            int(existing_len),
+            int(annual_frequency.size),
+        )
+        return _normalize_frequency_safe(hazard_obj, storm_years)
+
+    hazard_copy.frequency = annual_frequency
+    setattr(hazard_copy, "_sib_frequency_normalized", True)
+    setattr(hazard_copy, "_sib_sample_weighted_frequency", True)
     return hazard_copy
 
 
@@ -459,12 +684,53 @@ def _read_filtered_track_dataframe(
     return df
 
 
+def _with_track_instance_id(df: Any, provider_key: str | None = None) -> Any:
+    missing = sorted({"Year", "track_id"} - set(df.columns))
+    if missing:
+        raise ValueError(f"Missing required track identity columns: {missing}")
+    if provider_key is not None or "_track_instance_id" not in df.columns:
+        df = df.copy()
+        base_id = (
+            df["Year"].astype(int).astype(str)
+            + "|"
+            + df["track_id"].astype(str)
+        )
+        if provider_key is not None:
+            df["_track_instance_id"] = _provider_key_from_name(provider_key) + "|" + base_id
+        else:
+            df["_track_instance_id"] = base_id
+    return df
+
+
+def _apply_track_sample_filter(
+    df: Any,
+    *,
+    track_sample_provider: TrackSampleProvider | None,
+    parquet_path: Path,
+) -> Any:
+    if track_sample_provider is None:
+        return df
+    df = _with_track_instance_id(df, provider_key=track_sample_provider.provider_key)
+    selected_ids = track_sample_provider.selected_instance_ids
+    present_ids = set(str(value) for value in df["_track_instance_id"].dropna().unique().tolist())
+    missing_ids = sorted(selected_ids - present_ids)
+    if missing_ids:
+        preview = ", ".join(missing_ids[:10])
+        suffix = "..." if len(missing_ids) > 10 else ""
+        raise ValueError(
+            "Track sample manifest references tracks that are absent after basin/spatial filtering "
+            f"for {track_sample_provider.provider_name} in {parquet_path}: {preview}{suffix}"
+        )
+    return df[df["_track_instance_id"].isin(selected_ids)].copy()
+
+
 def _count_tracks_from_parquet(
     parquet_path: Path,
     *,
     basin_ids: tuple[int, ...],
     spatial_window: SpatialWindow | None = None,
     max_tracks: int = DEFAULT_MAX_TRACKS,
+    track_sample_provider: TrackSampleProvider | None = None,
 ) -> int:
     df = _read_filtered_track_dataframe(
         parquet_path,
@@ -476,7 +742,14 @@ def _count_tracks_from_parquet(
     if missing:
         raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
 
+    df = _apply_track_sample_filter(
+        df,
+        track_sample_provider=track_sample_provider,
+        parquet_path=parquet_path,
+    )
     track_count = int(df[["Year", "track_id"]].drop_duplicates().shape[0])
+    if track_sample_provider is not None:
+        return track_count
     max_tracks_int = _resolve_max_tracks(max_tracks)
     if max_tracks_int > 0:
         return min(track_count, max_tracks_int)
@@ -495,6 +768,7 @@ def _build_tracks_from_parquet(
     convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
+    track_sample_provider: TrackSampleProvider | None = None,
 ) -> Any:
     try:
         import numpy as np  # type: ignore
@@ -533,14 +807,26 @@ def _build_tracks_from_parquet(
     if missing:
         raise ValueError(f"Missing required columns in {parquet_path}: {missing}")
 
-    df["_track_instance_id"] = (
-        df["Year"].astype(int).astype(str)
-        + "|"
-        + df["track_id"].astype(str)
+    df = _with_track_instance_id(
+        df,
+        provider_key=(track_sample_provider.provider_key if track_sample_provider is not None else None),
+    )
+    df = _apply_track_sample_filter(
+        df,
+        track_sample_provider=track_sample_provider,
+        parquet_path=parquet_path,
     )
 
     max_tracks_int = _resolve_max_tracks(max_tracks)
-    if max_tracks_int > 0:
+    if track_sample_provider is not None:
+        logger.info(
+            "Using prefabricated track sample %s/%s for %s: selected_tracks=%d",
+            track_sample_provider.manifest_id,
+            track_sample_provider.provider_key,
+            provider_name,
+            int(df["_track_instance_id"].nunique(dropna=True)),
+        )
+    elif max_tracks_int > 0:
         track_count = int(df["_track_instance_id"].nunique(dropna=True))
         if track_count > max_tracks_int:
             lat_center = float(spatial_window.center_lat if spatial_window is not None else df["lat"].astype(float).mean())
@@ -591,6 +877,11 @@ def _build_tracks_from_parquet(
         times = pd.Timestamp("2000-01-01") + pd.to_timedelta(elapsed_hours, unit="h")
         year = int(grp["Year"].iloc[0])
         track_id = str(grp["track_id"].iloc[0])
+        sample_entry = (
+            track_sample_provider.entries_by_instance_id.get(str(track_instance_id))
+            if track_sample_provider is not None
+            else None
+        )
         category_raw = float(grp["Category"].max()) if "Category" in grp.columns else 0.0
         category = int(category_raw) if np.isfinite(category_raw) else 0
         central_pressure_hpa = grp["p_c"].to_numpy(dtype=float)
@@ -619,12 +910,44 @@ def _build_tracks_from_parquet(
                 "data_provider": provider_name,
                 "id_no": int(idx),
                 "category": category,
+                "sib_track_instance_id": str(track_instance_id),
+                "sib_year": int(year),
+                "sib_track_id": str(track_id),
             },
         )
+        if sample_entry is not None:
+            ds.attrs["sib_sample_manifest_id"] = track_sample_provider.manifest_id
+            ds.attrs["sib_sample_weight"] = float(sample_entry.sample_weight)
+            if sample_entry.frequency_annual is not None:
+                ds.attrs["sib_frequency_annual"] = float(sample_entry.frequency_annual)
+            if sample_entry.stratum is not None:
+                ds.attrs["sib_sample_stratum"] = sample_entry.stratum
+            if sample_entry.loss_eur is not None:
+                ds.attrs["sib_sample_loss_eur"] = float(sample_entry.loss_eur)
+            if sample_entry.rank is not None:
+                ds.attrs["sib_sample_rank"] = int(sample_entry.rank)
         track_list.append(ds)
 
     tracks = TCTracks()
     tracks.data = track_list
+    try:
+        setattr(tracks, "sib_track_instance_ids", tuple(str(ds.attrs.get("sib_track_instance_id") or "") for ds in track_list))
+        if track_sample_provider is not None:
+            setattr(tracks, "sib_sample_manifest_id", track_sample_provider.manifest_id)
+            setattr(tracks, "sib_sample_provider_key", track_sample_provider.provider_key)
+            setattr(tracks, "sib_sample_size", int(track_sample_provider.sample_size))
+            setattr(
+                tracks,
+                "sib_sample_weights",
+                tuple(float(ds.attrs.get("sib_sample_weight", 1.0)) for ds in track_list),
+            )
+            annual = []
+            for ds in track_list:
+                value = ds.attrs.get("sib_frequency_annual")
+                annual.append(float(value) if value is not None else float("nan"))
+            setattr(tracks, "sib_frequency_annual", tuple(annual))
+    except Exception:
+        pass
     return tracks
 
 
@@ -640,6 +963,7 @@ def _get_or_build_tracks(
     radius_unit_in: str,
     env_pressure_hpa: float,
     track_cache_max_entries: int | None = None,
+    track_sample_provider: TrackSampleProvider | None = None,
 ) -> Any:
     window_key = None
     if spatial_window is not None:
@@ -659,6 +983,7 @@ def _get_or_build_tracks(
         float(env_pressure_hpa),
         window_key,
         int(max_tracks),
+        _sample_cache_key(track_sample_provider),
     )
     cache_limit = _resolve_track_cache_limit(track_cache_max_entries)
     if cache_limit != 0:
@@ -678,6 +1003,7 @@ def _get_or_build_tracks(
         convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
+        track_sample_provider=track_sample_provider,
     )
     if cache_limit == 0:
         return tracks
@@ -760,6 +1086,7 @@ def load_storm_hazards_from_parquet_for_points(
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
     build_hazards: bool = True,
+    track_sample_manifest_path: Path | None = None,
 ) -> HazardBundle:
     coords = list(point_coords)
     if not coords:
@@ -767,18 +1094,23 @@ def load_storm_hazards_from_parquet_for_points(
 
     basin_ids = _basin_ids_for_points(coords, basin_coverages)
     spatial_window = _build_spatial_window(coords, padding_deg=spatial_padding_deg)
+    track_sample_providers = _load_track_sample_manifest(track_sample_manifest_path)
+    storm_sample_provider = (track_sample_providers or {}).get("storm")
+    cmcc_sample_provider = (track_sample_providers or {}).get("storm_cmcc")
     if not build_hazards:
         track_count_storm = _count_tracks_from_parquet(
             storm_parquet_path,
             basin_ids=basin_ids,
             spatial_window=spatial_window,
             max_tracks=max_tracks,
+            track_sample_provider=storm_sample_provider,
         )
         track_count_cmcc = _count_tracks_from_parquet(
             cmcc_parquet_path,
             basin_ids=basin_ids,
             spatial_window=spatial_window,
             max_tracks=max_tracks,
+            track_sample_provider=cmcc_sample_provider,
         )
         return HazardBundle(
             storm=None,
@@ -791,6 +1123,16 @@ def load_storm_hazards_from_parquet_for_points(
             track_count_storm=track_count_storm,
             track_count_storm_cmcc=track_count_cmcc,
             global_hazards_built=False,
+            track_sample_manifest_path=Path(track_sample_manifest_path) if track_sample_manifest_path is not None else None,
+            track_sample_id=(
+                str(next(iter(track_sample_providers.values())).manifest_id)
+                if track_sample_providers
+                else None
+            ),
+            track_sample_size_by_provider={
+                key: int(provider.sample_size)
+                for key, provider in (track_sample_providers or {}).items()
+            },
             storm_track_load_spec=_DynamicTrackLoadSpec(
                 parquet_path=storm_parquet_path,
                 provider_name="STORM",
@@ -802,6 +1144,7 @@ def load_storm_hazards_from_parquet_for_points(
                 radius_unit_in=radius_unit_in,
                 env_pressure_hpa=float(env_pressure_hpa),
                 track_cache_max_entries=0,
+                track_sample_provider=storm_sample_provider,
             ),
             storm_cmcc_track_load_spec=_DynamicTrackLoadSpec(
                 parquet_path=cmcc_parquet_path,
@@ -814,6 +1157,7 @@ def load_storm_hazards_from_parquet_for_points(
                 radius_unit_in=radius_unit_in,
                 env_pressure_hpa=float(env_pressure_hpa),
                 track_cache_max_entries=0,
+                track_sample_provider=cmcc_sample_provider,
             ),
         )
 
@@ -828,6 +1172,7 @@ def load_storm_hazards_from_parquet_for_points(
         convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
+        track_sample_provider=storm_sample_provider,
     )
     tracks_cmcc = _get_or_build_tracks(
         cmcc_parquet_path,
@@ -840,6 +1185,7 @@ def load_storm_hazards_from_parquet_for_points(
         convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
+        track_sample_provider=cmcc_sample_provider,
     )
     track_count_storm = int(len(getattr(tracks_storm, "data", [])))
     track_count_cmcc = int(len(getattr(tracks_cmcc, "data", [])))
@@ -848,8 +1194,8 @@ def load_storm_hazards_from_parquet_for_points(
     storm = _build_hazard_from_tracks(tracks_storm, centroids) if centroids is not None else None
     storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids) if centroids is not None else None
     return HazardBundle(
-        storm=_normalize_frequency_safe(storm, storm_years) if storm is not None else None,
-        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years) if storm_cmcc is not None else None,
+        storm=normalize_hazard_frequency_from_tracks(storm, tracks_storm, storm_years) if storm is not None else None,
+        storm_cmcc=normalize_hazard_frequency_from_tracks(storm_cmcc, tracks_cmcc, storm_years) if storm_cmcc is not None else None,
         storm_years=storm_years,
         normalized_on_copy=True,
         source="dynamic_parquet",
@@ -861,6 +1207,16 @@ def load_storm_hazards_from_parquet_for_points(
         track_count_storm_cmcc=track_count_cmcc,
         centroids=centroids,
         global_hazards_built=bool(centroids is not None),
+        track_sample_manifest_path=Path(track_sample_manifest_path) if track_sample_manifest_path is not None else None,
+        track_sample_id=(
+            str(next(iter(track_sample_providers.values())).manifest_id)
+            if track_sample_providers
+            else None
+        ),
+        track_sample_size_by_provider={
+            key: int(provider.sample_size)
+            for key, provider in (track_sample_providers or {}).items()
+        },
     )
 
 
@@ -893,6 +1249,7 @@ def resolve_hazard_bundle_tracks(bundle: Any, hazard_key: str) -> Any | None:
         radius_unit_in=str(spec.radius_unit_in),
         env_pressure_hpa=float(spec.env_pressure_hpa),
         track_cache_max_entries=spec.track_cache_max_entries,
+        track_sample_provider=getattr(spec, "track_sample_provider", None),
     )
     setattr(bundle, tracks_attr, tracks)
     return tracks

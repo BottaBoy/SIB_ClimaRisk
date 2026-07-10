@@ -19,8 +19,10 @@ def test_normalize_proxy_scenario_loss_totals_enforces_monotonic_rp_order() -> N
     normalized = case_study_proxy_utils._normalize_proxy_scenario_loss_totals(
         {
             "annual": 10.0,
+            "rp10": 20.0,
             "rp50": 120.0,
             "rp100": 70.0,
+            "rp1000": 130.0,
             "event_max": 140.0,
             "top10": 30.0,
             "top5": 20.0,
@@ -28,10 +30,12 @@ def test_normalize_proxy_scenario_loss_totals_enforces_monotonic_rp_order() -> N
     )
 
     assert normalized["annual"] == 10.0
+    assert normalized["rp10"] == 20.0
     assert normalized["rp50"] == 95.0
     assert normalized["rp100"] == 95.0
+    assert normalized["rp1000"] == 130.0
     assert normalized["event_max"] == 140.0
-    assert normalized["annual"] <= normalized["rp50"] <= normalized["rp100"] <= normalized["event_max"]
+    assert normalized["annual"] <= normalized["rp10"] <= normalized["rp50"] <= normalized["rp100"] <= normalized["rp1000"] <= normalized["event_max"]
     assert normalized["annual"] <= normalized["top10"] <= normalized["top5"] <= normalized["event_max"]
 
 

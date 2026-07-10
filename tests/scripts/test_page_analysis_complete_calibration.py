@@ -36,8 +36,10 @@ def test_extract_complete_analysis_public_loss_targets_maps_public_scenarios() -
         "portfolio_results": {
             "storm": {
                 "eai_eur": 12.5,
+                "pml_10_eur": 20.0,
                 "pml_50_eur": 40.0,
                 "pml_100_eur": 60.0,
+                "pml_1000_eur": 100.0,
                 "percentile_99_loss_eur": 80.0,
             }
         }
@@ -45,8 +47,10 @@ def test_extract_complete_analysis_public_loss_targets_maps_public_scenarios() -
 
     assert build_guadeloupe_page1_data._extract_complete_analysis_public_loss_targets(payload, "storm") == {
         "annual": 12.5,
+        "rp10": 20.0,
         "rp50": 40.0,
         "rp100": 60.0,
+        "rp1000": 100.0,
         "event_max": 80.0,
     }
 
@@ -231,7 +235,11 @@ def test_build_state_geojson_writes_complete_feature_states(monkeypatch, tmp_pat
     assert rows["f1"]["network_kind"] == "AEP"
     assert rows["f1"]["feature_role"] == "canalisation"
     assert rows["f1"]["state_annual_storm"] == "S1"
+    assert rows["f1"]["state_rp10_storm"] == "S1"
+    assert rows["f1"]["state_rp1000_storm"] == "S1"
+    assert rows["f1"]["cause_rp10_storm"] == "direct_damage"
     assert rows["f2"]["state_p99_storm_cmcc"] == "S2"
+    assert rows["f2"]["cause_rp1000_storm_cmcc"] == "direct_damage"
 
 
 def test_build_network_geometry_features_uses_hydraulic_water_zones_and_electric_lines(monkeypatch) -> None:
@@ -460,6 +468,84 @@ def test_build_network_geometry_features_falls_back_to_service_lines_when_zone_i
     assert [feature["state_geometry_mode"] for feature in features] == ["hydraulic_zoning_v2", "hydraulic_zoning_v2"]
 
 
+def test_build_network_geometry_features_falls_back_to_zone_uid_for_legacy_hydraulic_assets(monkeypatch) -> None:
+    hydraulic_zones_gdf = gpd.GeoDataFrame(
+        {
+            "zone_component_key": [],
+            "zone_uid": [],
+            "network_kind": [],
+        },
+        geometry=[],
+        crs="EPSG:4326",
+    )
+    hydraulic_lines_gdf = gpd.GeoDataFrame(
+        {
+            "feature_id": [],
+            "source_feature_id": [],
+            "zone_component_key": [],
+            "zone_uid": [],
+            "network_kind": [],
+            "feature_role": [],
+        },
+        geometry=[],
+        crs="EPSG:4326",
+    )
+    hydraulic_assets_gdf = gpd.GeoDataFrame(
+        {
+            "feature_id": ["martinique-pr-171"],
+            "source_feature_id": ["src-pr-171"],
+            "network_kind": ["EU"],
+            "feature_role": ["poste_refoulement"],
+            "zone_component_key": [None],
+            "zone_uid": ["EU_080000497206"],
+        },
+        geometry=[Point(0.25, 0.25)],
+        crs="EPSG:4326",
+    )
+
+    def _fake_read_file(path: Path, layer: str | None = None):
+        if layer == "hydraulic_zones":
+            return hydraulic_zones_gdf.copy()
+        if layer == "hydraulic_lines":
+            return hydraulic_lines_gdf.copy()
+        if layer == "hydraulic_assets":
+            return hydraulic_assets_gdf.copy()
+        raise AssertionError(f"Unexpected read_file call: path={path} layer={layer}")
+
+    monkeypatch.setattr(
+        build_guadeloupe_page1_data,
+        "gpd",
+        type("_FakeGpd", (), {"read_file": staticmethod(_fake_read_file), "GeoDataFrame": gpd.GeoDataFrame})(),
+    )
+    monkeypatch.setattr(
+        build_guadeloupe_page1_data,
+        "_read_vector",
+        lambda path, layer=None, source_crs=None: _fake_read_file(path, layer),
+    )
+    monkeypatch.setattr(build_guadeloupe_page1_data, "_ensure_crs", lambda gdf: gdf)
+    monkeypatch.setattr(build_guadeloupe_page1_data, "_clip_case_gdf", lambda gdf, cfg: gdf)
+
+    case_cfg = {
+        "network_geometry_sources": [],
+        "hydraulic_zone_sources": [
+            {
+                "path": Path("hydraulic.gpkg"),
+                "zone_layer": "hydraulic_zones",
+                "line_layer": "hydraulic_lines",
+                "asset_layer": "hydraulic_assets",
+            },
+        ],
+    }
+
+    features = build_guadeloupe_page1_data._build_network_geometry_features(case_cfg)
+
+    assert len(features) == 1
+    assert features[0]["feature_id"] == "martinique-pr-171"
+    assert features[0]["service_feature_id"] == "EU_080000497206"
+    assert features[0]["zone_component_key"] == "EU_080000497206"
+    assert features[0]["service_unit_kind"] == "hydraulic_zone_uid_legacy"
+
+
 def test_overlay_complete_analysis_service_states_on_public_map_promotes_p99_water_states() -> None:
     geometry_features = [
         {"feature_id": "AEP_SECT_001", "class_key": "eau_aep", "service_feature_id": "AEP_SECT_001"},
@@ -538,7 +624,7 @@ def test_aggregate_native_service_states_keeps_hydraulic_native_step_assets() ->
         for hazard_key in ("storm", "storm_cmcc")
     }
 
-    native_states, electric_unit_ids = build_guadeloupe_page1_data._aggregate_native_service_states_for_public_map(
+    native_states, native_causes, electric_unit_ids = build_guadeloupe_page1_data._aggregate_native_service_states_for_public_map(
         bundle=bundle,
         values=np.array([100.0]),
         class_keys=[None],
@@ -553,6 +639,7 @@ def test_aggregate_native_service_states_keeps_hydraulic_native_step_assets() ->
     for hazard_key in ("storm", "storm_cmcc"):
         for scenario in build_guadeloupe_page1_data.PUBLIC_MAP_SCENARIOS:
             assert native_states[hazard_key][scenario]["hydraulic-native:eu-step-43"] == "S2"
+            assert native_causes[hazard_key][scenario]["hydraulic-native:eu-step-43"] == "direct_damage"
 
 
 def test_public_state_feature_id_uses_hydraulic_service_key_for_water() -> None:
@@ -644,7 +731,7 @@ def test_build_exposure_metrics_uses_hydraulic_water_bundle(monkeypatch) -> None
     assert metrics["total_value_by_type_eur"]["eau_eu_step"] == pytest.approx(8_785_714.0)
 
 
-def test_network_dependency_scenario_keeps_water_losses_direct_only() -> None:
+def test_network_dependency_scenario_adds_proxy_loss_for_electric_dependency() -> None:
     scenario = build_guadeloupe_page1_data._evaluate_network_dependency_scenario(
         direct_loss=np.array([100.0, 20.0], dtype=float),
         values=np.array([100.0, 100.0], dtype=float),
@@ -660,7 +747,10 @@ def test_network_dependency_scenario_keeps_water_losses_direct_only() -> None:
     assert scenario["direct_state"].tolist() == ["S3", "S2"]
     assert scenario["final_state"].tolist() == ["S3", "S3"]
     assert scenario["direct_loss"].tolist() == [100.0, 20.0]
-    assert scenario["total_loss"].tolist() == [100.0, 20.0]
+    assert scenario["dysfunction_loss"].tolist() == [0.0, 15.0]
+    assert scenario["blocking_loss"].tolist() == [0.0, 0.0]
+    assert scenario["total_loss"].tolist() == [100.0, 35.0]
+    assert scenario["dominant_outage_cause"].tolist() == ["direct_damage", "electric_dependency"]
     assert scenario["indirect_s3_flag"].tolist() == [False, True]
 
 
@@ -680,5 +770,39 @@ def test_network_dependency_scenario_propagates_blocking_ouvrage_to_linked_netwo
     assert scenario["direct_state"].tolist() == ["S3", "S0", "S0"]
     assert scenario["final_state"].tolist() == ["S3", "S3", "S3"]
     assert scenario["direct_loss"].tolist() == [100.0, 0.0, 0.0]
-    assert scenario["total_loss"].tolist() == [100.0, 0.0, 0.0]
+    assert scenario["dysfunction_loss"].tolist() == [0.0, 35.0, 0.0]
+    assert scenario["blocking_loss"].tolist() == [0.0, 0.0, 35.0]
+    assert scenario["total_loss"].tolist() == [100.0, 35.0, 35.0]
+    assert scenario["dominant_outage_cause"].tolist() == [
+        "direct_damage",
+        "electric_dependency",
+        "blocking_ouvrage",
+    ]
     assert scenario["indirect_s3_flag"].tolist() == [False, True, True]
+
+
+def test_event_max_series_from_hazard_groups_synthetic_years() -> None:
+    from scipy import sparse
+
+    class HazardStub:
+        def __init__(self) -> None:
+            self.event_name = [
+                "STORM_1218|1_1218_3",
+                "STORM_1219|1_1218_4",
+                "STORM_1301|1_1301_1",
+            ]
+            self.intensity = sparse.csr_matrix(
+                np.array(
+                    [
+                        [10.0, 20.0],
+                        [15.0, 12.0],
+                        [30.0, 1.0],
+                    ],
+                    dtype=float,
+                )
+            )
+
+    assert build_guadeloupe_page1_data._parse_synthetic_year_from_event_name("STORM_1218|1_1218_3") == 1218
+    track_series, year_series = build_guadeloupe_page1_data._event_max_series_from_hazard(HazardStub())
+    assert track_series.tolist() == [20.0, 15.0, 30.0]
+    assert sorted(year_series.tolist()) == [20.0, 30.0]

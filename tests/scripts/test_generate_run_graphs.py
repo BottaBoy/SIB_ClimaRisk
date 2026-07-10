@@ -57,22 +57,18 @@ def test_build_hazard_metric_scorecard_is_chart():
     payload = {
         "portfolio_results": {
             "storm": {
-                "eai_eur": 10.0,
-                "eai_direct_eur": 7.0,
-                "eai_indirect_eur": 3.0,
+                "pml_10_eur": 10.0,
+                "pml_50_eur": 50.0,
                 "pml_100_eur": 100.0,
                 "pml_1000_eur": 1000.0,
                 "tvar_95_eur": 1200.0,
-                "percentile_99_loss_eur": 900.0,
             },
             "storm_cmcc": {
-                "eai_eur": 20.0,
-                "eai_direct_eur": 13.0,
-                "eai_indirect_eur": 7.0,
+                "pml_10_eur": 20.0,
+                "pml_50_eur": 55.0,
                 "pml_100_eur": 110.0,
                 "pml_1000_eur": 1100.0,
                 "tvar_95_eur": 1250.0,
-                "percentile_99_loss_eur": 950.0,
             },
         }
     }
@@ -87,7 +83,7 @@ def test_build_hazard_metric_scorecard_is_chart():
     assert graph.table_headers is None
     assert graph.png_payload is not None
     assert graph.png_payload["type"] == "grouped_bar"
-    assert graph.png_payload["categories"] == ["EAI annuel", "PML100", "PML1000", "TVaR95", "P99"]
+    assert graph.png_payload["categories"] == ["PML10", "PML50", "PML100", "PML1000", "TVaR95"]
 
 
 def test_build_pml_ladder_graph_combines_storm_and_cmcc():
@@ -116,13 +112,89 @@ def test_build_pml_ladder_graph_combines_storm_and_cmcc():
 
     assert graph is not None
     assert graph.hazard is None
-    assert graph.png_payload["type"] == "grouped_bar"
-    assert [series["name"] for series in graph.png_payload["series"]] == ["STORM", "STORM_CMCC"]
+    assert graph.png_payload["type"] == "grouped_stacked_bar"
+    assert [group["name"] for group in graph.png_payload["groups"]] == ["STORM", "STORM_CMCC"]
+    assert [segment["name"] for segment in graph.png_payload["groups"][0]["segments"]] == ["Eau", "Elec"]
+
+
+def test_default_complete_graph_types_drop_removed_png_outputs():
+    assert generate_run_graphs._default_graph_types_for_run_family("complete-analysis") == [
+        "run_overview_summary",
+        "pml_ladder_by_territory_hazard",
+        "wind_year_hist_by_hazard",
+        "hazard_component_share_by_return_period",
+    ]
+
+
+def test_build_hazard_component_share_by_return_period_graph_uses_damage_components():
+    payload = {
+        "scientific_graph_inputs": {
+            "damage_breakdown_by_scenario": {
+                scenario: {
+                    "storm": [
+                        {"class_key": "eau_aep", "damage_components_eur": {"wind": 25.0, "rain": 75.0}},
+                    ],
+                    "storm_cmcc": [
+                        {"class_key": "eau_aep", "damage_components_eur": {"wind": 80.0, "rain": 20.0}},
+                    ],
+                }
+                for scenario in ("rp10", "rp50", "rp100", "rp1000")
+            }
+        }
+    }
+
+    graph = generate_run_graphs.build_hazard_component_share_by_return_period_graph(
+        "guadeloupe",
+        payload,
+        ["storm", "storm_cmcc"],
+    )
+
+    assert graph is not None
+    assert graph.png_payload["type"] == "stacked_bar"
+    assert graph.png_payload["categories"][:2] == ["RP10\nSTORM", "RP10\nSTORM_CMCC"]
+    wind = next(series for series in graph.png_payload["series"] if series["name"] == "Vent")
+    rain = next(series for series in graph.png_payload["series"] if series["name"] == "Pluie")
+    assert wind["values"][:2] == [25.0, 80.0]
+    assert rain["values"][:2] == [75.0, 20.0]
+
+
+def test_build_combined_event_loss_hist_graph_rebins_and_splits_water_electric():
+    payload = {
+        "graphs": {
+            "storm": {"wind_year_hist": {"bins_mps": [25_000_000.0, 75_000_000.0, 1_200_000_000.0], "percent": [10.0, 20.0, 5.0]}},
+            "storm_cmcc": {"wind_year_hist": {"bins_mps": [25_000_000.0], "percent": [40.0]}},
+        },
+        "scientific_graph_inputs": {
+            "damage_breakdown_by_scenario": {
+                "rp10": {
+                    "storm": [
+                        {"class_key": "eau_aep", "damage_eur": 25.0},
+                        {"class_key": "elec_bt_aerien", "damage_eur": 75.0},
+                    ],
+                    "storm_cmcc": [
+                        {"class_key": "eau_aep", "damage_eur": 30.0},
+                        {"class_key": "elec_bt_aerien", "damage_eur": 70.0},
+                    ],
+                }
+            }
+        },
+    }
+
+    graph = generate_run_graphs.build_combined_event_loss_hist_graph("guadeloupe", payload, ["storm", "storm_cmcc"])
+
+    assert graph is not None
+    assert graph.graph_id == "wind_year_hist_by_hazard__guadeloupe__storm"
+    assert graph.png_payload["type"] == "grouped_stacked_bar"
+    storm_group = graph.png_payload["groups"][0]
+    assert storm_group["segments"][0]["values"][0] == pytest.approx(2.5)
+    assert storm_group["segments"][1]["values"][0] == pytest.approx(7.5)
+    assert storm_group["segments"][1]["values"][-1] == pytest.approx(3.75)
 
 
 def test_load_auxiliary_artifacts_resolves_archived_inputs(tmp_path, monkeypatch):
     run_root = tmp_path / "runs" / "20260527_072457" / "territories" / "guadeloupe" / "web" / "data"
     run_root.mkdir(parents=True)
+    (run_root / "guadeloupe-scientific-web-summary.json").write_text('{"scientific_graph_inputs": {}}', encoding="utf-8")
     (run_root / "guadeloupe-page7-analysis.json").write_text('{"hazard": {}, "impact": {}, "exposition": {}}', encoding="utf-8")
     (run_root / "guadeloupe-wind-maps.json").write_text('{"meta": {}, "storm": {}, "storm_cmcc": {}}', encoding="utf-8")
     (run_root / "guadeloupe-landslide-maps.json").write_text('{"meta": {}, "storm": {}, "storm_cmcc": {}}', encoding="utf-8")
@@ -139,6 +211,7 @@ def test_load_auxiliary_artifacts_resolves_archived_inputs(tmp_path, monkeypatch
 
     artifacts = generate_run_graphs._load_auxiliary_artifacts(_run_record(), bundle)
 
+    assert artifacts.scientific_web_summary is not None
     assert artifacts.page7_analysis is not None
     assert artifacts.case_study_analysis is not None
     assert artifacts.wind_maps is not None
@@ -148,6 +221,110 @@ def test_load_auxiliary_artifacts_resolves_archived_inputs(tmp_path, monkeypatch
     assert artifacts.population_overlays is not None
     assert artifacts.population_raster_path is not None
     assert artifacts.hydraulic_zones_path is not None
+
+
+def test_total_damage_by_return_period_payload_rejects_missing_strict_scientific_scenarios():
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "meta": {"run_id": "20260701_071828"},
+                "scientific_graph_inputs": {
+                    "source_of_truth": "complete_analysis",
+                    "scenarios": ["annual", "rp50", "rp100", "p99"],
+                    "damage_breakdown_by_scenario": {
+                        "annual": {"storm": [], "storm_cmcc": []},
+                        "rp50": {"storm": [], "storm_cmcc": []},
+                    },
+                },
+            },
+        ),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
+            {
+                "scientific_graph_inputs": {
+                    "source_of_truth": "complete_analysis",
+                    "scenarios": ["annual", "rp50", "rp100", "p99"],
+                    "damage_breakdown_by_scenario": {
+                        "annual": {"storm": [], "storm_cmcc": []},
+                        "rp50": {"storm": [], "storm_cmcc": []},
+                    },
+                }
+            },
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    with pytest.raises(RuntimeError, match="page-analysis is forbidden"):
+        generate_run_graphs._build_total_damage_by_return_period_payload(
+            artifacts,
+            "water",
+            "Guadeloupe - Degats eau par temps de retour",
+        )
+
+
+def test_total_damage_by_return_period_payload_uses_pml_light_when_strict_is_absent():
+    pml_inputs = {
+        "schema_version": "pml_network_graph_inputs_v1",
+        "source_of_truth": "complete_analysis",
+        "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+        "state_damage_tables": {
+            scenario: [
+                {
+                    "class_key": "eau_aep",
+                    "class_label": "Eau AEP",
+                    "storm": {"exposure_eur": 1000.0, "damage_eur": value},
+                    "storm_cmcc": {"exposure_eur": 1000.0, "damage_eur": value + 1.0},
+                }
+            ]
+            for scenario, value in {"rp10": 10.0, "rp50": 50.0, "rp100": 100.0, "rp1000": 1000.0}.items()
+        },
+        "damage_breakdown_by_scenario": {
+            scenario: {
+                "storm": [{"class_key": "eau_aep", "damage_eur": value, "exposure_eur": 1000.0}],
+                "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": value + 1.0, "exposure_eur": 1000.0}],
+            }
+            for scenario, value in {"rp10": 10.0, "rp50": 50.0, "rp100": 100.0, "rp1000": 1000.0}.items()
+        },
+    }
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "scientific_graph_inputs": {
+                    "scenarios": ["annual", "rp50", "rp100", "p99"],
+                    "state_damage_tables": {},
+                    "damage_breakdown_by_scenario": {},
+                },
+                "pml_network_graph_inputs": pml_inputs,
+            },
+        ),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact("/tmp/summary.json", {}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_total_damage_by_return_period_payload(
+        artifacts,
+        "water",
+        "Guadeloupe - Degats eau par temps de retour",
+    )
+
+    assert payload is not None
+    assert payload["categories"] == ["RP10", "RP50", "RP100", "RP1000"]
+    assert payload["series"][0]["values"] == [10.0, 50.0, 100.0, 1000.0]
+    assert payload["series"][1]["values"] == [11.0, 51.0, 101.0, 1001.0]
 
 
 def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_path, monkeypatch):
@@ -210,6 +387,8 @@ def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_p
     monkeypatch.setattr(generate_run_graphs, "_build_total_damage_by_return_period_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_chart_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_distribution_payload", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_run_graphs, "_build_network_state_matrix_payload", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_run_graphs, "_build_service_rp_curve_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_hazard_comparison_csv_rows", lambda artifacts: (["indicator", "storm"], [["A", "1"]]))
     monkeypatch.setattr(generate_run_graphs, "_build_impact_table_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_exposure_network_table_payload", lambda *args, **kwargs: None)
@@ -400,6 +579,93 @@ def test_build_population_hotspot_superplot_payload_matches_total_affected_popul
     assert sum(first_cell.values()) == pytest.approx(100.0, abs=1e-6)
 
 
+def test_population_state_matrix_falls_back_to_scientific_population_distribution() -> None:
+    distribution = {
+        scenario: {
+            "storm": {
+                "eau_aep": {"S0": 80.0, "S1": 20.0, "S2": 0.0, "S3": 0.0},
+                "eau_eu": {"S0": 50.0, "S1": 0.0, "S2": 50.0, "S3": 0.0},
+                "elec": {"S0": 25.0, "S1": 25.0, "S2": 25.0, "S3": 25.0},
+            },
+            "storm_cmcc": {
+                "eau_aep": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+                "eau_eu": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+                "elec": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+            },
+        }
+        for scenario, _label in generate_run_graphs.NETWORK_STATE_MATRIX_SCENARIOS
+    }
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "territory_results": [{"territory_id": "cell-+16.20_-61.60", "population_total": 100.0}],
+                "scientific_graph_inputs": {
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "state_damage_tables": {},
+                    "damage_breakdown_by_scenario": {},
+                    "social_population_state_distribution_by_scenario": distribution,
+                },
+            },
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_population_state_matrix_payload(
+        artifacts,
+        "storm",
+        "Guadeloupe - Matrice",
+    )
+
+    assert payload is not None
+    assert payload["type"] == "population_state_matrix"
+    assert payload["cells"][0][0] == {"S0": 80.0, "S1": 20.0, "S2": 0.0, "S3": 0.0}
+    assert payload["cells"][0][2] == {"S0": 25.0, "S1": 25.0, "S2": 25.0, "S3": 25.0}
+
+
+def test_service_rp_curve_payload_uses_linear_axis_ticks(monkeypatch):
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+    monkeypatch.setattr(
+        generate_run_graphs,
+        "_compute_service_rp_curves_from_checkpoints",
+        lambda record, artifacts: {
+            "quality": {"mixed_shards": 0, "total_shards": 1},
+            "rows": [],
+            "series_data": {
+                ("water", "storm"): {period: float(period) for period in generate_run_graphs.PML_PERIODS}
+            },
+        },
+    )
+
+    payload = generate_run_graphs._build_service_rp_curve_payload(
+        _run_record(),
+        artifacts,
+        "Courbes RP",
+    )
+
+    assert payload is not None
+    assert "xscale" not in payload
+    assert "yscale" not in payload
+    assert payload["xticks"] == list(range(len(generate_run_graphs.PML_PERIODS)))
+    assert payload["xtick_labels"] == [str(period) for period in generate_run_graphs.PML_PERIODS]
+    assert payload["yaxis_format"] == "compact_eur"
+
+
 def test_hydraulic_population_importance_propagates_zone_uid(monkeypatch):
     gpd = pytest.importorskip("geopandas")
     np = pytest.importorskip("numpy")
@@ -585,8 +851,10 @@ def test_build_hazard_supergraph_payload_uses_blue_red_wind_scale() -> None:
     ]
     assert "note" not in supergraph
     assert supergraph["columns"][0]["colorbar_label"] == "Vent (km/h)"
-    assert supergraph["cells"][0][0]["vmin"] == pytest.approx(120.96)
-    assert supergraph["cells"][0][0]["vmax"] == pytest.approx(156.24)
+    assert supergraph["cells"][0][0]["vmin"] == pytest.approx(0.0)
+    assert supergraph["cells"][0][0]["vmax"] == pytest.approx(175.0)
+    assert supergraph["cells"][0][1]["vmin"] == pytest.approx(0.0)
+    assert supergraph["cells"][0][1]["vmax"] == pytest.approx(200.0)
 
 
 def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -609,9 +877,9 @@ def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.
     def _fake_state_counts(_artifacts, **kwargs):
         return counts_by_hazard[kwargs["hazard"]]
 
-    monkeypatch.setattr(generate_run_graphs, "_state_counts_for_metric", _fake_state_counts)
+    monkeypatch.setattr(generate_run_graphs, "_network_state_counts_from_summary", _fake_state_counts)
 
-    payload = generate_run_graphs._build_network_state_chart_payload(artifacts, "aep", "p99", "Etat")
+    payload = generate_run_graphs._build_network_state_chart_payload(artifacts, "aep", "rp1000", "Etat")
 
     assert payload is not None
     assert payload["ylabel"] == "% des reseaux"
@@ -624,28 +892,33 @@ def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.
 
 
 def test_build_damage_scenario_payload_adds_damage_share_labels() -> None:
+    rp10_breakdown = {
+        "storm": [
+            {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 250.0},
+            {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 50.0},
+        ],
+        "storm_cmcc": [
+            {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 300.0},
+            {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 25.0},
+        ],
+    }
     artifacts = generate_run_graphs.AuxiliaryArtifacts(
         territory="guadeloupe",
-        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
-        page7_analysis=generate_run_graphs.ArchivedArtifact(
-            "/tmp/page7.json",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
             {
-                "impact": {
-                    "damage_breakdown_by_scenario": {
-                        "annual": {
-                            "storm": [
-                                {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 250.0},
-                                {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 50.0},
-                            ],
-                            "storm_cmcc": [
-                                {"class_key": "eau_aep", "class_label": "Eau AEP", "exposure_eur": 1_000.0, "damage_eur": 300.0},
-                                {"class_key": "eau_eu", "class_label": "Eau EU", "exposure_eur": 500.0, "damage_eur": 25.0},
-                            ],
-                        }
-                    }
+                "scientific_graph_inputs": {
+                    "source_of_truth": "complete_analysis",
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "damage_breakdown_by_scenario": {"rp10": rp10_breakdown},
                 }
             },
         ),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
+            {"scientific_graph_inputs": {"damage_breakdown_by_scenario": {"rp10": rp10_breakdown}}},
+        ),
+        page7_analysis=None,
         case_study_analysis=None,
         wind_maps=None,
         landslide_maps=None,
@@ -662,40 +935,45 @@ def test_build_damage_scenario_payload_adds_damage_share_labels() -> None:
 
 
 def test_build_total_damage_by_return_period_payload_adds_family_share_labels() -> None:
+    damage_breakdowns = {
+        "rp10": {
+            "storm": [{"class_key": "eau_aep", "damage_eur": 35.0}],
+            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 17.5}],
+        },
+        "rp50": {
+            "storm": [{"class_key": "eau_aep", "damage_eur": 70.0}],
+            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 35.0}],
+        },
+        "rp100": {
+            "storm": [{"class_key": "eau_aep", "damage_eur": 140.0}],
+            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 70.0}],
+        },
+        "rp1000": {
+            "storm": [{"class_key": "eau_aep", "damage_eur": 280.0}],
+            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 140.0}],
+        },
+    }
     artifacts = generate_run_graphs.AuxiliaryArtifacts(
         territory="guadeloupe",
-        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
-        page7_analysis=generate_run_graphs.ArchivedArtifact(
-            "/tmp/page7.json",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
             {
-                "impact": {
-                    "damage_breakdown_by_scenario": {
-                        "annual": {
-                            "storm": [{"class_key": "eau_aep", "damage_eur": 35.0}],
-                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 17.5}],
-                        },
-                        "rp50": {
-                            "storm": [{"class_key": "eau_aep", "damage_eur": 70.0}],
-                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 35.0}],
-                        },
-                        "rp100": {
-                            "storm": [{"class_key": "eau_aep", "damage_eur": 140.0}],
-                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 70.0}],
-                        },
-                        "p99": {
-                            "storm": [{"class_key": "eau_aep", "damage_eur": 280.0}],
-                            "storm_cmcc": [{"class_key": "eau_aep", "damage_eur": 140.0}],
-                        },
-                    }
-                },
-                "exposition": {
-                    "total_value_by_type_eur": {
-                        "eau_aep": 700.0,
-                        "eau_eu": 700.0,
-                    }
+                "asset_results": [
+                    {"asset_type": "eau_aep_cana", "exposure_eur": 700.0},
+                    {"asset_type": "eau_eu_cana", "exposure_eur": 700.0},
+                ],
+                "scientific_graph_inputs": {
+                    "source_of_truth": "complete_analysis",
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "damage_breakdown_by_scenario": damage_breakdowns,
                 },
             },
         ),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
+            {"scientific_graph_inputs": {"damage_breakdown_by_scenario": damage_breakdowns}},
+        ),
+        page7_analysis=None,
         case_study_analysis=None,
         wind_maps=None,
         landslide_maps=None,
@@ -707,6 +985,7 @@ def test_build_total_damage_by_return_period_payload_adds_family_share_labels() 
 
     assert payload is not None
     assert payload["label_strategy"] == "grouped_bar_full_labels"
+    assert payload["categories"] == ["RP10", "RP50", "RP100", "RP1000"]
     assert payload["label_texts"][0][0] == "35.00 EUR\n(2.50% valeur)"
     assert payload["label_texts"][0][3] == "280.00 EUR\n(20.00% valeur)"
     assert payload["label_texts"][1][1] == "35.00 EUR\n(2.50% valeur)"
@@ -889,52 +1168,35 @@ def test_swap_state_surfaces_for_source_lines_accepts_aggregated_electric_grid_f
     assert list(swapped["state_p99_storm"]) == ["S1"]
 
 
-def test_build_network_state_matrix_payload_aggregates_electric_air_and_underground() -> None:
-    def _row(
-        class_key: str,
-        storm_pct: dict[str, float],
-        cmcc_pct: dict[str, float],
-        exposure: float,
-    ) -> dict[str, object]:
-        return {
-            "class_key": class_key,
-            "class_label": class_key,
-            "storm": {"state_pct": storm_pct, "exposure_eur": exposure},
-            "storm_cmcc": {"state_pct": cmcc_pct, "exposure_eur": exposure},
+def test_build_network_state_matrix_payload_uses_strict_scientific_distribution() -> None:
+    scenario_distribution = {
+        scenario: {
+            "storm": {
+                "eau_aep": {"S0": 1, "S1": 0, "S2": 0, "S3": 0, "total_units": 1},
+                "eau_eu": {"S0": 0, "S1": 1, "S2": 0, "S3": 0, "total_units": 1},
+                "elec": {"S0": 3, "S1": 1, "S2": 0, "S3": 0, "total_units": 4},
+            }
         }
-
-    scenario_rows = [
-        _row("eau_aep", {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}, {"S0": 90.0, "S1": 10.0, "S2": 0.0, "S3": 0.0}, 400.0),
-        _row("eau_eu", {"S0": 80.0, "S1": 20.0, "S2": 0.0, "S3": 0.0}, {"S0": 70.0, "S1": 30.0, "S2": 0.0, "S3": 0.0}, 300.0),
-        _row("elec_bt_aerien", {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}, {"S0": 50.0, "S1": 50.0, "S2": 0.0, "S3": 0.0}, 100.0),
-        _row("elec_hta_aerien", {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0}, {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0}, 50.0),
-        _row("elec_bt_souterrain", {"S0": 60.0, "S1": 40.0, "S2": 0.0, "S3": 0.0}, {"S0": 40.0, "S1": 60.0, "S2": 0.0, "S3": 0.0}, 80.0),
-        _row("elec_hta_souterrain", {"S0": 20.0, "S1": 80.0, "S2": 0.0, "S3": 0.0}, {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0}, 40.0),
-    ]
+        for scenario in ("rp10", "rp50", "rp100", "rp1000")
+    }
     artifacts = generate_run_graphs.AuxiliaryArtifacts(
         territory="guadeloupe",
         complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
-        page7_analysis=generate_run_graphs.ArchivedArtifact(
-            "/tmp/page7.json",
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
             {
-                "impact": {
-                    "state_damage_tables": {
-                        "annual": scenario_rows,
-                        "rp50": scenario_rows,
-                        "rp100": scenario_rows,
-                        "p99": scenario_rows,
+                "network_states": {
+                    "scenario_service_state_distribution": {
+                        scenario: {
+                            "storm": dict(scenario_distribution[scenario]["storm"]),
+                            "storm_cmcc": dict(scenario_distribution[scenario]["storm"]),
+                        }
+                        for scenario in ("rp10", "rp50", "rp100", "rp1000")
                     }
-                },
-                "exposition": {
-                    "lengths_km": {
-                        "elec_bt_aerien": 3.0,
-                        "elec_hta_aerien": 1.0,
-                        "elec_bt_souterrain": 2.0,
-                        "elec_hta_souterrain": 1.0,
-                    }
-                },
+                }
             },
         ),
+        page7_analysis=None,
         case_study_analysis=None,
         wind_maps=None,
         landslide_maps=None,
@@ -945,12 +1207,12 @@ def test_build_network_state_matrix_payload_aggregates_electric_air_and_undergro
     payload = generate_run_graphs._build_network_state_matrix_payload(artifacts, "storm", "Matrice")
 
     assert payload is not None
-    assert payload["row_titles"] == ["Annuel", "RP50", "RP100", "P99"]
-    assert payload["column_titles"][2] == "Etats reseaux elec aerien"
+    assert payload["row_titles"] == ["RP10", "RP50", "RP100", "RP1000"]
+    assert payload["column_titles"][2] == "Etat reseaux elec"
     assert payload["cells"][0][2]["S0"] == pytest.approx(75.0)
     assert payload["cells"][0][2]["S1"] == pytest.approx(25.0)
-    assert payload["cells"][0][3]["S0"] == pytest.approx(46.667, rel=1e-4)
-    assert payload["cells"][0][3]["S1"] == pytest.approx(53.333, rel=1e-4)
+    assert payload["outage_cause_cells"][0][0] == {"direct": 0.0, "indirect": 0.0}
+    assert payload["outage_cause_cells"][0][2] is None
     assert "Opérationnel (S0)" in payload["note"]
     assert "Hors service (S3)" in payload["note"]
 

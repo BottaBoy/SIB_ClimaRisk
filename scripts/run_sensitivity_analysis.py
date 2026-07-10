@@ -129,6 +129,7 @@ def _scenario_entry_from_scenario(scenario: SensitivityScenario) -> dict[str, An
         "child_run_id": None,
         "child_manifest_path": None,
         "child_status": None,
+        "complete_analysis_json_path": None,
     }
 
 
@@ -245,6 +246,39 @@ def _child_manifest_path_from_log(log_path: Path) -> Path | None:
     if not matches:
         return None
     return Path(matches[-1].group("path"))
+
+
+def _complete_analysis_path_from_child_manifest(child_manifest: dict[str, Any] | None) -> str | None:
+    if not isinstance(child_manifest, dict):
+        return None
+    territories = child_manifest.get("territories") if isinstance(child_manifest.get("territories"), dict) else {}
+    for territory_name, territory_entry in territories.items():
+        if not isinstance(territory_entry, dict):
+            continue
+        for candidate in (
+            territory_entry.get("archived_complete_analysis_path"),
+            territory_entry.get("complete_analysis_path"),
+        ):
+            if candidate and Path(str(candidate)).exists():
+                return str(candidate)
+        phases = territory_entry.get("phases") if isinstance(territory_entry.get("phases"), dict) else {}
+        export_phase = phases.get("export") if isinstance(phases.get("export"), dict) else {}
+        for candidate in (
+            export_phase.get("archived_output_file"),
+            export_phase.get("output_file"),
+        ):
+            if candidate and Path(str(candidate)).exists():
+                return str(candidate)
+        standard_path = (
+            Path(str(child_manifest.get("manifest_path") or ""))
+            if child_manifest.get("manifest_path")
+            else None
+        )
+        if standard_path:
+            fallback = standard_path.parent / "territories" / str(territory_name).lower() / "web" / "data" / f"{str(territory_name).lower()}-complete-analysis.json"
+            if fallback.exists():
+                return str(fallback)
+    return None
 
 
 def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario) -> list[str]:
@@ -566,6 +600,7 @@ def main() -> int:
             child_run_id=None,
             child_manifest_path=None,
             child_status=None,
+            complete_analysis_json_path=None,
         )
         manifest.record_event("scenario_started", scenario_id=scenario_id)
 
@@ -594,6 +629,7 @@ def main() -> int:
                         child_run_id=str(child_manifest.get("run_id") or "") or None,
                         child_manifest_path=str(child_manifest.get("manifest_path") or "") or None,
                         child_status=str(child_manifest.get("status") or "") or None,
+                        complete_analysis_json_path=_complete_analysis_path_from_child_manifest(child_manifest),
                     )
                 return_code = active_process.poll()
                 if return_code is not None:
@@ -621,6 +657,7 @@ def main() -> int:
                 child_run_id=child_run_id,
                 child_manifest_path=child_manifest_path,
                 child_status=child_status or None,
+                complete_analysis_json_path=_complete_analysis_path_from_child_manifest(child_manifest),
             )
 
         if (child_status == "success" and return_code == 0) or (not child_status and return_code == 0):

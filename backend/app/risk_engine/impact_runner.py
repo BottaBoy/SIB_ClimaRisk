@@ -7,8 +7,10 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
 from ..config import Settings, load_settings
-from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
+from .climada_engine import ClimadaRunResult, HazardImpactResult, RETURN_PERIODS, run_climada_direct_impacts
 from .exposure_to_climada import ClimadaExposureBundle, build_climada_exposure, validate_exposure_geometry_contract
 from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
@@ -32,6 +34,48 @@ TERRITORY_GRID_DEG = 0.2
 HAZARD_KEYS = ("storm", "storm_cmcc")
 STATE_ORDER = {"S0": 0, "S1": 1, "S2": 2, "S3": 3}
 STATE_DAMAGE_FLOOR = {"S0": 0.0, "S1": 0.07, "S2": 0.2, "S3": 0.45}
+PML_NETWORK_GRAPH_SCHEMA_VERSION = "pml_network_graph_inputs_v1"
+PML_NETWORK_SCENARIOS = ("rp10", "rp50", "rp100", "rp1000")
+RETURN_PERIOD_BY_PML_SCENARIO = {"rp10": 10, "rp50": 50, "rp100": 100, "rp1000": 1000}
+PML_FIELD_BY_SCENARIO = {
+    "rp10": "pml_10_eur",
+    "rp50": "pml_50_eur",
+    "rp100": "pml_100_eur",
+    "rp1000": "pml_1000_eur",
+}
+COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
+PUBLIC_SERVICE_KEYS = ("eau_aep", "eau_eu", "elec")
+NETWORK_CLASS_LABELS = {
+    "eau_aep": "Eau AEP",
+    "eau_eu": "Eau EU",
+    "elec_bt_souterrain": "Elec BT souterrain",
+    "elec_bt_aerien": "Elec BT aerien",
+    "elec_hta_souterrain": "Elec HTA souterrain",
+    "elec_hta_aerien": "Elec HTA aerien",
+}
+DAMAGE_BREAKDOWN_LABELS = {
+    "eau_aep": "Reseau eau AEP",
+    "eau_eu": "Reseau eau EU",
+    "elec_bt_souterrain": "Basse tension souterrain",
+    "elec_bt_aerien": "Basse tension aerien",
+    "elec_hta_souterrain": "Haute tension souterrain",
+    "elec_hta_aerien": "Haute tension aerien",
+    "eau_aep_ouvrages": "Ouvrages AEP",
+    "eau_eu_pr": "Postes de refoulement",
+    "eau_eu_step": "STEP",
+}
+ASSET_TYPE_TO_NETWORK_CLASS = {
+    "eau_aep_cana": "eau_aep",
+    "eau_eu_cana": "eau_eu",
+    "elec_bt_souterrain": "elec_bt_souterrain",
+    "elec_bt_aerien": "elec_bt_aerien",
+    "elec_hta_souterrain": "elec_hta_souterrain",
+    "elec_hta_aerien": "elec_hta_aerien",
+}
+WATER_BLOCKING_ROLES_BY_PUBLIC_SERVICE = {
+    "eau_aep": frozenset({"captage_aep", "upep_aep", "pompage_aep"}),
+    "eau_eu": frozenset({"step", "poste_refoulement"}),
+}
 ANNUALIZATION_FACTOR = {"storm": 0.22, "storm_cmcc": 0.25}
 CMCC_DAMAGE_SCALER = 1.24
 DIRECT_CLASS_FACTOR = {
@@ -429,6 +473,640 @@ def _to_float_list(values: Any, expected_len: int) -> list[float]:
     return out
 
 
+def _pml_asset_type(record: dict[str, Any]) -> str:
+    return str(record.get("asset_type") or "").strip().lower()
+
+
+def _pml_network_class_from_point(record: dict[str, Any]) -> str | None:
+    return ASSET_TYPE_TO_NETWORK_CLASS.get(_pml_asset_type(record))
+
+
+def _pml_breakdown_class_from_point(record: dict[str, Any]) -> str | None:
+    asset_type = _pml_asset_type(record)
+    if asset_type.startswith("eau_aep_ouvrage_"):
+        return "eau_aep_ouvrages"
+    if asset_type == "eau_eu_pr":
+        return "eau_eu_pr"
+    if asset_type == "eau_eu_step":
+        return "eau_eu_step"
+    return ASSET_TYPE_TO_NETWORK_CLASS.get(asset_type)
+
+
+def _pml_water_service_class_from_point(record: dict[str, Any]) -> str | None:
+    asset_type = _pml_asset_type(record)
+    if asset_type.startswith("eau_aep"):
+        return "eau_aep"
+    if asset_type.startswith("eau_eu"):
+        return "eau_eu"
+    return None
+
+
+def _pml_service_feature_id_from_point(record: dict[str, Any]) -> str:
+    for key in ("service_feature_id", "zone_component_key", "feature_id", "territory_id"):
+        value = str(record.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _pml_electric_unit_id_from_point(record: dict[str, Any]) -> str:
+    lat = record.get("lat")
+    lon = record.get("lon")
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+        lat_bin = round(float(lat) / 0.1) * 0.1
+        lon_bin = round(float(lon) / 0.1) * 0.1
+        return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}"
+    return str(record.get("territory_id") or record.get("feature_id") or "")
+
+
+def _pml_public_service_key(record: dict[str, Any], network_class: str | None) -> str | None:
+    if isinstance(network_class, str) and network_class.startswith("elec_"):
+        return "elec"
+    water_service = _pml_water_service_class_from_point(record)
+    if water_service in {"eau_aep", "eau_eu"}:
+        return water_service
+    return None
+
+
+def _pml_is_water_service_network_point(record: dict[str, Any]) -> bool:
+    return _pml_network_class_from_point(record) in {"eau_aep", "eau_eu"}
+
+
+def _pml_is_blocking_water_asset_point(record: dict[str, Any]) -> bool:
+    water_service = _pml_water_service_class_from_point(record)
+    if water_service is None:
+        return False
+    if str(record.get("infra_class") or "").strip().lower() != "eau_ouvrage":
+        return False
+    role = str(record.get("feature_role") or "").strip().lower()
+    return role in WATER_BLOCKING_ROLES_BY_PUBLIC_SERVICE.get(water_service, frozenset())
+
+
+def _pml_state_counts_row() -> dict[str, int]:
+    return {"S0": 0, "S1": 0, "S2": 0, "S3": 0, "total_units": 0}
+
+
+def _pml_normalize_component_ratio_map(raw: dict[str, Any] | None) -> dict[str, float]:
+    out = {component: 0.0 for component in COMPONENT_ORDER}
+    for component, value in (raw or {}).items():
+        key = str(component or "").strip()
+        if key not in out:
+            continue
+        try:
+            out[key] = max(0.0, float(value or 0.0))
+        except Exception:
+            out[key] = 0.0
+    total = float(sum(out.values()))
+    if total <= 0.0:
+        return {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
+    return {component: float(value) / total for component, value in out.items()}
+
+
+def _pml_component_ratios_for_scenario(
+    component_hazards: dict[str, HazardImpactResult],
+    scenario: str,
+) -> dict[str, float]:
+    period = RETURN_PERIOD_BY_PML_SCENARIO.get(str(scenario))
+    raw: dict[str, float] = {}
+    for component in COMPONENT_ORDER:
+        metrics = component_hazards.get(component)
+        if metrics is None:
+            raw[component] = 0.0
+            continue
+        if period is None:
+            value = float(getattr(metrics, "aai_agg_eur", 0.0) or 0.0)
+        else:
+            value = float((getattr(metrics, "pml_eur", {}) or {}).get(int(period), 0.0) or 0.0)
+        raw[component] = max(0.0, value)
+    return _pml_normalize_component_ratio_map(raw)
+
+
+def _pml_allocate_damage_components(total_eur: float, ratios: dict[str, float]) -> dict[str, float]:
+    total = max(0.0, float(total_eur or 0.0))
+    normalized = _pml_normalize_component_ratio_map(ratios)
+    assigned = 0.0
+    out: dict[str, float] = {}
+    for idx, component in enumerate(COMPONENT_ORDER):
+        if idx == len(COMPONENT_ORDER) - 1:
+            value = max(0.0, total - assigned)
+        else:
+            value = round(total * float(normalized.get(component, 0.0)), 2)
+            assigned += value
+        out[component] = round(value, 2)
+    return out
+
+
+def _pml_rescale_loss_array_to_total(np: Any, losses: Any, capacities: Any, target_total: float) -> Any:
+    loss_arr = np.asarray(losses, dtype=float).reshape(-1)
+    cap_arr = np.maximum(np.asarray(capacities, dtype=float).reshape(-1), 0.0)
+    if loss_arr.size != cap_arr.size:
+        raise ValueError("losses and capacities must share the same shape")
+    current = np.minimum(np.maximum(loss_arr, 0.0), cap_arr)
+    target = max(0.0, float(target_total))
+    capacity_total = float(cap_arr.sum())
+    if current.size == 0 or target <= 0.0 or capacity_total <= 0.0:
+        return np.zeros_like(current)
+    if target >= capacity_total:
+        return np.array(cap_arr, dtype=float, copy=True)
+    current_total = float(current.sum())
+    if abs(current_total - target) <= 1e-6:
+        return current
+    if current_total <= 0.0:
+        return cap_arr * (target / capacity_total)
+    lo = 0.0
+    hi = max(1.0, target / max(current_total, 1e-12))
+    for _ in range(32):
+        if float(np.minimum(current * hi, cap_arr).sum()) >= target:
+            break
+        hi *= 2.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        total = float(np.minimum(current * mid, cap_arr).sum())
+        if total < target:
+            lo = mid
+        else:
+            hi = mid
+    scaled = np.minimum(current * hi, cap_arr)
+    residual = target - float(scaled.sum())
+    if residual > 1e-6:
+        remaining = np.maximum(cap_arr - scaled, 0.0)
+        remaining_total = float(remaining.sum())
+        if remaining_total > 0.0:
+            scaled = scaled + (remaining * min(1.0, residual / remaining_total))
+    return np.minimum(np.maximum(scaled, 0.0), cap_arr)
+
+
+def _pml_allocate_direct_loss_by_class(
+    np: Any,
+    *,
+    prior_direct: Any,
+    values: Any,
+    breakdown_class_keys: list[str | None],
+    target_total: float,
+) -> Any:
+    prior = np.minimum(np.maximum(np.asarray(prior_direct, dtype=float).reshape(-1), 0.0), values)
+    caps = np.maximum(np.asarray(values, dtype=float).reshape(-1), 0.0)
+    target = max(0.0, float(target_total))
+    if prior.size == 0 or target <= 0.0:
+        return np.zeros_like(prior)
+
+    annual_by_class: dict[str, float] = {}
+    exposure_by_class: dict[str, float] = {}
+    for class_key in DAMAGE_BREAKDOWN_LABELS:
+        mask = np.asarray([ck == class_key for ck in breakdown_class_keys], dtype=bool)
+        annual_by_class[class_key] = float(prior[mask].sum()) if mask.any() else 0.0
+        exposure_by_class[class_key] = float(caps[mask].sum()) if mask.any() else 0.0
+    annual_total = float(sum(annual_by_class.values()))
+    exposure_total = float(sum(exposure_by_class.values()))
+
+    allocated = np.zeros_like(prior)
+    for class_key in DAMAGE_BREAKDOWN_LABELS:
+        mask = np.asarray([ck == class_key for ck in breakdown_class_keys], dtype=bool)
+        if not mask.any():
+            continue
+        if annual_total > 0.0:
+            class_share = annual_by_class[class_key] / annual_total
+        elif exposure_total > 0.0:
+            class_share = exposure_by_class[class_key] / exposure_total
+        else:
+            class_share = 0.0
+        class_target = target * max(0.0, float(class_share))
+        class_prior = prior[mask]
+        if float(class_prior.sum()) <= 0.0:
+            class_prior = caps[mask]
+        allocated[mask] = _pml_rescale_loss_array_to_total(np, class_prior, caps[mask], class_target)
+    infra_mask = np.asarray([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
+    allocated[infra_mask] = _pml_rescale_loss_array_to_total(
+        np,
+        allocated[infra_mask],
+        caps[infra_mask],
+        target,
+    )
+    return np.minimum(np.maximum(allocated, 0.0), caps)
+
+
+def _pml_health_from_bucket(bucket: dict[str, float]) -> float:
+    total = float(bucket.get("total", 0.0))
+    if total <= 0.0:
+        return 1.0
+    weighted = 0.3 * float(bucket.get("S1", 0.0)) + 0.7 * float(bucket.get("S2", 0.0)) + float(bucket.get("S3", 0.0))
+    return max(0.0, min(1.0, 1.0 - (weighted / total)))
+
+
+def _pml_add_state(bucket: dict[str, float], state: str, weight: float) -> None:
+    bucket["total"] += float(weight)
+    if state in {"S1", "S2", "S3"}:
+        bucket[state] += float(weight)
+
+
+def _pml_empty_health_bucket() -> dict[str, float]:
+    return {"total": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}
+
+
+def _pml_evaluate_network_scenario(
+    np: Any,
+    *,
+    direct_loss: Any,
+    values: Any,
+    point_records: list[dict[str, Any]],
+    network_class_keys: list[str | None],
+    breakdown_class_keys: list[str | None],
+    weights_km: Any,
+) -> dict[str, Any]:
+    del breakdown_class_keys
+    direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float).reshape(-1), 0.0), values)
+    caps = np.maximum(np.asarray(values, dtype=float).reshape(-1), 0.0)
+    ratios = np.divide(direct, np.maximum(caps, 1.0))
+    direct_state = np.asarray([_state_from_damage_ratio(float(value)) for value in ratios], dtype=object)
+
+    territories = [str(record.get("territory_id") or "uploaded-aggregate") for record in point_records]
+    water_service_classes = [_pml_water_service_class_from_point(record) for record in point_records]
+    service_feature_ids = [_pml_service_feature_id_from_point(record) for record in point_records]
+    service_network_flags = [_pml_is_water_service_network_point(record) for record in point_records]
+    blocking_flags = [_pml_is_blocking_water_asset_point(record) for record in point_records]
+
+    elec_buckets: dict[str, dict[str, float]] = defaultdict(_pml_empty_health_bucket)
+    for idx, class_key in enumerate(network_class_keys):
+        if not isinstance(class_key, str) or not class_key.startswith("elec_"):
+            continue
+        _pml_add_state(elec_buckets[territories[idx]], str(direct_state[idx]), float(weights_km[idx]))
+    global_bucket = _pml_empty_health_bucket()
+    for bucket in elec_buckets.values():
+        for key, value in bucket.items():
+            global_bucket[key] += float(value)
+    elec_health = {territory: _pml_health_from_bucket(bucket) for territory, bucket in elec_buckets.items()}
+    global_health = _pml_health_from_bucket(global_bucket)
+
+    dependency_state: list[str] = []
+    state_after_dependency: list[str] = []
+    for idx, direct_code in enumerate(direct_state):
+        dep_code = "S0"
+        if water_service_classes[idx] in {"eau_aep", "eau_eu"}:
+            dep_code = _dependency_state_from_elec_health(elec_health.get(territories[idx], global_health))
+        dependency_state.append(dep_code)
+        direct_txt = str(direct_code)
+        state_after_dependency.append(dep_code if STATE_ORDER[dep_code] > STATE_ORDER[direct_txt] else direct_txt)
+
+    blocking_state_by_service: dict[str, str] = {}
+    for idx, is_blocking in enumerate(blocking_flags):
+        if not is_blocking:
+            continue
+        service_feature_id = service_feature_ids[idx]
+        if not service_feature_id:
+            continue
+        candidate = state_after_dependency[idx]
+        current = blocking_state_by_service.get(service_feature_id, "S0")
+        if STATE_ORDER[candidate] > STATE_ORDER[current]:
+            blocking_state_by_service[service_feature_id] = candidate
+
+    final_state: list[str] = []
+    blocking_state: list[str] = []
+    cause: list[str] = []
+    direct_component = np.array(direct, dtype=float, copy=True)
+    dysfunction_component = np.zeros_like(direct_component)
+    blocking_component = np.zeros_like(direct_component)
+    total_loss = np.array(direct, dtype=float, copy=True)
+    indirect_s3_flag = np.zeros_like(direct_component, dtype=bool)
+
+    for idx, dep_or_direct in enumerate(state_after_dependency):
+        final_code = str(dep_or_direct)
+        blocker_code = "S0"
+        if service_network_flags[idx]:
+            blocker_code = blocking_state_by_service.get(service_feature_ids[idx], "S0")
+            if STATE_ORDER[blocker_code] > STATE_ORDER[final_code]:
+                final_code = blocker_code
+        blocking_state.append(blocker_code)
+        final_state.append(final_code)
+        direct_code = str(direct_state[idx])
+        indirect_s3_flag[idx] = final_code == "S3" and direct_code != "S3"
+        if STATE_ORDER[final_code] <= 0:
+            cause_code = "none"
+        elif STATE_ORDER[direct_code] >= STATE_ORDER[final_code]:
+            cause_code = "direct_damage"
+        elif STATE_ORDER[blocker_code] >= STATE_ORDER[final_code] and service_network_flags[idx]:
+            cause_code = "blocking_ouvrage"
+        else:
+            cause_code = "electric_dependency"
+        cause.append(cause_code)
+
+        if STATE_ORDER[final_code] > STATE_ORDER[direct_code]:
+            proxy_total = max(float(total_loss[idx]), float(caps[idx]) * float(STATE_DAMAGE_FLOOR.get(final_code, 0.0)))
+            proxy_total = min(float(caps[idx]), proxy_total)
+            extra = max(0.0, proxy_total - float(direct_component[idx]))
+            total_loss[idx] = proxy_total
+            if cause_code == "blocking_ouvrage":
+                blocking_component[idx] = extra
+            else:
+                dysfunction_component[idx] = extra
+
+    return {
+        "direct_loss": direct_component,
+        "dysfunction_loss": dysfunction_component,
+        "blocking_loss": blocking_component,
+        "total_loss": np.minimum(np.maximum(total_loss, 0.0), caps),
+        "direct_state": direct_state,
+        "dependency_state": np.asarray(dependency_state, dtype=object),
+        "blocking_state": np.asarray(blocking_state, dtype=object),
+        "final_state": np.asarray(final_state, dtype=object),
+        "dominant_outage_cause": np.asarray(cause, dtype=object),
+        "indirect_s3_flag": indirect_s3_flag,
+    }
+
+
+def _pml_calibrate_network_scenario(
+    np: Any,
+    scenario_result: dict[str, Any],
+    *,
+    values: Any,
+    target_total: float,
+) -> dict[str, float]:
+    total = np.asarray(scenario_result.get("total_loss"), dtype=float).reshape(-1)
+    caps = np.asarray(values, dtype=float).reshape(-1)
+    pre_total = float(total.sum())
+    scaled_total = _pml_rescale_loss_array_to_total(np, total, caps, target_total)
+    scale = np.divide(
+        scaled_total,
+        np.maximum(total, 1e-12),
+        out=np.zeros_like(scaled_total),
+        where=total > 0.0,
+    )
+    for key in ("direct_loss", "dysfunction_loss", "blocking_loss"):
+        arr = np.asarray(scenario_result.get(key), dtype=float).reshape(-1)
+        if arr.size != scaled_total.size:
+            continue
+        scaled = np.minimum(np.maximum(arr * scale, 0.0), scaled_total)
+        zero_support = (total <= 0.0) & (scaled_total > 0.0) & (key == "direct_loss")
+        if zero_support.any():
+            scaled[zero_support] = scaled_total[zero_support]
+        scenario_result[key] = scaled
+    direct = np.asarray(scenario_result.get("direct_loss"), dtype=float).reshape(-1)
+    dysfunction = np.asarray(scenario_result.get("dysfunction_loss"), dtype=float).reshape(-1)
+    blocking = np.asarray(scenario_result.get("blocking_loss"), dtype=float).reshape(-1)
+    indirect = np.maximum(dysfunction + blocking, 0.0)
+    overflow = np.maximum(direct + indirect - scaled_total, 0.0)
+    if overflow.any():
+        indirect_total = np.maximum(indirect, 1e-12)
+        dysfunction = np.maximum(dysfunction - overflow * (dysfunction / indirect_total), 0.0)
+        blocking = np.maximum(blocking - overflow * (blocking / indirect_total), 0.0)
+    scenario_result["direct_loss"] = np.minimum(direct, scaled_total)
+    scenario_result["dysfunction_loss"] = dysfunction
+    scenario_result["blocking_loss"] = blocking
+    scenario_result["total_loss"] = scaled_total
+    return {
+        "pre_calibration_total_eur": round(pre_total, 2),
+        "target_total_eur": round(float(target_total), 2),
+        "post_calibration_total_eur": round(float(scaled_total.sum()), 2),
+    }
+
+
+def _pml_state_pct_for_mask(np: Any, states: Any, weights: Any, mask: Any) -> dict[str, float]:
+    total = float(np.asarray(weights, dtype=float)[mask].sum())
+    if total <= 0.0:
+        count = int(np.asarray(mask, dtype=bool).sum())
+        if count <= 0:
+            return {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}
+        total = float(count)
+        local_weights = np.ones_like(np.asarray(weights, dtype=float)[mask])
+    else:
+        local_weights = np.asarray(weights, dtype=float)[mask]
+    local_states = np.asarray(states, dtype=object)[mask]
+    return {
+        state: round(float(local_weights[local_states == state].sum()) / total * 100.0, 3)
+        for state in ("S0", "S1", "S2", "S3")
+    }
+
+
+def _build_pml_network_graph_inputs(
+    np: Any,
+    *,
+    point_records: list[dict[str, Any]],
+    hazard_direct_eai: dict[str, list[float]],
+    portfolio_results: dict[str, Any],
+    component_hazards: dict[str, dict[str, HazardImpactResult]],
+    state_aggregation_metadata: dict[str, Any],
+    modeling: dict[str, Any],
+) -> dict[str, Any]:
+    values = np.asarray([max(0.0, float(record.get("value_eur") or 0.0)) for record in point_records], dtype=float)
+    network_class_keys = [_pml_network_class_from_point(record) for record in point_records]
+    breakdown_class_keys = [_pml_breakdown_class_from_point(record) for record in point_records]
+    weights_km = np.asarray(
+        [
+            max(0.0, float(record.get("length_km") or 0.0))
+            or max(0.0, float(record.get("value_eur") or 0.0))
+            for record in point_records
+        ],
+        dtype=float,
+    )
+    all_infra_mask = np.asarray([class_key in DAMAGE_BREAKDOWN_LABELS for class_key in breakdown_class_keys], dtype=bool)
+
+    state_damage_tables: dict[str, list[dict[str, Any]]] = {scenario: [] for scenario in PML_NETWORK_SCENARIOS}
+    damage_breakdown_by_scenario: dict[str, dict[str, list[dict[str, Any]]]] = {
+        scenario: {hazard: [] for hazard in HAZARD_KEYS}
+        for scenario in PML_NETWORK_SCENARIOS
+    }
+    network_distribution: dict[str, dict[str, dict[str, dict[str, int]]]] = {
+        scenario: {hazard: {service: _pml_state_counts_row() for service in PUBLIC_SERVICE_KEYS} for hazard in HAZARD_KEYS}
+        for scenario in PML_NETWORK_SCENARIOS
+    }
+    network_unit_counts: dict[str, dict[str, int]] = {
+        hazard: {service: 0 for service in PUBLIC_SERVICE_KEYS}
+        for hazard in HAZARD_KEYS
+    }
+    outage_cause_by_scenario: dict[str, dict[str, dict[str, dict[str, float]]]] = {
+        scenario: {hazard: {} for hazard in HAZARD_KEYS}
+        for scenario in PML_NETWORK_SCENARIOS
+    }
+    calibration: dict[str, dict[str, dict[str, float]]] = {}
+    target_totals: dict[str, dict[str, float]] = {}
+
+    scenario_results_by_hazard: dict[str, dict[str, dict[str, Any]]] = {hazard: {} for hazard in HAZARD_KEYS}
+    for hazard in HAZARD_KEYS:
+        hazard_payload = portfolio_results.get(hazard) if isinstance(portfolio_results.get(hazard), dict) else {}
+        eai_total = max(0.0, float(hazard_payload.get("eai_eur") or hazard_payload.get("aai_agg_eur") or 0.0))
+        eai_direct_total = max(0.0, float(hazard_payload.get("eai_direct_eur") or 0.0))
+        direct_share = 1.0 if eai_total <= 0.0 else max(0.0, min(1.0, eai_direct_total / max(eai_total, 1e-9)))
+        direct_prior = np.asarray(hazard_direct_eai.get(hazard) or [], dtype=float).reshape(-1)
+        if direct_prior.size != values.size:
+            direct_prior = np.zeros_like(values)
+        direct_prior = np.minimum(np.maximum(direct_prior, 0.0), values)
+        calibration[hazard] = {}
+        target_totals[hazard] = {}
+
+        for scenario in PML_NETWORK_SCENARIOS:
+            target_total = max(0.0, float(hazard_payload.get(PML_FIELD_BY_SCENARIO[scenario]) or 0.0))
+            target_totals[hazard][scenario] = round(target_total, 2)
+            direct_target = target_total * direct_share
+            direct_loss = _pml_allocate_direct_loss_by_class(
+                np,
+                prior_direct=direct_prior,
+                values=values,
+                breakdown_class_keys=breakdown_class_keys,
+                target_total=direct_target,
+            )
+            scenario_result = _pml_evaluate_network_scenario(
+                np,
+                direct_loss=direct_loss,
+                values=values,
+                point_records=point_records,
+                network_class_keys=network_class_keys,
+                breakdown_class_keys=breakdown_class_keys,
+                weights_km=weights_km,
+            )
+            calibration[hazard][scenario] = _pml_calibrate_network_scenario(
+                np,
+                scenario_result,
+                values=values,
+                target_total=target_total,
+            )
+            calibration[hazard][scenario]["direct_target_total_eur"] = round(float(direct_target), 2)
+            calibration[hazard][scenario]["annual_direct_share"] = round(float(direct_share), 6)
+            scenario_results_by_hazard[hazard][scenario] = scenario_result
+
+    for scenario in PML_NETWORK_SCENARIOS:
+        for class_key, class_label in NETWORK_CLASS_LABELS.items():
+            row: dict[str, Any] = {"class_key": class_key, "class_label": class_label}
+            mask = np.asarray([ck == class_key for ck in network_class_keys], dtype=bool)
+            for hazard in HAZARD_KEYS:
+                result = scenario_results_by_hazard[hazard][scenario]
+                component_ratios = _pml_component_ratios_for_scenario(component_hazards.get(hazard, {}), scenario)
+                damage_val = round(float(np.asarray(result["total_loss"], dtype=float)[mask].sum()), 2)
+                direct_val = round(float(np.asarray(result["direct_loss"], dtype=float)[mask].sum()), 2)
+                dysfunction_val = round(float(np.asarray(result["dysfunction_loss"], dtype=float)[mask].sum()), 2)
+                blocking_val = round(float(np.asarray(result["blocking_loss"], dtype=float)[mask].sum()), 2)
+                indirect_val = round(max(0.0, dysfunction_val + blocking_val), 2)
+                row[hazard] = {
+                    "state_pct": _pml_state_pct_for_mask(np, result["final_state"], weights_km, mask),
+                    "exposure_eur": round(float(values[mask].sum()), 2),
+                    "damage_eur": damage_val,
+                    "direct_damage_eur": direct_val,
+                    "dysfunction_eur": dysfunction_val,
+                    "blocking_ouvrage_eur": blocking_val,
+                    "indirect_damage_eur": indirect_val,
+                    "total_damage_eur": damage_val,
+                    "damage_components_eur": _pml_allocate_damage_components(damage_val, component_ratios),
+                }
+                total_cause = direct_val + indirect_val
+                outage_cause_by_scenario[scenario][hazard][class_key] = {
+                    "direct_damage_eur": direct_val,
+                    "dysfunction_eur": dysfunction_val,
+                    "blocking_ouvrage_eur": blocking_val,
+                    "indirect_damage_eur": indirect_val,
+                    "total_damage_eur": round(total_cause, 2),
+                    "direct_pct": round((direct_val / total_cause) * 100.0, 4) if total_cause > 0.0 else 0.0,
+                    "indirect_pct": round((indirect_val / total_cause) * 100.0, 4) if total_cause > 0.0 else 0.0,
+                }
+            state_damage_tables[scenario].append(row)
+
+        for hazard in HAZARD_KEYS:
+            result = scenario_results_by_hazard[hazard][scenario]
+            component_ratios = _pml_component_ratios_for_scenario(component_hazards.get(hazard, {}), scenario)
+            for class_key, class_label in DAMAGE_BREAKDOWN_LABELS.items():
+                mask = np.asarray([ck == class_key for ck in breakdown_class_keys], dtype=bool)
+                damage_val = round(float(np.asarray(result["total_loss"], dtype=float)[mask].sum()), 2)
+                damage_breakdown_by_scenario[scenario][hazard].append(
+                    {
+                        "class_key": class_key,
+                        "class_label": class_label,
+                        "exposure_eur": round(float(values[mask].sum()), 2),
+                        "damage_eur": damage_val,
+                        "direct_damage_eur": round(float(np.asarray(result["direct_loss"], dtype=float)[mask].sum()), 2),
+                        "dysfunction_eur": round(float(np.asarray(result["dysfunction_loss"], dtype=float)[mask].sum()), 2),
+                        "blocking_ouvrage_eur": round(float(np.asarray(result["blocking_loss"], dtype=float)[mask].sum()), 2),
+                        "indirect_damage_eur": round(
+                            float(np.asarray(result["dysfunction_loss"], dtype=float)[mask].sum())
+                            + float(np.asarray(result["blocking_loss"], dtype=float)[mask].sum()),
+                            2,
+                        ),
+                        "total_damage_eur": damage_val,
+                        "damage_components_eur": _pml_allocate_damage_components(damage_val, component_ratios),
+                    }
+                )
+
+            unit_state: dict[tuple[str, str], str] = {}
+            for idx, record in enumerate(point_records):
+                service_key = _pml_public_service_key(record, network_class_keys[idx])
+                if service_key is None:
+                    continue
+                if service_key == "elec":
+                    unit_id = _pml_electric_unit_id_from_point(record)
+                else:
+                    unit_id = _pml_service_feature_id_from_point(record)
+                if not unit_id:
+                    continue
+                key = (service_key, unit_id)
+                state = str(np.asarray(result["final_state"], dtype=object)[idx])
+                current = unit_state.get(key, "S0")
+                if STATE_ORDER[state] > STATE_ORDER[current]:
+                    unit_state[key] = state
+            for (service_key, _unit_id), state in unit_state.items():
+                row = network_distribution[scenario][hazard][service_key]
+                row[state] += 1
+                row["total_units"] += 1
+            for service_key in PUBLIC_SERVICE_KEYS:
+                network_unit_counts[hazard][service_key] = max(
+                    int(network_unit_counts[hazard][service_key]),
+                    int(network_distribution[scenario][hazard][service_key]["total_units"]),
+                )
+
+    return {
+        "schema_version": PML_NETWORK_GRAPH_SCHEMA_VERSION,
+        "source_of_truth": "complete_analysis",
+        "method": "pml_calibrated_network_states",
+        "approximation": True,
+        "event_selection_basis": "portfolio_pml_calibrated_from_annual_point_priors",
+        "scenarios": list(PML_NETWORK_SCENARIOS),
+        "return_period_by_scenario": dict(RETURN_PERIOD_BY_PML_SCENARIO),
+        "hazards": list(HAZARD_KEYS),
+        "target_totals_by_hazard": target_totals,
+        "calibration_by_hazard": calibration,
+        "state_damage_tables": state_damage_tables,
+        "damage_breakdown_by_scenario": damage_breakdown_by_scenario,
+        "network_state_service_distribution_by_scenario": network_distribution,
+        "network_state_service_unit_counts": network_unit_counts,
+        "outage_cause_by_scenario": outage_cause_by_scenario,
+        "scenario_availability": {
+            scenario: {
+                "state_damage_tables": bool(state_damage_tables.get(scenario)),
+                "damage_breakdown_by_scenario": bool(damage_breakdown_by_scenario.get(scenario)),
+                "network_states": bool(network_distribution.get(scenario)),
+                "social_impact_by_scenario": False,
+            }
+            for scenario in PML_NETWORK_SCENARIOS
+        },
+        "state_methodology": dict(state_aggregation_metadata or {}),
+        "inputs": {
+            "point_count": int(len(point_records)),
+            "infra_point_count": int(all_infra_mask.sum()),
+            "annual_point_prior": "hazard_direct_eai_by_point",
+            "class_share_priority": ["annual_direct_loss_by_class", "exposure_value_by_class"],
+            "track_sample_manifest_path": str(modeling.get("hazard_track_sample_manifest_path") or "") or None,
+            "track_sample_id": modeling.get("hazard_track_sample_id"),
+        },
+    }
+
+
+def _selected_hazard_keys(hazard_keys: tuple[str, ...] | None) -> tuple[str, ...]:
+    requested = tuple(str(value) for value in (hazard_keys or HAZARD_KEYS))
+    return tuple(hazard_key for hazard_key in HAZARD_KEYS if hazard_key in requested)
+
+
+def _zero_hazard_result(point_count: int) -> HazardImpactResult:
+    return HazardImpactResult(
+        eai_direct_by_point=[0.0] * point_count,
+        max_loss_by_point=[0.0] * point_count,
+        at_event_loss=[],
+        event_frequency=[],
+        event_id=[],
+        event_name=[],
+        aai_agg_eur=0.0,
+        max_event_loss_eur=0.0,
+        pml_eur={int(rp): 0.0 for rp in RETURN_PERIODS},
+        tvar_95_eur=0.0,
+        top_events=[],
+        raw_max_event_loss_eur=0.0,
+    )
+
+
 def _metric_family_classification() -> dict[str, dict[str, Any]]:
     return {
         "direct_physical": {
@@ -633,6 +1311,8 @@ def _compute_impacts_climada(
     resume_enabled: bool = False,
     resume_dynamic_hazard_point_cap: int | None = None,
     prebuilt_bundle: ClimadaExposureBundle | None = None,
+    hazard_keys: tuple[str, ...] | None = None,
+    explicit_hazard_bundle: Any | None = None,
 ) -> ImpactComputationResult:
     wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
     flood_asset_mapping = dict(settings.flood_asset_type_to_curve_code or {}) or None
@@ -669,6 +1349,7 @@ def _compute_impacts_climada(
         fallback_to_precomputed_hazards=False,
         storm_parquet_path=settings.storm_parquet_path,
         storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
+        track_sample_manifest_path=settings.hazard_track_sample_manifest_path,
         wind_unit_in=settings.storm_wind_unit_in,
         convert_10min_to_1min=bool(settings.storm_convert_10min_to_1min),
         radius_unit_in=settings.storm_radius_unit_in,
@@ -693,16 +1374,36 @@ def _compute_impacts_climada(
         checkpoint_dir=checkpoint_dir,
         resume_enabled=resume_enabled,
         resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
+        hazard_keys=hazard_keys,
+        explicit_hazard_bundle=explicit_hazard_bundle,
     )
 
     point_count = len(bundle.point_records)
+    selected_hazard_keys = _selected_hazard_keys(hazard_keys)
+    resolved_hazards: dict[str, HazardImpactResult] = {}
+    resolved_component_hazards: dict[str, dict[str, HazardImpactResult]] = {}
+    for hazard_key in HAZARD_KEYS:
+        if hazard_key in climada.hazards:
+            resolved_hazards[hazard_key] = climada.hazards[hazard_key]
+            resolved_component_hazards[hazard_key] = dict((climada.component_hazards or {}).get(hazard_key) or {})
+            continue
+        resolved_hazards[hazard_key] = _zero_hazard_result(point_count)
+        resolved_component_hazards[hazard_key] = {}
+    omitted_hazard_keys = [hazard_key for hazard_key in HAZARD_KEYS if hazard_key not in selected_hazard_keys]
+    if omitted_hazard_keys:
+        climada.notes.append(
+            "Hazard outputs omitted by selection were zero-filled for downstream export compatibility: "
+            + ", ".join(omitted_hazard_keys)
+            + "."
+        )
+
     hazard_direct_eai = {
-        "storm": _to_float_list(climada.hazards["storm"].eai_direct_by_point, point_count),
-        "storm_cmcc": _to_float_list(climada.hazards["storm_cmcc"].eai_direct_by_point, point_count),
+        "storm": _to_float_list(resolved_hazards["storm"].eai_direct_by_point, point_count),
+        "storm_cmcc": _to_float_list(resolved_hazards["storm_cmcc"].eai_direct_by_point, point_count),
     }
     hazard_max_loss = {
-        "storm": _to_float_list(climada.hazards["storm"].max_loss_by_point, point_count),
-        "storm_cmcc": _to_float_list(climada.hazards["storm_cmcc"].max_loss_by_point, point_count),
+        "storm": _to_float_list(resolved_hazards["storm"].max_loss_by_point, point_count),
+        "storm_cmcc": _to_float_list(resolved_hazards["storm_cmcc"].max_loss_by_point, point_count),
     }
 
     aggregated = aggregate_impacts_with_interdependency(
@@ -766,11 +1467,11 @@ def _compute_impacts_climada(
     storm_scaler = float(aggregated.dependency_scaler_by_hazard.get("storm", 1.0))
     cmcc_scaler = float(aggregated.dependency_scaler_by_hazard.get("storm_cmcc", 1.0))
 
-    storm_direct_metrics = climada.hazards["storm"]
-    cmcc_direct_metrics = climada.hazards["storm_cmcc"]
+    storm_direct_metrics = resolved_hazards["storm"]
+    cmcc_direct_metrics = resolved_hazards["storm_cmcc"]
 
-    storm_components_raw = (climada.component_hazards or {}).get("storm", {})
-    cmcc_components_raw = (climada.component_hazards or {}).get("storm_cmcc", {})
+    storm_components_raw = resolved_component_hazards["storm"]
+    cmcc_components_raw = resolved_component_hazards["storm_cmcc"]
 
     def _component_direct_eai_map(component_map: dict[str, Any], combined_direct: float) -> dict[str, float]:
         ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
@@ -873,7 +1574,16 @@ def _compute_impacts_climada(
     }
     portfolio_results = _attach_service_state_aliases(portfolio_results)
 
-    graphs = _build_climada_graphs(climada, aggregated.dependency_scaler_by_hazard, portfolio_results)
+    graphs = _build_climada_graphs(
+        ClimadaRunResult(
+            hazards=resolved_hazards,
+            component_hazards=resolved_component_hazards,
+            modeling=climada.modeling,
+            notes=climada.notes,
+        ),
+        aggregated.dependency_scaler_by_hazard,
+        portfolio_results,
+    )
     notes = [
         "CLIMADA production engine is active (STORM + STORM_CMCC with annualized frequencies).",
         "Direct impact is computed by CLIMADA and indirect impact is added by conservative electricity-to-water dependency post-processing.",
@@ -1001,6 +1711,15 @@ def _compute_impacts_climada(
             + ", ".join(failed_checks)
         )
     notes.extend(coherence_warnings)
+    pml_network_graph_inputs = _build_pml_network_graph_inputs(
+        np,
+        point_records=list(bundle.point_records or []),
+        hazard_direct_eai=hazard_direct_eai,
+        portfolio_results=portfolio_results,
+        component_hazards=resolved_component_hazards,
+        state_aggregation_metadata=aggregated.state_aggregation_metadata,
+        modeling=modeling,
+    )
 
     return ImpactComputationResult(
         engine="climada_with_interdependency_v1",
@@ -1011,7 +1730,10 @@ def _compute_impacts_climada(
         notes=notes,
         modeling=modeling,
         matching_qa=matching_qa,
-        artifacts={"coherence_report": [coherence_report]},
+        artifacts={
+            "coherence_report": [coherence_report],
+            "pml_network_graph_inputs": pml_network_graph_inputs,
+        },
     )
 
 
@@ -1359,6 +2081,8 @@ def compute_impacts(
     resume_enabled: bool = False,
     resume_dynamic_hazard_point_cap: int | None = None,
     prebuilt_bundle: ClimadaExposureBundle | None = None,
+    hazard_keys: tuple[str, ...] | None = None,
+    explicit_hazard_bundle: Any | None = None,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
     if bool(runtime_settings.allow_climada_fallback):
@@ -1389,4 +2113,6 @@ def compute_impacts(
         resume_enabled=resume_enabled,
         resume_dynamic_hazard_point_cap=resume_dynamic_hazard_point_cap,
         prebuilt_bundle=prebuilt_bundle,
+        hazard_keys=hazard_keys,
+        explicit_hazard_bundle=explicit_hazard_bundle,
     )

@@ -64,6 +64,11 @@ Publication web scientifique:
 - chaque territoire publie maintenant `web/data/<territory>-scientific-web-summary.json`
 - ce payload est derive uniquement du `complete-analysis.json` publie
 - il sert de source web prioritaire pour les chiffres scientifiques du site
+- le contrat public V4 impose `complete_analysis.scientific_graph_inputs.scenarios == ["rp10", "rp50", "rp100", "rp1000"]`
+- `build_scientific_web_summary.py` ne reconstruit plus jamais les inputs scientifiques en silence: un run V4 doit deja contenir `scientific_graph_inputs` strict avant publication
+- pour un ancien run archive seulement, la reparation lourde reste disponible avec `--repair-legacy-scientific-inputs`
+- la fin de run execute maintenant les phases bloquantes `scientific_publication` puis `graphs`; un run guadeloupe-only ne finit en `success` que si le complete-analysis, le scientific summary et les graphes sont complets
+- `page-analysis` reste un adaptateur legacy optionnel; il ne definit plus la validite scientifique du run sauf si `--require-legacy-web` est explicitement passe
 - les artefacts `wind-maps`, `landslide-maps`, `multi-hazard-proxy`, `page-analysis`, `network-states.geojson` restent necessaires pour les cartes et certains blocs legacy
 - le detail exact de ce qui est deja rebascule ou non est documente dans `docs/note-backend-calculatoire.md`
 
