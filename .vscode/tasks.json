@@ -775,6 +775,33 @@
       }
     },
     {
+      "label": "SIB: Monitor Complete Analysis Post-Process",
+      "type": "process",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/monitor_complete_analysis_postprocess.py",
+        "${input:sibCompletePostprocessRunId}",
+        "--territory",
+        "${input:sibCompletePostprocessTerritory}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
       "label": "SIB: Babysit Hazard Comparison Run",
       "type": "shell",
       "command": "bash",
@@ -1546,6 +1573,23 @@
       "type": "promptString",
       "description": "Run ID exact (ex 20260527_160919) ou selecteur frontend: latest, latest-success.",
       "default": "latest-success"
+    },
+    {
+      "id": "sibCompletePostprocessRunId",
+      "type": "promptString",
+      "description": "Run ID du complete-analysis a suivre pour les reconstructions post-process.",
+      "default": "latest"
+    },
+    {
+      "id": "sibCompletePostprocessTerritory",
+      "type": "pickString",
+      "description": "Territoire du complete-analysis a suivre pour les reconstructions post-process.",
+      "options": [
+        "guadeloupe",
+        "martinique",
+        "saint-barthelemy"
+      ],
+      "default": "guadeloupe"
     },
     {
       "id": "sensitivityRunId",
