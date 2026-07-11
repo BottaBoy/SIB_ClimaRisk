@@ -74,6 +74,23 @@ def _infer_resume_max_points_per_shard(existing_manifest: dict[str, Any]) -> int
     return None
 
 
+def _infer_resume_dynamic_max_tracks(existing_manifest: dict[str, Any]) -> int | None:
+    parameters = existing_manifest.get("parameters") if isinstance(existing_manifest, dict) else {}
+    if not isinstance(parameters, dict):
+        return None
+    for key in ("requested_dynamic_max_tracks", "dynamic_max_tracks"):
+        raw_value = parameters.get(key)
+        if raw_value is None:
+            continue
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            return value
+    return None
+
+
 def _find_live_pids(run_id: str) -> list[int]:
     result = subprocess.run(
         ["pgrep", "-af", "run_complete_analysis.py"],
@@ -115,8 +132,8 @@ def main() -> int:
     parser.add_argument(
         "--dynamic-max-tracks",
         type=int,
-        default=0,
-        help="Dynamic tracks passed to the runner for logging only during resume",
+        default=None,
+        help="Optional safety override; the launcher will prefer the value recorded in the manifest",
     )
     parser.add_argument(
         "--no-deploy",
@@ -161,6 +178,23 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    inferred_dynamic_max_tracks = _infer_resume_dynamic_max_tracks(manifest)
+    if (
+        args.dynamic_max_tracks is not None
+        and inferred_dynamic_max_tracks is not None
+        and int(args.dynamic_max_tracks) != int(inferred_dynamic_max_tracks)
+    ):
+        print(
+            f"warning: requested dynamic_max_tracks={int(args.dynamic_max_tracks)} "
+            f"differs from manifest {int(inferred_dynamic_max_tracks)}; using manifest value",
+            file=sys.stderr,
+        )
+    resolved_dynamic_max_tracks = (
+        int(inferred_dynamic_max_tracks)
+        if inferred_dynamic_max_tracks is not None
+        else int(args.dynamic_max_tracks or 0)
+    )
+
     log_file = Path(args.log_file) if args.log_file else LOGS_DIR / f"run_complete_analysis_{run_id}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     pidfile = RUN_OUTPUTS_DIR / run_id / "resume.pid"
@@ -172,7 +206,7 @@ def main() -> int:
         "--resume-run-id",
         run_id,
         "--dynamic-max-tracks",
-        str(int(args.dynamic_max_tracks)),
+        str(resolved_dynamic_max_tracks),
         "--max-points-per-shard",
         str(int(inferred_max_points)),
         "--memory-budget-gb",
@@ -199,6 +233,7 @@ def main() -> int:
     print(f"log_file={log_file}")
     print(f"pidfile={pidfile}")
     print(f"max_points_per_shard={inferred_max_points}")
+    print(f"dynamic_max_tracks={resolved_dynamic_max_tracks}")
     print("kill_command:")
     print(f"  kill $(cat {pidfile})")
     return 0

@@ -89,10 +89,56 @@ def is_same_process_alive(pid: int, start_ticks: int | None) -> bool:
     return int(current_start_ticks) == int(start_ticks)
 
 
-def has_terminal_event(journal_path: Path, actor: str, *, start_line: int = 0) -> bool:
+def _event_run_id(payload: dict[str, Any]) -> str:
+    return str(payload.get("run_id") or payload.get("complete_analysis_run_id") or "").strip()
+
+
+def _event_scope_start_line(
+    journal_path: Path,
+    *,
+    run_id: str | None,
+    parent_pid: int,
+    child_pid: int,
+) -> int:
+    if not journal_path.exists():
+        return 0
+    try:
+        lines = journal_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+
+    scope_start = 0
+    requested_run_id = str(run_id or "").strip()
+    for index, raw_line in enumerate(lines):
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if str(payload.get("actor") or "") != "parent":
+            continue
+        if str(payload.get("event") or "") != "frontend_child_spawned":
+            continue
+        if requested_run_id and _event_run_id(payload) not in {"", requested_run_id}:
+            continue
+        if int(payload.get("parent_pid") or -1) != int(parent_pid):
+            continue
+        if int(payload.get("child_pid") or -1) != int(child_pid):
+            continue
+        scope_start = index + 1
+    return scope_start
+
+
+def has_terminal_event(
+    journal_path: Path,
+    actor: str,
+    *,
+    start_line: int = 0,
+    run_id: str | None = None,
+) -> bool:
     terminal_events = PARENT_TERMINAL_EVENTS if actor == "parent" else CHILD_TERMINAL_EVENTS
     if not journal_path.exists():
         return False
+    requested_run_id = str(run_id or "").strip()
     try:
         lines = journal_path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -106,6 +152,8 @@ def has_terminal_event(journal_path: Path, actor: str, *, start_line: int = 0) -
         except json.JSONDecodeError:
             continue
         if str(payload.get("actor") or "") != actor:
+            continue
+        if requested_run_id and _event_run_id(payload) not in {"", requested_run_id}:
             continue
         if str(payload.get("event") or "") in terminal_events:
             return True
@@ -218,7 +266,12 @@ def monitor_frontend_processes(
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     journal_path = Path(journal_path)
-    monitor_start_line = _journal_line_count(journal_path)
+    event_scope_start_line = _event_scope_start_line(
+        journal_path,
+        run_id=run_id,
+        parent_pid=int(parent_pid),
+        child_pid=int(child_pid),
+    )
     write_frontend_supervision_event(
         journal_path,
         actor="monitor",
@@ -240,8 +293,18 @@ def monitor_frontend_processes(
     child_terminal_event_seen = False
 
     while True:
-        parent_terminal_event_seen = has_terminal_event(journal_path, "parent", start_line=monitor_start_line)
-        child_terminal_event_seen = has_terminal_event(journal_path, "child", start_line=monitor_start_line)
+        parent_terminal_event_seen = has_terminal_event(
+            journal_path,
+            "parent",
+            start_line=event_scope_start_line,
+            run_id=run_id,
+        )
+        child_terminal_event_seen = has_terminal_event(
+            journal_path,
+            "child",
+            start_line=event_scope_start_line,
+            run_id=run_id,
+        )
         if parent_terminal_event_seen and child_terminal_event_seen:
             break
 

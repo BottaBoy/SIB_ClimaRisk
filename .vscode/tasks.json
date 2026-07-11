@@ -825,13 +825,13 @@
       }
     },
     {
-      "label": "SIB: Monitor Scientific Graph Post-Process",
+      "label": "SIB: Monitor Complete Analysis Post-Process (Legacy Alias)",
       "type": "process",
-      "command": "bash",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [
-        "${workspaceFolder}/scripts/monitor_scientific_postprocess.sh",
-        "${workspaceFolder}",
+        "scripts/monitor_complete_analysis_postprocess.py",
         "${input:sibScientificPostprocessRunId}",
+        "--territory",
         "${input:sibScientificPostprocessTerritory}"
       ],
       "options": {

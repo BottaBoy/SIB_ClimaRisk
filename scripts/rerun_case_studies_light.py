@@ -684,6 +684,8 @@ if __name__ == "__main__":
             journal_path,
             actor="child",
             event="child_failed",
+            pid=os.getpid(),
+            complete_analysis_run_id=frontend_supervision_run_id_from_env(),
             reason="called_process_error",
             returncode_raw=int(exc.returncode),
             returncode_normalized=int(normalized_code),
@@ -694,6 +696,8 @@ if __name__ == "__main__":
             journal_path,
             actor="child",
             event="child_failed",
+            pid=os.getpid(),
+            complete_analysis_run_id=frontend_supervision_run_id_from_env(),
             reason="unhandled_exception",
             error=str(exc),
         )

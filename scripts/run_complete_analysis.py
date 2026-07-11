@@ -112,6 +112,9 @@ from scientific_publication_contract import (
     SCIENTIFIC_WEB_SUMMARY_SCHEMA_VERSION,
 )
 
+
+ENV_FRESH_FRONTEND_RESUME = "SIB_COMPLETE_ANALYSIS_FRESH_FRONTEND_RESUME"
+
 # Logging setup
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -387,10 +390,15 @@ def _resolve_resume_runtime_parameters(
     resolved_track_sample_manifest = (
         existing_parameters.get("track_sample_manifest")
         if existing_parameters.get("track_sample_manifest") is not None
-        else (str(args.track_sample_manifest) if args.track_sample_manifest else None)
+        else (
+            str(getattr(args, "track_sample_manifest", None))
+            if getattr(args, "track_sample_manifest", None)
+            else None
+        )
     )
 
     if existing_parameters:
+        requested_track_sample_manifest = getattr(args, "track_sample_manifest", None)
         current_requested = {
             "dynamic_max_tracks": int(args.dynamic_max_tracks),
             "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
@@ -398,7 +406,7 @@ def _resolve_resume_runtime_parameters(
             "max_points_per_shard": int(args.max_points_per_shard),
             "min_points_per_shard": int(args.min_points_per_shard),
             "territories": parse_territory_selection(str(args.territories), default="both"),
-            "track_sample_manifest": str(args.track_sample_manifest) if args.track_sample_manifest else None,
+            "track_sample_manifest": str(requested_track_sample_manifest) if requested_track_sample_manifest else None,
         }
         resolved_current = {
             "dynamic_max_tracks": resolved_dynamic_max_tracks,
@@ -425,6 +433,41 @@ def _resolve_resume_runtime_parameters(
         "track_sample_manifest": resolved_track_sample_manifest,
     }
     return effective_args, warnings
+
+
+def _build_fresh_frontend_resume_command(
+    *,
+    args: argparse.Namespace,
+    resolved_args: dict[str, Any],
+    effective_settings: Any,
+    run_id: str,
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--resume-run-id",
+        str(run_id),
+        "--dynamic-max-tracks",
+        str(int(resolved_args["requested_dynamic_max_tracks"])),
+        "--territories",
+        str(args.territories),
+        "--max-points-per-shard",
+        str(int(effective_settings.climada_max_points_per_shard)),
+        "--memory-budget-gb",
+        str(float(resolved_args["memory_budget_gb"])),
+        "--min-points-per-shard",
+        str(int(resolved_args["min_points_per_shard"])),
+    ]
+    track_sample_manifest = resolved_args.get("track_sample_manifest")
+    if track_sample_manifest:
+        command.extend(["--track-sample-manifest", str(track_sample_manifest)])
+    if bool(args.no_deploy):
+        command.append("--no-deploy")
+    if bool(args.require_legacy_web):
+        command.append("--require-legacy-web")
+    if bool(args.abort_on_sighup):
+        command.append("--abort-on-sighup")
+    return command
 
 
 def _infer_resume_dynamic_hazard_point_cap(
@@ -2176,6 +2219,115 @@ def snapshot_frontend_artifacts_for_run(
     return archived_by_territory
 
 
+def _fresh_frontend_resume_active() -> bool:
+    return str(os.environ.get(ENV_FRESH_FRONTEND_RESUME) or "").strip() == "1"
+
+
+def _should_exec_fresh_frontend_resume(
+    *,
+    calculation_complete: bool,
+    frontend_required: bool,
+    territories_for_frontend: list[str],
+) -> bool:
+    return (
+        bool(calculation_complete)
+        and bool(frontend_required)
+        and bool(territories_for_frontend)
+        and not _fresh_frontend_resume_active()
+    )
+
+
+def _read_frontend_supervision_events(journal_path: Path) -> list[dict[str, Any]]:
+    if not journal_path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    try:
+        lines = journal_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for raw_line in lines:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            events.append(payload)
+    return events
+
+
+def _completed_frontend_journal_min_mtime_epoch(
+    journal_path: Path,
+    *,
+    run_id: str,
+    territories: list[str],
+) -> float | None:
+    requested_territories = {str(territory) for territory in territories}
+    frontend_started_at: datetime | None = None
+    latest_child_terminal: dict[str, Any] | None = None
+    for event in _read_frontend_supervision_events(journal_path):
+        event_run_id = str(event.get("run_id") or event.get("complete_analysis_run_id") or "").strip()
+        if event_run_id and event_run_id != str(run_id):
+            continue
+        event_name = str(event.get("event") or "")
+        if event_name == "frontend_phase_started":
+            parsed = _parse_iso_datetime(event.get("timestamp"))
+            if parsed is not None:
+                frontend_started_at = parsed
+            latest_child_terminal = None
+            continue
+        if event_name not in {"child_completed", "child_failed"}:
+            continue
+        event_territories = {str(item) for item in event.get("territories") or []}
+        if requested_territories and event_territories and not requested_territories.issubset(event_territories):
+            continue
+        latest_child_terminal = event
+
+    if not latest_child_terminal or str(latest_child_terminal.get("event") or "") != "child_completed":
+        return None
+    completed_at = _parse_iso_datetime(latest_child_terminal.get("timestamp"))
+    started_at = frontend_started_at or completed_at
+    if started_at is None:
+        return None
+    # Give the filesystem clock a small grace window around the journal write.
+    return max(0.0, started_at.timestamp() - 2.0)
+
+
+def recover_completed_frontend_artifacts_from_journal(
+    run_manifest: RunManifest,
+    territories: list[str],
+    *,
+    supervision_journal: Path,
+) -> dict[str, dict[str, str]] | None:
+    min_mtime_epoch = _completed_frontend_journal_min_mtime_epoch(
+        supervision_journal,
+        run_id=run_manifest.run_id,
+        territories=list(territories),
+    )
+    if min_mtime_epoch is None:
+        return None
+    archived_frontend_artifacts = snapshot_frontend_artifacts_for_run(
+        run_manifest,
+        territories,
+        min_mtime_epoch=min_mtime_epoch,
+    )
+    run_manifest.set_status(
+        "running",
+        frontend_artifacts={
+            "status": "complete",
+            "territories": list(territories),
+            "archived_files_by_territory": archived_frontend_artifacts,
+            "supervision_journal": str(supervision_journal),
+            "recovered_from_supervision_journal": True,
+            "recovered_at": datetime.now(timezone.utc).isoformat(),
+        },
+        frontend_artifacts_success=True,
+    )
+    return archived_frontend_artifacts
+
+
 def _tail_text(value: str, *, max_chars: int = 4000) -> str:
     text = str(value or "")
     if len(text) <= max_chars:
@@ -2672,22 +2824,27 @@ def main():
         run_manifest = RunManifest.open_existing(RUN_OUTPUTS_DIR, resume_run_id, parameters)
         run_manifest.set_status(
             "running",
+            finished_at=None,
             resumed_at=datetime.now(timezone.utc).isoformat(),
             resume_invocation={
-                "dynamic_max_tracks": int(args.dynamic_max_tracks),
-                "requested_dynamic_max_tracks": int(args.dynamic_max_tracks),
-                "territories": requested_territories,
+                "dynamic_max_tracks": int(resolved_args["dynamic_max_tracks"]),
+                "requested_dynamic_max_tracks": int(resolved_args["requested_dynamic_max_tracks"]),
+                "territories": territories,
                 "no_deploy": bool(args.no_deploy),
                 "repair_legacy_scientific_inputs": bool(args.repair_legacy_scientific_inputs),
                 "require_legacy_web": bool(args.require_legacy_web),
-                "memory_budget_gb": float(args.memory_budget_gb),
-                "max_points_per_shard": int(args.max_points_per_shard),
-                "min_points_per_shard": int(args.min_points_per_shard),
+                "memory_budget_gb": float(resolved_args["memory_budget_gb"]),
+                "max_points_per_shard": int(effective_settings.climada_max_points_per_shard),
+                "min_points_per_shard": int(resolved_args["min_points_per_shard"]),
                 "allow_degraded_components": bool(args.allow_degraded_components),
                 "sampling_spacing_m": float(effective_settings.default_sampling_spacing_m),
                 "territory_grid_deg": float(effective_settings.territory_grid_deg),
                 "climada_max_points_per_feature": int(effective_settings.climada_max_points_per_feature),
-                "track_sample_manifest": str(args.track_sample_manifest) if args.track_sample_manifest else None,
+                "track_sample_manifest": (
+                    str(effective_settings.hazard_track_sample_manifest_path)
+                    if effective_settings.hazard_track_sample_manifest_path
+                    else None
+                ),
                 **scenario_manifest_fields(scenario),
             },
             publication=publication_policy,
@@ -2780,100 +2937,187 @@ def main():
         and not bool(args.repair_legacy_scientific_inputs)
     )
     if results and territories_for_frontend and frontend_required:
-        logger.info("Rebuilding case-study frontend artefacts...")
-        artefact_start = time.time()
         frontend_supervision_journal = frontend_supervision_journal_path(run_manifest.run_dir)
-        gc.collect()
-        run_manifest.set_status(
-            "running",
-            frontend_artifacts={
-                "status": "running",
-                "territories": territories_for_frontend,
-                "supervision_journal": str(frontend_supervision_journal),
-            },
-        )
-        write_frontend_supervision_event(
-            frontend_supervision_journal,
-            actor="parent",
-            event="frontend_phase_started",
-            run_id=run_manifest.run_id,
-            parent_pid=os.getpid(),
-            territories=list(territories_for_frontend),
-        )
         try:
-            rebuild_case_study_frontend_artifacts(
-                territories_for_frontend,
-                args.dynamic_max_tracks,
-                run_id=run_manifest.run_id,
-                supervision_journal=frontend_supervision_journal,
-            )
-            write_frontend_supervision_event(
-                frontend_supervision_journal,
-                actor="parent",
-                event="frontend_snapshot_started",
-                run_id=run_manifest.run_id,
-                territories=list(territories_for_frontend),
-            )
-            archived_frontend_artifacts = snapshot_frontend_artifacts_for_run(
+            archived_frontend_artifacts = recover_completed_frontend_artifacts_from_journal(
                 run_manifest,
                 territories_for_frontend,
-                min_mtime_epoch=artefact_start,
-            )
-            frontend_artifacts_success = True
-            artefact_time = time.time() - artefact_start
-            logger.info(f"✓ Frontend artefacts rebuilt in {artefact_time:.1f}s")
-            write_frontend_supervision_event(
-                frontend_supervision_journal,
-                actor="parent",
-                event="frontend_rebuild_completed",
-                run_id=run_manifest.run_id,
-                territories=list(territories_for_frontend),
-                duration_seconds=int(artefact_time),
-                archived_territories=sorted(archived_frontend_artifacts.keys()),
-            )
-            run_logger.log_event(
-                "frontend_artifacts",
-                territories=territories_for_frontend,
-                duration_seconds=int(artefact_time),
-                status="complete",
-                supervision_journal=str(frontend_supervision_journal),
-            )
-            run_manifest.set_status(
-                "running",
-                frontend_artifacts={
-                    "status": "complete",
-                    "territories": territories_for_frontend,
-                    "duration_seconds": int(artefact_time),
-                    "archived_files_by_territory": archived_frontend_artifacts,
-                    "supervision_journal": str(frontend_supervision_journal),
-                },
+                supervision_journal=frontend_supervision_journal,
             )
         except Exception as exc:
-            logger.error(f"✗ Frontend artefact rebuild failed: {exc}", exc_info=True)
-            write_frontend_supervision_event(
+            archived_frontend_artifacts = None
+            logger.info(
+                "Completed frontend journal could not be reused for %s; rebuilding frontend artefacts: %s",
+                ", ".join(territories_for_frontend),
+                exc,
+            )
+        if archived_frontend_artifacts is not None:
+            frontend_artifacts_success = True
+            logger.info(
+                "Recovered completed frontend artefacts for %s from supervision journal %s",
+                ", ".join(territories_for_frontend),
                 frontend_supervision_journal,
-                actor="parent",
-                event="frontend_rebuild_failed",
-                run_id=run_manifest.run_id,
-                territories=list(territories_for_frontend),
-                error=str(exc),
             )
             run_logger.log_event(
                 "frontend_artifacts",
                 territories=territories_for_frontend,
-                error=str(exc),
-                status="failed",
+                status="complete",
+                recovered_from_supervision_journal=True,
                 supervision_journal=str(frontend_supervision_journal),
+            )
+
+        if (
+            not frontend_artifacts_success
+            and _should_exec_fresh_frontend_resume(
+                calculation_complete=len(results) == len(territories),
+                frontend_required=frontend_required,
+                territories_for_frontend=territories_for_frontend,
+            )
+        ):
+            resume_command = _build_fresh_frontend_resume_command(
+                args=args,
+                resolved_args=resolved_args,
+                effective_settings=effective_settings,
+                run_id=run_manifest.run_id,
+            )
+            compaction = _compact_process_memory()
+            logger.info(
+                "Restarting in fresh resume mode before frontend artefacts to release impact-calculation memory: %s",
+                " ".join(resume_command),
+            )
+            logger.info(
+                "Pre-frontend exec memory compaction: rss_kb_before=%s rss_kb_after=%s mem_available_kb_before=%s mem_available_kb_after=%s malloc_trim_supported=%s malloc_trim_result=%s gc_collected=%s",
+                compaction.get("rss_kb_before"),
+                compaction.get("rss_kb_after"),
+                compaction.get("mem_available_kb_before"),
+                compaction.get("mem_available_kb_after"),
+                compaction.get("malloc_trim_supported"),
+                compaction.get("malloc_trim_result"),
+                compaction.get("gc_collected"),
+            )
+            run_logger.log_event(
+                "frontend_resume_exec",
+                territories=territories_for_frontend,
+                status="starting",
+                command=resume_command,
+                memory_compaction=compaction,
             )
             run_manifest.set_status(
                 "running",
                 frontend_artifacts={
-                    "status": "failed",
+                    "status": "pending_fresh_resume",
                     "territories": territories_for_frontend,
-                    "error": str(exc),
+                    "reason": "release impact-calculation memory before frontend rebuild",
+                    "command": resume_command,
+                    "memory_compaction": compaction,
+                },
+            )
+            env = {
+                **os.environ,
+                "PYTHONUNBUFFERED": "1",
+                ENV_FRESH_FRONTEND_RESUME: "1",
+            }
+            try:
+                os.execvpe(resume_command[0], resume_command, env)
+            except OSError as exc:
+                logger.error("Fresh frontend resume exec failed; continuing in current process: %s", exc)
+        if not frontend_artifacts_success:
+            logger.info("Rebuilding case-study frontend artefacts...")
+            artefact_start = time.time()
+            gc.collect()
+            run_manifest.set_status(
+                "running",
+                frontend_artifacts={
+                    "status": "running",
+                    "territories": territories_for_frontend,
                     "supervision_journal": str(frontend_supervision_journal),
                 },
             )
+            write_frontend_supervision_event(
+                frontend_supervision_journal,
+                actor="parent",
+                event="frontend_phase_started",
+                run_id=run_manifest.run_id,
+                parent_pid=os.getpid(),
+                territories=list(territories_for_frontend),
+            )
+            try:
+                frontend_dynamic_max_tracks = int(resolved_args["requested_dynamic_max_tracks"])
+                rebuild_case_study_frontend_artifacts(
+                    territories_for_frontend,
+                    frontend_dynamic_max_tracks,
+                    run_id=run_manifest.run_id,
+                    supervision_journal=frontend_supervision_journal,
+                )
+                write_frontend_supervision_event(
+                    frontend_supervision_journal,
+                    actor="parent",
+                    event="frontend_snapshot_started",
+                    run_id=run_manifest.run_id,
+                    territories=list(territories_for_frontend),
+                )
+                archived_frontend_artifacts = snapshot_frontend_artifacts_for_run(
+                    run_manifest,
+                    territories_for_frontend,
+                    min_mtime_epoch=artefact_start,
+                )
+                frontend_artifacts_success = True
+                artefact_time = time.time() - artefact_start
+                logger.info(f"✓ Frontend artefacts rebuilt in {artefact_time:.1f}s")
+                write_frontend_supervision_event(
+                    frontend_supervision_journal,
+                    actor="parent",
+                    event="frontend_rebuild_completed",
+                    run_id=run_manifest.run_id,
+                    parent_pid=os.getpid(),
+                    territories=list(territories_for_frontend),
+                    duration_seconds=int(artefact_time),
+                    archived_territories=sorted(archived_frontend_artifacts.keys()),
+                )
+                run_logger.log_event(
+                    "frontend_artifacts",
+                    territories=territories_for_frontend,
+                    duration_seconds=int(artefact_time),
+                    status="complete",
+                    supervision_journal=str(frontend_supervision_journal),
+                )
+                run_manifest.set_status(
+                    "running",
+                    frontend_artifacts={
+                        "status": "complete",
+                        "territories": territories_for_frontend,
+                        "duration_seconds": int(artefact_time),
+                        "archived_files_by_territory": archived_frontend_artifacts,
+                        "supervision_journal": str(frontend_supervision_journal),
+                    },
+                )
+            except Exception as exc:
+                logger.error(f"✗ Frontend artefact rebuild failed: {exc}", exc_info=True)
+                write_frontend_supervision_event(
+                    frontend_supervision_journal,
+                    actor="parent",
+                    event="frontend_rebuild_failed",
+                    run_id=run_manifest.run_id,
+                    parent_pid=os.getpid(),
+                    territories=list(territories_for_frontend),
+                    error=str(exc),
+                )
+                run_logger.log_event(
+                    "frontend_artifacts",
+                    territories=territories_for_frontend,
+                    error=str(exc),
+                    status="failed",
+                    supervision_journal=str(frontend_supervision_journal),
+                )
+                run_manifest.set_status(
+                    "running",
+                    frontend_artifacts={
+                        "status": "failed",
+                        "territories": territories_for_frontend,
+                        "error": str(exc),
+                        "supervision_journal": str(frontend_supervision_journal),
+                    },
+                )
     elif results and not frontend_required:
         frontend_artifacts_success = True
         if bool(args.repair_legacy_scientific_inputs):
