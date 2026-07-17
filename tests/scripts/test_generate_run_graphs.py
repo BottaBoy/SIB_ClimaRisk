@@ -388,6 +388,7 @@ def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_p
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_chart_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_distribution_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_matrix_payload", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_run_graphs, "_build_network_economic_damage_matrix_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_service_rp_curve_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_hazard_comparison_csv_rows", lambda artifacts: (["indicator", "storm"], [["A", "1"]]))
     monkeypatch.setattr(generate_run_graphs, "_build_impact_table_payload", lambda *args, **kwargs: None)
@@ -1215,7 +1216,7 @@ def test_swap_state_surfaces_for_source_lines_accepts_aggregated_electric_grid_f
     assert list(swapped["state_p99_storm"]) == ["S1"]
 
 
-def test_build_network_state_matrix_payload_uses_strict_scientific_distribution() -> None:
+def test_build_network_state_matrix_payload_uses_geojson_service_distribution() -> None:
     scenario_distribution = {
         scenario: {
             "storm": {
@@ -1226,20 +1227,48 @@ def test_build_network_state_matrix_payload_uses_strict_scientific_distribution(
         }
         for scenario in ("rp10", "rp50", "rp100", "rp1000")
     }
+    state_damage_tables = {
+        scenario: [
+            {
+                "class_key": "eau_aep",
+                "storm": {"state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0}},
+            },
+            {
+                "class_key": "eau_eu",
+                "storm": {"state_pct": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}},
+            },
+            {
+                "class_key": "elec_bt_aerien",
+                "storm": {"exposure_eur": 3.0, "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0}},
+            },
+            {
+                "class_key": "elec_hta_aerien",
+                "storm": {"exposure_eur": 1.0, "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0}},
+            },
+        ]
+        for scenario in ("rp10", "rp50", "rp100", "rp1000")
+    }
     artifacts = generate_run_graphs.AuxiliaryArtifacts(
         territory="guadeloupe",
-        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "scientific_graph_inputs": {
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "state_damage_tables": state_damage_tables,
+                    "damage_breakdown_by_scenario": {},
+                    "network_state_service_distribution_by_scenario": scenario_distribution,
+                }
+            },
+        ),
         scientific_web_summary=generate_run_graphs.ArchivedArtifact(
             "/tmp/summary.json",
             {
-                "network_states": {
-                    "scenario_service_state_distribution": {
-                        scenario: {
-                            "storm": dict(scenario_distribution[scenario]["storm"]),
-                            "storm_cmcc": dict(scenario_distribution[scenario]["storm"]),
-                        }
-                        for scenario in ("rp10", "rp50", "rp100", "rp1000")
-                    }
+                "scientific_graph_inputs": {
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "state_damage_tables": state_damage_tables,
+                    "damage_breakdown_by_scenario": {},
+                    "network_state_service_distribution_by_scenario": scenario_distribution,
                 }
             },
         ),
@@ -1258,10 +1287,110 @@ def test_build_network_state_matrix_payload_uses_strict_scientific_distribution(
     assert payload["column_titles"][2] == "Etat reseaux elec"
     assert payload["cells"][0][2]["S0"] == pytest.approx(75.0)
     assert payload["cells"][0][2]["S1"] == pytest.approx(25.0)
-    assert payload["outage_cause_cells"][0][0] == {"direct": 0.0, "indirect": 0.0}
+    assert payload["outage_cause_cells"][0][0] is None
     assert payload["outage_cause_cells"][0][2] is None
-    assert "Opérationnel (S0)" in payload["note"]
+    assert "network-states.geojson" in payload["note"]
     assert "Hors service (S3)" in payload["note"]
+
+
+def test_build_network_economic_damage_matrix_disaggregates_electric_networks() -> None:
+    state_damage_tables = {
+        scenario: [
+            {
+                "class_key": "eau_aep",
+                "storm": {
+                    "direct_damage_eur": 75.0,
+                    "indirect_damage_eur": 25.0,
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0},
+                },
+            },
+            {
+                "class_key": "eau_eu",
+                "storm": {
+                    "direct_damage_eur": 0.0,
+                    "indirect_damage_eur": 10.0,
+                    "state_pct": {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0},
+                },
+            },
+            {
+                "class_key": "elec_bt_aerien",
+                "storm": {
+                    "exposure_eur": 3.0,
+                    "direct_damage_eur": 30.0,
+                    "indirect_damage_eur": 0.0,
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 100.0, "S3": 0.0},
+                },
+            },
+            {
+                "class_key": "elec_hta_aerien",
+                "storm": {
+                    "exposure_eur": 1.0,
+                    "direct_damage_eur": 10.0,
+                    "indirect_damage_eur": 0.0,
+                    "state_pct": {"S0": 0.0, "S1": 100.0, "S2": 0.0, "S3": 0.0},
+                },
+            },
+            {
+                "class_key": "elec_bt_souterrain",
+                "storm": {
+                    "exposure_eur": 2.0,
+                    "direct_damage_eur": 0.0,
+                    "indirect_damage_eur": 0.0,
+                    "state_pct": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+                },
+            },
+            {
+                "class_key": "elec_hta_souterrain",
+                "storm": {
+                    "exposure_eur": 2.0,
+                    "direct_damage_eur": 20.0,
+                    "indirect_damage_eur": 0.0,
+                    "state_pct": {"S0": 0.0, "S1": 0.0, "S2": 0.0, "S3": 100.0},
+                },
+            },
+        ]
+        for scenario in ("rp10", "rp50", "rp100", "rp1000")
+    }
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
+            {
+                "scientific_graph_inputs": {
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "state_damage_tables": state_damage_tables,
+                    "damage_breakdown_by_scenario": {},
+                }
+            },
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_network_economic_damage_matrix_payload(
+        artifacts,
+        "storm",
+        "Criticite economique",
+    )
+
+    assert payload is not None
+    assert payload["column_titles"] == [
+        "Criticite AEP",
+        "Criticite EU",
+        "Criticite elec aerien",
+        "Criticite elec souterrain",
+    ]
+    assert payload["cells"][0][2]["S1"] == pytest.approx(25.0)
+    assert payload["cells"][0][2]["S2"] == pytest.approx(75.0)
+    assert payload["cells"][0][3]["S0"] == pytest.approx(50.0)
+    assert payload["cells"][0][3]["S3"] == pytest.approx(50.0)
+    assert payload["outage_cause_cells"][0][0] == {"direct": 75.0, "indirect": 25.0}
+    assert payload["outage_cause_legend_prefix"] == "Origine des dommages"
 
 
 def test_thin_zoomed_surface_network_geometries_reduces_polygon_area() -> None:

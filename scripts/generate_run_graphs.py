@@ -168,6 +168,12 @@ NETWORK_STATE_MATRIX_COLUMNS = (
     ("eau_eu", "Etat reseaux EU", ("eau_eu",)),
     ("elec", "Etat reseaux elec", ("elec",)),
 )
+ECONOMIC_DAMAGE_MATRIX_COLUMNS = (
+    ("eau_aep", "Criticite AEP", ("eau_aep",)),
+    ("eau_eu", "Criticite EU", ("eau_eu",)),
+    ("elec_aerien", "Criticite elec aerien", ("elec_bt_aerien", "elec_hta_aerien")),
+    ("elec_souterrain", "Criticite elec souterrain", ("elec_bt_souterrain", "elec_hta_souterrain")),
+)
 
 COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 COMPONENT_LABELS = {
@@ -195,6 +201,8 @@ OUTAGE_CAUSE_LABELS = {
     "direct": "Direct",
     "indirect": "Indirect",
 }
+OUTAGE_CAUSE_TITLE = "Origine\nHS"
+OUTAGE_CAUSE_LEGEND_PREFIX = "Origine des hors services"
 OUTAGE_CAUSE_COLORS = {
     "direct": "#2563eb",
     "indirect": "#be123c",
@@ -705,6 +713,15 @@ def _outage_cause_shares_from_state_tables(
             "direct": round((direct / total) * 100.0, 4),
             "indirect": round((indirect / total) * 100.0, 4),
         }
+    return None
+
+
+def _canonical_outage_cause_key(value: Any) -> str | None:
+    cause = str(value or "").strip().lower()
+    if cause == "direct_damage":
+        return "direct"
+    if cause in {"blocking_ouvrage", "electric_dependency"}:
+        return "indirect"
     return None
 
 
@@ -4143,6 +4160,10 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
     column_titles = payload.get("column_titles") or []
     cells = payload.get("cells") or []
     outage_cause_cells = payload.get("outage_cause_cells") or []
+    outage_cause_title = str(payload.get("outage_cause_title") or OUTAGE_CAUSE_TITLE)
+    outage_cause_legend_prefix = str(payload.get("outage_cause_legend_prefix") or OUTAGE_CAUSE_LEGEND_PREFIX)
+    cause_bar_requires_s3 = payload.get("cause_bar_requires_s3", True) is not False
+    outage_cause_empty_label = str(payload.get("outage_cause_empty_label") or "HS\n0%")
     if not row_titles or not column_titles or not cells:
         fig, _ax = plt.subplots(figsize=(12, 8))
         _save_figure(fig, output_path, payload.get("note"))
@@ -4204,7 +4225,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                 cause_x = 0.38
                 cause_bottom = 0.0
                 outage_share = max(_safe_float(cell.get("S3")), 0.0)
-                cause_total = 0.0 if outage_share <= 0.0 else sum(max(_safe_float(cause_cell.get(key)), 0.0) for key in OUTAGE_CAUSE_LABELS)
+                cause_total = 0.0 if cause_bar_requires_s3 and outage_share <= 0.0 else sum(max(_safe_float(cause_cell.get(key)), 0.0) for key in OUTAGE_CAUSE_LABELS)
                 if cause_total > 0.0:
                     for cause_key in ("direct", "indirect"):
                         value = max(_safe_float(cause_cell.get(cause_key)), 0.0)
@@ -4231,8 +4252,8 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                         cause_bottom += value
                 else:
                     ax.bar([cause_x], [100.0], width=0.24, color="none", edgecolor="#94a3b8", linewidth=0.8)
-                    ax.text(cause_x, 50.0, "S3\n0%", ha="center", va="center", fontsize=7, color="#64748b", fontweight="bold")
-                ax.text(cause_x, -7.0, "Cause\nS3", ha="center", va="top", fontsize=7, color="#475569")
+                    ax.text(cause_x, 50.0, outage_cause_empty_label, ha="center", va="center", fontsize=7, color="#64748b", fontweight="bold")
+                ax.text(cause_x, -7.0, outage_cause_title, ha="center", va="top", fontsize=7, color="#475569")
             ax.set_ylim(0, 100)
             ax.set_xlim(-0.65, 0.65)
             ax.set_xticks([])
@@ -4251,10 +4272,10 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
             ax.spines["bottom"].set_alpha(0.2)
 
     handles = [Patch(facecolor=state_palette[state], label=_state_label(state)) for state in STATE_SEQUENCE]
-    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"Cause S3 - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
+    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"{outage_cause_legend_prefix} - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
     fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=9)
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.989)
-    fig.text(0.03, 0.5, "% des reseaux", rotation="vertical", va="center", fontsize=11)
+    fig.text(0.03, 0.5, str(payload.get("ylabel") or "% des reseaux"), rotation="vertical", va="center", fontsize=11)
     fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.86))
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
@@ -4851,10 +4872,6 @@ def _build_population_grid_geodataframe(
 
 
 def _network_state_feature_cell_id(feature: Any) -> str | None:
-    feature_id = str(feature.get("feature_id") or "").strip()
-    layer_key = str(feature.get("layer_key") or "").strip()
-    if layer_key == "elec_grid_0p1deg" and feature_id.startswith("cell-"):
-        return feature_id
     geometry = feature.get("geometry")
     if geometry is None:
         return None
@@ -4886,6 +4903,9 @@ def _compute_population_state_analysis(artifacts: AuxiliaryArtifacts) -> dict[st
     column_states: dict[str, dict[str, dict[str, dict[str, str]]]] = {
         scenario: {hazard: {column_key: {} for column_key in column_keys} for hazard in hazards} for scenario in scenarios
     }
+    column_causes: dict[str, dict[str, dict[str, dict[str, str]]]] = {
+        scenario: {hazard: {column_key: {} for column_key in column_keys} for hazard in hazards} for scenario in scenarios
+    }
     column_layers = {column_key: set(class_keys) for column_key, _label, class_keys in NETWORK_STATE_MATRIX_COLUMNS}
 
     for row in gdf.itertuples(index=False):
@@ -4898,6 +4918,7 @@ def _compute_population_state_analysis(artifacts: AuxiliaryArtifacts) -> dict[st
         for scenario in scenarios:
             for hazard in hazards:
                 state_code = str(row_dict.get(f"state_{scenario}_{hazard}") or "S0").upper()
+                cause_code = str(row_dict.get(f"cause_{scenario}_{hazard}") or "").strip()
                 if service_key:
                     service_bucket = service_states[scenario][hazard].setdefault(
                         cell_id,
@@ -4906,18 +4927,89 @@ def _compute_population_state_analysis(artifacts: AuxiliaryArtifacts) -> dict[st
                     if _state_severity(state_code) > _state_severity(service_bucket.get(service_key, "S0")):
                         service_bucket[service_key] = state_code
                 for column_key, layers in column_layers.items():
-                    if layer_key not in layers:
+                    if layer_key not in layers and service_key not in layers:
                         continue
                     current = str(column_states[scenario][hazard][column_key].get(cell_id) or "S0").upper()
                     if _state_severity(state_code) > _state_severity(current):
                         column_states[scenario][hazard][column_key][cell_id] = state_code
+                        column_causes[scenario][hazard][column_key][cell_id] = cause_code
 
     total_population = sum(max(0.0, float(value)) for value in population_by_cell.values())
     return {
         "population_by_cell": population_by_cell,
         "service_states": service_states,
         "column_states": column_states,
+        "column_causes": column_causes,
         "total_population": total_population,
+    }
+
+
+def _population_outage_cause_shares_from_analysis(
+    analysis: dict[str, Any] | None,
+    scenario_key: str,
+    hazard: str,
+    column_key: str,
+) -> dict[str, float] | None:
+    if analysis is None:
+        return None
+    population_by_cell = analysis.get("population_by_cell")
+    column_states = _dict_path_get(analysis, "column_states", scenario_key, hazard, column_key)
+    column_causes = _dict_path_get(analysis, "column_causes", scenario_key, hazard, column_key)
+    if not isinstance(population_by_cell, dict) or not isinstance(column_states, dict) or not isinstance(column_causes, dict):
+        return None
+    totals = {"direct": 0.0, "indirect": 0.0}
+    for cell_id, population in population_by_cell.items():
+        if str(column_states.get(cell_id) or "S0").upper() != "S3":
+            continue
+        cause_key = _canonical_outage_cause_key(column_causes.get(cell_id))
+        if cause_key is None:
+            continue
+        totals[cause_key] += max(_safe_float(population), 0.0)
+    denominator = sum(totals.values())
+    if denominator <= 0.0:
+        return None
+    return {
+        key: round((value / denominator) * 100.0, 4)
+        for key, value in totals.items()
+    }
+
+
+def _network_outage_cause_shares_from_geojson(
+    artifacts: AuxiliaryArtifacts,
+    scenario_key: str,
+    hazard: str,
+    column_key: str,
+    class_keys: tuple[str, ...],
+) -> dict[str, float] | None:
+    if not artifacts.network_states_path:
+        return None
+    gdf = _load_geodataframe_cached(artifacts.network_states_path)
+    if gdf.empty:
+        return None
+    state_column = f"state_{scenario_key}_{hazard}"
+    cause_column = f"cause_{scenario_key}_{hazard}"
+    if state_column not in gdf.columns or cause_column not in gdf.columns or "layer_key" not in gdf.columns:
+        return None
+    class_key_set = set(class_keys)
+    totals = {"direct": 0.0, "indirect": 0.0}
+    for row in gdf.itertuples(index=False):
+        row_dict = row._asdict()
+        layer_key = str(row_dict.get("layer_key") or "").strip()
+        service_key = _service_key_from_layer_key(layer_key)
+        if layer_key not in class_key_set and service_key != column_key:
+            continue
+        if str(row_dict.get(state_column) or "S0").upper() != "S3":
+            continue
+        cause_key = _canonical_outage_cause_key(row_dict.get(cause_column))
+        if cause_key is None:
+            continue
+        totals[cause_key] += 1.0
+    denominator = sum(totals.values())
+    if denominator <= 0.0:
+        return None
+    return {
+        key: round((value / denominator) * 100.0, 4)
+        for key, value in totals.items()
     }
 
 
@@ -5182,6 +5274,7 @@ def _build_population_state_matrix_from_graph_inputs(
     artifacts: AuxiliaryArtifacts,
     hazard: str,
     title: str,
+    population_state_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     distribution = _graph_population_state_distribution(artifacts)
     if not distribution:
@@ -5198,7 +5291,6 @@ def _build_population_state_matrix_from_graph_inputs(
     cells: list[list[dict[str, float]]] = []
     outage_cause_cells: list[list[dict[str, float] | None]] = []
     has_distribution = False
-    complete_payload = artifacts.complete_analysis.payload
     for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
         scenario_cells: list[dict[str, float]] = []
         scenario_cause_cells: list[dict[str, float] | None] = []
@@ -5216,10 +5308,14 @@ def _build_population_state_matrix_from_graph_inputs(
                     for state, value in values.items()
                 }
             )
-            if column_key in {"eau_aep", "eau_eu"}:
+            if column_key in {"eau_aep", "eau_eu"} and _safe_float(scenario_cells[-1].get("S3")) > 0.0:
                 scenario_cause_cells.append(
-                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, column_key)
-                    or {"direct": 0.0, "indirect": 0.0}
+                    _population_outage_cause_shares_from_analysis(
+                        population_state_analysis,
+                        scenario_key,
+                        hazard,
+                        column_key,
+                    )
                 )
             else:
                 scenario_cause_cells.append(None)
@@ -5237,7 +5333,7 @@ def _build_population_state_matrix_from_graph_inputs(
         "legend_title": "% de la population totale",
         "note": (
             "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
-            "Source fallback: scientific_graph_inputs.social_population_state_distribution_by_scenario quand network-states.geojson n'est pas archive."
+            "Source: distribution de population par etats de service derivee de network-states.geojson."
         ),
     }
 
@@ -5248,8 +5344,16 @@ def _build_population_state_matrix_payload(
     title: str,
 ) -> dict[str, Any] | None:
     analysis = _compute_population_state_analysis(artifacts)
+    graph_inputs_payload = _build_population_state_matrix_from_graph_inputs(
+        artifacts,
+        hazard,
+        title,
+        population_state_analysis=analysis,
+    )
+    if graph_inputs_payload is not None:
+        return graph_inputs_payload
     if analysis is None:
-        return _build_population_state_matrix_from_graph_inputs(artifacts, hazard, title)
+        return None
     population_by_cell = analysis["population_by_cell"]
     column_states = _dict_path_get(analysis, "column_states")
     total_population = max(_safe_float(analysis.get("total_population")), 0.0)
@@ -5258,7 +5362,6 @@ def _build_population_state_matrix_payload(
     cells: list[list[dict[str, float]]] = []
     outage_cause_cells: list[list[dict[str, float] | None]] = []
     has_non_zero = False
-    complete_payload = artifacts.complete_analysis.payload
     for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
         hazard_columns = _dict_path_get(column_states, scenario_key, hazard)
         if not isinstance(hazard_columns, dict):
@@ -5277,10 +5380,14 @@ def _build_population_state_matrix_payload(
             if any(percentages[state] > 0.0 for state in ("S1", "S2", "S3")):
                 has_non_zero = True
             scenario_cells.append(percentages)
-            if column_key in {"eau_aep", "eau_eu"}:
+            if column_key in {"eau_aep", "eau_eu"} and _safe_float(percentages.get("S3")) > 0.0:
                 scenario_cause_cells.append(
-                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, column_key)
-                    or {"direct": 0.0, "indirect": 0.0}
+                    _population_outage_cause_shares_from_analysis(
+                        analysis,
+                        scenario_key,
+                        hazard,
+                        column_key,
+                    )
                 )
             else:
                 scenario_cause_cells.append(None)
@@ -5298,7 +5405,8 @@ def _build_population_state_matrix_payload(
         "legend_title": "% de la population totale",
         "note": (
             "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
-            "Pour les reseaux d'eau, la petite barre a droite ventile le hors service entre dommage direct reseau et dommage indirect depuis ouvrages/zonage hydraulique quand cette decomposition est disponible."
+            "Source: croisement local network-states.geojson / population. "
+            "Pour les reseaux d'eau, la petite barre a droite ventile l'origine directe/indirecte des hors services quand cette decomposition est disponible."
         ),
     }
 
@@ -5624,12 +5732,12 @@ def _render_population_state_matrix_png(
                         cause_bottom += value
                 else:
                     inset.bar([0], [100.0], width=0.8, color="none", edgecolor="#94a3b8", linewidth=0.8)
-                    inset.text(0, 50.0, "S3\n0%", ha="center", va="center", fontsize=6, color="#64748b", fontweight="bold")
+                    inset.text(0, 50.0, "HS\n0%", ha="center", va="center", fontsize=6, color="#64748b", fontweight="bold")
                 inset.set_ylim(0, 100)
                 inset.set_xlim(-0.8, 0.8)
                 inset.set_xticks([])
                 inset.set_yticks([])
-                inset.set_title("Cause\nS3", fontsize=6, color="#475569", pad=1)
+                inset.set_title(OUTAGE_CAUSE_TITLE, fontsize=6, color="#475569", pad=1)
                 for spine in inset.spines.values():
                     spine.set_visible(False)
             if col_idx == 0:
@@ -5640,7 +5748,7 @@ def _render_population_state_matrix_png(
             ax.set_yticks([])
 
     handles = [Patch(facecolor=state_palette[idx], label=_state_label(state)) for idx, state in enumerate(STATE_SEQUENCE)]
-    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"Cause S3 - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
+    handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"{OUTAGE_CAUSE_LEGEND_PREFIX} - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
     fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.958), frameon=False, fontsize=9)
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.991)
     fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=11)
@@ -6225,36 +6333,136 @@ def _aggregate_state_distribution_rows(
     }
 
 
+def _damage_origin_shares_from_state_rows(
+    rows: list[dict[str, Any]],
+    *,
+    hazard: str,
+    class_keys: tuple[str, ...],
+) -> dict[str, float] | None:
+    rows_by_class = {
+        str(item.get("class_key") or ""): item
+        for item in rows
+        if isinstance(item, dict)
+    }
+    direct = 0.0
+    indirect = 0.0
+    for class_key in class_keys:
+        row = rows_by_class.get(class_key)
+        if not isinstance(row, dict):
+            continue
+        hazard_block = row.get(hazard) if isinstance(row.get(hazard), dict) else {}
+        direct += max(_safe_float(hazard_block.get("direct_damage_eur")), 0.0)
+        indirect += max(_safe_float(hazard_block.get("indirect_damage_eur")), 0.0)
+    total = direct + indirect
+    if total <= 0.0:
+        return None
+    return {
+        "direct": round((direct / total) * 100.0, 4),
+        "indirect": round((indirect / total) * 100.0, 4),
+    }
+
+
+def _build_network_economic_damage_matrix_payload(
+    artifacts: AuxiliaryArtifacts,
+    hazard: str,
+    title: str,
+) -> dict[str, Any] | None:
+    graph_inputs = _scientific_graph_inputs(artifacts, graph_name=title)
+    state_tables = graph_inputs.get("state_damage_tables")
+    if not isinstance(state_tables, dict):
+        raise _strict_graph_source_error(
+            artifacts,
+            graph_name=title,
+            key_path="scientific_graph_inputs.state_damage_tables",
+            detail="missing strict scientific state damage tables",
+        )
+    cells: list[list[dict[str, float]]] = []
+    damage_origin_cells: list[list[dict[str, float] | None]] = []
+    has_non_zero = False
+    for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
+        rows = state_tables.get(scenario_key)
+        if not isinstance(rows, list):
+            raise _strict_graph_source_error(
+                artifacts,
+                graph_name=title,
+                key_path=f"scientific_graph_inputs.state_damage_tables.{scenario_key}",
+                detail="missing strict scientific state damage scenario",
+            )
+        scenario_cells: list[dict[str, float]] = []
+        scenario_origin_cells: list[dict[str, float] | None] = []
+        for _column_key, _column_label, class_keys in ECONOMIC_DAMAGE_MATRIX_COLUMNS:
+            aggregated = _aggregate_state_distribution_rows(
+                rows,
+                hazard=hazard,
+                class_keys=class_keys,
+                length_weights={},
+            )
+            if any(_safe_float(aggregated.get(state)) > 0.0 for state in ("S1", "S2", "S3")):
+                has_non_zero = True
+            scenario_cells.append(aggregated)
+            scenario_origin_cells.append(
+                _damage_origin_shares_from_state_rows(
+                    rows,
+                    hazard=hazard,
+                    class_keys=class_keys,
+                )
+            )
+        cells.append(scenario_cells)
+        damage_origin_cells.append(scenario_origin_cells)
+    if not has_non_zero and not cells:
+        return None
+    return {
+        "type": "network_state_matrix",
+        "title": title,
+        "column_titles": [label for _column_key, label, _class_keys in ECONOMIC_DAMAGE_MATRIX_COLUMNS],
+        "row_titles": [label for _scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
+        "cells": cells,
+        "outage_cause_cells": damage_origin_cells,
+        "ylabel": "% valeur exposee",
+        "outage_cause_title": "Origine\ndommages",
+        "outage_cause_legend_prefix": "Origine des dommages",
+        "outage_cause_empty_label": "Dom.\n0%",
+        "cause_bar_requires_s3": False,
+        "note": (
+            "Matrice de criticite economique reconstruite depuis les state_damage_tables. "
+            "Les etats S0-S3 sont agreges par valeur exposee pour les groupes multi-classes; cette figure ne represente pas un etat de service spatialise. "
+            "Les petites barres ventilent les dommages entre dommages directs reseau et dommages indirects depuis ouvrages/dependances quand disponible."
+        ),
+    }
+
+
 def _build_network_state_matrix_payload(
     artifacts: AuxiliaryArtifacts,
     hazard: str,
     title: str,
 ) -> dict[str, Any] | None:
-    scientific_summary = _scientific_summary_payload(artifacts)
-    scenario_distribution = _dict_path_get(scientific_summary, "network_states", "scenario_service_state_distribution")
+    graph_inputs = _scientific_graph_inputs(artifacts, graph_name=title)
+    scenario_distribution = graph_inputs.get("network_state_service_distribution_by_scenario")
+    if not isinstance(scenario_distribution, dict):
+        scientific_summary = _scientific_summary_payload(artifacts)
+        scenario_distribution = _dict_path_get(scientific_summary, "network_states", "scenario_service_state_distribution")
     if not isinstance(scenario_distribution, dict):
         raise _strict_graph_source_error(
             artifacts,
             graph_name=title,
-            key_path="network_states.scenario_service_state_distribution",
-            detail="missing strict scientific network-state distribution",
+            key_path="scientific_graph_inputs.network_state_service_distribution_by_scenario",
+            detail="missing strict scientific network-state service distribution",
         )
     cells: list[list[dict[str, float]]] = []
     outage_cause_cells: list[list[dict[str, float] | None]] = []
     has_non_zero = False
-    complete_payload = artifacts.complete_analysis.payload
     for scenario_key, _scenario_label in NETWORK_STATE_MATRIX_SCENARIOS:
         scenario_hazard = _dict_path_get(scenario_distribution, scenario_key, hazard)
         if not isinstance(scenario_hazard, dict):
             raise _strict_graph_source_error(
                 artifacts,
                 graph_name=title,
-                key_path=f"network_states.scenario_service_state_distribution.{scenario_key}.{hazard}",
+                key_path=f"scientific_graph_inputs.network_state_service_distribution_by_scenario.{scenario_key}.{hazard}",
                 detail="missing strict scientific network-state scenario",
             )
         scenario_cells: list[dict[str, float]] = []
         scenario_cause_cells: list[dict[str, float] | None] = []
-        for _column_key, _column_label, class_keys in NETWORK_STATE_MATRIX_COLUMNS:
+        for column_key, _column_label, class_keys in NETWORK_STATE_MATRIX_COLUMNS:
             service_key = next(
                 (
                     key
@@ -6271,10 +6479,15 @@ def _build_network_state_matrix_payload(
             if any(_safe_float(aggregated.get(state)) > 0.0 for state in ("S1", "S2", "S3")):
                 has_non_zero = True
             scenario_cells.append(aggregated)
-            if service_key in {"eau_aep", "eau_eu"}:
+            if column_key in {"eau_aep", "eau_eu"} and _safe_float(aggregated.get("S3")) > 0.0:
                 scenario_cause_cells.append(
-                    _outage_cause_shares_from_state_tables(complete_payload, scenario_key, hazard, service_key)
-                    or {"direct": 0.0, "indirect": 0.0}
+                    _network_outage_cause_shares_from_geojson(
+                        artifacts,
+                        scenario_key,
+                        hazard,
+                        column_key,
+                        class_keys,
+                    )
                 )
             else:
                 scenario_cause_cells.append(None)
@@ -6290,8 +6503,8 @@ def _build_network_state_matrix_payload(
         "cells": cells,
         "outage_cause_cells": outage_cause_cells,
         "note": (
-            "Chaque vignette montre la repartition des etats de service du reseau de Opérationnel (S0) a Hors service (S3) pour un scenario et un type d'infrastructure. "
-            "Pour les reseaux d'eau, la petite barre a droite ventile le hors service entre dommage direct reseau et dommage indirect depuis ouvrages/zonage hydraulique quand cette decomposition est disponible."
+            "Chaque vignette montre la repartition des etats de service issus de network-states.geojson, de Operationnel (S0) a Hors service (S3), pour un scenario et un type d'infrastructure. "
+            "Pour les reseaux d'eau, la petite barre a droite ventile l'origine directe/indirecte des hors services depuis les causes GeoJSON quand cette decomposition est disponible."
         ),
     }
 
@@ -7029,6 +7242,8 @@ def _render_integrated_vincennes_assets(
             (charts_dir / f"{territory}_degats_elec_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite dans les scenarios globaux de retour")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm.png", _build_network_state_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice etats reseaux STORM")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm_cmcc.png", _build_network_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_label(territory)} - Matrice etats reseaux STORM_CMCC")),
+            (charts_dir / f"{territory}_matrice_criticite_economique_reseaux_storm.png", _build_network_economic_damage_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice criticite economique reseaux STORM")),
+            (charts_dir / f"{territory}_matrice_criticite_economique_reseaux_storm_cmcc.png", _build_network_economic_damage_matrix_payload(artifacts, "storm_cmcc", f"{territory_label(territory)} - Matrice criticite economique reseaux STORM_CMCC")),
         ]
         for output_path, payload in chart_specs:
             if payload is None:
