@@ -396,6 +396,8 @@ def test_build_territory_supergraph_figure_avoids_point_annotations():
         }
         for spec in specs
     }
+    territory_counts["nouvelle_caledonie"]["storm"] = {"year_count": 3, "track_count": 20448}
+    territory_counts["nouvelle_caledonie"]["storm_cmcc"] = {"year_count": 3, "track_count": 21307}
     histogram_payload = visual_pack._compute_histogram_payloads(annual_maxima, bins_count=6, bin_width_kmh=None)
 
     fig = visual_pack._build_territory_supergraph_figure(
@@ -405,10 +407,18 @@ def test_build_territory_supergraph_figure_avoids_point_annotations():
         title="Vent max par année simulée - distribution des maxima annuels",
     )
     axes = list(np.asarray(fig.axes[:9]).reshape(-1))
+    track_indicator_axes = [child for ax in axes for child in ax.child_axes]
 
     assert len(axes) == 9
     assert all(len(ax.texts) == 0 for ax in axes)
     assert "Guadeloupe (3/3 années & 2/4 tracks)" == axes[0].get_title()
+    assert len(track_indicator_axes) == 9
+    assert track_indicator_axes[0].get_xticks().tolist() == [0, 1500]
+    assert track_indicator_axes[-1].get_xticks().tolist() == [0, 21307]
+    assert any(text.get_text() == "Tracks utilisés" for text in track_indicator_axes[0].texts)
+    assert any(text.get_text() == "2" for text in track_indicator_axes[0].texts)
+    assert any(text.get_text() == "4" for text in track_indicator_axes[0].texts)
+    assert any(text.get_text() == "21 307" for text in track_indicator_axes[-1].texts)
     legend = fig.legends[0]
     assert [text.get_text() for text in legend.get_texts()] == ["STORM", "STORM_CMCC"]
     visual_pack.plt.close(fig)
@@ -450,10 +460,12 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
 
     assert exit_code == 0
     assert manifest_path.exists()
-    assert len(list(maps_dir.glob("*.png"))) == 12
+    assert len(list(maps_dir.glob("*.png"))) == 13
     assert (charts_dir / "territories_vent_max_par_annee_supergraph.png").exists()
     assert (charts_dir / "territories_vent_max_par_annee_supergraph_sup_200kmh.png").exists()
+    assert (maps_dir / "all_basins_rp100_storm_vs_storm_cmcc.png").exists()
     assert manifest["basins"]["sp"]["map_outputs"]["event_max"].endswith("sp_event_max_storm_vs_storm_cmcc.png")
+    assert manifest["combined_map_outputs"]["rp100"].endswith("all_basins_rp100_storm_vs_storm_cmcc.png")
     assert manifest["territories"]["saint_martin"]["annual_maxima_count"]["storm"] == 3
     assert manifest["territories"]["nouvelle_caledonie"]["annual_maxima_count"]["storm_cmcc"] == 3
     assert manifest["territories"]["saint_martin"]["track_count"]["storm"] == 3

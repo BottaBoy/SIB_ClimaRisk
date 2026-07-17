@@ -120,6 +120,12 @@ GLOBAL_WIND_SCALE_MIN_MPS = 3.30
 GLOBAL_WIND_SCALE_MAX_MPS = 98.5
 KMH_PER_MPS = 3.6
 DEFAULT_HIGH_WIND_FOCUS_THRESHOLD_KMH = 200.0
+TRACK_INDICATOR_STANDARD_AXIS_MAX = 1_500
+TRACK_INDICATOR_WIDE_SCALE_TERRITORIES = {"nouvelle_caledonie"}
+TRACK_INDICATOR_TITLE_FONTSIZE = 14.4
+TRACK_INDICATOR_PROVIDER_FONTSIZE = 12.6
+TRACK_INDICATOR_VALUE_FONTSIZE = 13.0
+TRACK_INDICATOR_SCALE_FONTSIZE = 11.4
 
 
 @dataclass(frozen=True)
@@ -354,6 +360,34 @@ def _render_basin_panel(
     return image
 
 
+def _build_display_grid_for_metric(
+    display_spec: BasinDisplaySpec,
+    *,
+    provider: str,
+    metric: str,
+    cell_deg: float,
+    fill_max_distance_cells: float,
+) -> tuple[Any, Any]:
+    cells = display_spec.display_cells_by_provider[provider]
+    value_key = _metric_value_key(metric)
+    grid = _build_value_grid(
+        cells,
+        value_key,
+        south=display_spec.south,
+        west=display_spec.west,
+        cell_deg=cell_deg,
+        n_lat=display_spec.n_lat,
+        n_lon=display_spec.n_lon,
+    )
+    grid, render_mask = _fill_nan_nearest_with_mask(
+        grid,
+        max_distance_cells=float(fill_max_distance_cells),
+    )
+    grid = _mask_cmcc_low_band(grid, provider, metric)
+    render_mask = render_mask & np.isfinite(grid)
+    return grid, render_mask
+
+
 def _resolve_basin_display_spec(payload: dict[str, Any], cell_deg: float) -> BasinDisplaySpec:
     south, north, west, east, n_lat, n_lon = _extract_bounds_and_grid(payload, cell_deg)
     direct_span = float(east - west)
@@ -446,23 +480,13 @@ def _render_basin_maps(
             fig.subplots_adjust(left=0.04, right=0.9, bottom=0.08, top=0.9, wspace=0.08)
             image = None
             for axis_index, provider in enumerate(PROVIDER_ORDER):
-                cells = display_spec.display_cells_by_provider[provider]
-                value_key = _metric_value_key(metric)
-                grid = _build_value_grid(
-                    cells,
-                    value_key,
-                    south=display_spec.south,
-                    west=display_spec.west,
+                grid, render_mask = _build_display_grid_for_metric(
+                    display_spec,
+                    provider=provider,
+                    metric=metric,
                     cell_deg=cell_deg,
-                    n_lat=display_spec.n_lat,
-                    n_lon=display_spec.n_lon,
+                    fill_max_distance_cells=float(fill_max_distance_cells),
                 )
-                grid, render_mask = _fill_nan_nearest_with_mask(
-                    grid,
-                    max_distance_cells=float(fill_max_distance_cells),
-                )
-                grid = _mask_cmcc_low_band(grid, provider, metric)
-                render_mask = render_mask & np.isfinite(grid)
                 image = _render_basin_panel(
                     axes[axis_index],
                     grid=grid,
@@ -490,6 +514,82 @@ def _render_basin_maps(
             plt.close(fig)
             written.append(str(output_path))
     return written
+
+
+def _render_combined_basin_metric_map(
+    basin_payloads: dict[str, dict[str, Any]],
+    *,
+    output_dir: Path,
+    metric: str,
+    fill_max_distance_cells: float,
+) -> str:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    use_basemap = ccrs is not None
+    scale_vmin_mps, scale_vmax_mps = _resolve_global_basin_map_scale()
+
+    fig = plt.figure(figsize=(17, 15))
+    grid_spec = fig.add_gridspec(
+        len(BASIN_ORDER),
+        len(PROVIDER_ORDER),
+        left=0.04,
+        right=0.90,
+        bottom=0.055,
+        top=0.91,
+        wspace=0.08,
+        hspace=0.22,
+    )
+
+    image = None
+    for row_index, basin_code in enumerate(BASIN_ORDER):
+        payload = basin_payloads[basin_code]
+        cell_deg = float(payload.get("meta", {}).get("grid_cell_deg", 0.05))
+        display_spec = _resolve_basin_display_spec(payload, cell_deg)
+        bounds = (display_spec.south, display_spec.north, display_spec.west, display_spec.east)
+        basin_projection = (
+            ccrs.PlateCarree(central_longitude=180.0)
+            if use_basemap and display_spec.wrapped_dateline and ccrs is not None
+            else (ccrs.PlateCarree() if use_basemap and ccrs is not None else None)
+        )
+
+        for column_index, provider in enumerate(PROVIDER_ORDER):
+            if use_basemap:
+                ax = fig.add_subplot(grid_spec[row_index, column_index], projection=basin_projection)
+            else:
+                ax = fig.add_subplot(grid_spec[row_index, column_index])
+            grid, render_mask = _build_display_grid_for_metric(
+                display_spec,
+                provider=provider,
+                metric=metric,
+                cell_deg=cell_deg,
+                fill_max_distance_cells=float(fill_max_distance_cells),
+            )
+            title = f"{BASIN_LABEL.get(basin_code, basin_code.upper())} - {PROVIDER_LABELS[provider]}"
+            image = _render_basin_panel(
+                ax,
+                grid=grid,
+                render_mask=render_mask,
+                bounds=bounds,
+                vmin=scale_vmin_mps,
+                vmax=scale_vmax_mps,
+                title=title,
+                use_basemap=use_basemap,
+                wrapped_dateline=display_spec.wrapped_dateline,
+            )
+
+    fig.suptitle(f"Tous bassins - {METRIC_LABELS[metric]}", fontsize=21, fontweight="bold")
+    if image is not None:
+        ticks = _build_basin_colorbar_ticks(scale_vmin_mps, scale_vmax_mps)
+        cax = fig.add_axes([0.92, 0.18, 0.015, 0.62])
+        colorbar = fig.colorbar(image, cax=cax, orientation="vertical", ticks=ticks)
+        colorbar.set_label("Vitesse du vent (km/h)")
+        if FuncFormatter is not None:
+            colorbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_speed_kmh(value)))
+        colorbar.ax.tick_params(labelsize=9)
+
+    output_path = output_dir / f"all_basins_{metric}_storm_vs_storm_cmcc.png"
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return str(output_path)
 
 
 def _normalize_longitudes(values: Any) -> Any:
@@ -649,6 +749,95 @@ def _territory_subplot_title(
     )
 
 
+def _format_track_count(value: int) -> str:
+    return f"{int(value):,}".replace(",", " ")
+
+
+def _resolve_track_indicator_axis_max_by_territory(
+    territory_counts: dict[str, dict[str, dict[str, int]]],
+) -> dict[str, int]:
+    axis_max_by_territory: dict[str, int] = {}
+    for territory_id, provider_counts in territory_counts.items():
+        territory_track_max = max(int(provider_counts[provider]["track_count"]) for provider in PROVIDER_ORDER)
+        if territory_id in TRACK_INDICATOR_WIDE_SCALE_TERRITORIES:
+            axis_max = max(territory_track_max, TRACK_INDICATOR_STANDARD_AXIS_MAX)
+        else:
+            axis_max = TRACK_INDICATOR_STANDARD_AXIS_MAX
+        axis_max_by_territory[territory_id] = max(int(axis_max), 1)
+    return axis_max_by_territory
+
+
+def _add_track_count_indicator(
+    ax: Any,
+    provider_counts: dict[str, dict[str, int]],
+    *,
+    axis_max: int,
+) -> None:
+    track_counts = [max(0, int(provider_counts[provider]["track_count"])) for provider in PROVIDER_ORDER]
+    axis_max = max(int(axis_max), 1)
+    bar_widths = [min(track_count, axis_max) for track_count in track_counts]
+    row_positions = [1.05, 0.15]
+
+    inset = ax.inset_axes([0.42, 0.51, 0.56, 0.44], zorder=5)
+    inset.set_facecolor((1.0, 1.0, 1.0, 1.0))
+    inset.barh(
+        row_positions,
+        [axis_max, axis_max],
+        color="#e5e7eb",
+        height=0.33,
+        alpha=0.95,
+        zorder=1,
+    )
+    inset.barh(
+        row_positions,
+        bar_widths,
+        color=[PROVIDER_COLORS[provider] for provider in PROVIDER_ORDER],
+        height=0.33,
+        alpha=0.9,
+        zorder=2,
+    )
+    inset.set_xlim(float(axis_max) * -0.52, float(axis_max) * 1.62)
+    inset.set_ylim(-0.65, 1.90)
+    inset.set_yticks([])
+    inset.set_xticks([0, axis_max])
+    inset.set_xticklabels(["0", _format_track_count(axis_max)], fontsize=TRACK_INDICATOR_SCALE_FONTSIZE, color="#4b5563")
+    inset.tick_params(axis="x", length=2, pad=1, colors="#4b5563")
+    for spine in inset.spines.values():
+        spine.set_visible(False)
+
+    inset.text(
+        float(axis_max) * -0.50,
+        1.66,
+        "Tracks utilisés",
+        fontsize=TRACK_INDICATOR_TITLE_FONTSIZE,
+        fontweight="bold",
+        color="#1f2937",
+        ha="left",
+        va="center",
+    )
+    for y_pos, provider, track_count in zip(row_positions, PROVIDER_ORDER, track_counts):
+        provider_short_label = "CMCC" if provider == "storm_cmcc" else "STORM"
+        inset.text(
+            float(axis_max) * -0.04,
+            y_pos,
+            provider_short_label,
+            fontsize=TRACK_INDICATOR_PROVIDER_FONTSIZE,
+            color="#374151",
+            ha="right",
+            va="center",
+        )
+        inset.text(
+            float(axis_max) * 1.07,
+            y_pos,
+            _format_track_count(track_count),
+            fontsize=TRACK_INDICATOR_VALUE_FONTSIZE,
+            color="#111827",
+            ha="left",
+            va="center",
+            fontweight="bold",
+        )
+
+
 def _compute_histogram_payloads(
     annual_maxima: dict[str, dict[str, list[float]]],
     *,
@@ -735,11 +924,14 @@ def _build_territory_supergraph_figure(
     territory_counts: dict[str, dict[str, dict[str, int]]],
     *,
     title: str,
+    track_indicator_axis_max_by_territory: dict[str, int] | None = None,
 ) -> Any:
     centers = [float(value) for value in histogram_payload["centers"]]
     x_limits = tuple(float(value) for value in histogram_payload["x_limits"])
     y_limit = float(histogram_payload["y_limit"])
     territory_payloads = histogram_payload["territories"]
+    if track_indicator_axis_max_by_territory is None:
+        track_indicator_axis_max_by_territory = _resolve_track_indicator_axis_max_by_territory(territory_counts)
 
     fig, axes = plt.subplots(3, 3, figsize=(17, 13), sharex=True, sharey=True)
     axes_list = list(np.asarray(axes).reshape(-1))
@@ -759,6 +951,11 @@ def _build_territory_supergraph_figure(
             _territory_subplot_title(spec.label, territory_counts[spec.territory_id]),
             fontsize=11.5,
             fontweight="bold",
+        )
+        _add_track_count_indicator(
+            ax,
+            territory_counts[spec.territory_id],
+            axis_max=track_indicator_axis_max_by_territory[spec.territory_id],
         )
         ax.set_xlim(*x_limits)
         ax.set_ylim(0.0, y_limit)
@@ -791,6 +988,7 @@ def _render_territory_supergraph(
     bin_width_kmh: float | None,
     min_speed_kmh: float | None = None,
     title: str = "Vent max par année simulée - distribution des maxima annuels",
+    track_indicator_axis_max_by_territory: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     histogram_payload = _compute_histogram_payloads(
         annual_maxima,
@@ -803,6 +1001,7 @@ def _render_territory_supergraph(
         histogram_payload,
         territory_counts,
         title=title,
+        track_indicator_axis_max_by_territory=track_indicator_axis_max_by_territory,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=180, bbox_inches="tight")
@@ -868,6 +1067,13 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=maps_dir,
         fill_max_distance_cells=float(args.fill_max_distance_cells),
     )
+    combined_rp100_map_path = _render_combined_basin_metric_map(
+        basin_payloads,
+        output_dir=maps_dir,
+        metric="rp100",
+        fill_max_distance_cells=float(args.fill_max_distance_cells),
+    )
+    map_paths.append(combined_rp100_map_path)
 
     high_wind_threshold_kmh = float(args.high_wind_focus_threshold_kmh)
     annual_maxima, territory_counts, filtered_territory_counts = _build_territory_annual_maxima(
@@ -875,6 +1081,7 @@ def main(argv: list[str] | None = None) -> int:
         catalog_root=Path(args.catalog_root),
         min_speed_kmh=high_wind_threshold_kmh,
     )
+    track_indicator_axis_max_by_territory = _resolve_track_indicator_axis_max_by_territory(territory_counts)
     supergraph_path = charts_dir / "territories_vent_max_par_annee_supergraph.png"
     histogram_payload = _render_territory_supergraph(
         territory_specs,
@@ -883,6 +1090,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path=supergraph_path,
         bins_count=int(args.bins_count),
         bin_width_kmh=float(args.bin_width_kmh) if args.bin_width_kmh is not None else None,
+        track_indicator_axis_max_by_territory=track_indicator_axis_max_by_territory,
     )
     high_wind_threshold_slug = str(int(round(high_wind_threshold_kmh)))
     high_wind_supergraph_path = charts_dir / f"territories_vent_max_par_annee_supergraph_sup_{high_wind_threshold_slug}kmh.png"
@@ -898,6 +1106,7 @@ def main(argv: list[str] | None = None) -> int:
             "Vent max par année simulée - focalisation sur les maxima annuels "
             f"> {high_wind_threshold_kmh:.0f} km/h"
         ),
+        track_indicator_axis_max_by_territory=track_indicator_axis_max_by_territory,
     )
     map_scale_min_mps, map_scale_max_mps = _resolve_global_basin_map_scale()
 
@@ -953,6 +1162,9 @@ def main(argv: list[str] | None = None) -> int:
             "bin_edges_kmh": [float(value) for value in histogram_payload["edges"]],
             "supergraph_path": str(supergraph_path),
         },
+        "combined_map_outputs": {
+            "rp100": combined_rp100_map_path,
+        },
         "high_wind_focus_histogram": {
             "threshold_kmh": high_wind_threshold_kmh,
             "x_limits_kmh": [float(value) for value in high_wind_histogram_payload["x_limits"]],
@@ -968,7 +1180,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path = output_root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"Wrote 12 basin maps to {maps_dir}")
+    print(f"Wrote 12 basin maps and 1 combined RP100 map to {maps_dir}")
     print(f"Wrote territory supergraph to {supergraph_path}")
     print(f"Wrote high-wind territory supergraph to {high_wind_supergraph_path}")
     print(f"Wrote manifest to {manifest_path}")
