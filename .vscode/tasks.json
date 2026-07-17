@@ -229,6 +229,196 @@
       }
     },
     {
+      "label": "SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 50 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "50",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0050/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "20000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 100 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "100",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0100/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "15000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 800 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "800",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0800/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "5000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 1500 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "1500",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "3000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 5000 tracks)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "gua",
+        "--no-deploy",
+        "--dynamic-max-tracks",
+        "5000",
+        "--track-sample-manifest",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_5000/manifest.json",
+          "quoting": "strong"
+        },
+        "--max-points-per-shard",
+        "3000",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
       "label": "SIB: Run Complete Analysis (Guadeloupe Only, No Deploy, 100 tracks)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",

@@ -23,3 +23,29 @@ def test_track_sample_manifest_task_paths_with_spaces_are_shell_quoted():
             assert "Tracks_NA_Guadeloupe" in value
 
     assert found >= 4
+
+
+def test_v2_intensity_track_sample_tasks_point_to_quoted_manifests():
+    tasks_path = Path(".vscode/tasks.json")
+    data = json.loads(tasks_path.read_text(encoding="utf-8"))
+    expected = {
+        50: "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0050/manifest.json",
+        100: "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0100/manifest.json",
+        800: "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0800/manifest.json",
+        1500: "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_1500/manifest.json",
+        5000: "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_5000/manifest.json",
+    }
+    found: dict[int, str] = {}
+
+    for task in data.get("tasks", []):
+        label = str(task.get("label") or "")
+        if not label.startswith("SIB: Run Complete Analysis V2 Intensity"):
+            continue
+        args = task.get("args") or []
+        size = int(args[args.index("--dynamic-max-tracks") + 1])
+        manifest_arg = args[args.index("--track-sample-manifest") + 1]
+        assert isinstance(manifest_arg, dict)
+        assert manifest_arg.get("quoting") == "strong"
+        found[size] = str(manifest_arg.get("value") or "")
+
+    assert found == expected

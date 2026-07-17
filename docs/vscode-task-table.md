@@ -23,6 +23,11 @@ Ce document resume les taches actuellement definies dans [tasks.json](/home/ubun
 | `SIB: Run Complete Analysis (Rich: 1500 tracks)` | `build` | `Ctrl+Shift+B` | Variante plus riche avec `dynamic_max_tracks=1500` |
 | `SIB: Monitor Complete Analysis Run` | `build` | `Ctrl+Shift+B` | Suit l'etat du manifest du run complet en cours |
 | `SIB: Run Complete Analysis (Full Tracks: Guadeloupe + Martinique, No Deploy)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe + Martinique sans deploy avec `--dynamic-max-tracks 0`, donc sans cap sur les tracks dynamiques |
+| `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 50 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_0050` |
+| `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 100 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_0100` |
+| `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 800 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_0800` |
+| `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 1500 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_1500` |
+| `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 5000 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_5000` |
 
 Notes d'audit:
 
@@ -30,6 +35,8 @@ Notes d'audit:
 - Elle est coherente avec le contrat runtime actuel: `--dynamic-max-tracks 0` signifie bien `full tracks` pour la chaine complete, tout en gardant `--no-deploy` par securite operateur.
 
 La tache `SIB: Run Complete Analysis (Default)` a ete retiree du workspace racine. Elle ne doit plus etre utilisee.
+
+Les taches `V2 Intensity` utilisent les manifests sous `outputs/Échantillons Tracks_NA_Guadeloupe/V2`. Ces echantillons sont construits sur `score = max_wind_mps / (1 + (min_distance_km / 150)^2)`, avec quotas proportionnels a la masse de score par strate, sans facteur categorie et sans dommage EUR.
 
 ## Analyse comparative des aleas
 

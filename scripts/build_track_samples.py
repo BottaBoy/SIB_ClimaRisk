@@ -64,7 +64,14 @@ from run_complete_analysis import build_complete_exposure  # noqa: E402
 
 OUTPUT_ROOT = REPO_ROOT / "outputs" / "Échantillons Tracks_NA_Guadeloupe"
 RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
-SAMPLE_SIZES = (50, 100, 800, 1500)
+SAMPLE_SIZES = (50, 100, 800, 1500, 5000, 15000)
+V2_INTENSITY_SAMPLE_SIZES = (50, 100, 800, 1500, 5000)
+SELECTION_MODE_DAMAGE_OR_PHYSICAL = "damage_or_physical"
+SELECTION_MODE_INTENSITY_MAX = "intensity_max"
+SELECTION_MODE_INTENSITY_DISTANCE = "intensity_distance"
+SELECTION_SCORE_KIND_INTENSITY_MAX = "intensity_max_wind_mps"
+SELECTION_SCORE_KIND_INTENSITY_DISTANCE = "intensity_distance_weighted_mps"
+INTENSITY_DISTANCE_SCALE_KM = 150.0
 PROVIDERS = {
     "storm": {"label": "STORM", "manifest_key": "storm"},
     "storm_cmcc": {"label": "STORM_CMCC", "manifest_key": "storm_cmcc"},
@@ -174,6 +181,37 @@ def _physical_selection_score(max_wind_mps: float, min_distance_km: float, categ
     # distant intense tracks still keep a non-zero chance in the tail.
     attenuation = 0.18 + math.exp(-distance / 120.0)
     return float((wind ** 3) * attenuation * cat_factor)
+
+
+def _intensity_distance_selection_score(max_wind_mps: float, min_distance_km: float) -> float:
+    wind = max(0.0, float(max_wind_mps))
+    distance = max(0.0, float(min_distance_km))
+    attenuation = 1.0 / (1.0 + (distance / INTENSITY_DISTANCE_SCALE_KM) ** 2)
+    return float(wind * attenuation)
+
+
+def _selection_score_for_mode(
+    selection_mode: str,
+    *,
+    loss_eur: float,
+    max_wind_mps: float,
+    min_distance_km: float,
+    category: int,
+) -> tuple[float, str, float]:
+    if selection_mode == SELECTION_MODE_INTENSITY_MAX:
+        return max(0.0, float(max_wind_mps)), SELECTION_SCORE_KIND_INTENSITY_MAX, 0.0
+    if selection_mode == SELECTION_MODE_INTENSITY_DISTANCE:
+        return (
+            _intensity_distance_selection_score(max_wind_mps, min_distance_km),
+            SELECTION_SCORE_KIND_INTENSITY_DISTANCE,
+            0.0,
+        )
+
+    loss = max(0.0, float(loss_eur))
+    if loss > 0.0:
+        return loss, "damage_eur", loss
+    score = _physical_selection_score(max_wind_mps, min_distance_km, category)
+    return max(0.0, float(score)), "physical_risk_proxy", loss
 
 
 def _prepare_population_context(territory: str) -> PopulationContext:
@@ -293,6 +331,7 @@ def _build_population_records(
     df: pd.DataFrame,
     context: PopulationContext,
     loss_ledger: dict[str, float],
+    selection_mode: str = SELECTION_MODE_DAMAGE_OR_PHYSICAL,
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     settings = load_settings()
@@ -314,10 +353,13 @@ def _build_population_records(
         category = int(category_raw) if math.isfinite(category_raw) else 0
         loss = float(loss_ledger.get(str(track_instance_id), 0.0))
         max_wind_mps = float(grp["_wind_mps"].max())
-        selection_score = loss if loss > 0.0 else _physical_selection_score(
-            max_wind_mps,
-            float(min(distances) if distances else 0.0),
-            int(max(-1, min(5, category))),
+        min_distance_km = float(min(distances) if distances else 0.0)
+        selection_score, selection_score_kind, output_loss = _selection_score_for_mode(
+            selection_mode,
+            loss_eur=loss,
+            max_wind_mps=max_wind_mps,
+            min_distance_km=min_distance_km,
+            category=int(max(-1, min(5, category))),
         )
         records.append(
             {
@@ -326,12 +368,12 @@ def _build_population_records(
                 "track_instance_id": str(track_instance_id),
                 "year": int(grp["Year"].iloc[0]),
                 "track_id": str(grp["track_id"].iloc[0]),
-                "loss_eur": max(0.0, loss),
+                "loss_eur": max(0.0, output_loss),
                 "selection_score": max(0.0, selection_score),
-                "selection_score_kind": "damage_eur" if loss > 0.0 else "physical_risk_proxy",
+                "selection_score_kind": selection_score_kind,
                 "max_wind_mps": max_wind_mps,
                 "category": int(max(-1, min(5, category))),
-                "min_distance_km": float(min(distances) if distances else 0.0),
+                "min_distance_km": min_distance_km,
                 "closest_lat": float(closest["lat"]),
                 "closest_lon": float(closest["lon"]),
                 "quadrant": _quadrant(float(closest["lat"]), float(closest["lon"]), context.center_lat, context.center_lon),
@@ -351,10 +393,24 @@ def _physical_bucket(record: dict[str, Any]) -> tuple[Any, ...]:
     return (int(record.get("category") or 0), str(record.get("quadrant") or ""), wind_bin, distance_bin)
 
 
-def _balanced_order(records: Iterable[dict[str, Any]], seed: int) -> list[str]:
+def _balanced_order(records: Iterable[dict[str, Any]], seed: int, *, balance_mode: str = "physical") -> list[str]:
+    record_list = list(records)
     rng = random.Random(int(seed))
+    if balance_mode == "none":
+        out = [str(record["track_instance_id"]) for record in sorted(record_list, key=lambda item: str(item["track_instance_id"]))]
+        rng.shuffle(out)
+        return out
+    if balance_mode == "score_weighted":
+        weighted: list[tuple[float, str]] = []
+        for record in sorted(record_list, key=lambda item: str(item["track_instance_id"])):
+            weight = _selection_metric(record)
+            draw = max(rng.random(), 1e-12)
+            key = -math.log(draw) / weight if weight > 0.0 else float("inf")
+            weighted.append((key, str(record["track_instance_id"])))
+        return [track_id for _, track_id in sorted(weighted)]
+
     buckets: dict[tuple[Any, ...], list[str]] = {}
-    for record in records:
+    for record in record_list:
         buckets.setdefault(_physical_bucket(record), []).append(str(record["track_instance_id"]))
     for values in buckets.values():
         rng.shuffle(values)
@@ -390,6 +446,9 @@ def _allocate_quotas(
     skeleton: set[str],
     target_size: int,
     previous: dict[str, int],
+    *,
+    neutral_strata: bool = False,
+    quota_mode: str = "stratum_factor",
 ) -> dict[str, int]:
     quotas = dict(previous)
     selected_count = len(skeleton) + sum(quotas.values())
@@ -403,8 +462,14 @@ def _allocate_quotas(
         capacity = len([item for item in orders.get(stratum, []) if item not in skeleton]) - int(quotas.get(stratum, 0))
         capacities[stratum] = max(0, capacity)
         if capacity > 0:
-            factor = float(STRATUM_FACTORS.get(stratum, 1.0))
-            scores[stratum] = math.sqrt(max(1, len(records))) * factor
+            if quota_mode == "score_mass":
+                score_mass = sum(_selection_metric(item) for item in records)
+                scores[stratum] = float(score_mass if score_mass > 0.0 else len(records))
+            elif neutral_strata:
+                scores[stratum] = float(max(1, len(records)))
+            else:
+                factor = float(STRATUM_FACTORS.get(stratum, 1.0))
+                scores[stratum] = math.sqrt(max(1, len(records))) * factor
 
     if not scores:
         return quotas
@@ -442,20 +507,32 @@ def build_nested_samples_for_seed(
     *,
     seed: int,
     sample_sizes: tuple[int, ...] = SAMPLE_SIZES,
+    neutral_strata: bool = False,
+    keep_skeleton: bool = True,
+    balance_mode: str = "physical",
+    quota_mode: str = "stratum_factor",
 ) -> dict[int, set[str]]:
     by_stratum: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         by_stratum.setdefault(str(record["stratum"]), []).append(record)
     orders = {
-        stratum: _balanced_order(values, seed + index * 7919)
+        stratum: _balanced_order(values, seed + index * 7919, balance_mode=balance_mode)
         for index, (stratum, values) in enumerate(sorted(by_stratum.items()))
     }
-    global_order = _balanced_order(records, seed + 104729)
+    global_order = _balanced_order(records, seed + 104729, balance_mode=balance_mode)
     samples: dict[int, set[str]] = {}
     previous_quotas: dict[str, int] = {}
     for size in sorted(sample_sizes):
-        skeleton = _skeleton_ids(records, size)
-        quotas = _allocate_quotas(by_stratum, orders, skeleton, size, previous_quotas)
+        skeleton = _skeleton_ids(records, size) if keep_skeleton else set()
+        quotas = _allocate_quotas(
+            by_stratum,
+            orders,
+            skeleton,
+            size,
+            previous_quotas,
+            neutral_strata=neutral_strata,
+            quota_mode=quota_mode,
+        )
         selected = set(skeleton)
         for stratum, quota in quotas.items():
             candidates = [item for item in orders.get(stratum, []) if item not in skeleton]
@@ -536,13 +613,40 @@ def _sample_score(records: list[dict[str, Any]], selected: set[str], storm_years
     return float(score)
 
 
-def _choose_best_samples(records: list[dict[str, Any]], storm_years: int, seed_base: int, candidates: int) -> tuple[int, dict[int, set[str]], float]:
+def _choose_best_samples(
+    records: list[dict[str, Any]],
+    storm_years: int,
+    seed_base: int,
+    candidates: int,
+    *,
+    sample_sizes: tuple[int, ...] = SAMPLE_SIZES,
+    neutral_strata: bool = False,
+    keep_skeleton: bool = True,
+    balance_mode: str = "physical",
+    quota_mode: str = "stratum_factor",
+) -> tuple[int, dict[int, set[str]], float]:
     best_seed = int(seed_base)
-    best_samples = build_nested_samples_for_seed(records, seed=best_seed)
+    best_samples = build_nested_samples_for_seed(
+        records,
+        seed=best_seed,
+        sample_sizes=sample_sizes,
+        neutral_strata=neutral_strata,
+        keep_skeleton=keep_skeleton,
+        balance_mode=balance_mode,
+        quota_mode=quota_mode,
+    )
     best_score = sum(_sample_score(records, selected, storm_years) for selected in best_samples.values())
     for offset in range(1, max(1, int(candidates))):
         seed = int(seed_base) + offset
-        samples = build_nested_samples_for_seed(records, seed=seed)
+        samples = build_nested_samples_for_seed(
+            records,
+            seed=seed,
+            sample_sizes=sample_sizes,
+            neutral_strata=neutral_strata,
+            keep_skeleton=keep_skeleton,
+            balance_mode=balance_mode,
+            quota_mode=quota_mode,
+        )
         score = sum(_sample_score(records, selected, storm_years) for selected in samples.values())
         if score < best_score:
             best_seed = seed
@@ -554,7 +658,7 @@ def _choose_best_samples(records: list[dict[str, Any]], storm_years: int, seed_b
 def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
@@ -655,7 +759,51 @@ def _render_track_map(
     if plt is None or gpd is None or LineString is None or box is None:
         return
     track_df = df[df["_track_instance_id"] == track_instance_id].sort_values("time_step")
+    if track_df.empty:
+        return
+    bbox_geom = gpd.GeoDataFrame(
+        [{"geometry": box(context.spatial_window.lon_min, context.spatial_window.lat_min, context.spatial_window.lon_max, context.spatial_window.lat_max)}],
+        crs="EPSG:4326",
+    ).to_crs("EPSG:3857")
+    center = gpd.GeoDataFrame(
+        [{"geometry": Point(context.center_lon, context.center_lat)}],
+        crs="EPSG:4326",
+    ).to_crs("EPSG:3857")
     if track_df.shape[0] < 2:
+        row = track_df.iloc[0]
+        category_raw = float(row.get("Category", 0.0))
+        category = int(max(-1, min(5, int(category_raw if math.isfinite(category_raw) else 0.0))))
+        point = gpd.GeoDataFrame(
+            [{"category": category, "geometry": Point(float(row["lon"]), float(row["lat"]))}],
+            crs="EPSG:4326",
+        ).to_crs("EPSG:3857")
+        fig, ax = plt.subplots(figsize=(7.2, 6.5))
+        bbox_geom.boundary.plot(ax=ax, color="#111827", linewidth=1.2, linestyle="--")
+        center.plot(ax=ax, color="#111827", markersize=28, zorder=5)
+        point.plot(
+            ax=ax,
+            color=SAFFIR_COLORS.get(category, "#64748b"),
+            markersize=70,
+            label=f"Cat {category}" if category > 0 else "TS/TD",
+            zorder=6,
+        )
+        minx, miny, maxx, maxy = point.total_bounds
+        padx = 200_000.0
+        pady = 200_000.0
+        ax.set_xlim(minx - padx, maxx + padx)
+        ax.set_ylim(miny - pady, maxy + pady)
+        if cx is not None:
+            try:
+                cx.add_basemap(ax, source=cx.providers.CartoDB.Positron, attribution_size=6)
+            except Exception:
+                pass
+        ax.set_axis_off()
+        ax.set_title(title, fontsize=11)
+        ax.legend(loc="lower left", fontsize=7)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.tight_layout()
+        fig.savefig(path, dpi=170)
+        plt.close(fig)
         return
     segments = []
     for idx in range(track_df.shape[0] - 1):
@@ -672,14 +820,6 @@ def _render_track_map(
             }
         )
     gdf = gpd.GeoDataFrame(segments, crs="EPSG:4326").to_crs("EPSG:3857")
-    bbox_geom = gpd.GeoDataFrame(
-        [{"geometry": box(context.spatial_window.lon_min, context.spatial_window.lat_min, context.spatial_window.lon_max, context.spatial_window.lat_max)}],
-        crs="EPSG:4326",
-    ).to_crs("EPSG:3857")
-    center = gpd.GeoDataFrame(
-        [{"geometry": Point(context.center_lon, context.center_lat)}],
-        crs="EPSG:4326",
-    ).to_crs("EPSG:3857")
 
     fig, ax = plt.subplots(figsize=(7.2, 6.5))
     bbox_geom.boundary.plot(ax=ax, color="#111827", linewidth=1.2, linestyle="--")
@@ -719,6 +859,9 @@ def _write_sample_outputs(
     context: PopulationContext,
     storm_years: int,
     full_run_id: str | None,
+    sample_sizes: tuple[int, ...],
+    selection_method: str,
+    selection_score_kind: str,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
@@ -739,8 +882,9 @@ def _write_sample_outputs(
             "center_lat": float(context.spatial_window.center_lat),
             "center_lon": float(context.spatial_window.center_lon),
         },
-        "nested_sample_sizes": list(SAMPLE_SIZES),
-        "selection_method": "seeded_stratified_damage_with_physical_balancing",
+        "nested_sample_sizes": list(sample_sizes),
+        "selection_method": selection_method,
+        "selection_score_kind": selection_score_kind,
         "providers": {},
     }
     selected_rows: list[dict[str, Any]] = []
@@ -901,23 +1045,60 @@ def _write_report(path: Path, manifest: dict[str, Any], curve_rows: list[dict[st
 def build_track_samples(args: argparse.Namespace) -> Path:
     territory = "guadeloupe"
     output_root = Path(args.output_root)
+    sample_sizes = _parse_sample_sizes(str(args.sample_sizes))
+    selection_mode = str(args.selection_mode or SELECTION_MODE_DAMAGE_OR_PHYSICAL)
+    neutral_strata = bool(args.neutral_strata)
+    keep_skeleton = not neutral_strata
+    if selection_mode == SELECTION_MODE_INTENSITY_DISTANCE:
+        balance_mode = "score_weighted"
+        quota_mode = "score_mass"
+    else:
+        balance_mode = "none" if selection_mode == SELECTION_MODE_INTENSITY_MAX else "physical"
+        quota_mode = "stratum_factor"
+    selection_method = (
+        "seeded_stratified_intensity_distance_score_mass"
+        if selection_mode == SELECTION_MODE_INTENSITY_DISTANCE
+        else
+        "seeded_stratified_intensity_neutral"
+        if selection_mode == SELECTION_MODE_INTENSITY_MAX and neutral_strata
+        else "seeded_stratified_intensity"
+        if selection_mode == SELECTION_MODE_INTENSITY_MAX
+        else "seeded_stratified_damage_with_physical_balancing"
+    )
+    selection_score_kind = (
+        SELECTION_SCORE_KIND_INTENSITY_DISTANCE
+        if selection_mode == SELECTION_MODE_INTENSITY_DISTANCE
+        else
+        SELECTION_SCORE_KIND_INTENSITY_MAX
+        if selection_mode == SELECTION_MODE_INTENSITY_MAX
+        else "damage_eur_or_physical_risk_proxy"
+    )
     context = _prepare_population_context(territory)
     storm_years = int(args.storm_years or load_settings().storm_years)
     population_by_provider: dict[str, list[dict[str, Any]]] = {}
     dataframes_by_provider: dict[str, pd.DataFrame] = {}
-    samples_by_provider_size: dict[int, dict[str, set[str]]] = {size: {} for size in SAMPLE_SIZES}
+    samples_by_provider_size: dict[int, dict[str, set[str]]] = {size: {} for size in sample_sizes}
     seeds_by_provider: dict[str, int] = {}
     scores_by_provider: dict[str, float] = {}
 
     for provider_key in PROVIDERS:
         df = _load_provider_dataframe(provider_key, context)
-        ledger = _load_loss_ledger_from_checkpoints(args.full_run_id, territory, provider_key)
-        records = _build_population_records(provider_key, df, context, ledger)
+        ledger = (
+            {}
+            if selection_mode in (SELECTION_MODE_INTENSITY_MAX, SELECTION_MODE_INTENSITY_DISTANCE)
+            else _load_loss_ledger_from_checkpoints(args.full_run_id, territory, provider_key)
+        )
+        records = _build_population_records(provider_key, df, context, ledger, selection_mode=selection_mode)
         best_seed, nested, score = _choose_best_samples(
             records,
             storm_years=storm_years,
             seed_base=int(args.seed_base) + (17_000 if provider_key == "storm_cmcc" else 0),
             candidates=int(args.candidate_seeds),
+            sample_sizes=sample_sizes,
+            neutral_strata=neutral_strata,
+            keep_skeleton=keep_skeleton,
+            balance_mode=balance_mode,
+            quota_mode=quota_mode,
         )
         population_by_provider[provider_key] = records
         dataframes_by_provider[provider_key] = df
@@ -926,7 +1107,7 @@ def build_track_samples(args: argparse.Namespace) -> Path:
         for size, selected in nested.items():
             samples_by_provider_size[size][provider_key] = selected
 
-    for size in SAMPLE_SIZES:
+    for size in sample_sizes:
         _write_sample_outputs(
             size=size,
             out_dir=output_root / f"sample_{size:04d}",
@@ -938,8 +1119,20 @@ def build_track_samples(args: argparse.Namespace) -> Path:
             context=context,
             storm_years=storm_years,
             full_run_id=args.full_run_id,
+            sample_sizes=sample_sizes,
+            selection_method=selection_method,
+            selection_score_kind=selection_score_kind,
         )
     return output_root
+
+
+def _parse_sample_sizes(value: str) -> tuple[int, ...]:
+    sizes = tuple(sorted({int(part.strip()) for part in str(value).split(",") if part.strip()}))
+    if not sizes:
+        raise ValueError("At least one sample size is required")
+    if any(size <= 0 for size in sizes):
+        raise ValueError(f"Sample sizes must be positive: {value}")
+    return sizes
 
 
 def main() -> int:
@@ -949,6 +1142,18 @@ def main() -> int:
     parser.add_argument("--candidate-seeds", type=int, default=500, help="Number of candidate seeds to score per provider.")
     parser.add_argument("--seed-base", type=int, default=240710, help="Base seed for reproducible random sampling.")
     parser.add_argument("--storm-years", type=int, default=None, help="Synthetic catalog duration. Defaults to settings.storm_years.")
+    parser.add_argument("--sample-sizes", default=",".join(str(size) for size in SAMPLE_SIZES), help="Comma-separated nested sample sizes.")
+    parser.add_argument(
+        "--selection-mode",
+        choices=(SELECTION_MODE_DAMAGE_OR_PHYSICAL, SELECTION_MODE_INTENSITY_MAX, SELECTION_MODE_INTENSITY_DISTANCE),
+        default=SELECTION_MODE_DAMAGE_OR_PHYSICAL,
+        help="Track ranking score. Defaults to the historical damage-or-physical proxy mode.",
+    )
+    parser.add_argument(
+        "--neutral-strata",
+        action="store_true",
+        help="Use population-proportional rank-stratum quotas without tail oversampling factors.",
+    )
     args = parser.parse_args()
 
     output_root = build_track_samples(args)
