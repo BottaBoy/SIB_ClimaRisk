@@ -195,6 +195,55 @@ def _write_catalog_sources(catalog_root: Path) -> None:
     _write_catalog_parquet(catalog_root / "sp" / "storm_cmcc_tracks.parquet", _catalog_rows(SP_TERRITORIES, provider_offset=6.0))
 
 
+def _write_vulnerability_sources(vulnerability_dir: Path) -> dict[str, Path]:
+    vulnerability_dir.mkdir(parents=True, exist_ok=True)
+    asset_specs = [
+        ("eau_aep_cana", "AEP", 1, [0.0, 0.02, 0.04]),
+        ("eau_eu_cana", "EU", 2, [0.0, 0.03, 0.05]),
+        ("elec_bt_aerien", "Elec aerien", 3, [0.0, 0.20, 0.60]),
+        ("elec_bt_souterrain", "Elec souterrain", 4, [0.0, 0.01, 0.02]),
+    ]
+    hazard_units = {
+        "wind": ("m/s", [0.0, 50.0, 100.0]),
+        "rain": ("mm_proxy", [0.0, 50.0, 100.0]),
+        "surge": ("m", [0.0, 1.0, 2.0]),
+        "landslide": ("class", [0.0, 1.0, 2.0]),
+    }
+    paths: dict[str, Path] = {}
+    for hazard, (unit, intensity) in hazard_units.items():
+        mapping = {}
+        curves = []
+        for asset_type, label, offset, mdd in asset_specs:
+            impf_id = 1000 + offset
+            code = f"{hazard}_{offset}"
+            mapping[asset_type] = {"code": code, "impf_id": impf_id}
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "name": f"{hazard} {label}",
+                    "intensity_unit": unit,
+                    "intensity": intensity,
+                    "mdd": mdd,
+                    "paa": [1.0 for _ in intensity],
+                }
+            )
+        path = vulnerability_dir / f"vulnerability-curves-{hazard}.json"
+        _write_json(
+            path,
+            {
+                "profile": "test",
+                "haz_type": hazard,
+                "hazard_component": hazard,
+                "intensity_unit": unit,
+                "explicit_asset_type_mapping": mapping,
+                "curves": curves,
+            },
+        )
+        paths[hazard] = path
+    return paths
+
+
 def test_resolve_ordered_territory_specs_uses_expected_order():
     payload = _registry_payload()
 
@@ -430,6 +479,7 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
     storm_cmcc_dir = tmp_path / "storm_cmcc"
     catalog_root = tmp_path / "catalogs"
     output_root = tmp_path / "pack"
+    vulnerability_paths = _write_vulnerability_sources(tmp_path / "vulnerability")
     _write_raw_storm_sources(storm_dir, storm_cmcc_dir)
     _write_catalog_sources(catalog_root)
     monkeypatch.setattr(visual_pack, "ccrs", None)
@@ -446,6 +496,14 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
             str(storm_cmcc_dir),
             "--out-dir",
             str(output_root),
+            "--vulnerability-wind-path",
+            str(vulnerability_paths["wind"]),
+            "--vulnerability-rain-path",
+            str(vulnerability_paths["rain"]),
+            "--vulnerability-surge-path",
+            str(vulnerability_paths["surge"]),
+            "--vulnerability-landslide-path",
+            str(vulnerability_paths["landslide"]),
             "--cell-deg",
             "0.1",
             "--bin-width-kmh",
@@ -461,11 +519,15 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
     assert exit_code == 0
     assert manifest_path.exists()
     assert len(list(maps_dir.glob("*.png"))) == 13
+    assert len(list(charts_dir.glob("*.png"))) == 3
     assert (charts_dir / "territories_vent_max_par_annee_supergraph.png").exists()
     assert (charts_dir / "territories_vent_max_par_annee_supergraph_sup_200kmh.png").exists()
+    assert (charts_dir / "reseaux_courbes_vulnerabilite_superplot.png").exists()
     assert (maps_dir / "all_basins_rp100_storm_vs_storm_cmcc.png").exists()
     assert manifest["basins"]["sp"]["map_outputs"]["event_max"].endswith("sp_event_max_storm_vs_storm_cmcc.png")
     assert manifest["combined_map_outputs"]["rp100"].endswith("all_basins_rp100_storm_vs_storm_cmcc.png")
+    assert manifest["vulnerability_superplot"]["path"].endswith("charts/reseaux_courbes_vulnerabilite_superplot.png")
+    assert manifest["vulnerability_superplot"]["curves"]["wind"]["elec_aerien"]["asset_type"] == "elec_bt_aerien"
     assert manifest["territories"]["saint_martin"]["annual_maxima_count"]["storm"] == 3
     assert manifest["territories"]["nouvelle_caledonie"]["annual_maxima_count"]["storm_cmcc"] == 3
     assert manifest["territories"]["saint_martin"]["track_count"]["storm"] == 3
@@ -477,4 +539,4 @@ def test_smoke_main_writes_expected_pack(tmp_path, monkeypatch):
     assert manifest["high_wind_focus_histogram"]["supergraph_path"].endswith(
         "charts/territories_vent_max_par_annee_supergraph_sup_200kmh.png"
     )
-    assert manifest["outputs"]["charts"][-1].endswith("territories_vent_max_par_annee_supergraph_sup_200kmh.png")
+    assert manifest["outputs"]["charts"][-1].endswith("reseaux_courbes_vulnerabilite_superplot.png")

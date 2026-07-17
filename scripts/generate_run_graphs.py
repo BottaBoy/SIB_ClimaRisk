@@ -48,6 +48,15 @@ POPULATION_OVERLAYS_PATH = REPO_ROOT / "web" / "hazard-maps" / "population-overl
 POPULATION_RASTER_PATHS = {
     "guadeloupe": Path("/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif"),
 }
+POPULATION_OVERLAY_COLORS = [
+    "#ffffff",
+    "#fff7bc",
+    "#fee391",
+    "#fec44f",
+    "#fb923c",
+    "#ef4444",
+    "#b91c1c",
+]
 HYDRAULIC_ZONE_BUNDLE_PATHS = {
     "guadeloupe": HYDRAULIC_ZONING_V2_DIR / "guadeloupe_hydraulic_zones_estimate.gpkg",
 }
@@ -4984,18 +4993,24 @@ def _build_population_overlay_map_payload(artifacts: AuxiliaryArtifacts, title: 
     overlay_path = POPULATION_OVERLAYS_PATH.parent / overlay_rel
     if not overlay_path.exists():
         return None
+    raster_path = str(territory_payload.get("source_tif") or artifacts.population_raster_path or "").strip()
+    local_scale_max = _safe_float(_dict_path_get(territory_payload, "stats", "max_people_per_pixel"), default=0.0)
+    if local_scale_max <= 0.0:
+        local_scale_max = _safe_float(_dict_path_get(payload, "meta", "scale", "max_people_per_pixel"), default=1.0)
     return {
         "type": "raster_overlay_map",
         "title": title,
         "overlay_path": str(overlay_path),
+        "raster_path": raster_path,
         "bounds": {
             "south": _safe_float(bounds.get("south")),
             "north": _safe_float(bounds.get("north")),
             "west": _safe_float(bounds.get("west")),
             "east": _safe_float(bounds.get("east")),
         },
-        "scale_max": _safe_float(_dict_path_get(payload, "meta", "scale", "max_people_per_pixel"), default=1.0),
-        "cmap_colors": list(_dict_path_get(payload, "meta", "palette_hex") or []),
+        "scale_max": local_scale_max,
+        "scale_norm": "sqrt",
+        "cmap_colors": list(POPULATION_OVERLAY_COLORS),
         "legend_title": "Population (pers./pixel)",
         "note": "WorldPop 2020 - overlay rasterisee de population.",
     }
@@ -5366,12 +5381,12 @@ def _render_raster_overlay_map_png(
     output_path: Path,
 ) -> None:
     from matplotlib import cm, colors as mcolors
+    import numpy as np
 
     overlay_path = str(payload.get("overlay_path") or "").strip()
     bounds = payload.get("bounds") if isinstance(payload.get("bounds"), dict) else {}
     if not overlay_path or not bounds:
         raise RuntimeError("overlay_path and bounds are required for raster_overlay_map rendering")
-    image = plt.imread(overlay_path)
     gpd = _load_geopandas()
     from shapely.geometry import box
 
@@ -5385,13 +5400,36 @@ def _render_raster_overlay_map_png(
     fig, ax = plt.subplots(figsize=(8.5, 7.5))
     _apply_map_extent(ax, bounds_gdf)
     _add_light_basemap(ax)
-    ax.imshow(image, extent=(min_x, max_x, min_y, max_y), zorder=3, alpha=0.96)
+    scale_max = max(_safe_float(payload.get("scale_max"), default=1.0), 1.0)
+    cmap = _resolve_map_cmap(payload)
+    norm = (
+        mcolors.PowerNorm(gamma=0.5, vmin=0.0, vmax=scale_max)
+        if str(payload.get("scale_norm") or "").strip().lower() == "sqrt"
+        else mcolors.Normalize(vmin=0.0, vmax=scale_max)
+    )
+    image_cmap = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
+    if hasattr(image_cmap, "copy"):
+        image_cmap = image_cmap.copy()
+        image_cmap.set_bad((0.0, 0.0, 0.0, 0.0))
+
+    raster_path = str(payload.get("raster_path") or "").strip()
+    if raster_path and Path(raster_path).exists():
+        rasterio = _load_rasterio()
+        with rasterio.open(raster_path) as src:
+            raster_values = src.read(1, masked=True).astype("float32")
+            nodata = src.nodata
+        values = np.ma.asarray(raster_values)
+        values = np.ma.masked_invalid(values)
+        if nodata is not None and np.isfinite(float(nodata)):
+            values = np.ma.masked_where(values == np.float32(nodata), values)
+        values = np.ma.masked_where(values <= 0.0, values)
+        ax.imshow(values, extent=(min_x, max_x, min_y, max_y), zorder=3, alpha=0.96, cmap=image_cmap, norm=norm)
+    else:
+        image = plt.imread(overlay_path)
+        ax.imshow(image, extent=(min_x, max_x, min_y, max_y), zorder=3, alpha=0.96)
     ax.set_title(payload.get("title") or "")
     ax.set_axis_off()
 
-    scale_max = max(_safe_float(payload.get("scale_max"), default=1.0), 1.0)
-    cmap = _resolve_map_cmap(payload)
-    norm = mcolors.Normalize(vmin=0.0, vmax=scale_max)
     mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
     cbar = fig.colorbar(mappable, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label(str(payload.get("legend_title") or "Valeur"))

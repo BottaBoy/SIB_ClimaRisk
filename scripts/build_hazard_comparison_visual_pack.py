@@ -74,10 +74,17 @@ DEFAULT_CATALOG_ROOT = REPO_ROOT / "outputs" / "hazard-comparison-inputs" / "cat
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs" / "hazard-comparison-visual-pack"
 DEFAULT_STORM_DIR = Path("/home/ubuntu/uploads/STORM/STORM_ds")
 DEFAULT_STORM_CMCC_DIR = Path("/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
+DEFAULT_VULNERABILITY_CURVE_PATHS = {
+    "wind": REPO_ROOT / "web" / "data" / "vulnerability-curves-wind.json",
+    "rain": REPO_ROOT / "web" / "data" / "vulnerability-curves-rain.json",
+    "surge": REPO_ROOT / "web" / "data" / "vulnerability-curves-surge.json",
+    "landslide": REPO_ROOT / "web" / "data" / "vulnerability-curves-landslide.json",
+}
 
 BASIN_ORDER = ("na", "si", "sp")
 PROVIDER_ORDER = ("storm", "storm_cmcc")
 METRIC_ORDER = ("mean", "rp50", "rp100", "event_max")
+VULNERABILITY_HAZARD_ORDER = ("wind", "rain", "surge", "landslide")
 TERRITORY_ORDER = (
     "guadeloupe",
     "martinique",
@@ -126,6 +133,25 @@ TRACK_INDICATOR_TITLE_FONTSIZE = 14.4
 TRACK_INDICATOR_PROVIDER_FONTSIZE = 12.6
 TRACK_INDICATOR_VALUE_FONTSIZE = 13.0
 TRACK_INDICATOR_SCALE_FONTSIZE = 11.4
+VULNERABILITY_NETWORK_SPECS = (
+    {"network_id": "aep", "label": "AEP", "asset_type": "eau_aep_cana", "color": "#38bdf8", "linestyle": "-"},
+    {"network_id": "eu", "label": "EU", "asset_type": "eau_eu_cana", "color": "#1d4ed8", "linestyle": "--"},
+    {"network_id": "elec_aerien", "label": "Elec aérien", "asset_type": "elec_bt_aerien", "color": "#facc15", "linestyle": "-."},
+    {"network_id": "elec_souterrain", "label": "Elec souterrain", "asset_type": "elec_bt_souterrain", "color": "#a16207", "linestyle": ":"},
+)
+VULNERABILITY_HAZARD_LABELS = {
+    "wind": "Vent",
+    "rain": "Pluie",
+    "surge": "Inondation côtière",
+    "landslide": "Mouvement de terrain",
+}
+VULNERABILITY_X_LABELS = {
+    "wind": "Vent max (km/h)",
+    "rain": "Pluie proxy (mm)",
+    "surge": "Hauteur d'eau (m)",
+    "landslide": "Classe d'aléa",
+}
+VULNERABILITY_WIND_X_MAX_KMH = 360.0
 
 
 @dataclass(frozen=True)
@@ -592,6 +618,148 @@ def _render_combined_basin_metric_map(
     return str(output_path)
 
 
+def _resolve_vulnerability_curve(payload: dict[str, Any], asset_type: str) -> dict[str, Any]:
+    mapping = payload.get("explicit_asset_type_mapping")
+    if not isinstance(mapping, dict) or asset_type not in mapping:
+        raise ValueError(f"Vulnerability payload is missing mapping for asset type {asset_type!r}")
+
+    curve_ref = mapping[asset_type]
+    if not isinstance(curve_ref, dict):
+        raise ValueError(f"Invalid vulnerability mapping for asset type {asset_type!r}")
+    impf_id = int(curve_ref.get("impf_id"))
+    code = str(curve_ref.get("code") or "").strip()
+
+    curves = payload.get("curves")
+    if not isinstance(curves, list):
+        raise ValueError("Vulnerability payload is missing curves")
+    for curve in curves:
+        if isinstance(curve, dict) and int(curve.get("impf_id", -1)) == impf_id:
+            return curve
+    for curve in curves:
+        if isinstance(curve, dict) and str(curve.get("code") or "").strip() == code:
+            return curve
+    raise ValueError(f"No vulnerability curve found for asset type {asset_type!r} (impf_id={impf_id}, code={code})")
+
+
+def _vulnerability_display_points(curve: dict[str, Any]) -> tuple[Any, Any]:
+    intensity = np.asarray(curve.get("intensity") or [], dtype=float)
+    mdd = np.asarray(curve.get("mdd") or [], dtype=float)
+    if intensity.size == 0 or mdd.size == 0:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    size = min(intensity.size, mdd.size)
+    x_values = intensity[:size]
+    y_values = np.clip(mdd[:size], 0.0, 1.0) * 100.0
+
+    unit = str(curve.get("intensity_unit") or "").strip().lower()
+    if "m/s" in unit:
+        x_values = x_values * KMH_PER_MPS
+        mask = x_values <= VULNERABILITY_WIND_X_MAX_KMH
+        x_values = x_values[mask]
+        y_values = y_values[mask]
+
+    finite_mask = np.isfinite(x_values) & np.isfinite(y_values)
+    return x_values[finite_mask], y_values[finite_mask]
+
+
+def _vulnerability_y_axis_limit(max_y_value: float) -> float:
+    if max_y_value <= 0.0:
+        return 1.0
+    if max_y_value <= 2.0:
+        return 2.5
+    if max_y_value <= 5.0:
+        return 6.0
+    if max_y_value <= 20.0:
+        return float(math.ceil((max_y_value * 1.15) / 5.0) * 5.0)
+    return min(100.0, float(math.ceil((max_y_value * 1.08) / 10.0) * 10.0))
+
+
+def _render_network_vulnerability_superplot(
+    *,
+    vulnerability_curve_paths: dict[str, Path],
+    output_path: Path,
+) -> dict[str, Any]:
+    payloads = {
+        hazard: json.loads(Path(vulnerability_curve_paths[hazard]).read_text(encoding="utf-8"))
+        for hazard in VULNERABILITY_HAZARD_ORDER
+    }
+
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    axes_list = list(np.asarray(axes).reshape(-1))
+    resolved_curves: dict[str, dict[str, dict[str, Any]]] = {}
+    legend_handles: list[Any] = []
+    legend_labels: list[str] = []
+
+    for ax, hazard in zip(axes_list, VULNERABILITY_HAZARD_ORDER):
+        payload = payloads[hazard]
+        resolved_curves[hazard] = {}
+        max_x = 0.0
+        max_y = 0.0
+
+        for network_index, spec in enumerate(VULNERABILITY_NETWORK_SPECS):
+            curve = _resolve_vulnerability_curve(payload, str(spec["asset_type"]))
+            x_values, y_values = _vulnerability_display_points(curve)
+            if x_values.size == 0:
+                continue
+            markevery = max(int(x_values.size // 12), 1)
+            line = ax.plot(
+                x_values,
+                y_values,
+                color=str(spec["color"]),
+                linestyle=str(spec["linestyle"]),
+                linewidth=4.0,
+                marker="o",
+                markersize=5.0,
+                markevery=markevery,
+                markeredgecolor="#111827",
+                markeredgewidth=0.45,
+                label=str(spec["label"]),
+                zorder=10 - network_index,
+            )[0]
+            if hazard == VULNERABILITY_HAZARD_ORDER[0]:
+                legend_handles.append(line)
+                legend_labels.append(str(spec["label"]))
+
+            max_x = max(max_x, float(np.max(x_values)))
+            max_y = max(max_y, float(np.max(y_values)))
+            resolved_curves[hazard][str(spec["network_id"])] = {
+                "label": str(spec["label"]),
+                "asset_type": str(spec["asset_type"]),
+                "code": str(curve.get("code") or ""),
+                "impf_id": int(curve.get("impf_id")),
+            }
+
+        ax.set_title(VULNERABILITY_HAZARD_LABELS[hazard], fontsize=22, fontweight="bold", pad=12)
+        ax.set_xlabel(VULNERABILITY_X_LABELS[hazard], fontsize=17)
+        ax.set_ylabel("Dommage moyen (%)", fontsize=17)
+        ax.set_ylim(0.0, _vulnerability_y_axis_limit(max_y))
+        ax.set_xlim(0.0, max(max_x * 1.02, 1.0))
+        ax.grid(True, color="#d1d5db", linewidth=0.8, alpha=0.62)
+        ax.tick_params(axis="both", labelsize=14)
+
+    fig.suptitle("Courbes de vulnérabilité des réseaux par aléa", fontsize=26, fontweight="bold", y=0.985)
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        loc="lower center",
+        ncol=4,
+        bbox_to_anchor=(0.5, 0.015),
+        frameon=False,
+        fontsize=18,
+        handlelength=3.1,
+        columnspacing=1.2,
+    )
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.90, bottom=0.14, hspace=0.34, wspace=0.22)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    return {
+        "path": str(output_path),
+        "source_paths": {hazard: str(Path(vulnerability_curve_paths[hazard])) for hazard in VULNERABILITY_HAZARD_ORDER},
+        "curves": resolved_curves,
+    }
+
+
 def _normalize_longitudes(values: Any) -> Any:
     arr = np.asarray(values, dtype=float)
     return np.where(arr > 180.0, arr - 360.0, arr)
@@ -1016,6 +1184,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--storm-dir", default=str(DEFAULT_STORM_DIR))
     parser.add_argument("--storm-cmcc-dir", default=str(DEFAULT_STORM_CMCC_DIR))
     parser.add_argument("--out-dir", default=str(DEFAULT_OUTPUT_ROOT))
+    parser.add_argument("--vulnerability-wind-path", default=str(DEFAULT_VULNERABILITY_CURVE_PATHS["wind"]))
+    parser.add_argument("--vulnerability-rain-path", default=str(DEFAULT_VULNERABILITY_CURVE_PATHS["rain"]))
+    parser.add_argument("--vulnerability-surge-path", default=str(DEFAULT_VULNERABILITY_CURVE_PATHS["surge"]))
+    parser.add_argument("--vulnerability-landslide-path", default=str(DEFAULT_VULNERABILITY_CURVE_PATHS["landslide"]))
     parser.add_argument("--cell-deg", type=float, default=0.05, help="Grid cell size for rebuilt basin JSON sources.")
     parser.add_argument("--wind-unit-in", default="m/s", help="Raw STORM wind unit (m/s, kn, km/h).")
     parser.add_argument("--bins-count", type=int, default=24, help="Histogram bin count when --bin-width-kmh is omitted.")
@@ -1108,6 +1280,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
         track_indicator_axis_max_by_territory=track_indicator_axis_max_by_territory,
     )
+    vulnerability_curve_paths = {
+        "wind": Path(args.vulnerability_wind_path),
+        "rain": Path(args.vulnerability_rain_path),
+        "surge": Path(args.vulnerability_surge_path),
+        "landslide": Path(args.vulnerability_landslide_path),
+    }
+    vulnerability_superplot_path = charts_dir / "reseaux_courbes_vulnerabilite_superplot.png"
+    vulnerability_superplot_payload = _render_network_vulnerability_superplot(
+        vulnerability_curve_paths=vulnerability_curve_paths,
+        output_path=vulnerability_superplot_path,
+    )
     map_scale_min_mps, map_scale_max_mps = _resolve_global_basin_map_scale()
 
     manifest = {
@@ -1165,6 +1348,7 @@ def main(argv: list[str] | None = None) -> int:
         "combined_map_outputs": {
             "rp100": combined_rp100_map_path,
         },
+        "vulnerability_superplot": vulnerability_superplot_payload,
         "high_wind_focus_histogram": {
             "threshold_kmh": high_wind_threshold_kmh,
             "x_limits_kmh": [float(value) for value in high_wind_histogram_payload["x_limits"]],
@@ -1174,7 +1358,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "outputs": {
             "maps": map_paths,
-            "charts": [str(supergraph_path), str(high_wind_supergraph_path)],
+            "charts": [str(supergraph_path), str(high_wind_supergraph_path), str(vulnerability_superplot_path)],
         },
     }
     manifest_path = output_root / "manifest.json"
@@ -1183,6 +1367,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Wrote 12 basin maps and 1 combined RP100 map to {maps_dir}")
     print(f"Wrote territory supergraph to {supergraph_path}")
     print(f"Wrote high-wind territory supergraph to {high_wind_supergraph_path}")
+    print(f"Wrote vulnerability superplot to {vulnerability_superplot_path}")
     print(f"Wrote manifest to {manifest_path}")
     return 0
 

@@ -491,6 +491,53 @@ def test_build_population_output_specs_returns_guadeloupe_pack(monkeypatch):
     ]
 
 
+def test_build_population_overlay_map_payload_uses_heat_palette(tmp_path, monkeypatch):
+    overlay_dir = tmp_path / "population_overlays"
+    overlay_dir.mkdir()
+    overlay_path = overlay_dir / "glp_population_overlay.png"
+    overlay_path.write_bytes(b"placeholder")
+    raster_path = tmp_path / "glp.tif"
+    monkeypatch.setattr(generate_run_graphs, "POPULATION_OVERLAYS_PATH", tmp_path / "population-overlays.json")
+
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {"territory_results": []}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+        population_overlays=generate_run_graphs.ArchivedArtifact(
+            "/tmp/population-overlays.json",
+            {
+                "meta": {
+                    "palette_hex": ["#000000"],
+                    "scale": {"max_people_per_pixel": 999.0},
+                },
+                "territories": [
+                    {
+                        "code": "glp",
+                        "overlay": "population_overlays/glp_population_overlay.png",
+                        "source_tif": str(raster_path),
+                        "bounds": {"west": -61.8, "east": -61.0, "south": 15.8, "north": 16.5},
+                        "stats": {"max_people_per_pixel": 213.9},
+                    }
+                ],
+            },
+        ),
+        population_raster_path=None,
+    )
+
+    payload = generate_run_graphs._build_population_overlay_map_payload(artifacts, "Population")
+
+    assert payload is not None
+    assert payload["cmap_colors"] == generate_run_graphs.POPULATION_OVERLAY_COLORS
+    assert payload["scale_norm"] == "sqrt"
+    assert payload["scale_max"] == pytest.approx(213.9)
+    assert payload["raster_path"] == str(raster_path)
+
+
 def test_build_population_hotspot_superplot_payload_matches_total_affected_population(monkeypatch):
     gpd = pytest.importorskip("geopandas")
     from shapely.geometry import Point

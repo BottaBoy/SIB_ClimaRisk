@@ -704,7 +704,7 @@ def test_plot_super_network_state_tornado_filters_to_scenarios_above_two_points(
     assert captured_labels[0] == ["param = high"]
 
 
-def test_plot_super_social_state_tornado_creates_matrix_and_filters_significant_scenarios(
+def test_plot_super_social_state_tornado_splits_services_and_filters_significant_scenarios(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -796,7 +796,11 @@ def test_plot_super_social_state_tornado_creates_matrix_and_filters_significant_
 
     output_paths = plot_super_social_state_tornado(pd.DataFrame(rows), scenario_metadata, "Guadeloupe", tmp_path)
 
-    assert [path.name for path in output_paths] == ["sensitivity_super_graph_3_social_states_guadeloupe.png"]
-    assert output_paths[0].exists()
+    assert [path.name for path in output_paths] == [
+        "sensitivity_super_graph_3_social_states_aep_guadeloupe.png",
+        "sensitivity_super_graph_3_social_states_eu_guadeloupe.png",
+        "sensitivity_super_graph_3_social_states_elec_guadeloupe.png",
+    ]
+    assert all(path.exists() for path in output_paths)
     assert captured_labels
-    assert captured_labels[0] == ["param = high"]
+    assert ["param = high"] in captured_labels
