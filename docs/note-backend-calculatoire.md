@@ -134,19 +134,19 @@ La chaine comparative hazard-only (lots 2 a 6) n'utilise pas la meme fenetre spa
 
 Audit du 2026-05-22: la premiere version de cette section etait incorrecte. Elle sous-comptait massivement les cyclones en groupant les catalogues comparatifs sur `track_id` seul. Or, dans STORM / STORM_CMCC, le meme `track_id` se repete d'annee en annee a l'interieur d'un bloc synthetique. L'identite physique correcte d'un cyclone est donc au minimum `(Year, track_id)`. Le loader comparatif et la preparation des catalogues ont ete corriges pour utiliser cette identite year-aware.
 
-Les chiffres ci-dessous ont ete re-estimes le 2026-05-22 avec la meme logique que le runner comparatif, mais avec cette identite year-aware correcte (`load_storm_hazards_from_parquet_for_points(..., build_hazards=False, max_tracks=0)`). Ils correspondent donc au nombre de cyclones synthetiques reellement retenus par territoire avant construction des hazards, en mode `full tracks`.
+Les chiffres ci-dessous ont ete re-estimes le 2026-05-22 avec la meme logique que le runner comparatif, mais avec cette identite year-aware correcte (`load_storm_hazards_from_parquet_for_points(..., build_hazards=False, max_tracks=0)`). Ils correspondent donc au nombre de cyclones synthetiques reellement retenus par territoire avant construction des hazards, en mode `full tracks`. Les colonnes "total catalogue" reprennent le `track_count` total des manifests comparatifs du bassin (`outputs/hazard-comparison-inputs/catalogs/<bassin>/*.manifest.json`), avant filtrage territorial.
 
-| Territoire | Bassin | Points grille comparative | STORM full tracks | STORM_CMCC full tracks | Lecture operationnelle |
-|---|---|---:|---:|---:|---|
-| Guadeloupe | NA | 30 | 21 846 | 22 832 | `300` et `1 500` restent deux sous-echantillons tres partiels de la fenetre comparative. |
-| Martinique | NA | 20 | 21 530 | 22 599 | Meme lecture: l'ecart de temps entre `300` et `1 500` est attendu. |
-| Guyane | NA | 550 | 6 023 | 6 432 | Le cap reste tres loin du `full tracks`. |
-| Saint-Barthelemy | NA | 6 | 18 931 | 20 070 | Le perimetre est petit, mais la fenetre dynamique elargie reste tres chargee. |
-| Saint-Martin | NA | 6 | 18 736 | 19 863 | Meme lecture que Saint-Barthelemy. |
-| Saint-Pierre-et-Miquelon | NA | 16 | 6 011 | 7 407 | `300` et `1 500` restent des caps numeriques reels. |
-| La Reunion | SI | 20 | 15 571 | 17 257 | `300` ne couvre qu'une petite fraction du catalogue utile. |
-| Mayotte | SI | 12 | 3 779 | 5 706 | `300` et `1 500` restent distincts et physiquement non equivalentes au full. |
-| Nouvelle-Caledonie | SP | 1 846 | 40 227 | 39 112 | C'est le cas comparatif le plus charge du perimetre actuel. |
+| Territoire | Bassin | Points grille comparative | STORM total catalogue | STORM full tracks | STORM_CMCC total catalogue | STORM_CMCC full tracks | Lecture operationnelle |
+|---|---|---:|---:|---:|---:|---:|---|
+| Guadeloupe | NA | 30 | 107 063 | 21 846 | 123 536 | 22 832 | `300` et `1 500` restent deux sous-echantillons tres partiels de la fenetre comparative. |
+| Martinique | NA | 20 | 107 063 | 21 530 | 123 536 | 22 599 | Meme lecture: l'ecart de temps entre `300` et `1 500` est attendu. |
+| Guyane | NA | 550 | 107 063 | 6 023 | 123 536 | 6 432 | Le cap reste tres loin du `full tracks`. |
+| Saint-Barthelemy | NA | 6 | 107 063 | 18 931 | 123 536 | 20 070 | Le perimetre est petit, mais la fenetre dynamique elargie reste tres chargee. |
+| Saint-Martin | NA | 6 | 107 063 | 18 736 | 123 536 | 19 863 | Meme lecture que Saint-Barthelemy. |
+| Saint-Pierre-et-Miquelon | NA | 16 | 107 063 | 6 011 | 123 536 | 7 407 | `300` et `1 500` restent des caps numeriques reels. |
+| La Reunion | SI | 20 | 98 114 | 15 571 | 104 080 | 17 257 | `300` ne couvre qu'une petite fraction du catalogue utile. |
+| Mayotte | SI | 12 | 98 114 | 3 779 | 104 080 | 5 706 | `300` et `1 500` restent distincts et physiquement non equivalentes au full. |
+| Nouvelle-Caledonie | SP | 1 846 | 93 266 | 40 227 | 94 091 | 39 112 | C'est le cas comparatif le plus charge du perimetre actuel. |
 
 Consequences pratiques pour les nouvelles taches de comparaison:
 - L'ancienne conclusion "`300` suffit deja" etait fausse car elle reposait sur le sous-comptage legacy de `track_id`.
