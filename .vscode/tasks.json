@@ -43,7 +43,10 @@
         "--dynamic-max-tracks",
         "1500",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--no-deploy",
@@ -199,7 +202,10 @@
         "--dynamic-max-tracks",
         "800",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0800/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0800/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "5000",
         "--memory-budget-gb",
@@ -234,7 +240,10 @@
         "--dynamic-max-tracks",
         "5000",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_5000/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_5000/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--memory-budget-gb",
@@ -269,7 +278,10 @@
         "--dynamic-max-tracks",
         "15000",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_15000/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_15000/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--memory-budget-gb",
@@ -304,7 +316,10 @@
         "--dynamic-max-tracks",
         "50",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0050/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0050/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "20000",
         "--memory-budget-gb",
@@ -339,7 +354,10 @@
         "--dynamic-max-tracks",
         "100",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0100/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0100/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "15000",
         "--memory-budget-gb",
@@ -374,7 +392,10 @@
         "--dynamic-max-tracks",
         "800",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0800/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_0800/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "5000",
         "--memory-budget-gb",
@@ -409,7 +430,10 @@
         "--dynamic-max-tracks",
         "1500",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_1500/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--memory-budget-gb",
@@ -444,7 +468,10 @@
         "--dynamic-max-tracks",
         "5000",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_5000/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/V2/sample_5000/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--memory-budget-gb",
@@ -479,7 +506,10 @@
         "--dynamic-max-tracks",
         "100",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0100/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0100/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "15000",
         "--memory-budget-gb",
@@ -514,7 +544,10 @@
         "--dynamic-max-tracks",
         "50",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0050/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0050/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "20000",
         "--memory-budget-gb",
@@ -548,7 +581,10 @@
         "--dynamic-max-tracks",
         "1500",
         "--track-sample-manifest",
-        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+        {
+          "value": "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+          "quoting": "strong"
+        },
         "--max-points-per-shard",
         "3000",
         "--memory-budget-gb",
@@ -1327,7 +1363,11 @@
         "scripts/generate_run_graphs.py",
         "--latest-success",
         "--formats",
-        "html,png"
+        "html,png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1354,7 +1394,11 @@
         "scripts/generate_run_graphs.py",
         "--latest-success",
         "--formats",
-        "png"
+        "png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1386,7 +1430,11 @@
         "--run-id",
         "${input:sibGraphRunId}",
         "--formats",
-        "html,png"
+        "html,png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1420,7 +1468,11 @@
         "--territories",
         "guadeloupe",
         "--formats",
-        "html,png"
+        "html,png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1454,7 +1506,11 @@
         "--territories",
         "martinique",
         "--formats",
-        "html,png"
+        "html,png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1488,7 +1544,11 @@
         "--territories",
         "saint-barthelemy",
         "--formats",
-        "html,png"
+        "html,png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1520,7 +1580,11 @@
         "--run-id",
         "${input:sibGraphRunId}",
         "--formats",
-        "png"
+        "png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1554,7 +1618,11 @@
         "--territories",
         "guadeloupe",
         "--formats",
-        "png"
+        "png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1588,7 +1656,11 @@
         "--territories",
         "martinique",
         "--formats",
-        "png"
+        "png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1622,7 +1694,11 @@
         "--territories",
         "saint-barthelemy",
         "--formats",
-        "png"
+        "png",
+        "--state-label-style",
+        "code",
+        "--storm-cmcc-layout",
+        "harmonized"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -1642,13 +1718,13 @@
       }
     },
     {
-  "label": "SIB: Generate Sensitivity Graphs - Choose Run ID",
-  "detail": "Generate baseline and extended tornado PNGs for a selected sensitivity run.",
+  "label": "SIB: Generate Sensitivity Run Graphs - Choose Run ID",
+  "detail": "Generate sensitivity tornado PNGs, including split AEP/EU/Elec social-state super graphs.",
   "type": "shell",
   "command": "bash",
   "args": [
     "-c",
-    "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json"
+    "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --state-label-style code --storm-cmcc-layout harmonized"
   ],
   "options": {
     "cwd": "${workspaceFolder}"
@@ -1667,6 +1743,69 @@
     "clear": false
   }
 },
+    {
+      "label": "SIB: Generate Sensitivity V2 Significant Graphs - Choose Run ID",
+      "detail": "Generate sensitivity V2 graphs in graphs-significant with only scenarios passing the configured significance thresholds.",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --output-dir outputs/sensitivity-runs/${input:sensitivityRunId}/graphs-significant --state-label-style code --storm-cmcc-layout harmonized --disable-default-exclusions --significant-only --impact-significance-threshold-pct 3 --network-significance-threshold-pp 3"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Sensitivity Analysis Default Pack V2",
+      "type": "process",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_sensitivity_analysis.py",
+        "--scenario-pack",
+        "config/sensitivity/default-scenario-pack-v2.json",
+        "--dynamic-max-tracks",
+        "1500",
+        "--track-sample-manifest",
+        "${workspaceFolder}/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+        "--memory-budget-gb",
+        "6",
+        "--child-max-points-per-shard",
+        "3000",
+        "--min-points-per-shard",
+        "512",
+        "--continue-on-error"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
     {
       "label": "SIB: Run Sensitivity Analysis (Custom Scenario IDs)",
       "type": "shell",
@@ -1824,8 +1963,8 @@
     {
       "id": "sensitivityRunId",
       "type": "promptString",
-      "description": "ID du run de sensibilité, ex: sensitivity_20260602_110051",
-      "default": "sensitivity_20260602_110051"
+      "description": "ID du run de sensibilité, ex: sensitivity_20260619_073544",
+      "default": "sensitivity_20260619_073544"
     },
     {
       "id": "sibSensitivityScenarioIds",

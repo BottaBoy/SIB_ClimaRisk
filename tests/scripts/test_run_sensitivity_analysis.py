@@ -35,6 +35,7 @@ def test_build_child_command_uses_explicit_child_shard_cap() -> None:
     )
     args = SimpleNamespace(
         dynamic_max_tracks=1200,
+        track_sample_manifest=Path("/tmp/sample_1500/manifest.json"),
         memory_budget_gb=6.0,
         child_max_points_per_shard=1500,
         min_points_per_shard=512,
@@ -46,6 +47,9 @@ def test_build_child_command_uses_explicit_child_shard_cap() -> None:
     assert "--max-points-per-shard" in command
     shard_cap_index = command.index("--max-points-per-shard")
     assert command[shard_cap_index + 1] == "1500"
+    assert "--track-sample-manifest" in command
+    sample_index = command.index("--track-sample-manifest")
+    assert command[sample_index + 1] == "/tmp/sample_1500/manifest.json"
 
 
 def test_main_writes_resume_pidfile_for_explicit_run_id(monkeypatch, tmp_path: Path) -> None:
@@ -88,6 +92,8 @@ def test_main_writes_resume_pidfile_for_explicit_run_id(monkeypatch, tmp_path: P
             "/home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json",
             "--scenario-ids",
             "all-default",
+            "--track-sample-manifest",
+            "/tmp/sample_1500/manifest.json",
             "--run-id",
             run_id,
         ],
@@ -97,6 +103,8 @@ def test_main_writes_resume_pidfile_for_explicit_run_id(monkeypatch, tmp_path: P
 
     assert exit_code == 0
     assert (run_outputs / run_id / "resume.pid").read_text(encoding="utf-8").strip() == str(os.getpid())
+    manifest = json.loads((run_outputs / run_id / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["parameters"]["track_sample_manifest"] == "/tmp/sample_1500/manifest.json"
 
 
 def test_detect_probable_oom_failure_only_flags_sigkill_with_oom_journal(monkeypatch) -> None:

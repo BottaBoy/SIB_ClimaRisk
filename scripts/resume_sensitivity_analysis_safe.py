@@ -215,6 +215,9 @@ def _build_resume_command(run_id: str, manifest: dict[str, Any]) -> list[str]:
         cmd.extend(["--scenario-ids", ",".join(str(item) for item in scenario_ids)])
     if parameters.get("dynamic_max_tracks") is not None:
         cmd.extend(["--dynamic-max-tracks", str(int(parameters.get("dynamic_max_tracks")))])
+    track_sample_manifest = str(parameters.get("track_sample_manifest") or "").strip()
+    if track_sample_manifest:
+        cmd.extend(["--track-sample-manifest", track_sample_manifest])
     if parameters.get("memory_budget_gb") is not None:
         cmd.extend(["--memory-budget-gb", str(float(parameters.get("memory_budget_gb")))])
     if parameters.get("child_max_points_per_shard") is not None:

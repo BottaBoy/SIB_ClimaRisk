@@ -26,6 +26,7 @@ from scripts.generate_sensitivity_graphs import (
     build_scenario_metadata,
     clean_legacy_outputs,
     extract_rows_from_payload,
+    filter_significant_scenarios,
     plot_delta_annual_tornado,
     plot_network_state_tornado,
     plot_portfolio_risk_tornado,
@@ -245,6 +246,138 @@ def test_resolve_scenario_payloads_requires_explicit_complete_analysis_path(tmp_
                 ]
             }
         )
+
+
+def test_resolve_scenario_payloads_skips_incomplete_scenarios(tmp_path: Path) -> None:
+    payload_path = tmp_path / "guadeloupe-complete-analysis.json"
+    payload_path.write_text("{}", encoding="utf-8")
+    skipped: list[dict[str, str]] = []
+
+    resolved = resolve_scenario_payloads(
+        {
+            "scenarios": [
+                {
+                    "scenario_id": "all-default",
+                    "label": "Default",
+                    "parameter_key": None,
+                    "supported": True,
+                    "status": "complete",
+                    "complete_analysis_json_path": str(payload_path),
+                },
+                {
+                    "scenario_id": "failed-scenario",
+                    "label": "Failed",
+                    "parameter_key": "param",
+                    "supported": True,
+                    "status": "failed",
+                },
+            ]
+        },
+        skipped_scenarios=skipped,
+    )
+
+    assert [scenario.scenario_id for scenario in resolved] == ["all-default"]
+    assert skipped == [{"scenario_id": "failed-scenario", "reason": "status=failed"}]
+
+
+def test_filter_significant_scenarios_keeps_network_significant_direct_state() -> None:
+    common = {
+        "territory": "guadeloupe",
+        "hazard": "storm",
+        "return_period": "annual",
+        "scenario_label": "label",
+        "parameter_value": "value",
+    }
+    df = pd.DataFrame(
+        [
+            {
+                **common,
+                "scenario_id": "all-default",
+                "parameter_key": None,
+                "metric": "impact_eur",
+                "value": 1000.0,
+            },
+            {
+                **common,
+                "scenario_id": "runoff_coeff-0-1",
+                "parameter_key": "runoff_coeff",
+                "metric": "impact_eur",
+                "value": 1040.0,
+            },
+            {
+                **common,
+                "scenario_id": "direct_state_thresholds-10-20-40",
+                "parameter_key": "direct_state_thresholds",
+                "metric": "impact_eur",
+                "value": 1000.0,
+            },
+            {
+                **common,
+                "scenario_id": "territory_grid_deg-0-05",
+                "parameter_key": "territory_grid_deg",
+                "metric": "impact_eur",
+                "value": 1000.5,
+            },
+            {
+                **common,
+                "scenario_id": "all-default",
+                "parameter_key": None,
+                "metric": "network_state_pct",
+                "return_period": "network_state",
+                "service": "elec",
+                "network_metric": "non_nominal_pct",
+                "value": 40.0,
+            },
+            {
+                **common,
+                "scenario_id": "runoff_coeff-0-1",
+                "parameter_key": "runoff_coeff",
+                "metric": "network_state_pct",
+                "return_period": "network_state",
+                "service": "elec",
+                "network_metric": "non_nominal_pct",
+                "value": 40.5,
+            },
+            {
+                **common,
+                "scenario_id": "direct_state_thresholds-10-20-40",
+                "parameter_key": "direct_state_thresholds",
+                "metric": "network_state_pct",
+                "return_period": "network_state",
+                "service": "elec",
+                "network_metric": "non_nominal_pct",
+                "value": 43.5,
+            },
+            {
+                **common,
+                "scenario_id": "territory_grid_deg-0-05",
+                "parameter_key": "territory_grid_deg",
+                "metric": "network_state_pct",
+                "return_period": "network_state",
+                "service": "elec",
+                "network_metric": "non_nominal_pct",
+                "value": 40.1,
+            },
+        ]
+    )
+
+    with_deltas = add_baseline_deltas(df)
+    filtered, report = filter_significant_scenarios(
+        with_deltas,
+        impact_threshold_pct=3.0,
+        network_threshold_pp=3.0,
+    )
+
+    assert set(filtered["scenario_id"]) == {
+        "all-default",
+        "runoff_coeff-0-1",
+        "direct_state_thresholds-10-20-40",
+    }
+    assert "direct_state_thresholds-10-20-40" in report["selected_scenario_ids"]
+    assert {
+        item["scenario_id"]
+        for item in report["excluded_scenarios"]
+    } == {"territory_grid_deg-0-05"}
 
 
 def test_summarize_network_state_distribution_handles_nested_service_units() -> None:

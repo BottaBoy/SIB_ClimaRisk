@@ -296,11 +296,18 @@ def _build_child_command(args: argparse.Namespace, scenario: SensitivityScenario
         str(int(args.child_max_points_per_shard)),
         "--min-points-per-shard",
         str(int(args.min_points_per_shard)),
-        "--scenario-pack",
-        str(args.scenario_pack),
-        "--scenario-id",
-        scenario.scenario_id,
     ]
+    track_sample_manifest = getattr(args, "track_sample_manifest", None)
+    if track_sample_manifest:
+        command.extend(["--track-sample-manifest", str(track_sample_manifest)])
+    command.extend(
+        [
+            "--scenario-pack",
+            str(args.scenario_pack),
+            "--scenario-id",
+            scenario.scenario_id,
+        ]
+    )
     return command
 
 
@@ -453,6 +460,12 @@ def main() -> int:
         help="Optional comma-separated subset of scenario ids to run; blank means the full pack order",
     )
     parser.add_argument("--dynamic-max-tracks", type=int, default=1200)
+    parser.add_argument(
+        "--track-sample-manifest",
+        type=Path,
+        default=None,
+        help="Optional track sample manifest passed through to complete-analysis child runs.",
+    )
     parser.add_argument("--memory-budget-gb", type=float, default=6.0)
     parser.add_argument(
         "--max-points-per-shard",
@@ -505,6 +518,7 @@ def main() -> int:
         "scenario_pack": str(args.scenario_pack),
         "scenario_ids": [scenario.scenario_id for scenario in scenarios],
         "dynamic_max_tracks": int(args.dynamic_max_tracks),
+        "track_sample_manifest": str(args.track_sample_manifest) if args.track_sample_manifest else None,
         "memory_budget_gb": float(args.memory_budget_gb),
         "child_max_points_per_shard": int(args.child_max_points_per_shard),
         "min_points_per_shard": int(args.min_points_per_shard),

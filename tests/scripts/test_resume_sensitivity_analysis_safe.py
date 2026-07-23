@@ -30,6 +30,7 @@ def test_main_uses_resume_launcher_and_writes_pidfile(monkeypatch, tmp_path: Pat
                     "scenario_pack": "/home/ubuntu/sib-work/config/sensitivity/default-scenario-pack.json",
                     "scenario_ids": ["all-default"],
                     "dynamic_max_tracks": 1200,
+                    "track_sample_manifest": "/tmp/sample_1500/manifest.json",
                     "memory_budget_gb": 6.0,
                     "child_max_points_per_shard": 1500,
                     "min_points_per_shard": 512,
@@ -77,6 +78,9 @@ def test_main_uses_resume_launcher_and_writes_pidfile(monkeypatch, tmp_path: Pat
     assert recorded["cmd"][1].endswith("run_sensitivity_analysis.py")
     assert "--resume-run-id" in recorded["cmd"]
     assert "--run-id" in recorded["cmd"]
+    assert "--track-sample-manifest" in recorded["cmd"]
+    sample_index = recorded["cmd"].index("--track-sample-manifest")
+    assert recorded["cmd"][sample_index + 1] == "/tmp/sample_1500/manifest.json"
     assert recorded["cwd"] == str(repo_root)
     assert recorded["env"]["PYTHONUNBUFFERED"] == "1"
     assert (run_outputs / run_id / "resume.pid").read_text(encoding="utf-8").strip() == "98765"

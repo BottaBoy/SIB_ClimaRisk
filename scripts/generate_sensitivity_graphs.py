@@ -84,9 +84,16 @@ HAZARD_LABELS = {
     "landslide": "Mouvement de terrain",
     "unknown": "Alea inconnu",
 }
-NETWORK_METRICS = {
+STORM_CMCC_LAYOUT_CHOICES = ("harmonized", "legacy")
+STORM_CMCC_LAYOUT = "harmonized"
+STATE_LABEL_STYLE_CHOICES = ("code", "descriptive")
+DESCRIPTIVE_NETWORK_METRICS = {
     "non_nominal_pct": "% réseaux hors Opérationnel (S0)",
     "outage_pct": "% réseaux Hors service (S3)",
+}
+NETWORK_METRICS = {
+    "non_nominal_pct": "% réseaux hors S0",
+    "outage_pct": "% réseaux S3",
 }
 NETWORK_METRIC_FILENAME_SUFFIXES = {
     "non_nominal_pct": "combined_pct_reseaux_hors_s0",
@@ -112,8 +119,8 @@ NETWORK_SERIES_ORDER = (
     ("storm_cmcc", "water_eu"),
 )
 NETWORK_SERIES_COLORS = {
-    ("storm", "elec"): "#eab308",
-    ("storm_cmcc", "elec"): "#fde047",
+    ("storm", "elec"): "#b45309",
+    ("storm_cmcc", "elec"): "#f59e0b",
     ("storm", "water_aep"): "#38bdf8",
     ("storm_cmcc", "water_aep"): "#7dd3fc",
     ("storm", "water_eu"): "#1d4ed8",
@@ -122,13 +129,26 @@ NETWORK_SERIES_COLORS = {
 HAZARD_SERIES_ORDER = ("delta", "storm", "storm_cmcc")
 HAZARD_SERIES_COLORS = {
     "delta": "#7c3aed",
-    "storm": "#ea580c",
-    "storm_cmcc": "#2563eb",
+    "storm": "#2563eb",
+    "storm_cmcc": "#60a5fa",
 }
 PORTFOLIO_HAZARD_SERIES_ORDER = ("storm", "storm_cmcc")
 PORTFOLIO_HAZARD_SERIES_COLORS = {
-    "storm": "#f97316",
-    "storm_cmcc": "#3b82f6",
+    "storm": "#2563eb",
+    "storm_cmcc": "#60a5fa",
+}
+HAZARD_SERIES_HATCHES = {
+    "delta": "",
+    "storm": "",
+    "storm_cmcc": "...",
+}
+HAZARD_SERIES_EDGE_COLORS = {
+    "storm_cmcc": "#334155",
+}
+HAZARD_SERIES_ALPHA = {
+    "delta": 1.0,
+    "storm": 1.0,
+    "storm_cmcc": 0.84,
 }
 PORTFOLIO_RISK_METRICS = {
     "percentile_99_loss_eur": {"slug": "percentile_99_loss", "label": "Perte percentile 99"},
@@ -143,12 +163,19 @@ SOCIAL_METRIC_SPECS = {
     "population_without_water_eu": {"slug": "without_water_eu", "label": "Population sans eau EU"},
     "population_with_degraded_elec": {"slug": "degraded_elec", "label": "Population avec électricité dégradée"},
 }
-SOCIAL_STATE_SPECS = {
+DESCRIPTIVE_SOCIAL_STATE_SPECS = {
     ("elec", "S0"): {"slug": "elec_s0", "label": "Population électricité en Opérationnel (S0)"},
     ("elec", "S1"): {"slug": "elec_s1", "label": "Population électricité en Dégradé (S1)"},
     ("water_aep", "S2"): {"slug": "water_aep_s2", "label": "Population eau AEP en Critique (S2)"},
     ("water_aep", "S3"): {"slug": "water_aep_s3", "label": "Population eau AEP en Hors service (S3)"},
     ("water_eu", "S3"): {"slug": "water_eu_s3", "label": "Population eau EU en Hors service (S3)"},
+}
+SOCIAL_STATE_SPECS = {
+    ("elec", "S0"): {"slug": "elec_s0", "label": "Population électricité en S0"},
+    ("elec", "S1"): {"slug": "elec_s1", "label": "Population électricité en S1"},
+    ("water_aep", "S2"): {"slug": "water_aep_s2", "label": "Population eau AEP en S2"},
+    ("water_aep", "S3"): {"slug": "water_aep_s3", "label": "Population eau AEP en S3"},
+    ("water_eu", "S3"): {"slug": "water_eu_s3", "label": "Population eau EU en S3"},
 }
 RISK_INDEX_GRAPH_SPECS = {
     "mean": {"slug": "risk_index_mean", "label": "Indice de risque moyen"},
@@ -167,10 +194,15 @@ SOCIAL_SUPER_GRAPH_SERVICE_SLUGS = {
     "elec": "elec",
 }
 SOCIAL_SUPER_GRAPH_STATE_ORDER = ("S1", "S2", "S3")
-SOCIAL_SUPER_GRAPH_STATE_LABELS = {
+DESCRIPTIVE_SOCIAL_SUPER_GRAPH_STATE_LABELS = {
     "S1": "Dégradé (S1)",
     "S2": "Critique (S2)",
     "S3": "Hors service (S3)",
+}
+SOCIAL_SUPER_GRAPH_STATE_LABELS = {
+    "S1": "S1",
+    "S2": "S2",
+    "S3": "S3",
 }
 SUPER_TORNADO_LABEL_SCALE = 2.0
 
@@ -193,8 +225,102 @@ class ScenarioPayload:
     child_manifest_path: Path | None
 
 
+@dataclass
+class ScenarioSelectionReport:
+    skipped_scenarios: list[dict[str, str]]
+    significance_filter: dict[str, Any] | None = None
+
+
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def set_state_label_style(style: str) -> None:
+    normalized = str(style or "code").strip().lower()
+    if normalized not in STATE_LABEL_STYLE_CHOICES:
+        raise ValueError(f"Unsupported state label style: {style!r}")
+
+    if normalized == "descriptive":
+        network_metrics = DESCRIPTIVE_NETWORK_METRICS
+        social_state_specs = DESCRIPTIVE_SOCIAL_STATE_SPECS
+        social_super_graph_state_labels = DESCRIPTIVE_SOCIAL_SUPER_GRAPH_STATE_LABELS
+    else:
+        network_metrics = {
+            "non_nominal_pct": "% réseaux hors S0",
+            "outage_pct": "% réseaux S3",
+        }
+        social_state_specs = {
+            ("elec", "S0"): {"slug": "elec_s0", "label": "Population électricité en S0"},
+            ("elec", "S1"): {"slug": "elec_s1", "label": "Population électricité en S1"},
+            ("water_aep", "S2"): {"slug": "water_aep_s2", "label": "Population eau AEP en S2"},
+            ("water_aep", "S3"): {"slug": "water_aep_s3", "label": "Population eau AEP en S3"},
+            ("water_eu", "S3"): {"slug": "water_eu_s3", "label": "Population eau EU en S3"},
+        }
+        social_super_graph_state_labels = {"S1": "S1", "S2": "S2", "S3": "S3"}
+
+    NETWORK_METRICS.clear()
+    NETWORK_METRICS.update(network_metrics)
+    SOCIAL_STATE_SPECS.clear()
+    SOCIAL_STATE_SPECS.update(social_state_specs)
+    SOCIAL_SUPER_GRAPH_STATE_LABELS.clear()
+    SOCIAL_SUPER_GRAPH_STATE_LABELS.update(social_super_graph_state_labels)
+
+
+def set_storm_cmcc_layout(layout: str) -> None:
+    global STORM_CMCC_LAYOUT
+    normalized = str(layout or "harmonized").strip().lower()
+    if normalized not in STORM_CMCC_LAYOUT_CHOICES:
+        raise ValueError(f"Unsupported storm/cmcc layout: {layout!r}")
+    STORM_CMCC_LAYOUT = normalized
+
+
+def _hazard_hatch(hazard: str) -> str:
+    normalized = str(hazard or "").strip().lower()
+    if STORM_CMCC_LAYOUT == "legacy":
+        return ""
+    return HAZARD_SERIES_HATCHES.get(normalized, "")
+
+
+def _hazard_alpha(hazard: str) -> float:
+    normalized = str(hazard or "").strip().lower()
+    if STORM_CMCC_LAYOUT == "legacy":
+        return 1.0
+    return HAZARD_SERIES_ALPHA.get(normalized, 1.0)
+
+
+def _hazard_edge_color(hazard: str) -> str:
+    normalized = str(hazard or "").strip().lower()
+    return HAZARD_SERIES_EDGE_COLORS.get(normalized, "#334155")
+
+
+def _barh_style_for_hazard(hazard: str) -> dict[str, Any]:
+    hatch = _hazard_hatch(hazard)
+    style: dict[str, Any] = {"alpha": _hazard_alpha(hazard)}
+    if hatch:
+        style.update({"hatch": hatch, "edgecolor": _hazard_edge_color(hazard), "linewidth": 0.7})
+    return style
+
+
+def _legend_patch(color: str, label: str, hazard: str | None = None) -> Patch:
+    hatch = _hazard_hatch(hazard or "")
+    if hatch:
+        return Patch(
+            facecolor=color,
+            edgecolor=_hazard_edge_color(hazard or ""),
+            hatch=hatch,
+            linewidth=0.7,
+            alpha=_hazard_alpha(hazard or ""),
+            label=label,
+        )
+    return Patch(facecolor=color, edgecolor="none", alpha=_hazard_alpha(hazard or ""), label=label)
+
+
+def _hazard_from_series_column(series_column: str) -> str:
+    parts = str(series_column or "").split("__")
+    for part in parts:
+        if part in {"storm", "storm_cmcc", "delta"}:
+            return part
+    return str(series_column or "")
 
 
 def safe_float(value: Any) -> float:
@@ -299,24 +425,61 @@ def payload_paths_from_child_manifest(child_manifest_path: Path) -> list[Path]:
     return [path for path in dict.fromkeys(candidates) if path.exists()]
 
 
-def resolve_scenario_payloads(parent_manifest: dict[str, Any]) -> list[ScenarioPayload]:
+def _record_skipped_scenario(
+    skipped_scenarios: list[dict[str, str]] | None,
+    *,
+    scenario_id: str,
+    reason: str,
+) -> None:
+    if skipped_scenarios is None:
+        return
+    skipped_scenarios.append({"scenario_id": str(scenario_id), "reason": str(reason)})
+
+
+def resolve_scenario_payloads(
+    parent_manifest: dict[str, Any],
+    *,
+    excluded_scenario_ids: set[str] | None = None,
+    skipped_scenarios: list[dict[str, str]] | None = None,
+) -> list[ScenarioPayload]:
     results: list[ScenarioPayload] = []
+    active_excluded_ids = EXCLUDED_SCENARIO_IDS if excluded_scenario_ids is None else set(excluded_scenario_ids)
 
     for scenario in parent_manifest.get("scenarios", []):
         if not isinstance(scenario, dict):
             continue
 
         scenario_id = str(scenario.get("scenario_id") or "").strip()
-        if not scenario_id or scenario_id in EXCLUDED_SCENARIO_IDS:
+        if not scenario_id:
+            continue
+        if scenario_id in active_excluded_ids:
+            _record_skipped_scenario(
+                skipped_scenarios,
+                scenario_id=scenario_id,
+                reason="explicit_exclusion",
+            )
             continue
 
         supported = bool(scenario.get("supported", True))
         if not supported:
+            _record_skipped_scenario(
+                skipped_scenarios,
+                scenario_id=scenario_id,
+                reason="unsupported",
+            )
+            continue
+
+        status = str(scenario.get("status") or "")
+        if status != "complete":
+            _record_skipped_scenario(
+                skipped_scenarios,
+                scenario_id=scenario_id,
+                reason=f"status={status or 'missing'}",
+            )
             continue
 
         label = str(scenario.get("label") or scenario_id)
         parameter_key = str(scenario.get("parameter_key") or "")
-        status = str(scenario.get("status") or "")
         payload_raw = str(scenario.get("complete_analysis_json_path") or "").strip()
         if not payload_raw:
             raise RuntimeError(
@@ -577,8 +740,17 @@ def extract_rows_from_payload(
     return rows, warnings
 
 
-def build_normalized_dataframe(parent_manifest: dict[str, Any]) -> tuple[pd.DataFrame, list[str]]:
-    scenario_payloads = resolve_scenario_payloads(parent_manifest)
+def build_normalized_dataframe(
+    parent_manifest: dict[str, Any],
+    *,
+    excluded_scenario_ids: set[str] | None = None,
+    skipped_scenarios: list[dict[str, str]] | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
+    scenario_payloads = resolve_scenario_payloads(
+        parent_manifest,
+        excluded_scenario_ids=excluded_scenario_ids,
+        skipped_scenarios=skipped_scenarios,
+    )
 
     rows: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -636,6 +808,67 @@ def add_baseline_deltas(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return merged
+
+
+def _max_abs_numeric(series: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if values.empty:
+        return math.nan
+    return float(values.abs().max())
+
+
+def filter_significant_scenarios(
+    df: pd.DataFrame,
+    *,
+    impact_threshold_pct: float,
+    network_threshold_pp: float,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    report: dict[str, Any] = {
+        "enabled": True,
+        "impact_threshold_pct": float(impact_threshold_pct),
+        "network_threshold_pp": float(network_threshold_pp),
+        "selected_scenario_ids": [],
+        "excluded_scenarios": [],
+    }
+    if df.empty or "scenario_id" not in df.columns:
+        return df, report
+
+    selected_ids: set[str] = set()
+    if "all-default" in set(df["scenario_id"].astype(str)):
+        selected_ids.add("all-default")
+
+    non_baseline = df[df["scenario_id"].astype(str) != "all-default"].copy()
+    for scenario_id, scenario_df in non_baseline.groupby("scenario_id", dropna=False):
+        scenario_id_str = str(scenario_id)
+        parameter_values = [
+            str(value)
+            for value in scenario_df.get("parameter_key", pd.Series(dtype=object)).dropna().tolist()
+            if str(value).strip()
+        ]
+        parameter_key = parameter_values[0] if parameter_values else ""
+        impact_rows = scenario_df[scenario_df["metric"].astype(str) == "impact_eur"]
+        network_rows = scenario_df[scenario_df["metric"].astype(str) == "network_state_pct"]
+        max_impact_pct = _max_abs_numeric(impact_rows.get("delta_pct", pd.Series(dtype=float)))
+        max_network_pp = _max_abs_numeric(network_rows.get("delta_abs", pd.Series(dtype=float)))
+        impact_significant = not math.isnan(max_impact_pct) and max_impact_pct >= float(impact_threshold_pct)
+        network_significant = not math.isnan(max_network_pp) and max_network_pp >= float(network_threshold_pp)
+        entry = {
+            "scenario_id": scenario_id_str,
+            "parameter_key": parameter_key,
+            "max_abs_impact_delta_pct": None if math.isnan(max_impact_pct) else max_impact_pct,
+            "max_abs_network_delta_pp": None if math.isnan(max_network_pp) else max_network_pp,
+            "impact_significant": impact_significant,
+            "network_significant": network_significant,
+        }
+        if impact_significant or network_significant:
+            selected_ids.add(scenario_id_str)
+            report["selected_scenario_ids"].append(scenario_id_str)
+        else:
+            report["excluded_scenarios"].append({**entry, "reason": "below_threshold"})
+
+    report["selected_scenario_ids"] = sorted(selected_ids)
+    filtered = df[df["scenario_id"].astype(str).isin(selected_ids)].copy()
+    return filtered.reset_index(drop=True), report
 
 
 def _stringify_key(row: pd.Series, cols: list[str]) -> str:
@@ -1186,6 +1419,7 @@ def _draw_super_grouped_bars(
             valid_values,
             height=bar_height * 0.9,
             color=series_colors[series_column],
+            **_barh_style_for_hazard(_hazard_from_series_column(series_column)),
         )
         label_items.extend(
             _build_horizontal_label_items(
@@ -1310,6 +1544,7 @@ def plot_series_tornado_table(
                 valid_values,
                 height=bar_height * 0.9,
                 color=series_colors[series_key],
+                **_barh_style_for_hazard(str(series_key)),
             )
             _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix=value_suffix, fontsize=7)
             all_values.extend(valid_values.tolist())
@@ -1324,7 +1559,7 @@ def plot_series_tornado_table(
 
         ax.legend(
             handles=[
-                Patch(color=series_colors[series_key], label=series_labels.get(series_key, series_key))
+                _legend_patch(series_colors[series_key], series_labels.get(series_key, series_key), str(series_key))
                 for series_key in available_series
             ],
             loc="upper left",
@@ -1859,6 +2094,7 @@ def plot_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]:
                 valid_values,
                 height=bar_height * 0.9,
                 color=colors,
+                **_barh_style_for_hazard(str(hazard)),
             )
             _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix="%")
             all_values.extend(valid_values.tolist())
@@ -2018,7 +2254,13 @@ def plot_super_impact_monetary_tornado(df: pd.DataFrame, output_dir: Path) -> li
                         IMPACT_NEGATIVE_COLORS[return_period] if value < 0 else IMPACT_POSITIVE_COLORS[return_period]
                         for value in valid_values
                     ]
-                    axis.barh(bar_positions, valid_values, height=bar_height * 0.9, color=colors)
+                    axis.barh(
+                        bar_positions,
+                        valid_values,
+                        height=bar_height * 0.9,
+                        color=colors,
+                        **_barh_style_for_hazard(hazard),
+                    )
                     axis_items.extend(
                         _build_horizontal_label_items(
                             valid_values,
@@ -2230,9 +2472,10 @@ def plot_super_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list
 
             fig.legend(
                 handles=[
-                    Patch(
-                        color=NETWORK_SERIES_COLORS[series_key],
-                        label=f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+                    _legend_patch(
+                        NETWORK_SERIES_COLORS[series_key],
+                        f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+                        series_key[0],
                     )
                     for series_key in NETWORK_SERIES_ORDER
                     if any(
@@ -2471,7 +2714,7 @@ def plot_super_social_state_tornado(
 
                 fig.legend(
                     handles=[
-                        Patch(color=PORTFOLIO_HAZARD_SERIES_COLORS[hazard], label=display_hazard(hazard))
+                        _legend_patch(PORTFOLIO_HAZARD_SERIES_COLORS[hazard], display_hazard(hazard), hazard)
                         for hazard in PORTFOLIO_HAZARD_SERIES_ORDER
                     ],
                     loc="upper center",
@@ -2607,6 +2850,7 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
                 valid_values,
                 height=bar_height * 0.9,
                 color=NETWORK_SERIES_COLORS[series_key],
+                **_barh_style_for_hazard(series_key[0]),
             )
             _annotate_horizontal_bars(ax, valid_values, bar_positions, suffix=" pts", fontsize=7)
             all_values.extend(valid_values.tolist())
@@ -2620,9 +2864,10 @@ def plot_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list[Path]
         _set_symmetric_xlim(ax, all_values)
 
         series_legend_handles = [
-            Patch(
-                color=NETWORK_SERIES_COLORS[series_key],
-                label=f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+            _legend_patch(
+                NETWORK_SERIES_COLORS[series_key],
+                f"{display_hazard(series_key[0])} {SERVICE_LABELS[series_key[1]]}",
+                series_key[0],
             )
             for series_key in NETWORK_SERIES_ORDER
             if series_column_names[series_key] in summary.columns
@@ -2653,8 +2898,12 @@ def write_run_summary(
     df: pd.DataFrame,
     graph_paths: list[Path],
     quality_report: dict[str, Any],
+    *,
+    excluded_scenario_ids: set[str] | None = None,
+    selection_report: ScenarioSelectionReport | None = None,
 ) -> Path:
     summary_path = output_dir / "sensitivity-graphs-summary.json"
+    active_excluded_ids = EXCLUDED_SCENARIO_IDS if excluded_scenario_ids is None else set(excluded_scenario_ids)
 
     payload = {
         "source_manifest": str(manifest_path),
@@ -2665,7 +2914,9 @@ def write_run_summary(
         "territories": sorted(df["territory"].dropna().unique().tolist()) if not df.empty else [],
         "hazards": sorted(df["hazard"].dropna().unique().tolist()) if not df.empty else [],
         "return_periods": sorted(df["return_period"].dropna().unique().tolist()) if not df.empty else [],
-        "excluded_scenario_ids": sorted(EXCLUDED_SCENARIO_IDS),
+        "excluded_scenario_ids": sorted(active_excluded_ids),
+        "skipped_scenarios": selection_report.skipped_scenarios if selection_report else [],
+        "significance_filter": selection_report.significance_filter if selection_report else None,
         "quality_report": quality_report,
         "parameter_traceability": summarize_parameter_traceability(parent_manifest),
         "graphs": [str(path) for path in graph_paths],
@@ -2692,11 +2943,47 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output directory. Default: <sensitivity-run-dir>/graphs",
     )
+    parser.add_argument(
+        "--state-label-style",
+        choices=STATE_LABEL_STYLE_CHOICES,
+        default="code",
+        help="Network state labels in generated graphs: code gives S0/S1/S2/S3; descriptive keeps operational text.",
+    )
+    parser.add_argument(
+        "--storm-cmcc-layout",
+        choices=STORM_CMCC_LAYOUT_CHOICES,
+        default="harmonized",
+        help="Style storm/cmcc comparisons. harmonized gives STORM darker and STORM_CMCC dotted/lighter.",
+    )
+    parser.add_argument(
+        "--disable-default-exclusions",
+        action="store_true",
+        help="Do not apply the historical hard-coded scenario exclusions.",
+    )
+    parser.add_argument(
+        "--significant-only",
+        action="store_true",
+        help="Generate graphs only for scenarios passing the configured significance thresholds.",
+    )
+    parser.add_argument(
+        "--impact-significance-threshold-pct",
+        type=float,
+        default=3.0,
+        help="Absolute percent threshold for impact_eur deltas when --significant-only is used.",
+    )
+    parser.add_argument(
+        "--network-significance-threshold-pp",
+        type=float,
+        default=3.0,
+        help="Absolute percentage-point threshold for network_state_pct deltas when --significant-only is used.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    set_state_label_style(args.state_label_style)
+    set_storm_cmcc_layout(args.storm_cmcc_layout)
 
     manifest_path = args.manifest
     if not manifest_path.is_absolute():
@@ -2708,7 +2995,7 @@ def main() -> int:
     parent_manifest = load_json(manifest_path)
 
     if args.output_dir is None:
-        output_dir = manifest_path.parent / "graphs"
+        output_dir = manifest_path.parent / ("graphs-significant" if args.significant_only else "graphs")
     else:
         output_dir = args.output_dir
         if not output_dir.is_absolute():
@@ -2720,13 +3007,38 @@ def main() -> int:
     print(f"[info] Reading sensitivity manifest: {manifest_path}")
     print(f"[info] Writing outputs to: {output_dir}")
 
-    df, extraction_warnings = build_normalized_dataframe(parent_manifest)
+    excluded_scenario_ids = set() if args.disable_default_exclusions else set(EXCLUDED_SCENARIO_IDS)
+    skipped_scenarios: list[dict[str, str]] = []
+    selection_report = ScenarioSelectionReport(skipped_scenarios=skipped_scenarios)
+
+    df, extraction_warnings = build_normalized_dataframe(
+        parent_manifest,
+        excluded_scenario_ids=excluded_scenario_ids,
+        skipped_scenarios=skipped_scenarios,
+    )
     df = add_baseline_deltas(df)
+    if args.significant_only:
+        df, significance_report = filter_significant_scenarios(
+            df,
+            impact_threshold_pct=float(args.impact_significance_threshold_pct),
+            network_threshold_pp=float(args.network_significance_threshold_pp),
+        )
+        selection_report.significance_filter = significance_report
     scenario_metadata = build_scenario_metadata(df)
     scope_label = display_scope_label(df)
     run_dir = manifest_path.parent
     portfolio_metrics_df = load_artifact_table(run_dir, "portfolio-metrics.parquet")
     territory_metrics_df = load_artifact_table(run_dir, "territory-metrics.parquet")
+    selected_scenario_ids = set(df["scenario_id"].astype(str).unique().tolist()) if not df.empty else set()
+    if selected_scenario_ids:
+        if not portfolio_metrics_df.empty and "scenario_id" in portfolio_metrics_df.columns:
+            portfolio_metrics_df = portfolio_metrics_df[
+                portfolio_metrics_df["scenario_id"].astype(str).isin(selected_scenario_ids)
+            ].copy()
+        if not territory_metrics_df.empty and "scenario_id" in territory_metrics_df.columns:
+            territory_metrics_df = territory_metrics_df[
+                territory_metrics_df["scenario_id"].astype(str).isin(selected_scenario_ids)
+            ].copy()
 
     normalized_csv = output_dir / "sensitivity-results-normalized.csv"
     df.to_csv(normalized_csv, index=False)
@@ -2738,7 +3050,16 @@ def main() -> int:
         print("[warning] The sensitivity manifest is missing strict scientific payload paths or points to non-existent files.")
         quality_report = build_quality_report(df)
         quality_report.setdefault("alerts", []).extend(extraction_warnings)
-        summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, [], quality_report)
+        summary_path = write_run_summary(
+            output_dir,
+            manifest_path,
+            parent_manifest,
+            df,
+            [],
+            quality_report,
+            excluded_scenario_ids=excluded_scenario_ids,
+            selection_report=selection_report,
+        )
         print(f"[info] Wrote summary: {summary_path}")
         return 2
 
@@ -2762,7 +3083,16 @@ def main() -> int:
 
     quality_report = build_quality_report(df)
     quality_report.setdefault("alerts", []).extend(extraction_warnings)
-    summary_path = write_run_summary(output_dir, manifest_path, parent_manifest, df, graph_paths, quality_report)
+    summary_path = write_run_summary(
+        output_dir,
+        manifest_path,
+        parent_manifest,
+        df,
+        graph_paths,
+        quality_report,
+        excluded_scenario_ids=excluded_scenario_ids,
+        selection_report=selection_report,
+    )
 
     print(f"[info] Graphs generated: {len(graph_paths)}")
     for path in graph_paths:

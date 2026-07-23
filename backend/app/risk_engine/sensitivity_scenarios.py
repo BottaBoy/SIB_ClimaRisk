@@ -11,14 +11,40 @@ from ..config import Settings
 
 SUPPORTED_SCENARIO_PACK_VERSION = 1
 
+PATH_SETTING_KEYS = {
+    "job_root",
+    "demo_result_path",
+    "data_root",
+    "hazard_storm_path",
+    "hazard_storm_cmcc_path",
+    "storm_parquet_path",
+    "storm_cmcc_parquet_path",
+    "hazard_track_sample_manifest_path",
+    "hazard_surge_topo_path",
+    "d2_flood_curve_file",
+    "landslide_precip_current_path",
+    "landslide_precip_ssp585_path",
+    "landslide_earthquake_path",
+    "population_data_dir",
+    "example_qgis_points_path",
+    "example_qgis_lines_path",
+    "example_qgis_polygons_path",
+}
+
 SENSITIVITY_PARAMETER_SPECS: dict[str, dict[str, Any]] = {
     "vulnerability_curves_profile": {
-        "setting_keys": [],
-        "consumed_by": ["manual_profile_selection"],
+        "setting_keys": [
+            "wind_asset_type_to_curve_code",
+            "flood_asset_type_to_curve_code",
+        ],
+        "consumed_by": [
+            "tc_impact_function_mapping",
+            "multi_hazard_flood_depth_mapping",
+        ],
         "expected_metric_families": ["monetary", "network_state", "social"],
         "non_effect_metric_families": [],
-        "parameter_class": "requires_manual_profile",
-        "default_pack_behavior": "manual_only",
+        "parameter_class": "vulnerability_mapping_profile",
+        "default_pack_behavior": "manual_or_explicit_profile",
     },
     "runoff_coeff": {
         "setting_keys": ["multi_hazard_rain_base_runoff_coeff"],
@@ -276,6 +302,10 @@ def apply_settings_overrides(settings: Settings, scenario: SensitivityScenario |
         raise ValueError(
             f"Scenario '{scenario.scenario_id}' contains unknown Settings override keys: {', '.join(unknown_keys)}"
         )
+
+    for key, value in list(settings_overrides.items()):
+        if key in PATH_SETTING_KEYS and value is not None:
+            settings_overrides[key] = Path(str(value)).expanduser()
 
     settings_dict.update(settings_overrides)
     return Settings(**settings_dict)
