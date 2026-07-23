@@ -20,6 +20,10 @@ try:  # pragma: no cover - import path depends on module vs CLI execution
     from scripts.scientific_publication_contract import PUBLIC_SERVICE_KEYS, SCIENTIFIC_SCENARIOS  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
     from scientific_publication_contract import PUBLIC_SERVICE_KEYS, SCIENTIFIC_SCENARIOS  # type: ignore
+try:  # pragma: no cover - import path depends on module vs CLI execution
+    from scripts.build_population_decision_table import build_population_decision_rows  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    from build_population_decision_table import build_population_decision_rows  # type: ignore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPLETE_RUN_OUTPUTS_DIR = REPO_ROOT / "outputs" / "complete-analysis-runs"
@@ -38,6 +42,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.risk_engine.png_label_layout import (
     grouped_bar_figure_size,
+    label_text_color_for_face,
     line_chart_figure_size,
     place_grouped_bar_labels,
     place_line_annotations,
@@ -62,6 +67,7 @@ HYDRAULIC_ZONE_BUNDLE_PATHS = {
 }
 TERRITORY_GRID_DEG = 0.2
 HOTSPOT_GRID_DEG = 0.05
+ELECTRIC_DECISION_GRID_DEG = 0.1
 
 SUPPORTED_HAZARDS = ("storm", "storm_cmcc")
 PML_PERIODS = (10, 20, 50, 100, 200, 1000)
@@ -93,6 +99,8 @@ HAZARD_LABELS = {
     "storm": "STORM",
     "storm_cmcc": "STORM_CMCC",
 }
+STORM_CMCC_LAYOUT_CHOICES = ("harmonized", "legacy")
+STORM_CMCC_LAYOUT = "harmonized"
 
 HAZARD_COLORS = {
     "storm": "#0f766e",
@@ -112,18 +120,22 @@ STATE_COLORS = {
     "S3": "#000000",
 }
 STATE_SEQUENCE = ("S0", "S1", "S2", "S3")
-STATE_LABELS = {
+STATE_LABEL_STYLE_CHOICES = ("code", "descriptive")
+STATE_CODE_LABELS = {state: state for state in STATE_SEQUENCE}
+STATE_DESCRIPTIVE_LABELS = {
     "S0": "Opérationnel (S0)",
     "S1": "Dégradé (S1)",
     "S2": "Critique (S2)",
     "S3": "Hors service (S3)",
 }
-STATE_SHORT_LABELS = {
+STATE_DESCRIPTIVE_SHORT_LABELS = {
     "S0": "Opérationnel",
     "S1": "Dégradé",
     "S2": "Critique",
     "S3": "Hors service",
 }
+STATE_LABELS = dict(STATE_CODE_LABELS)
+STATE_SHORT_LABELS = dict(STATE_CODE_LABELS)
 SURGE_COLORS = ["#f7fcfd", "#d0eff2", "#a6dbe4", "#72c5d6", "#3eaac4", "#167f96", "#0a596e", "#04384a"]
 LANDSLIDE_COLORS = ["#f7efe8", "#e8c9ae", "#d39b6f", "#ac6940", "#734127"]
 WIND_MAP_COLORS = ["#f8e45c", "#f9b24b", "#f2643c", "#c81e5b", "#6d28d9", "#2e1065"]
@@ -195,7 +207,86 @@ DAMAGE_FAMILY_LABELS = {
 }
 DAMAGE_FAMILY_COLORS = {
     "water": "#0ea5e9",
-    "electric": "#facc15",
+    "electric": "#f59e0b",
+}
+DAMAGE_DETAIL_SUBCLASS_ORDER = (
+    "eau_aep_reseaux",
+    "eau_aep_ouvrages",
+    "eau_eu_reseaux",
+    "eau_eu_ouvrages",
+    "elec_aerien",
+    "elec_souterrain",
+)
+DAMAGE_DETAIL_SUBCLASS_LABELS = {
+    "eau_aep_reseaux": "Reseaux AEP",
+    "eau_aep_ouvrages": "Ouvrages AEP",
+    "eau_eu_reseaux": "Reseaux EU",
+    "eau_eu_ouvrages": "Ouvrages EU",
+    "elec_aerien": "Reseaux elec aeriens",
+    "elec_souterrain": "Reseaux elec souterrains",
+}
+DAMAGE_DETAIL_SUBCLASS_CLASS_KEYS = {
+    "eau_aep_reseaux": ("eau_aep",),
+    "eau_aep_ouvrages": ("eau_aep_ouvrages",),
+    "eau_eu_reseaux": ("eau_eu",),
+    "eau_eu_ouvrages": ("eau_eu_pr", "eau_eu_step"),
+    "elec_aerien": ("elec_bt_aerien", "elec_hta_aerien"),
+    "elec_souterrain": ("elec_bt_souterrain", "elec_hta_souterrain"),
+}
+DAMAGE_DETAIL_SUBCLASS_COLORS = {
+    "eau_aep_reseaux": "#1d4ed8",
+    "eau_aep_ouvrages": "#93c5fd",
+    "eau_eu_reseaux": "#0891b2",
+    "eau_eu_ouvrages": "#67e8f9",
+    "elec_aerien": "#b45309",
+    "elec_souterrain": "#f59e0b",
+}
+POPULATION_DECISION_PERIODS = ("RP50", "RP100", "RP1000")
+POPULATION_DECISION_SERVICES = ("eau_aep", "eau_eu", "elec")
+POPULATION_DECISION_SERVICE_LABELS = {
+    "eau_aep": "AEP",
+    "eau_eu": "EU",
+    "elec": "Électricité",
+}
+POPULATION_DECISION_SERVICE_COLORS = {
+    "eau_aep": DAMAGE_DETAIL_SUBCLASS_COLORS["eau_aep_reseaux"],
+    "eau_eu": DAMAGE_DETAIL_SUBCLASS_COLORS["eau_eu_reseaux"],
+    "elec": DAMAGE_DETAIL_SUBCLASS_COLORS["elec_souterrain"],
+}
+POPULATION_DECISION_FAILURE_SYMBOLS = {
+    "asset": "◆",
+    "network": "■",
+    "mixed": "◆■",
+}
+HAZARD_COMPARISON_COLORS = {
+    "storm": "#2563eb",
+    "storm_cmcc": "#60a5fa",
+}
+SERVICE_HAZARD_COLORS = {
+    ("water", "storm"): "#2563eb",
+    ("water", "storm_cmcc"): "#60a5fa",
+    ("electric", "storm"): "#b45309",
+    ("electric", "storm_cmcc"): "#f59e0b",
+}
+SERVICE_HAZARD_EDGE_COLORS = {
+    ("water", "storm_cmcc"): "#2563eb",
+    ("electric", "storm_cmcc"): "#b45309",
+}
+HAZARD_LINESTYLES = {
+    "storm": "solid",
+    "storm_cmcc": "dashed",
+}
+HAZARD_ECHARTS_LINE_TYPES = {
+    "storm": "solid",
+    "storm_cmcc": "dashed",
+}
+HAZARD_BAR_HATCHES = {
+    "storm": "",
+    "storm_cmcc": "...",
+}
+HAZARD_BAR_EDGE_COLORS = {
+    "storm": "#ffffff",
+    "storm_cmcc": "#334155",
 }
 OUTAGE_CAUSE_LABELS = {
     "direct": "Direct",
@@ -226,12 +317,12 @@ TARGETED_TRAJECTORY_CATEGORY_LABELS = {
     "5": "Cat 5",
 }
 ANNUAL_FEC_COMBO_COLORS = {
-    ("guadeloupe", "storm"): "#0f766e",
-    ("guadeloupe", "storm_cmcc"): "#c2410c",
-    ("martinique", "storm"): "#14b8a6",
-    ("martinique", "storm_cmcc"): "#f97316",
-    ("saint-barthelemy", "storm"): "#2563eb",
-    ("saint-barthelemy", "storm_cmcc"): "#7c3aed",
+    ("guadeloupe", "storm"): "#2563eb",
+    ("guadeloupe", "storm_cmcc"): "#60a5fa",
+    ("martinique", "storm"): "#0f766e",
+    ("martinique", "storm_cmcc"): "#5eead4",
+    ("saint-barthelemy", "storm"): "#7c3aed",
+    ("saint-barthelemy", "storm_cmcc"): "#c4b5fd",
 }
 LIFETIME_EXTRA_RETURN_PERIODS = (400, 600, 800)
 EXTENDED_PML_PERIODS = tuple(sorted({*PML_PERIODS, *LIFETIME_EXTRA_RETURN_PERIODS}))
@@ -262,6 +353,8 @@ GRAPH_TYPE_ORDER = (
     "targeted_event_scorecard",
     "lifetime_fec_by_territory_hazard",
     "pml_ladder_by_territory_hazard",
+    "pml_ladder_detail_by_territory_hazard",
+    "pml_ladder_detail_key_periods_by_territory_hazard",
     "top_events_by_hazard",
     "wind_year_hist_by_hazard",
     "hazard_component_share_by_return_period",
@@ -274,6 +367,8 @@ GRAPH_TYPE_LABELS = {
     "targeted_event_scorecard": "Scorecard evenementiel",
     "lifetime_fec_by_territory_hazard": "FEC duree de vie",
     "pml_ladder_by_territory_hazard": "Echelle PML",
+    "pml_ladder_detail_by_territory_hazard": "Echelle PML detaillee",
+    "pml_ladder_detail_key_periods_by_territory_hazard": "Echelle PML detaillee periodes principales",
     "top_events_by_hazard": "Top evenements",
     "wind_year_hist_by_hazard": "Histogramme vent max par annee",
     "hazard_component_share_by_return_period": "Contribution aleas par temps de retour",
@@ -563,12 +658,119 @@ def _format_percent(value: Any) -> str:
     return f"{_safe_float(value):.2f}%"
 
 
+def _format_compact_percent_label(value: Any) -> str:
+    text = f"{_safe_float(value):.2f}".rstrip("0").rstrip(".")
+    return f"{text}%"
+
+
+def _format_million_label(value_eur: Any) -> str:
+    return f"{_safe_float(value_eur) / 1_000_000.0:.2f}"
+
+
+def _format_pml_total_side_label(value_eur: Any) -> str:
+    numeric = _safe_float(value_eur)
+    if abs(numeric) >= 1_000_000_000.0:
+        return f"{numeric / 1_000_000_000.0:.2f}B"
+    return _format_million_label(numeric)
+
+
+def _format_side_segment_label(value_eur: Any, pct_value: Any) -> str:
+    return f"{_format_million_label(value_eur)} ({_format_compact_percent_label(pct_value)})"
+
+
+def set_state_label_style(style: str) -> None:
+    normalized = str(style or "code").strip().lower()
+    if normalized not in STATE_LABEL_STYLE_CHOICES:
+        raise ValueError(f"Unsupported state label style: {style!r}")
+    if normalized == "descriptive":
+        labels = STATE_DESCRIPTIVE_LABELS
+        short_labels = STATE_DESCRIPTIVE_SHORT_LABELS
+    else:
+        labels = STATE_CODE_LABELS
+        short_labels = STATE_CODE_LABELS
+    STATE_LABELS.clear()
+    STATE_LABELS.update(labels)
+    STATE_SHORT_LABELS.clear()
+    STATE_SHORT_LABELS.update(short_labels)
+
+
+def set_storm_cmcc_layout(layout: str) -> None:
+    global STORM_CMCC_LAYOUT
+    normalized = str(layout or "harmonized").strip().lower()
+    if normalized not in STORM_CMCC_LAYOUT_CHOICES:
+        raise ValueError(f"Unsupported storm/cmcc layout: {layout!r}")
+    STORM_CMCC_LAYOUT = normalized
+
+
+def _hazard_comparison_color(hazard: str, family: str | None = None) -> str:
+    normalized_hazard = _normalize_hazard(hazard)
+    normalized_family = str(family or "").strip().lower() or None
+    if STORM_CMCC_LAYOUT == "legacy":
+        return HAZARD_COLORS.get(normalized_hazard, "#64748b")
+    if normalized_family:
+        service_color = SERVICE_HAZARD_COLORS.get((normalized_family, normalized_hazard))
+        if service_color:
+            return service_color
+    return HAZARD_COMPARISON_COLORS.get(normalized_hazard, HAZARD_COLORS.get(normalized_hazard, "#64748b"))
+
+
+def _hazard_line_series_style(hazard: str, family: str | None = None) -> dict[str, str]:
+    normalized_hazard = _normalize_hazard(hazard)
+    return {
+        "color": _hazard_comparison_color(normalized_hazard, family=family),
+        "linestyle": HAZARD_LINESTYLES.get(normalized_hazard, "solid"),
+    }
+
+
+def _hazard_bar_series_style(hazard: str, family: str | None = None) -> dict[str, Any]:
+    normalized_hazard = _normalize_hazard(hazard)
+    style: dict[str, Any] = {
+        "color": _hazard_comparison_color(normalized_hazard, family=family),
+    }
+    if STORM_CMCC_LAYOUT != "legacy":
+        hatch = HAZARD_BAR_HATCHES.get(normalized_hazard, "")
+        if hatch:
+            style["hatch"] = hatch
+            style["edgecolor"] = (
+                SERVICE_HAZARD_EDGE_COLORS.get((str(family or "").strip().lower(), normalized_hazard))
+                or HAZARD_BAR_EDGE_COLORS.get(normalized_hazard)
+                or "#334155"
+            )
+            style["linewidth"] = 0.7
+    return style
+
+
+def _hazard_group_hatch(hazard: str) -> str:
+    normalized_hazard = _normalize_hazard(hazard)
+    if STORM_CMCC_LAYOUT == "legacy":
+        return "///" if normalized_hazard == "storm_cmcc" else ""
+    return HAZARD_BAR_HATCHES.get(normalized_hazard, "")
+
+
+def _matplotlib_bar_kwargs(item: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"color": item.get("color") or "#0f766e"}
+    hatch = str(item.get("hatch") or "")
+    if hatch:
+        kwargs["hatch"] = hatch
+        kwargs["edgecolor"] = item.get("edgecolor") or "#334155"
+        kwargs["linewidth"] = _safe_float(item.get("linewidth"), default=0.7)
+    return kwargs
+
+
 def _state_label(state: str) -> str:
     return STATE_LABELS.get(str(state or "").upper(), str(state or ""))
 
 
 def _state_short_label(state: str) -> str:
     return STATE_SHORT_LABELS.get(str(state or "").upper(), str(state or ""))
+
+
+def _state_join_label(states: tuple[str, ...]) -> str:
+    return " / ".join(_state_label(state) for state in states)
+
+
+def _state_range_label(first_state: str, last_state: str) -> str:
+    return f"{_state_label(first_state)} a {_state_label(last_state)}"
 
 
 def _format_damage_share_label(damage_eur: float, total_value_eur: float) -> str:
@@ -667,6 +869,43 @@ def _family_damage_shares_for_payload(
             hazard_rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
             rows.extend(hazard_rows)
     return _family_damage_shares_from_rows(rows)
+
+
+def _damage_detail_subclass_for_class_key(class_key: Any) -> str | None:
+    key = str(class_key or "").strip().lower()
+    if not key:
+        return None
+    for subclass_key, class_keys in DAMAGE_DETAIL_SUBCLASS_CLASS_KEYS.items():
+        if key in class_keys:
+            return subclass_key
+    return None
+
+
+def _damage_detail_subclass_totals_from_rows(rows: list[Any]) -> tuple[dict[str, float], dict[str, float]]:
+    damage_totals = {subclass_key: 0.0 for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+    exposure_totals = {subclass_key: 0.0 for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        subclass_key = _damage_detail_subclass_for_class_key(row.get("class_key"))
+        if subclass_key is None:
+            continue
+        damage_totals[subclass_key] += max(_safe_float(row.get("damage_eur")), 0.0)
+        exposure_totals[subclass_key] += max(_safe_float(row.get("exposure_eur")), 0.0)
+    return damage_totals, exposure_totals
+
+
+def _hazard_damage_detail_rows_for_payload(
+    payload: dict[str, Any],
+    hazard: str,
+    scenario_key: str | None,
+) -> list[Any]:
+    if not scenario_key:
+        return []
+    damage_by_scenario = _damage_breakdown_from_payload(payload)
+    scenario_block = damage_by_scenario.get(scenario_key) if isinstance(damage_by_scenario.get(scenario_key), dict) else {}
+    rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
+    return list(rows)
 
 
 def _component_damage_totals_for_scenario(
@@ -1026,6 +1265,8 @@ def _default_graph_types_for_run_family(run_family: str) -> list[str]:
     return [
         "run_overview_summary",
         "pml_ladder_by_territory_hazard",
+        "pml_ladder_detail_by_territory_hazard",
+        "pml_ladder_detail_key_periods_by_territory_hazard",
         "wind_year_hist_by_hazard",
         "hazard_component_share_by_return_period",
     ]
@@ -1432,13 +1673,6 @@ def _build_service_rp_curve_payload(record: RunRecord, artifacts: AuxiliaryArtif
         "water": "Eau",
         "electric": "Elec",
     }
-    colors = {
-        ("water", "storm"): "#2563eb",
-        ("water", "storm_cmcc"): "#60a5fa",
-        ("electric", "storm"): "#b45309",
-        ("electric", "storm_cmcc"): "#f59e0b",
-    }
-    linestyles = {"storm": "solid", "storm_cmcc": "dashed"}
     series = []
     rp_axis_positions = list(range(len(PML_PERIODS)))
     for service in ("water", "electric"):
@@ -1447,13 +1681,14 @@ def _build_service_rp_curve_payload(record: RunRecord, artifacts: AuxiliaryArtif
             if not pml:
                 continue
             y_values = [float(pml.get(int(rp), 0.0)) for rp in PML_PERIODS]
+            style = _hazard_line_series_style(hazard, family=service)
             series.append(
                 {
                     "name": f"{labels[service]} {HAZARD_LABELS[hazard]}",
                     "x": list(rp_axis_positions),
                     "y": y_values,
-                    "color": colors[(service, hazard)],
-                    "linestyle": linestyles[hazard],
+                    "color": style["color"],
+                    "linestyle": style["linestyle"],
                     "annotations": [_format_compact_eur(value) if value > 0.0 else "" for value in y_values],
                 }
             )
@@ -1990,6 +2225,7 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
     series: list[dict[str, Any]] = []
     for hazard in selected_hazards:
         metrics = _extract_hazard_metrics(payload, hazard)
+        style = _hazard_bar_series_style(hazard)
         series.append(
             {
                 "name": HAZARD_LABELS[hazard],
@@ -2001,7 +2237,7 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
                     _safe_float(metrics.get("pml_1000_eur")),
                     _safe_float(metrics.get("tvar_95_eur")),
                 ],
-                "itemStyle": {"color": HAZARD_COLORS[hazard]},
+                "itemStyle": {"color": style["color"]},
             }
         )
     return GraphSpec(
@@ -2022,7 +2258,7 @@ def build_hazard_metric_scorecard(territory: str, payload: dict[str, Any], selec
                 {
                     "name": str(item.get("name") or ""),
                     "values": list(item.get("data") or []),
-                    "color": item.get("itemStyle", {}).get("color") if isinstance(item.get("itemStyle"), dict) else None,
+                    **_hazard_bar_series_style(str(item.get("name") or "")),
                 }
                 for item in series
             ],
@@ -2054,8 +2290,8 @@ def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], sele
         f"Comparaison STORM / STORM_CMCC - {territory_name}",
         categories,
         [
-            {"name": "STORM", "type": "bar", "data": storm_values, "itemStyle": {"color": HAZARD_COLORS["storm"]}},
-            {"name": "STORM_CMCC", "type": "bar", "data": cmcc_values, "itemStyle": {"color": HAZARD_COLORS["storm_cmcc"]}},
+            {"name": "STORM", "type": "bar", "data": storm_values, "itemStyle": {"color": _hazard_comparison_color("storm")}},
+            {"name": "STORM_CMCC", "type": "bar", "data": cmcc_values, "itemStyle": {"color": _hazard_comparison_color("storm_cmcc")}},
         ],
     )
     return GraphSpec(
@@ -2073,8 +2309,8 @@ def build_storm_vs_cmcc_comparison(territory: str, payload: dict[str, Any], sele
             "title": f"Comparaison STORM / STORM_CMCC - {territory_name}",
             "categories": categories,
             "series": [
-                {"name": "STORM", "values": storm_values, "color": HAZARD_COLORS["storm"]},
-                {"name": "STORM_CMCC", "values": cmcc_values, "color": HAZARD_COLORS["storm_cmcc"]},
+                {"name": "STORM", "values": storm_values, **_hazard_bar_series_style("storm")},
+                {"name": "STORM_CMCC", "values": cmcc_values, **_hazard_bar_series_style("storm_cmcc")},
             ],
             "ylabel": "Pertes (EUR)",
         },
@@ -2129,6 +2365,7 @@ def build_annual_fec_graph(
         if warning and warning not in warnings:
             warnings.append(warning)
         point_labels = _build_point_labels(rp, damage, total_value_eur)
+        style = _hazard_line_series_style(hazard)
         series.append(
             {
                 "name": HAZARD_LABELS[hazard],
@@ -2137,8 +2374,8 @@ def build_annual_fec_graph(
                 "showSymbol": True,
                 "symbolSize": 8,
                 "labelLayout": {"hideOverlap": True},
-                "lineStyle": {"width": 3, "color": HAZARD_COLORS[hazard]},
-                "itemStyle": {"color": HAZARD_COLORS[hazard]},
+                "lineStyle": {"width": 3, "color": style["color"], "type": HAZARD_ECHARTS_LINE_TYPES.get(hazard, "solid")},
+                "itemStyle": {"color": style["color"]},
                 "data": _build_labeled_line_points(rp, damage, point_labels),
             }
         )
@@ -2147,7 +2384,8 @@ def build_annual_fec_graph(
                 "name": HAZARD_LABELS[hazard],
                 "x": rp,
                 "y": damage,
-                "color": HAZARD_COLORS[hazard],
+                "color": style["color"],
+                "linestyle": style["linestyle"],
                 "annotations": point_labels,
             }
         )
@@ -2197,11 +2435,6 @@ def build_annual_fec_all_territories_graph(
     series: list[dict[str, Any]] = []
     png_series: list[dict[str, Any]] = []
     graph_warnings: list[str] = []
-    territory_line_types = {
-        "guadeloupe": "solid",
-        "martinique": "dashed",
-        "saint-barthelemy": "dotted",
-    }
     territory_labels = [territory_label(territory) for territory in selected_territories]
     title_suffix = " + ".join(territory_labels)
     for territory in selected_territories:
@@ -2214,14 +2447,14 @@ def build_annual_fec_all_territories_graph(
                 graph_warnings.append(warning)
             name = f"{territory_label(territory)} - {HAZARD_LABELS[hazard]}"
             color = ANNUAL_FEC_COMBO_COLORS.get((territory, hazard), HAZARD_COLORS[hazard])
-            line_type = territory_line_types.get(territory, "solid")
+            line_type = HAZARD_LINESTYLES.get(hazard, "solid")
             series.append(
                 {
                     "name": name,
                     "type": "line",
                     "smooth": False,
                     "showSymbol": True,
-                    "lineStyle": {"width": 3, "color": color, "type": line_type},
+                    "lineStyle": {"width": 3, "color": color, "type": HAZARD_ECHARTS_LINE_TYPES.get(hazard, "solid")},
                     "itemStyle": {"color": color},
                     "data": [[rp[idx], damage[idx]] for idx in range(len(rp))],
                 }
@@ -2267,11 +2500,6 @@ def build_annual_fec_all_territories_pct_graph(
     series: list[dict[str, Any]] = []
     png_series: list[dict[str, Any]] = []
     graph_warnings: list[str] = []
-    territory_line_types = {
-        "guadeloupe": "solid",
-        "martinique": "dashed",
-        "saint-barthelemy": "dotted",
-    }
     territory_labels = [territory_label(territory) for territory in selected_territories]
     title_suffix = " + ".join(territory_labels)
     for territory in selected_territories:
@@ -2293,14 +2521,14 @@ def build_annual_fec_all_territories_pct_graph(
             damage_pct = [round((float(value) / total_exposure_value) * 100.0, 4) for value in damage]
             name = f"{territory_label(territory)} - {HAZARD_LABELS[hazard]}"
             color = ANNUAL_FEC_COMBO_COLORS.get((territory, hazard), HAZARD_COLORS[hazard])
-            line_type = territory_line_types.get(territory, "solid")
+            line_type = HAZARD_LINESTYLES.get(hazard, "solid")
             series.append(
                 {
                     "name": name,
                     "type": "line",
                     "smooth": False,
                     "showSymbol": True,
-                    "lineStyle": {"width": 3, "color": color, "type": line_type},
+                    "lineStyle": {"width": 3, "color": color, "type": HAZARD_ECHARTS_LINE_TYPES.get(hazard, "solid")},
                     "itemStyle": {"color": color},
                     "data": [[rp[idx], damage_pct[idx]] for idx in range(len(rp))],
                 }
@@ -2450,6 +2678,7 @@ def build_targeted_event_scorecard(territory: str, payload: dict[str, Any], sele
     series: list[dict[str, Any]] = []
     for hazard in selected_hazards:
         metrics = _extract_hazard_metrics(payload, hazard)
+        style = _hazard_bar_series_style(hazard)
         series.append(
             {
                 "name": HAZARD_LABELS.get(hazard, hazard.upper()),
@@ -2461,7 +2690,7 @@ def build_targeted_event_scorecard(territory: str, payload: dict[str, Any], sele
                     _safe_float(metrics.get("max_event_loss_eur")),
                     _safe_float(metrics.get("tvar_95_eur")),
                 ],
-                "itemStyle": {"color": HAZARD_COLORS[hazard]},
+                "itemStyle": {"color": style["color"]},
             }
         )
     return GraphSpec(
@@ -2482,7 +2711,7 @@ def build_targeted_event_scorecard(territory: str, payload: dict[str, Any], sele
                 {
                     "name": str(item.get("name") or ""),
                     "values": list(item.get("data") or []),
-                    "color": item.get("itemStyle", {}).get("color") if isinstance(item.get("itemStyle"), dict) else None,
+                    **_hazard_bar_series_style(str(item.get("name") or "")),
                 }
                 for item in series
             ],
@@ -2504,7 +2733,7 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
         if not any(value > 0.0 for value in values):
             continue
         series.append(
-            {"name": HAZARD_LABELS[hazard], "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}
+            {"name": HAZARD_LABELS[hazard], "type": "bar", "data": values, "itemStyle": {"color": _hazard_comparison_color(hazard)}}
         )
         segment_values = {family: [] for family in DAMAGE_FAMILY_ORDER}
         for period, total_value in zip(PML_PERIODS, values):
@@ -2520,7 +2749,7 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
         png_groups.append(
             {
                 "name": HAZARD_LABELS[hazard],
-                "hatch": "" if hazard == "storm" else "///",
+                "hatch": _hazard_group_hatch(hazard),
                 "segments": [
                     {
                         "name": DAMAGE_FAMILY_LABELS[family],
@@ -2564,6 +2793,132 @@ def build_pml_ladder_graph(territory: str, payload: dict[str, Any], hazards: lis
     )
 
 
+def build_pml_ladder_detail_graph(
+    territory: str,
+    payload: dict[str, Any],
+    hazards: list[str],
+    *,
+    periods: tuple[int, ...] = PML_PERIODS,
+    graph_type: str = "pml_ladder_detail_by_territory_hazard",
+    title_prefix: str = "Echelle PML detaillee",
+    label_fontsize: int = 8,
+    label_layout: str = "callout",
+    total_label_fontsize: int | None = None,
+    x_tick_label_fontsize: int | None = None,
+    note: str | None = None,
+) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
+    selected_periods = tuple(int(period) for period in periods)
+    categories = [f"PML{period}" for period in selected_periods]
+    png_groups: list[dict[str, Any]] = []
+    for hazard in hazards:
+        hazard_metrics = _extract_hazard_metrics(payload, hazard)
+        pml_values = [_safe_float(hazard_metrics.get(f"pml_{period}_eur")) for period in selected_periods]
+        if not any(value > 0.0 for value in pml_values):
+            continue
+
+        segment_values = {subclass_key: [] for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+        segment_labels = {subclass_key: [] for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+        segment_pcts = {subclass_key: [] for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+        for period, total_value in zip(selected_periods, pml_values):
+            scenario_key = _nearest_return_period_scenario(int(period))
+            rows = _hazard_damage_detail_rows_for_payload(payload, hazard, scenario_key)
+            raw_damage, exposure_totals = _damage_detail_subclass_totals_from_rows(rows)
+            denominator = sum(raw_damage.values())
+            if denominator <= 0.0:
+                allocated = {subclass_key: 0.0 for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER}
+            else:
+                allocated = {
+                    subclass_key: round(max(total_value, 0.0) * (raw_damage[subclass_key] / denominator), 2)
+                    for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER
+                }
+                drift = round(max(total_value, 0.0) - sum(allocated.values()), 2)
+                if abs(drift) >= 0.01:
+                    target_key = max(DAMAGE_DETAIL_SUBCLASS_ORDER, key=lambda item: allocated[item])
+                    allocated[target_key] = round(max(allocated[target_key] + drift, 0.0), 2)
+            for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER:
+                value = allocated[subclass_key]
+                exposure_value = exposure_totals[subclass_key]
+                pct_value = (value / exposure_value) * 100.0 if exposure_value > 0.0 else 0.0
+                segment_values[subclass_key].append(value)
+                segment_pcts[subclass_key].append(pct_value)
+                segment_labels[subclass_key].append(
+                    _format_damage_share_label(value, exposure_value)
+                    if value > 0.0
+                    else ""
+                )
+
+        png_groups.append(
+            {
+                "name": HAZARD_LABELS[hazard],
+                "hatch": _hazard_group_hatch(hazard),
+                "segments": [
+                    {
+                        "name": DAMAGE_DETAIL_SUBCLASS_LABELS[subclass_key],
+                        "values": segment_values[subclass_key],
+                        "color": DAMAGE_DETAIL_SUBCLASS_COLORS[subclass_key],
+                        "label_texts": segment_labels[subclass_key],
+                        "label_pcts": segment_pcts[subclass_key],
+                    }
+                    for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER
+                ],
+            }
+        )
+
+    if not png_groups:
+        return None
+    default_note = (
+        "Chaque barre garde le total PML du run. Les segments utilisent les classes scientifiques de degats ; "
+        "PML20 et PML200 reprennent la repartition du scenario RP le plus proche."
+    )
+    return GraphSpec(
+        graph_id=_graph_id(graph_type, territory, "comparison"),
+        graph_type=graph_type,
+        title=f"{title_prefix} - {territory_name}",
+        section="loss",
+        territory=territory,
+        hazard=None,
+        kind="chart",
+        description=(
+            "Lecture detaillee des pertes PML par scenario, avec decomposition des familles eau et electricite "
+            "en reseaux et ouvrages."
+        ),
+        echarts_option=None,
+        png_payload={
+            "type": "grouped_stacked_bar_segment_labels",
+            "title": f"{title_prefix} - {territory_name}",
+            "hide_title": label_layout == "side_by_segment",
+            "categories": categories,
+            "groups": png_groups,
+            "ylabel": "Pertes (EUR)",
+            "show_labels": True,
+            "show_total_labels": True,
+            "label_fontsize": label_fontsize,
+            "label_layout": label_layout,
+            "total_label_fontsize": total_label_fontsize or max(label_fontsize, 7),
+            "x_tick_label_fontsize": x_tick_label_fontsize,
+            "label_format": "compact_eur",
+            "note": default_note if note is None and label_layout != "side_by_segment" else note,
+        },
+    )
+
+
+def build_pml_ladder_detail_key_periods_graph(territory: str, payload: dict[str, Any], hazards: list[str]) -> GraphSpec | None:
+    return build_pml_ladder_detail_graph(
+        territory,
+        payload,
+        hazards,
+        periods=(10, 50, 100, 1000),
+        graph_type="pml_ladder_detail_key_periods_by_territory_hazard",
+        title_prefix="Echelle PML detaillee - periodes principales",
+        label_fontsize=12,
+        label_layout="side_by_segment",
+        total_label_fontsize=16,
+        x_tick_label_fontsize=17,
+        note=None,
+    )
+
+
 def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec | None:
     territory_name = _display_territory_name(territory)
     events = _extract_event_list(payload, hazard)[:10]
@@ -2579,9 +2934,10 @@ def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str)
     option = _build_bar_option(
         f"Top evenements - {territory_name} - {HAZARD_LABELS[hazard]}",
         categories,
-        [{"name": "Pertes", "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
+        [{"name": "Pertes", "type": "bar", "data": values, "itemStyle": {"color": _hazard_comparison_color(hazard)}}],
         horizontal=True,
     )
+    style = _hazard_bar_series_style(hazard)
     return GraphSpec(
         graph_id=_graph_id("top_events_by_hazard", territory, hazard),
         graph_type="top_events_by_hazard",
@@ -2597,7 +2953,7 @@ def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str)
             "title": f"Top evenements - {territory_name} - {HAZARD_LABELS[hazard]}",
             "categories": categories,
             "values": values,
-            "color": HAZARD_COLORS[hazard],
+            **style,
             "xlabel": "Pertes (EUR)",
         },
     )
@@ -2627,8 +2983,9 @@ def build_wind_hist_graph(
             option = _build_bar_option(
                 title,
                 categories,
-                [{"name": "%", "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
+                [{"name": "%", "type": "bar", "data": values, "itemStyle": {"color": _hazard_comparison_color(hazard)}}],
             )
+            style = _hazard_bar_series_style(hazard)
             return GraphSpec(
                 graph_id=_graph_id(graph_type, territory, hazard),
                 graph_type=graph_type,
@@ -2647,7 +3004,7 @@ def build_wind_hist_graph(
                     "title": title,
                     "categories": categories,
                     "values": values,
-                    "color": HAZARD_COLORS[hazard],
+                    **style,
                     "ylabel": "Part des trajectoires (%)",
                     "xlabel": "Intensite maximale du vent par trajectoire sur les cellules archivees du territoire (m/s)",
                     "note": (
@@ -2685,8 +3042,9 @@ def build_wind_hist_graph(
     option = _build_bar_option(
         title,
         categories,
-        [{"name": "%", "type": "bar", "data": values, "itemStyle": {"color": HAZARD_COLORS[hazard]}}],
+        [{"name": "%", "type": "bar", "data": values, "itemStyle": {"color": _hazard_comparison_color(hazard)}}],
     )
+    style = _hazard_bar_series_style(hazard)
     return GraphSpec(
         graph_id=_graph_id(graph_type, territory, hazard),
         graph_type=graph_type,
@@ -2702,7 +3060,7 @@ def build_wind_hist_graph(
             "title": title,
             "categories": categories,
             "values": values,
-            "color": HAZARD_COLORS[hazard],
+            **style,
             "ylabel": "Part (%)",
             "xlabel": x_label,
             "note": note,
@@ -2737,7 +3095,7 @@ def build_combined_event_loss_hist_graph(territory: str, payload: dict[str, Any]
         groups.append(
             {
                 "name": HAZARD_LABELS.get(hazard, hazard.upper()),
-                "hatch": "" if hazard == "storm" else "///",
+                "hatch": _hazard_group_hatch(hazard),
                 "segments": [
                     {
                         "name": DAMAGE_FAMILY_LABELS[family],
@@ -3016,7 +3374,7 @@ def build_component_health_graph(territory: str, payload: dict[str, Any], hazard
         hazard=hazard,
         kind="chart",
         description=(
-            "Synthese des etats finaux Dégradé (S1) / Critique (S2) / Hors service (S3) annualises pour le scenario complet, apres propagation elec->eau quand elle s'applique. "
+            f"Synthese des etats finaux {_state_join_label(('S1', 'S2', 'S3'))} annualises pour le scenario complet, apres propagation elec->eau quand elle s'applique. "
             "Ce n'est pas un graphe de retour 100 ans / 1000 ans, mais une synthese ponderee par geometrie d'actif."
         ),
         echarts_option=option,
@@ -3088,6 +3446,12 @@ def build_graphs_for_territory(
     pml_ladder_graph = build_pml_ladder_graph(territory, payload, selected_hazards)
     if pml_ladder_graph is not None:
         graphs.append(pml_ladder_graph)
+    pml_ladder_detail_graph = build_pml_ladder_detail_graph(territory, payload, selected_hazards)
+    if pml_ladder_detail_graph is not None:
+        graphs.append(pml_ladder_detail_graph)
+    pml_ladder_detail_key_periods_graph = build_pml_ladder_detail_key_periods_graph(territory, payload, selected_hazards)
+    if pml_ladder_detail_key_periods_graph is not None:
+        graphs.append(pml_ladder_detail_key_periods_graph)
     component_share_graph = build_hazard_component_share_by_return_period_graph(territory, payload, selected_hazards)
     if component_share_graph is not None:
         graphs.append(component_share_graph)
@@ -3826,7 +4190,7 @@ def _render_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> Non
     fig_width = max(11.0, len(categories) * 1.15 + (2.4 if show_labels else 1.6))
     fig_height = 6.6 if show_labels else 6.0
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    bars = ax.bar(categories, values, color=payload.get("color") or "#0f766e")
+    bars = ax.bar(categories, values, **_matplotlib_bar_kwargs(payload if isinstance(payload, dict) else {}))
     ax.set_title(payload.get("title") or "")
     if payload.get("xlabel"):
         ax.set_xlabel(payload.get("xlabel"))
@@ -3860,7 +4224,7 @@ def _render_horizontal_bar_png(plt: Any, payload: dict[str, Any], output_path: P
     categories = payload.get("categories") or []
     values = payload.get("values") or []
     fig, ax = plt.subplots(figsize=(12, max(5, len(categories) * 0.5)))
-    ax.barh(categories, values, color=payload.get("color") or "#0f766e")
+    ax.barh(categories, values, **_matplotlib_bar_kwargs(payload if isinstance(payload, dict) else {}))
     ax.set_title(payload.get("title") or "")
     if payload.get("xlabel"):
         ax.set_xlabel(payload.get("xlabel"))
@@ -3912,7 +4276,7 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
                 offset = (idx - (len(series) - 1) / 2.0) * bar_width
                 shifted = [pos + offset for pos in positions]
                 values = [float(value) for value in item.get("values") or []]
-                bars = ax.bar(shifted, values, width=bar_width, label=item.get("name"), color=item.get("color"))
+                bars = ax.bar(shifted, values, width=bar_width, label=item.get("name"), **_matplotlib_bar_kwargs(item))
                 bar_groups.append(list(bars))
             ax.set_xticks(positions)
             ax.set_xticklabels(categories, rotation=20, ha="right")
@@ -3952,7 +4316,7 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
             offset = (idx - (len(series) - 1) / 2.0) * bar_width
             shifted = [pos + offset for pos in positions]
             values = [float(value) for value in item.get("values") or []]
-            ax.bar(shifted, values, width=bar_width, label=item.get("name"), color=item.get("color"))
+            ax.bar(shifted, values, width=bar_width, label=item.get("name"), **_matplotlib_bar_kwargs(item))
         ax.set_xticks(positions)
         ax.set_xticklabels(categories, rotation=20, ha="right")
         ax.set_title(payload.get("title") or "")
@@ -3973,7 +4337,7 @@ def _render_grouped_bar_png(plt: Any, payload: dict[str, Any], output_path: Path
         offset = (idx - (len(series) - 1) / 2.0) * width
         shifted = [pos + offset for pos in positions]
         values = [float(value) for value in item.get("values") or []]
-        bars = ax.bar(shifted, values, width=width, label=item.get("name"), color=item.get("color"))
+        bars = ax.bar(shifted, values, width=width, label=item.get("name"), **_matplotlib_bar_kwargs(item))
         if payload.get("show_labels"):
             base_label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=8) or 8)
             label_fontsize = _scaled_value_label_fontsize(
@@ -4102,6 +4466,385 @@ def _render_grouped_stacked_bar_png(plt: Any, payload: dict[str, Any], output_pa
         ax.add_artist(legend_one)
     if hatch_handles:
         ax.legend(handles=hatch_handles, loc="lower right", bbox_to_anchor=(1.0, 1.01), frameon=False, title="Scenario")
+
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_grouped_stacked_bar_side_segment_labels_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    from matplotlib.patches import Patch
+
+    categories = payload.get("categories") or []
+    groups = [item for item in (payload.get("groups") or []) if isinstance(item, dict)]
+    if not categories or not groups:
+        fig, ax = plt.subplots(figsize=(13.5, 8.5))
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+
+    positions = [idx * 3.25 for idx in range(len(categories))]
+    group_width = min(0.36, 0.88 / max(len(groups), 1))
+    totals_by_group: list[list[float]] = []
+    for group in groups:
+        group_totals = [0.0 for _category in categories]
+        for segment in [item for item in (group.get("segments") or []) if isinstance(item, dict)]:
+            values = [max(_safe_float(value), 0.0) for value in (segment.get("values") or [])]
+            if len(values) < len(categories):
+                values.extend([0.0] * (len(categories) - len(values)))
+            for idx, value in enumerate(values[: len(categories)]):
+                group_totals[idx] += value
+        totals_by_group.append(group_totals)
+
+    max_total = max((max(values, default=0.0) for values in totals_by_group), default=0.0)
+    ymax = max(max_total * 1.24, 1.0)
+    fig_width = max(18.2, len(categories) * 3.75 + 3.2)
+    fig_height = max(10.4, 8.6 + (float(payload.get("label_fontsize") or 13) * 0.08))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.set_ylim(0, ymax)
+    ax.set_xlim(min(positions) - 1.18, max(positions) + 1.18)
+
+    label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=13) or 13)
+    total_label_fontsize = int(_safe_int(payload.get("total_label_fontsize"), default=17) or 17)
+    x_tick_label_fontsize = int(_safe_int(payload.get("x_tick_label_fontsize"), default=18) or 18)
+    side_label_gap = group_width * 0.76 + 0.14
+    min_gap = ymax * 0.042
+    lower_bound = ymax * 0.016
+    upper_bound = ymax * 0.968
+    segment_legend: dict[str, str] = {}
+    hatch_legend: dict[str, str] = {}
+    side_labels: dict[tuple[int, int], list[dict[str, Any]]] = {}
+
+    for group_idx, group in enumerate(groups):
+        offset = (group_idx - (len(groups) - 1) / 2.0) * group_width
+        shifted = [position + offset for position in positions]
+        bottoms = [0.0 for _category in categories]
+        hatch = str(group.get("hatch") or "")
+        hatch_legend[str(group.get("name") or f"Serie {group_idx + 1}")] = hatch
+        for segment_idx, segment in enumerate([item for item in (group.get("segments") or []) if isinstance(item, dict)]):
+            values = [max(_safe_float(value), 0.0) for value in (segment.get("values") or [])]
+            if len(values) < len(categories):
+                values.extend([0.0] * (len(categories) - len(values)))
+            values = values[: len(categories)]
+            color = str(segment.get("color") or "#64748b")
+            label = str(segment.get("name") or "")
+            label_pcts = [_safe_float(value) for value in (segment.get("label_pcts") or [])]
+            if label and label not in segment_legend:
+                segment_legend[label] = color
+            bars = ax.bar(
+                shifted,
+                values,
+                width=group_width * 0.88,
+                bottom=bottoms,
+                color=color,
+                edgecolor="#334155",
+                linewidth=0.55,
+                hatch=hatch,
+            )
+            if payload.get("show_labels"):
+                for category_idx, (bar, value) in enumerate(zip(bars, values)):
+                    if value <= 0.0:
+                        continue
+                    pct_value = label_pcts[category_idx] if category_idx < len(label_pcts) else 0.0
+                    side_labels.setdefault((category_idx, group_idx), []).append(
+                        {
+                            "x": float(bar.get_x() + (bar.get_width() / 2.0)),
+                            "y": bottoms[category_idx] + (value / 2.0),
+                            "segment_idx": segment_idx,
+                            "label": _format_side_segment_label(value, pct_value),
+                        }
+                    )
+            bottoms = [bottoms[idx] + values[idx] for idx in range(len(categories))]
+
+        if payload.get("show_total_labels"):
+            for x_pos, total in zip(shifted, bottoms):
+                if total <= 0.0:
+                    continue
+                ax.text(
+                    x_pos,
+                    total + (ymax * 0.014),
+                    _format_pml_total_side_label(total),
+                    ha="center",
+                    va="bottom",
+                    rotation=90,
+                    fontsize=total_label_fontsize,
+                    color="#000000",
+                    clip_on=False,
+                )
+
+    for (category_idx, group_idx), label_records in side_labels.items():
+        side = -1 if group_idx == 0 else 1
+        label_records.sort(key=lambda item: (float(item["y"]), int(item["segment_idx"])))
+        placed_y: list[float] = []
+        for item in label_records:
+            target_y = min(max(float(item["y"]), lower_bound), upper_bound)
+            if placed_y:
+                target_y = max(target_y, placed_y[-1] + min_gap)
+            placed_y.append(target_y)
+        if placed_y and placed_y[-1] > upper_bound:
+            shift = placed_y[-1] - upper_bound
+            placed_y = [max(value - shift, lower_bound) for value in placed_y]
+            for idx in range(len(placed_y) - 2, -1, -1):
+                placed_y[idx] = min(placed_y[idx], placed_y[idx + 1] - min_gap)
+        if placed_y and placed_y[0] < lower_bound:
+            shift = lower_bound - placed_y[0]
+            placed_y = [min(value + shift, upper_bound) for value in placed_y]
+
+        for item, text_y in zip(label_records, placed_y):
+            x_text = float(item["x"]) + (side * side_label_gap)
+            ax.text(
+                x_text,
+                text_y,
+                str(item["label"]),
+                ha="right" if side < 0 else "left",
+                va="center",
+                fontsize=label_fontsize,
+                color="#000000",
+                clip_on=False,
+            )
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(categories, rotation=36, ha="right", fontsize=x_tick_label_fontsize)
+    if not payload.get("hide_title"):
+        ax.set_title(payload.get("title") or "")
+    if payload.get("ylabel"):
+        ax.set_ylabel(payload.get("ylabel"))
+    ax.grid(True, axis="y", alpha=0.16)
+    ax.margins(x=0.02)
+
+    segment_handles = [
+        Patch(facecolor=color, edgecolor="#334155", label=label)
+        for label, color in segment_legend.items()
+    ]
+    hatch_handles = [
+        Patch(facecolor="white", edgecolor="#334155", hatch=hatch, label=label)
+        for label, hatch in hatch_legend.items()
+    ]
+    if segment_handles:
+        legend_one = ax.legend(
+            handles=segment_handles,
+            loc="lower left",
+            bbox_to_anchor=(0.05, 1.01),
+            frameon=False,
+            title="Sous-classe",
+            ncol=3,
+            fontsize=11,
+            title_fontsize=15,
+        )
+        ax.add_artist(legend_one)
+    if hatch_handles:
+        ax.legend(
+            handles=hatch_handles,
+            loc="lower right",
+            bbox_to_anchor=(0.98, 1.01),
+            frameon=False,
+            title="Scenario",
+            ncol=2,
+            fontsize=11,
+            title_fontsize=13,
+        )
+
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_grouped_stacked_bar_segment_labels_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    from matplotlib.patches import Patch
+
+    if str(payload.get("label_layout") or "").strip().lower() == "side_by_segment":
+        _render_grouped_stacked_bar_side_segment_labels_png(plt, payload, output_path)
+        return
+
+    categories = payload.get("categories") or []
+    groups = [item for item in (payload.get("groups") or []) if isinstance(item, dict)]
+    if not categories or not groups:
+        fig, ax = plt.subplots(figsize=(13.0, 7.0))
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+
+    label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=7) or 7)
+    positions = [idx * (1.9 + (label_fontsize * 0.015)) for idx in range(len(categories))]
+    group_width = min(0.36, 0.92 / max(len(groups), 1))
+    totals_by_group: list[list[float]] = []
+    for group in groups:
+        group_totals = [0.0 for _category in categories]
+        for segment in [item for item in (group.get("segments") or []) if isinstance(item, dict)]:
+            values = [max(_safe_float(value), 0.0) for value in (segment.get("values") or [])]
+            if len(values) < len(categories):
+                values.extend([0.0] * (len(categories) - len(values)))
+            for idx, value in enumerate(values[: len(categories)]):
+                group_totals[idx] += value
+        totals_by_group.append(group_totals)
+    max_total = max((max(values, default=0.0) for values in totals_by_group), default=0.0)
+    ymax = max(max_total * 1.26, 1.0)
+
+    fig_width = max(20.0, len(categories) * (2.85 + label_fontsize * 0.08) + len(groups) * 1.35 + 4.5)
+    fig_height = max(12.2, 10.4 + (label_fontsize * 0.55))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.set_ylim(0, ymax)
+    ax.set_xlim(min(positions) - 1.02, max(positions) + 1.02)
+
+    inside_min_height = ymax * (0.052 + max(label_fontsize - 6, 0) * 0.012)
+    total_label_pad = ymax * 0.014
+    outside_labels: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
+    segment_legend: dict[str, str] = {}
+    hatch_legend: dict[str, str] = {}
+
+    for group_idx, group in enumerate(groups):
+        offset = (group_idx - (len(groups) - 1) / 2.0) * group_width
+        shifted = [position + offset for position in positions]
+        bottoms = [0.0 for _category in categories]
+        hatch = str(group.get("hatch") or "")
+        hatch_legend[str(group.get("name") or f"Serie {group_idx + 1}")] = hatch
+        for segment_idx, segment in enumerate([item for item in (group.get("segments") or []) if isinstance(item, dict)]):
+            values = [max(_safe_float(value), 0.0) for value in (segment.get("values") or [])]
+            if len(values) < len(categories):
+                values.extend([0.0] * (len(categories) - len(values)))
+            values = values[: len(categories)]
+            color = str(segment.get("color") or "#64748b")
+            label = str(segment.get("name") or "")
+            label_texts = [str(value or "").strip() for value in (segment.get("label_texts") or [])]
+            if label and label not in segment_legend:
+                segment_legend[label] = color
+            bars = ax.bar(
+                shifted,
+                values,
+                width=group_width * 0.86,
+                bottom=bottoms,
+                color=color,
+                edgecolor="#334155",
+                linewidth=0.42,
+                hatch=hatch,
+            )
+            if payload.get("show_labels"):
+                for category_idx, (bar, value) in enumerate(zip(bars, values)):
+                    if value <= 0.0:
+                        continue
+                    label_text = label_texts[category_idx] if category_idx < len(label_texts) else ""
+                    if not label_text:
+                        continue
+                    x_center = float(bar.get_x() + (bar.get_width() / 2.0))
+                    y_center = bottoms[category_idx] + (value / 2.0)
+                    if value >= inside_min_height:
+                        ax.text(
+                            x_center,
+                            y_center,
+                            label_text,
+                            ha="center",
+                            va="center",
+                            fontsize=label_fontsize,
+                            color=label_text_color_for_face(bar.get_facecolor()),
+                            fontweight="bold",
+                            clip_on=True,
+                        )
+                    else:
+                        side = -1 if group_idx == 0 else 1
+                        outside_labels.setdefault((category_idx, group_idx, side), []).append(
+                            {
+                                "x": x_center,
+                                "y": y_center,
+                                "side": side,
+                                "label": label_text,
+                                "segment_idx": segment_idx,
+                            }
+                        )
+            bottoms = [bottoms[idx] + values[idx] for idx in range(len(categories))]
+        if payload.get("show_total_labels"):
+            for x_pos, total in zip(shifted, bottoms):
+                if total <= 0.0:
+                    continue
+                ax.text(
+                    x_pos,
+                    total + total_label_pad,
+                    _format_compact_eur(total),
+                    ha="center",
+                    va="bottom",
+                    rotation=90,
+                    fontsize=7,
+                    color="#0f172a",
+                    clip_on=True,
+                    bbox={"boxstyle": "round,pad=0.12", "facecolor": "white", "edgecolor": "none", "alpha": 0.78},
+                )
+
+    min_gap = ymax * (0.048 + max(label_fontsize - 6, 0) * 0.011)
+    lower_bound = ymax * 0.035
+    upper_bound = ymax * 0.965
+    for (_category_idx, group_idx, side), label_records in outside_labels.items():
+        label_records.sort(key=lambda item: (float(item["y"]), int(item["segment_idx"])))
+        placed_y: list[float] = []
+        for item in label_records:
+            target_y = min(max(float(item["y"]), lower_bound), upper_bound)
+            if placed_y:
+                target_y = max(target_y, placed_y[-1] + min_gap)
+            placed_y.append(target_y)
+        if placed_y and placed_y[-1] > upper_bound:
+            shift = placed_y[-1] - upper_bound
+            placed_y = [max(value - shift, lower_bound) for value in placed_y]
+            for idx in range(len(placed_y) - 2, -1, -1):
+                placed_y[idx] = min(placed_y[idx], placed_y[idx + 1] - min_gap)
+            if placed_y[0] < lower_bound:
+                placed_y = [max(value, lower_bound) for value in placed_y]
+
+        for item, text_y in zip(label_records, placed_y):
+            x_anchor = float(item["x"])
+            x_text = x_anchor + (side * (group_width * 0.95 + 0.18))
+            ax.annotate(
+                str(item["label"]),
+                xy=(x_anchor, float(item["y"])),
+                xytext=(x_text, text_y),
+                ha="right" if side < 0 else "left",
+                va="center",
+                fontsize=label_fontsize,
+                color="#0f172a",
+                clip_on=False,
+                arrowprops={
+                    "arrowstyle": "-",
+                    "color": "#64748b",
+                    "linewidth": 0.55,
+                    "shrinkA": 0,
+                    "shrinkB": 2,
+                    "connectionstyle": "angle3,angleA=0,angleB=90",
+                },
+                bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.9},
+            )
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(categories, rotation=22, ha="right")
+    ax.set_title(payload.get("title") or "")
+    if payload.get("ylabel"):
+        ax.set_ylabel(payload.get("ylabel"))
+    ax.grid(True, axis="y", alpha=0.2)
+    ax.margins(x=0.03)
+
+    segment_handles = [
+        Patch(facecolor=color, edgecolor="#334155", label=label)
+        for label, color in segment_legend.items()
+    ]
+    hatch_handles = [
+        Patch(facecolor="white", edgecolor="#334155", hatch=hatch, label=label)
+        for label, hatch in hatch_legend.items()
+    ]
+    if segment_handles:
+        legend_one = ax.legend(
+            handles=segment_handles,
+            loc="lower left",
+            bbox_to_anchor=(0.0, 1.01),
+            frameon=False,
+            title="Sous-classe",
+            ncol=3,
+            fontsize=8,
+        )
+        ax.add_artist(legend_one)
+    if hatch_handles:
+        ax.legend(
+            handles=hatch_handles,
+            loc="lower right",
+            bbox_to_anchor=(1.0, 1.01),
+            frameon=False,
+            title="Scenario",
+            ncol=2,
+            fontsize=8,
+        )
 
     _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
@@ -4974,6 +5717,49 @@ def _population_outage_cause_shares_from_analysis(
     }
 
 
+def _population_outage_cause_shares_from_graph_inputs(
+    artifacts: AuxiliaryArtifacts,
+    scenario_key: str,
+    hazard: str,
+    column_key: str,
+    class_keys: tuple[str, ...],
+) -> dict[str, float] | None:
+    inputs = _scientific_inputs_from_payload(artifacts.complete_analysis.payload)
+    cause_by_scenario = inputs.get("outage_cause_by_scenario")
+    if not isinstance(cause_by_scenario, dict):
+        pml_inputs = artifacts.complete_analysis.payload.get("pml_network_graph_inputs")
+        if isinstance(pml_inputs, dict):
+            cause_by_scenario = pml_inputs.get("outage_cause_by_scenario")
+    if not isinstance(cause_by_scenario, dict) and artifacts.scientific_web_summary is not None:
+        summary_inputs = artifacts.scientific_web_summary.payload.get("scientific_graph_inputs")
+        if isinstance(summary_inputs, dict):
+            cause_by_scenario = summary_inputs.get("outage_cause_by_scenario")
+    if not isinstance(cause_by_scenario, dict):
+        return None
+
+    scenario_block = cause_by_scenario.get(scenario_key) if isinstance(cause_by_scenario.get(scenario_key), dict) else {}
+    hazard_block = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), dict) else {}
+    if not isinstance(hazard_block, dict):
+        return None
+
+    if column_key == "elec":
+        candidate_keys = tuple(key for key in hazard_block if str(key).startswith("elec_"))
+    else:
+        candidate_keys = class_keys
+    totals = {"direct": 0.0, "indirect": 0.0}
+    for class_key in candidate_keys:
+        item = hazard_block.get(class_key) if isinstance(hazard_block.get(class_key), dict) else {}
+        totals["direct"] += max(_safe_float(item.get("direct_damage_eur")), 0.0)
+        indirect = max(_safe_float(item.get("indirect_damage_eur")), 0.0)
+        if indirect <= 0.0:
+            indirect = max(_safe_float(item.get("blocking_ouvrage_eur")), 0.0) + max(_safe_float(item.get("dysfunction_eur")), 0.0)
+        totals["indirect"] += indirect
+    denominator = sum(totals.values())
+    if denominator <= 0.0:
+        return None
+    return {key: round((value / denominator) * 100.0, 4) for key, value in totals.items()}
+
+
 def _network_outage_cause_shares_from_geojson(
     artifacts: AuxiliaryArtifacts,
     scenario_key: str,
@@ -5229,6 +6015,301 @@ def _build_hydraulic_population_importance_payload(
     }
 
 
+def _population_decision_run_id_from_artifacts(artifacts: AuxiliaryArtifacts) -> str | None:
+    for part in reversed(Path(artifacts.complete_analysis.payload_path).parts):
+        cleaned = str(part).strip()
+        if len(cleaned) == 15 and cleaned[8] == "_" and cleaned.replace("_", "").isdigit():
+            return cleaned
+    run_id = str(
+        _dict_path_get(artifacts.complete_analysis.payload, "meta", "run_id")
+        or artifacts.complete_analysis.payload.get("run_id")
+        or ""
+    ).strip()
+    return run_id or None
+
+
+def _population_decision_existing_csv_path(artifacts: AuxiliaryArtifacts) -> Path | None:
+    run_id = _population_decision_run_id_from_artifacts(artifacts)
+    if not run_id:
+        return None
+    path = DEFAULT_OUTPUT_ROOT / run_id / "tables" / "guadeloupe_tableau_synthese_zones_population_storm.csv"
+    return path if path.exists() else None
+
+
+def _read_population_decision_csv(path: Path) -> list[dict[str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
+def _population_decision_source_rows(artifacts: AuxiliaryArtifacts) -> list[dict[str, str]]:
+    if artifacts.territory != "guadeloupe":
+        return []
+    if artifacts.scientific_web_summary is not None and artifacts.network_states_path and artifacts.hydraulic_zones_path:
+        return build_population_decision_rows(
+            artifacts.complete_analysis.payload,
+            artifacts.scientific_web_summary.payload,
+            Path(artifacts.network_states_path),
+            Path(artifacts.hydraulic_zones_path),
+        )
+    existing_csv = _population_decision_existing_csv_path(artifacts)
+    if existing_csv is not None:
+        return _read_population_decision_csv(existing_csv)
+    return []
+
+
+def _population_decision_population(row: dict[str, Any]) -> float:
+    return max(_safe_float(row.get("population_potentiellement_affectee")), 0.0)
+
+
+def _population_decision_failure_kind(row: dict[str, Any]) -> str:
+    basis = str(row.get("state_basis") or "").strip().lower()
+    if "mixed" in basis or ("blocking_asset" in basis and "direct" in basis):
+        return "mixed"
+    if "blocking_asset" in basis:
+        return "asset"
+    return "network"
+
+
+def _population_decision_failure_symbol(row: dict[str, Any]) -> str:
+    return POPULATION_DECISION_FAILURE_SYMBOLS[_population_decision_failure_kind(row)]
+
+
+def _population_decision_short_zone_label(row: dict[str, Any]) -> str:
+    label = str(row.get("zone_principale") or row.get("service_unit_id") or "").strip()
+    prefixes = (
+        "AEP - ",
+        "EU - ",
+        "Électricité - ",
+        "Electricité - ",
+        "Electricite - ",
+    )
+    for prefix in prefixes:
+        if label.startswith(prefix):
+            return label[len(prefix) :].strip()
+    return label
+
+
+def _format_population_decision_label(value: Any) -> str:
+    numeric = _safe_float(value)
+    if numeric >= 100_000.0:
+        return f"{numeric / 1000.0:.0f} k"
+    if numeric >= 10_000.0:
+        return f"{numeric / 1000.0:.1f} k".replace(".", ",")
+    rounded = int(round(numeric / 100.0) * 100)
+    return f"{rounded:,}".replace(",", " ")
+
+
+def _select_population_decision_rows(rows: list[dict[str, str]], top_n: int = 5) -> list[dict[str, str]]:
+    selected: list[dict[str, str]] = []
+    for period in POPULATION_DECISION_PERIODS:
+        period_rows = [row for row in rows if str(row.get("periode") or "").strip().upper() == period]
+        for service in POPULATION_DECISION_SERVICES:
+            service_rows = [
+                row
+                for row in period_rows
+                if str(row.get("service") or "").strip() == service
+                and _population_decision_population(row) > 0.0
+                and str(row.get("etat") or "").strip().upper() != "S0"
+            ]
+            selected.extend(
+                sorted(
+                    service_rows,
+                    key=lambda row: (
+                        -_population_decision_population(row),
+                        str(row.get("zone_principale") or ""),
+                    ),
+                )[:top_n]
+            )
+    return selected
+
+
+def _build_population_decision_bar_payload(
+    artifacts: AuxiliaryArtifacts,
+    title: str,
+) -> dict[str, Any] | None:
+    rows = _select_population_decision_rows(_population_decision_source_rows(artifacts), top_n=5)
+    if not rows:
+        return None
+    chart_rows = []
+    for row in rows:
+        service = str(row.get("service") or "").strip()
+        if service not in POPULATION_DECISION_SERVICE_LABELS:
+            continue
+        population = _population_decision_population(row)
+        chart_rows.append(
+            {
+                "period": str(row.get("periode") or "").strip().upper(),
+                "service": service,
+                "service_label": POPULATION_DECISION_SERVICE_LABELS[service],
+                "zone_label": _population_decision_short_zone_label(row),
+                "zone_principale": str(row.get("zone_principale") or "").strip(),
+                "population": population,
+                "population_label": _format_population_decision_label(population),
+                "failure_kind": _population_decision_failure_kind(row),
+                "failure_symbol": _population_decision_failure_symbol(row),
+                "service_unit_id": str(row.get("service_unit_id") or "").strip(),
+            }
+        )
+    if not chart_rows:
+        return None
+    return {
+        "type": "population_decision_grouped_bar",
+        "title": title,
+        "periods": list(POPULATION_DECISION_PERIODS),
+        "services": [
+            {
+                "key": service,
+                "label": POPULATION_DECISION_SERVICE_LABELS[service],
+                "color": POPULATION_DECISION_SERVICE_COLORS[service],
+            }
+            for service in POPULATION_DECISION_SERVICES
+        ],
+        "rows": chart_rows,
+        "ylabel": "Population potentiellement affectee",
+        "note": (
+            "Top 5 zones par service et temps de retour STORM. Les populations ne sont pas additives: "
+            "une meme population peut dependre de plusieurs services."
+        ),
+    }
+
+
+def _population_decision_geometry_union(gdf: Any) -> Any:
+    geometry = getattr(gdf, "geometry", None)
+    if geometry is None:
+        return None
+    if hasattr(geometry, "union_all"):
+        return geometry.union_all()
+    return geometry.unary_union
+
+
+def _geodataframe_string_series(gdf: Any, column: str, default: str = "") -> Any:
+    if column in getattr(gdf, "columns", []):
+        return gdf[column].fillna("").astype(str)
+    return gdf.geometry.map(lambda _geometry: default)
+
+
+def _electric_decision_cell_geometry(cell_id: str) -> Any | None:
+    parsed = _parse_territory_cell_id(cell_id)
+    if parsed is None:
+        return None
+    from shapely.geometry import box
+
+    lat, lon = parsed
+    half_step = ELECTRIC_DECISION_GRID_DEG / 2.0
+    return box(lon - half_step, lat - half_step, lon + half_step, lat + half_step)
+
+
+def _dedupe_population_decision_map_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    best_by_key: dict[tuple[str, str], dict[str, str]] = {}
+    for row in rows:
+        key = (str(row.get("service") or ""), str(row.get("service_unit_id") or ""))
+        if not key[0] or not key[1]:
+            continue
+        current = best_by_key.get(key)
+        if current is None or _population_decision_population(row) > _population_decision_population(current):
+            best_by_key[key] = row
+    return sorted(
+        best_by_key.values(),
+        key=lambda row: (
+            POPULATION_DECISION_SERVICES.index(str(row.get("service") or "")),
+            -_population_decision_population(row),
+            str(row.get("zone_principale") or ""),
+        ),
+    )
+
+
+def _build_population_decision_zone_map_payload(
+    artifacts: AuxiliaryArtifacts,
+    title: str,
+) -> dict[str, Any] | None:
+    rows = _dedupe_population_decision_map_rows(
+        _select_population_decision_rows(_population_decision_source_rows(artifacts), top_n=5)
+    )
+    if not rows:
+        return None
+
+    gpd = _load_geopandas()
+    records: list[dict[str, Any]] = []
+
+    zones = None
+    if artifacts.hydraulic_zones_path:
+        zones = _load_geodataframe_layer_cached(artifacts.hydraulic_zones_path, layer="hydraulic_zones")
+        if zones.crs is None:
+            zones = zones.set_crs(epsg=4326)
+        zones = zones.to_crs(epsg=4326)
+
+    network_states = None
+    if artifacts.network_states_path:
+        network_states = _load_geodataframe_cached(artifacts.network_states_path)
+        if network_states.crs is None:
+            network_states = network_states.set_crs(epsg=4326)
+        network_states = network_states.to_crs(epsg=4326)
+
+    for row in rows:
+        service = str(row.get("service") or "").strip()
+        service_unit_id = str(row.get("service_unit_id") or "").strip()
+        if not service or not service_unit_id:
+            continue
+        geometry = None
+        if service in {"eau_aep", "eau_eu"} and zones is not None and not zones.empty:
+            service_kind = "AEP" if service == "eau_aep" else "EU"
+            zone_component_keys = _geodataframe_string_series(zones, "zone_component_key")
+            zone_uids = _geodataframe_string_series(zones, "zone_uid")
+            network_kinds = _geodataframe_string_series(zones, "network_kind", service_kind).str.upper()
+            matches = zones[
+                (
+                    (zone_component_keys == service_unit_id)
+                    | (zone_uids == service_unit_id)
+                )
+                & (network_kinds == service_kind)
+            ].copy()
+            if not matches.empty:
+                geometry = _population_decision_geometry_union(matches)
+        elif service == "elec":
+            if network_states is not None and not network_states.empty:
+                layer_keys = _geodataframe_string_series(network_states, "layer_key")
+                feature_ids = _geodataframe_string_series(network_states, "feature_id")
+                matches = network_states[
+                    (layer_keys == "elec_grid_0p1deg")
+                    & (feature_ids == service_unit_id)
+                ].copy()
+                if not matches.empty:
+                    geometry = _population_decision_geometry_union(matches)
+            if geometry is None or getattr(geometry, "is_empty", False):
+                geometry = _electric_decision_cell_geometry(service_unit_id)
+
+        if geometry is None or getattr(geometry, "is_empty", False):
+            continue
+        records.append(
+            {
+                "service": service,
+                "service_label": POPULATION_DECISION_SERVICE_LABELS.get(service, service),
+                "service_unit_id": service_unit_id,
+                "zone_label": _population_decision_short_zone_label(row),
+                "population": _population_decision_population(row),
+                "color": POPULATION_DECISION_SERVICE_COLORS.get(service, "#64748b"),
+                "geometry": geometry,
+            }
+        )
+
+    if not records:
+        return None
+    return {
+        "type": "population_decision_zone_map",
+        "title": title,
+        "gdf": gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326"),
+        "services": [
+            {
+                "key": service,
+                "label": POPULATION_DECISION_SERVICE_LABELS[service],
+                "color": POPULATION_DECISION_SERVICE_COLORS[service],
+            }
+            for service in POPULATION_DECISION_SERVICES
+        ],
+        "note": "Zones uniques reprises du graphe decisionnel population STORM; labels dedupliques par service et unite.",
+    }
+
+
 def _graph_population_state_distribution(artifacts: AuxiliaryArtifacts) -> dict[str, Any]:
     inputs = _scientific_inputs_from_payload(artifacts.complete_analysis.payload)
     distribution = inputs.get("social_population_state_distribution_by_scenario")
@@ -5308,15 +6389,22 @@ def _build_population_state_matrix_from_graph_inputs(
                     for state, value in values.items()
                 }
             )
-            if column_key in {"eau_aep", "eau_eu"} and _safe_float(scenario_cells[-1].get("S3")) > 0.0:
-                scenario_cause_cells.append(
-                    _population_outage_cause_shares_from_analysis(
-                        population_state_analysis,
+            if _safe_float(scenario_cells[-1].get("S3")) > 0.0:
+                cause_shares = _population_outage_cause_shares_from_analysis(
+                    population_state_analysis,
+                    scenario_key,
+                    hazard,
+                    column_key,
+                )
+                if cause_shares is None:
+                    cause_shares = _population_outage_cause_shares_from_graph_inputs(
+                        artifacts,
                         scenario_key,
                         hazard,
                         column_key,
+                        _class_keys,
                     )
-                )
+                scenario_cause_cells.append(cause_shares)
             else:
                 scenario_cause_cells.append(None)
         cells.append(scenario_cells)
@@ -5380,15 +6468,22 @@ def _build_population_state_matrix_payload(
             if any(percentages[state] > 0.0 for state in ("S1", "S2", "S3")):
                 has_non_zero = True
             scenario_cells.append(percentages)
-            if column_key in {"eau_aep", "eau_eu"} and _safe_float(percentages.get("S3")) > 0.0:
-                scenario_cause_cells.append(
-                    _population_outage_cause_shares_from_analysis(
-                        analysis,
+            if _safe_float(percentages.get("S3")) > 0.0:
+                cause_shares = _population_outage_cause_shares_from_analysis(
+                    analysis,
+                    scenario_key,
+                    hazard,
+                    column_key,
+                )
+                if cause_shares is None:
+                    cause_shares = _population_outage_cause_shares_from_graph_inputs(
+                        artifacts,
                         scenario_key,
                         hazard,
                         column_key,
+                        _class_keys,
                     )
-                )
+                scenario_cause_cells.append(cause_shares)
             else:
                 scenario_cause_cells.append(None)
         cells.append(scenario_cells)
@@ -5757,6 +6852,228 @@ def _render_population_state_matrix_png(
     plt.close(fig)
 
 
+def _render_population_decision_grouped_bar_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib.patches import Patch
+
+    rows = list(payload.get("rows") or [])
+    periods = list(payload.get("periods") or POPULATION_DECISION_PERIODS)
+    services = list(payload.get("services") or [])
+    if not rows or not periods or not services:
+        raise RuntimeError("population_decision_grouped_bar requires rows, periods and services")
+
+    service_by_key = {str(item.get("key") or ""): item for item in services if isinstance(item, dict)}
+    x_positions: list[float] = []
+    bar_values: list[float] = []
+    bar_colors: list[str] = []
+    tick_labels: list[str] = []
+    bar_symbols: list[str] = []
+    bar_value_labels: list[str] = []
+    period_centers: list[tuple[float, str]] = []
+    service_centers: list[tuple[float, str, str]] = []
+    separators: list[float] = []
+
+    x_cursor = 0.0
+    for period in periods:
+        period_start = x_cursor
+        period_has_rows = False
+        for service in POPULATION_DECISION_SERVICES:
+            service_rows = [
+                row
+                for row in rows
+                if str(row.get("period") or "") == period and str(row.get("service") or "") == service
+            ]
+            if not service_rows:
+                continue
+            service_start = x_cursor
+            for row in service_rows:
+                x_positions.append(x_cursor)
+                value = _population_decision_population({"population_potentiellement_affectee": row.get("population")})
+                bar_values.append(value)
+                bar_colors.append(str(service_by_key.get(service, {}).get("color") or "#64748b"))
+                tick_labels.append(_wrap_cell(str(row.get("zone_label") or ""), width=16))
+                bar_symbols.append(str(row.get("failure_symbol") or ""))
+                bar_value_labels.append(str(row.get("population_label") or _format_population_decision_label(value)))
+                x_cursor += 1.0
+                period_has_rows = True
+            service_end = x_cursor - 1.0
+            service_centers.append(
+                (
+                    (service_start + service_end) / 2.0,
+                    str(service_by_key.get(service, {}).get("label") or service),
+                    str(service_by_key.get(service, {}).get("color") or "#64748b"),
+                )
+            )
+            x_cursor += 0.65
+        if period_has_rows:
+            period_end = x_cursor - 1.65
+            period_centers.append(((period_start + period_end) / 2.0, str(period)))
+            separators.append(x_cursor - 0.95)
+            x_cursor += 1.25
+
+    if not x_positions:
+        raise RuntimeError("No population decision bars available")
+
+    max_value = max(bar_values) if bar_values else 1.0
+    fig_width = max(14.0, min(22.0, 0.47 * len(x_positions) + 7.5))
+    fig, ax = plt.subplots(figsize=(fig_width, 9.2))
+    ax.bar(x_positions, bar_values, width=0.78, color=bar_colors, edgecolor="#ffffff", linewidth=0.8, zorder=3)
+    ax.set_title(payload.get("title") or "", fontsize=16, pad=16, fontweight="bold")
+    ax.set_ylabel(str(payload.get("ylabel") or "Population potentiellement affectee"))
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(tick_labels, rotation=55, ha="right", fontsize=7.5)
+    ax.set_ylim(0.0, max(max_value * 1.22, 1.0))
+    ax.grid(axis="y", color="#e2e8f0", linewidth=0.8, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#cbd5e1")
+    ax.spines["bottom"].set_color("#cbd5e1")
+    ax.tick_params(axis="y", labelsize=9)
+
+    label_offset = max_value * 0.018
+    for x_value, value, symbol, value_label in zip(x_positions, bar_values, bar_symbols, bar_value_labels):
+        ax.text(
+            x_value,
+            value + label_offset,
+            f"{symbol}\n{value_label}".strip(),
+            ha="center",
+            va="bottom",
+            fontsize=7.2,
+            color="#111827",
+            fontweight="bold",
+            linespacing=0.95,
+        )
+
+    for separator in separators[:-1]:
+        ax.axvline(separator, color="#cbd5e1", linewidth=0.9, linestyle="--", zorder=1)
+
+    for center, label, color in service_centers:
+        ax.text(
+            center,
+            max_value * 1.08,
+            label,
+            ha="center",
+            va="center",
+            fontsize=9,
+            fontweight="bold",
+            color=color,
+            bbox={"facecolor": "white", "alpha": 0.72, "edgecolor": "none", "boxstyle": "round,pad=0.15"},
+        )
+    for center, label in period_centers:
+        ax.text(
+            center,
+            max_value * 1.17,
+            label,
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color="#0f172a",
+            bbox={"facecolor": "white", "alpha": 0.84, "edgecolor": "#cbd5e1", "boxstyle": "round,pad=0.18"},
+        )
+
+    service_handles = [
+        Patch(facecolor=str(item.get("color") or "#64748b"), edgecolor="none", label=str(item.get("label") or item.get("key") or ""))
+        for item in services
+    ]
+    ax.legend(handles=service_handles, loc="upper right", frameon=False, ncol=3, fontsize=9)
+    fig.text(
+        0.012,
+        0.018,
+        "Symboles: ◆ defaillance d'ouvrage candidat; ■ defaillance reseau; ◆■ defaillance mixte. "
+        + str(payload.get("note") or ""),
+        ha="left",
+        va="bottom",
+        fontsize=8,
+        color="#475569",
+        wrap=True,
+    )
+    fig.tight_layout(rect=(0.02, 0.08, 1.0, 0.96))
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _render_population_decision_zone_map_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib import patheffects as path_effects
+    from matplotlib.patches import Patch
+
+    gdf = payload.get("gdf")
+    if gdf is None or getattr(gdf, "empty", True):
+        raise RuntimeError("population_decision_zone_map requires a non-empty gdf")
+    if gdf.crs is None:
+        gdf = gdf.set_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=3857)
+
+    fig, ax = plt.subplots(figsize=(8.5, 7.5))
+    _apply_map_extent(ax, gdf, pad_ratio=0.08)
+    _add_light_basemap(ax)
+
+    for zorder, service in enumerate(POPULATION_DECISION_SERVICES, start=3):
+        service_gdf = gdf[gdf["service"].astype(str) == service].copy()
+        if service_gdf.empty:
+            continue
+        color = POPULATION_DECISION_SERVICE_COLORS.get(service, "#64748b")
+        service_gdf.plot(
+            ax=ax,
+            color=color,
+            edgecolor="#ffffff",
+            linewidth=0.9,
+            alpha=0.52,
+            zorder=zorder,
+        )
+
+    label_offsets = {
+        "eau_aep": [(-18, 18), (-22, 8), (-18, -12), (-26, 24), (-18, -22)],
+        "eau_eu": [(18, 14), (36, 22), (34, 28), (20, -38), (40, -36)],
+        "elec": [(0, 34), (56, -36), (0, 44), (-52, 4), (56, -42)],
+    }
+    service_label_counts = {service: 0 for service in POPULATION_DECISION_SERVICES}
+    for idx, row in enumerate(gdf.itertuples(index=False)):
+        geometry = getattr(row, "geometry", None)
+        if geometry is None or geometry.is_empty:
+            continue
+        point = geometry.representative_point()
+        service = str(getattr(row, "service", "") or "")
+        offsets = label_offsets.get(service, [(0, 0)])
+        service_idx = service_label_counts.get(service, 0)
+        service_label_counts[service] = service_idx + 1
+        offset_x, offset_y = offsets[service_idx % len(offsets)]
+        label = _wrap_cell(str(getattr(row, "zone_label", "") or ""), width=18)
+        ax.annotate(
+            label,
+            xy=(point.x, point.y),
+            xytext=(offset_x, offset_y),
+            textcoords="offset points",
+            ha="center",
+            va="center",
+            fontsize=7.2,
+            color="#0f172a",
+            zorder=10,
+            bbox={"facecolor": "white", "alpha": 0.78, "edgecolor": "none", "boxstyle": "round,pad=0.18"},
+            path_effects=[path_effects.withStroke(linewidth=1.5, foreground="white")],
+            arrowprops={"arrowstyle": "-", "color": "#64748b", "linewidth": 0.55, "alpha": 0.55},
+        )
+
+    services = list(payload.get("services") or [])
+    handles = [
+        Patch(facecolor=str(item.get("color") or "#64748b"), edgecolor="#ffffff", label=str(item.get("label") or item.get("key") or ""), alpha=0.62)
+        for item in services
+    ]
+    if handles:
+        ax.legend(handles=handles, loc="lower left", frameon=True, framealpha=0.88, fontsize=8)
+    ax.set_title(payload.get("title") or "", fontsize=14, pad=12, fontweight="bold")
+    ax.set_axis_off()
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
 def _clean_output_categories(output_dir: Path) -> None:
     for category in ("charts", "maps", "tables", "Population"):
         category_dir = output_dir / category
@@ -6005,12 +7322,18 @@ def _render_auxiliary_output(
         _render_grouped_bar_png(plt, payload, output_path)
     elif plot_type == "grouped_stacked_bar":
         _render_grouped_stacked_bar_png(plt, payload, output_path)
+    elif plot_type == "grouped_stacked_bar_segment_labels":
+        _render_grouped_stacked_bar_segment_labels_png(plt, payload, output_path)
     elif plot_type == "stacked_bar":
         _render_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "network_state_matrix":
         _render_network_state_matrix_png(plt, payload, output_path)
     elif plot_type == "population_state_matrix":
         _render_population_state_matrix_png(plt, payload, output_path)
+    elif plot_type == "population_decision_grouped_bar":
+        _render_population_decision_grouped_bar_png(plt, payload, output_path)
+    elif plot_type == "population_decision_zone_map":
+        _render_population_decision_zone_map_png(plt, payload, output_path)
     elif plot_type == "geojson_map":
         _render_geojson_map_png(plt, payload, output_path)
     elif plot_type == "raster_overlay_map":
@@ -6095,14 +7418,14 @@ def _build_wind_hist_payload(
             "name": HAZARD_LABELS["storm"],
             "x": storm_bins,
             "y": storm_values,
-            "color": HAZARD_COLORS["storm"],
+            **_hazard_line_series_style("storm"),
             "annotations": _point_labels(storm_values),
         },
         {
             "name": HAZARD_LABELS["storm_cmcc"],
             "x": cmcc_bins,
             "y": cmcc_values,
-            "color": HAZARD_COLORS["storm_cmcc"],
+            **_hazard_line_series_style("storm_cmcc"),
             "annotations": _point_labels(cmcc_values),
         },
     ]
@@ -6173,8 +7496,8 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
         "title": title,
         "categories": categories,
         "series": [
-            {"name": HAZARD_LABELS["storm"], "values": storm_values, "color": HAZARD_COLORS["storm"]},
-            {"name": HAZARD_LABELS["storm_cmcc"], "values": cmcc_values, "color": HAZARD_COLORS["storm_cmcc"]},
+            {"name": HAZARD_LABELS["storm"], "values": storm_values, **_hazard_bar_series_style("storm", family=family)},
+            {"name": HAZARD_LABELS["storm_cmcc"], "values": cmcc_values, **_hazard_bar_series_style("storm_cmcc", family=family)},
         ],
         "ylabel": "Degats directs (EUR)",
         "show_labels": True,
@@ -6189,12 +7512,16 @@ def _build_damage_scenario_payload(artifacts: AuxiliaryArtifacts, family: str, t
     }
 
 
-def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, family: str, title: str) -> dict[str, Any] | None:
-    damage_by_scenario = _scientific_graph_inputs(artifacts, graph_name=title).get("damage_breakdown_by_scenario")
+def _collect_total_damage_by_return_period(
+    artifacts: AuxiliaryArtifacts,
+    family: str,
+    graph_name: str,
+) -> dict[str, Any] | None:
+    damage_by_scenario = _scientific_graph_inputs(artifacts, graph_name=graph_name).get("damage_breakdown_by_scenario")
     if not isinstance(damage_by_scenario, dict):
         raise _strict_graph_source_error(
             artifacts,
-            graph_name=title,
+            graph_name=graph_name,
             key_path="scientific_graph_inputs.damage_breakdown_by_scenario",
             detail="missing strict scientific scenario damage breakdown",
         )
@@ -6217,7 +7544,7 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         ):
             raise _strict_graph_source_error(
                 artifacts,
-                graph_name=title,
+                graph_name=graph_name,
                 key_path=f"scientific_graph_inputs.damage_breakdown_by_scenario.{scenario_key}",
                 detail="strict scientific return-period breakdown is unavailable; page-analysis is forbidden",
             )
@@ -6240,19 +7567,53 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         return None
     family_total_value_eur = _resolve_family_total_value_eur(artifacts, family)
     return {
+        "categories": categories,
+        "values": {
+            "storm": storm_values,
+            "storm_cmcc": cmcc_values,
+        },
+        "family_total_value_eur": family_total_value_eur,
+    }
+
+
+def _line_series_for_return_period_damage(
+    family: str,
+    hazard: str,
+    values: list[float],
+    family_total_value_eur: float,
+) -> dict[str, Any]:
+    style = _hazard_line_series_style(hazard, family=family)
+    return {
+        "name": f"{DAMAGE_FAMILY_LABELS[family]} {HAZARD_LABELS[hazard]}",
+        "x": list(range(len(values))),
+        "y": values,
+        "color": style["color"],
+        "linestyle": style["linestyle"],
+        "annotations": [_format_damage_share_label(value, family_total_value_eur) for value in values],
+    }
+
+
+def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, family: str, title: str) -> dict[str, Any] | None:
+    collected = _collect_total_damage_by_return_period(artifacts, family, title)
+    if collected is None:
+        return None
+    categories = [str(value) for value in collected["categories"]]
+    values = collected["values"]
+    family_total_value_eur = _safe_float(collected.get("family_total_value_eur"))
+    return {
         "type": "grouped_bar",
         "title": title,
         "categories": categories,
         "series": [
-            {"name": HAZARD_LABELS["storm"], "values": storm_values, "color": HAZARD_COLORS["storm"]},
-            {"name": HAZARD_LABELS["storm_cmcc"], "values": cmcc_values, "color": HAZARD_COLORS["storm_cmcc"]},
+            {"name": HAZARD_LABELS["storm"], "values": values["storm"], **_hazard_bar_series_style("storm", family=family)},
+            {"name": HAZARD_LABELS["storm_cmcc"], "values": values["storm_cmcc"], **_hazard_bar_series_style("storm_cmcc", family=family)},
         ],
         "ylabel": "Degats directs (EUR)",
         "show_labels": True,
         "label_format": "compact_eur",
         "label_texts": [
-            [_format_damage_share_label(value, family_total_value_eur) for value in storm_values],
-            [_format_damage_share_label(value, family_total_value_eur) for value in cmcc_values],
+            [_format_damage_share_label(value, family_total_value_eur) for value in values["storm"]],
+            [_format_damage_share_label(value, family_total_value_eur) for value in values["storm_cmcc"]],
         ],
         "label_fontsize": 7,
         "label_headroom_ratio": 0.26,
@@ -6260,6 +7621,50 @@ def _build_total_damage_by_return_period_payload(artifacts: AuxiliaryArtifacts, 
         "label_fontsize_target": 13,
         "allow_figure_autoscale": True,
         "label_lane_gap_pts": 6,
+    }
+
+
+def _build_total_damage_water_electric_by_return_period_payload(
+    artifacts: AuxiliaryArtifacts,
+    title: str,
+) -> dict[str, Any] | None:
+    water = _collect_total_damage_by_return_period(artifacts, "water", f"{title} - eau")
+    electric = _collect_total_damage_by_return_period(artifacts, "electric", f"{title} - elec")
+    if water is None and electric is None:
+        return None
+
+    categories = [str(value) for value in ((water or electric or {}).get("categories") or [])]
+    series: list[dict[str, Any]] = []
+    for family, collected in (("water", water), ("electric", electric)):
+        if collected is None:
+            continue
+        values = collected["values"]
+        family_total_value_eur = _safe_float(collected.get("family_total_value_eur"))
+        for hazard in SUPPORTED_HAZARDS:
+            series.append(
+                _line_series_for_return_period_damage(
+                    family,
+                    hazard,
+                    values[hazard],
+                    family_total_value_eur,
+                )
+            )
+    if not series:
+        return None
+    return {
+        "type": "line",
+        "title": title,
+        "series": series,
+        "xlabel": "Temps de retour",
+        "ylabel": "Degats directs (EUR)",
+        "label_strategy": "line_full_labels_with_callouts",
+        "label_fontsize_target": 9,
+        "figure_autoscale_mode": "both",
+        "allow_leader_lines": True,
+        "xticks": list(range(len(categories))),
+        "xtick_labels": categories,
+        "yaxis_format": "compact_eur",
+        "note": "Courbes combinees eau/electricite; STORM est en trait plein et STORM_CMCC en pointille plus clair.",
     }
 
 
@@ -6503,7 +7908,7 @@ def _build_network_state_matrix_payload(
         "cells": cells,
         "outage_cause_cells": outage_cause_cells,
         "note": (
-            "Chaque vignette montre la repartition des etats de service issus de network-states.geojson, de Operationnel (S0) a Hors service (S3), pour un scenario et un type d'infrastructure. "
+            f"Chaque vignette montre la repartition des etats de service issus de network-states.geojson, de {_state_range_label('S0', 'S3')}, pour un scenario et un type d'infrastructure. "
             "Pour les reseaux d'eau, la petite barre a droite ventile l'origine directe/indirecte des hors services depuis les causes GeoJSON quand cette decomposition est disponible."
         ),
     }
@@ -6742,13 +8147,13 @@ def _build_social_impact_table_payload(artifacts: AuxiliaryArtifacts, title: str
             detail="missing strict scientific social impact rp1000 summary",
         )
     metric_rows = [
-        ("Population totale affectee (Dégradé (S1) / Critique (S2) / Hors service (S3))", "total_population_affected_any_network"),
-        ("Population sans electricite (Hors service (S3))", "total_without_elec"),
-        ("Population sans eau potable AEP (Hors service (S3))", "total_without_eau_aep"),
-        ("Population sans eau EU (Hors service (S3))", "total_without_eau_eu"),
-        ("Population electricite degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_elec"),
-        ("Population eau potable degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_eau_aep"),
-        ("Population eau EU degradee (Dégradé (S1) / Critique (S2))", "total_with_degraded_eau_eu"),
+        (f"Population totale affectee ({_state_join_label(('S1', 'S2', 'S3'))})", "total_population_affected_any_network"),
+        (f"Population sans electricite ({_state_label('S3')})", "total_without_elec"),
+        (f"Population sans eau potable AEP ({_state_label('S3')})", "total_without_eau_aep"),
+        (f"Population sans eau EU ({_state_label('S3')})", "total_without_eau_eu"),
+        (f"Population electricite degradee ({_state_join_label(('S1', 'S2'))})", "total_with_degraded_elec"),
+        (f"Population eau potable degradee ({_state_join_label(('S1', 'S2'))})", "total_with_degraded_eau_aep"),
+        (f"Population eau EU degradee ({_state_join_label(('S1', 'S2'))})", "total_with_degraded_eau_eu"),
     ]
     rows: list[list[str]] = []
     for label, key in metric_rows:
@@ -6836,6 +8241,14 @@ def _build_population_output_specs(artifacts: AuxiliaryArtifacts) -> list[tuple[
         (
             "matrice_population_etats_reseaux_storm_cmcc.png",
             _build_population_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_name} - Matrice population etats reseaux STORM_CMCC"),
+        ),
+        (
+            "synthese_zones_population_storm_barres.png",
+            _build_population_decision_bar_payload(artifacts, f"{territory_name} - Zones population principales STORM"),
+        ),
+        (
+            "carte_zones_population_storm_decision.png",
+            _build_population_decision_zone_map_payload(artifacts, f"{territory_name} - Localisation des zones population STORM"),
         ),
     ]
 
@@ -7240,6 +8653,7 @@ def _render_integrated_vincennes_assets(
             (charts_dir / f"{territory}_degats_elec_par_scenario_labels.png", _build_damage_scenario_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite par classe RP10")),
             (charts_dir / f"{territory}_degats_eau_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "water", f"{territory_label(territory)} - Degats eau dans les scenarios globaux de retour")),
             (charts_dir / f"{territory}_degats_elec_totaux_par_temps_retour_labels.png", _build_total_damage_by_return_period_payload(artifacts, "electric", f"{territory_label(territory)} - Degats electricite dans les scenarios globaux de retour")),
+            (charts_dir / f"{territory}_degats_eau_elec_totaux_par_temps_retour_labels.png", _build_total_damage_water_electric_by_return_period_payload(artifacts, f"{territory_label(territory)} - Degats eau/electricite dans les scenarios globaux de retour")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm.png", _build_network_state_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice etats reseaux STORM")),
             (charts_dir / f"{territory}_matrice_etats_reseaux_storm_cmcc.png", _build_network_state_matrix_payload(artifacts, "storm_cmcc", f"{territory_label(territory)} - Matrice etats reseaux STORM_CMCC")),
             (charts_dir / f"{territory}_matrice_criticite_economique_reseaux_storm.png", _build_network_economic_damage_matrix_payload(artifacts, "storm", f"{territory_label(territory)} - Matrice criticite economique reseaux STORM")),
@@ -7551,6 +8965,8 @@ def render_png_graphs(graphs: list[GraphSpec], png_dir: Path) -> list[str]:
             _render_grouped_bar_png(plt, payload, output_path)
         elif plot_type == "grouped_stacked_bar":
             _render_grouped_stacked_bar_png(plt, payload, output_path)
+        elif plot_type == "grouped_stacked_bar_segment_labels":
+            _render_grouped_stacked_bar_segment_labels_png(plt, payload, output_path)
         elif plot_type == "stacked_bar":
             _render_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "stacked_bar_with_line":
@@ -7625,6 +9041,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--graph-ids", nargs="*", help="Optional graph-type filter. Choices include: " + ", ".join(GRAPH_TYPE_ORDER))
     parser.add_argument("--formats", default="html", help="Comma-separated outputs: html,png")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_ROOT), help="Output root directory for generated graph packs")
+    parser.add_argument(
+        "--state-label-style",
+        choices=STATE_LABEL_STYLE_CHOICES,
+        default="code",
+        help="Network state labels in generated graphs: code gives S0/S1/S2/S3; descriptive keeps operational text.",
+    )
+    parser.add_argument(
+        "--storm-cmcc-layout",
+        choices=STORM_CMCC_LAYOUT_CHOICES,
+        default="harmonized",
+        help="Style storm/cmcc comparisons. harmonized gives STORM solid/darker and STORM_CMCC dashed or dotted/lighter.",
+    )
     parser.add_argument("--open-index", action="store_true", help="Open the generated HTML index in the default browser")
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostic information while generating graphs")
     return parser
@@ -7634,6 +9062,8 @@ def main(argv: list[str] | None = None) -> int:
     global RUN_OUTPUTS_DIR
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    set_state_label_style(args.state_label_style)
+    set_storm_cmcc_layout(args.storm_cmcc_layout)
     run_family = _resolve_run_family(args.run_family)
     RUN_OUTPUTS_DIR = RUN_FAMILY_OUTPUT_DIRS[run_family]
 

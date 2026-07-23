@@ -117,10 +117,115 @@ def test_build_pml_ladder_graph_combines_storm_and_cmcc():
     assert [segment["name"] for segment in graph.png_payload["groups"][0]["segments"]] == ["Eau", "Elec"]
 
 
+def test_build_pml_ladder_detail_graph_splits_networks_and_works():
+    rows = [
+        {"class_key": "eau_aep", "damage_eur": 40.0, "exposure_eur": 100.0},
+        {"class_key": "eau_aep_ouvrages", "damage_eur": 10.0, "exposure_eur": 50.0},
+        {"class_key": "eau_eu", "damage_eur": 20.0, "exposure_eur": 80.0},
+        {"class_key": "eau_eu_pr", "damage_eur": 12.0, "exposure_eur": 40.0},
+        {"class_key": "eau_eu_step", "damage_eur": 18.0, "exposure_eur": 60.0},
+        {"class_key": "elec_bt_aerien", "damage_eur": 11.0, "exposure_eur": 70.0},
+        {"class_key": "elec_hta_aerien", "damage_eur": 4.0, "exposure_eur": 30.0},
+        {"class_key": "elec_bt_souterrain", "damage_eur": 2.0, "exposure_eur": 90.0},
+        {"class_key": "elec_hta_souterrain", "damage_eur": 3.0, "exposure_eur": 110.0},
+    ]
+    payload = {
+        "portfolio_results": {
+            "storm": {
+                "pml_10_eur": 120.0,
+                "pml_20_eur": 240.0,
+                "pml_50_eur": 120.0,
+                "pml_100_eur": 120.0,
+                "pml_200_eur": 120.0,
+                "pml_1000_eur": 120.0,
+            },
+            "storm_cmcc": {
+                "pml_10_eur": 120.0,
+                "pml_20_eur": 120.0,
+                "pml_50_eur": 120.0,
+                "pml_100_eur": 120.0,
+                "pml_200_eur": 120.0,
+                "pml_1000_eur": 120.0,
+            },
+        },
+        "scientific_graph_inputs": {
+            "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+            "state_damage_tables": {},
+            "damage_breakdown_by_scenario": {
+                scenario: {"storm": rows, "storm_cmcc": rows}
+                for scenario in ("rp10", "rp50", "rp100", "rp1000")
+            },
+        },
+    }
+
+    graph = generate_run_graphs.build_pml_ladder_detail_graph("guadeloupe", payload, ["storm", "storm_cmcc"])
+
+    assert graph is not None
+    assert graph.graph_type == "pml_ladder_detail_by_territory_hazard"
+    assert graph.png_payload["type"] == "grouped_stacked_bar_segment_labels"
+    storm_group = graph.png_payload["groups"][0]
+    assert [segment["name"] for segment in storm_group["segments"]] == [
+        "Reseaux AEP",
+        "Ouvrages AEP",
+        "Reseaux EU",
+        "Ouvrages EU",
+        "Reseaux elec aeriens",
+        "Reseaux elec souterrains",
+    ]
+    assert storm_group["segments"][0]["values"][:2] == [40.0, 80.0]
+    assert storm_group["segments"][3]["values"][0] == 30.0
+    assert storm_group["segments"][4]["values"][0] == 15.0
+    assert storm_group["segments"][0]["label_texts"][0] == "40.00 EUR\n(40.00% valeur)"
+
+
+def test_build_pml_ladder_detail_key_periods_graph_keeps_main_periods_only():
+    rows = [
+        {"class_key": "eau_aep", "damage_eur": 50.0, "exposure_eur": 100.0},
+        {"class_key": "eau_eu", "damage_eur": 50.0, "exposure_eur": 100.0},
+    ]
+    payload = {
+        "portfolio_results": {
+            hazard: {
+                "pml_10_eur": 100.0,
+                "pml_20_eur": 200.0,
+                "pml_50_eur": 500.0,
+                "pml_100_eur": 1000.0,
+                "pml_200_eur": 2000.0,
+                "pml_1000_eur": 10000.0,
+            }
+            for hazard in ("storm", "storm_cmcc")
+        },
+        "scientific_graph_inputs": {
+            "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+            "state_damage_tables": {},
+            "damage_breakdown_by_scenario": {
+                scenario: {"storm": rows, "storm_cmcc": rows}
+                for scenario in ("rp10", "rp50", "rp100", "rp1000")
+            },
+        },
+    }
+
+    graph = generate_run_graphs.build_pml_ladder_detail_key_periods_graph(
+        "guadeloupe",
+        payload,
+        ["storm", "storm_cmcc"],
+    )
+
+    assert graph is not None
+    assert graph.graph_type == "pml_ladder_detail_key_periods_by_territory_hazard"
+    assert graph.png_payload["categories"] == ["PML10", "PML50", "PML100", "PML1000"]
+    assert graph.png_payload["label_fontsize"] == 12
+    assert graph.png_payload["label_layout"] == "side_by_segment"
+    assert graph.png_payload["groups"][0]["segments"][0]["values"] == [50.0, 250.0, 500.0, 5000.0]
+    assert graph.png_payload["groups"][0]["segments"][0]["label_pcts"] == [50.0, 250.0, 500.0, 5000.0]
+
+
 def test_default_complete_graph_types_drop_removed_png_outputs():
     assert generate_run_graphs._default_graph_types_for_run_family("complete-analysis") == [
         "run_overview_summary",
         "pml_ladder_by_territory_hazard",
+        "pml_ladder_detail_by_territory_hazard",
+        "pml_ladder_detail_key_periods_by_territory_hazard",
         "wind_year_hist_by_hazard",
         "hazard_component_share_by_return_period",
     ]
@@ -322,9 +427,11 @@ def test_total_damage_by_return_period_payload_uses_pml_light_when_strict_is_abs
     )
 
     assert payload is not None
+    assert payload["type"] == "grouped_bar"
     assert payload["categories"] == ["RP10", "RP50", "RP100", "RP1000"]
     assert payload["series"][0]["values"] == [10.0, 50.0, 100.0, 1000.0]
     assert payload["series"][1]["values"] == [11.0, 51.0, 101.0, 1001.0]
+    assert payload["series"][1]["hatch"] == "..."
 
 
 def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_path, monkeypatch):
@@ -385,6 +492,7 @@ def test_render_integrated_vincennes_assets_generates_outputs_and_warnings(tmp_p
     )
     monkeypatch.setattr(generate_run_graphs, "_build_damage_scenario_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_total_damage_by_return_period_payload", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generate_run_graphs, "_build_total_damage_water_electric_by_return_period_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_chart_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_distribution_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(generate_run_graphs, "_build_network_state_matrix_payload", lambda *args, **kwargs: None)
@@ -480,6 +588,8 @@ def test_build_population_output_specs_returns_guadeloupe_pack(monkeypatch):
     monkeypatch.setattr(generate_run_graphs, "_build_population_hotspot_superplot_payload", lambda *args, **kwargs: {"type": "choropleth_map_grid", "title": kwargs.get("title") or args[1]})
     monkeypatch.setattr(generate_run_graphs, "_build_hydraulic_population_importance_payload", lambda *args, **kwargs: {"type": "choropleth_map", "title": kwargs.get("title") or args[1]})
     monkeypatch.setattr(generate_run_graphs, "_build_population_state_matrix_payload", lambda *args, **kwargs: {"type": "population_state_matrix", "title": kwargs.get("title") or args[2]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_bar_payload", lambda *args, **kwargs: {"type": "population_decision_grouped_bar", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_zone_map_payload", lambda *args, **kwargs: {"type": "population_decision_zone_map", "title": kwargs.get("title") or args[1]})
 
     specs = generate_run_graphs._build_population_output_specs(artifacts)
 
@@ -489,7 +599,160 @@ def test_build_population_output_specs_returns_guadeloupe_pack(monkeypatch):
         "importance_zonages_hydrauliques_aep.png",
         "matrice_population_etats_reseaux_storm.png",
         "matrice_population_etats_reseaux_storm_cmcc.png",
+        "synthese_zones_population_storm_barres.png",
+        "carte_zones_population_storm_decision.png",
     ]
+
+
+def test_population_decision_bar_payload_selects_top5_and_skips_empty_elec(monkeypatch):
+    def _row(period, service, idx, population, basis):
+        prefix = {"eau_aep": "AEP", "eau_eu": "EU", "elec": "Électricité"}[service]
+        return {
+            "periode": period,
+            "service": service,
+            "zone_principale": f"{prefix} - Zone {idx}",
+            "population_potentiellement_affectee": str(population),
+            "etat": "S3",
+            "state_basis": basis,
+            "service_unit_id": f"{service}-{idx}",
+        }
+
+    rows = []
+    for period in ("RP50", "RP100", "RP1000"):
+        for service in ("eau_aep", "eau_eu"):
+            rows.extend(
+                _row(
+                    period,
+                    service,
+                    idx,
+                    population=1000 + idx,
+                    basis="aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset" if idx == 6 else "aggregated_damage_ratio_on_zone_component_key",
+                )
+                for idx in range(1, 7)
+            )
+    rows.extend(
+        _row(
+            "RP1000",
+            "elec",
+            idx,
+            population=2000 + idx,
+            basis="aggregated_damage_ratio_on_fixed_grid_0p1deg",
+        )
+        for idx in range(1, 7)
+    )
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+    monkeypatch.setattr(generate_run_graphs, "_population_decision_source_rows", lambda _artifacts: rows)
+
+    payload = generate_run_graphs._build_population_decision_bar_payload(artifacts, "Decision population")
+
+    assert payload is not None
+    assert payload["type"] == "population_decision_grouped_bar"
+    counts = {}
+    for row in payload["rows"]:
+        key = (row["period"], row["service"])
+        counts[key] = counts.get(key, 0) + 1
+    assert counts == {
+        ("RP50", "eau_aep"): 5,
+        ("RP50", "eau_eu"): 5,
+        ("RP100", "eau_aep"): 5,
+        ("RP100", "eau_eu"): 5,
+        ("RP1000", "eau_aep"): 5,
+        ("RP1000", "eau_eu"): 5,
+        ("RP1000", "elec"): 5,
+    }
+    assert ("RP50", "elec") not in counts
+    assert payload["rows"][0]["zone_label"] == "Zone 6"
+    assert payload["rows"][0]["failure_symbol"] == "◆"
+    assert next(row for row in payload["rows"] if row["service"] == "elec")["failure_symbol"] == "■"
+
+
+def test_population_decision_zone_map_payload_deduplicates_rows(monkeypatch):
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    rows = [
+        {
+            "periode": "RP50",
+            "service": "eau_aep",
+            "zone_principale": "AEP - Zone A",
+            "population_potentiellement_affectee": "1000",
+            "etat": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "service_unit_id": "AEP_A",
+        },
+        {
+            "periode": "RP100",
+            "service": "eau_aep",
+            "zone_principale": "AEP - Zone A",
+            "population_potentiellement_affectee": "900",
+            "etat": "S3",
+            "state_basis": "aggregated_damage_ratio_on_zone_component_key_plus_blocking_asset",
+            "service_unit_id": "AEP_A",
+        },
+        {
+            "periode": "RP1000",
+            "service": "elec",
+            "zone_principale": "Électricité - Secteur B",
+            "population_potentiellement_affectee": "800",
+            "etat": "S1",
+            "state_basis": "aggregated_damage_ratio_on_fixed_grid_0p1deg",
+            "service_unit_id": "cell-+16.20_-61.60",
+        },
+    ]
+    zones = gpd.GeoDataFrame(
+        [
+            {
+                "zone_uid": "AEP_A",
+                "zone_component_key": "AEP_A",
+                "network_kind": "AEP",
+                "geometry": Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            }
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    network = gpd.GeoDataFrame(
+        [
+            {
+                "layer_key": "elec_grid_0p1deg",
+                "feature_id": "cell-+16.20_-61.60",
+                "geometry": Polygon([(2, 2), (3, 2), (3, 3), (2, 3)]),
+            }
+        ],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path="/tmp/network.geojson",
+        water_infra_path=None,
+        hydraulic_zones_path="/tmp/hydraulic.gpkg",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_population_decision_source_rows", lambda _artifacts: rows)
+    monkeypatch.setattr(generate_run_graphs, "_load_geodataframe_layer_cached", lambda path, layer=None: zones.copy())
+    monkeypatch.setattr(generate_run_graphs, "_load_geodataframe_cached", lambda path: network.copy())
+
+    payload = generate_run_graphs._build_population_decision_zone_map_payload(artifacts, "Carte decision")
+
+    assert payload is not None
+    assert payload["type"] == "population_decision_zone_map"
+    assert len(payload["gdf"]) == 2
+    assert set(payload["gdf"]["service"]) == {"eau_aep", "elec"}
+    assert set(payload["gdf"]["zone_label"]) == {"Zone A", "Secteur B"}
 
 
 def test_build_population_overlay_map_payload_uses_heat_palette(tmp_path, monkeypatch):
@@ -675,6 +938,60 @@ def test_population_state_matrix_falls_back_to_scientific_population_distributio
     assert payload["type"] == "population_state_matrix"
     assert payload["cells"][0][0] == {"S0": 80.0, "S1": 20.0, "S2": 0.0, "S3": 0.0}
     assert payload["cells"][0][2] == {"S0": 25.0, "S1": 25.0, "S2": 25.0, "S3": 25.0}
+
+
+def test_population_state_matrix_uses_pml_outage_causes_when_spatial_analysis_is_missing() -> None:
+    distribution = {
+        scenario: {
+            "storm_cmcc": {
+                "eau_aep": {"S0": 6.0, "S1": 0.0, "S2": 0.0, "S3": 94.0},
+                "eau_eu": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+                "elec": {"S0": 100.0, "S1": 0.0, "S2": 0.0, "S3": 0.0},
+            }
+        }
+        for scenario, _label in generate_run_graphs.NETWORK_STATE_MATRIX_SCENARIOS
+    }
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "scientific_graph_inputs": {
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "state_damage_tables": {},
+                    "damage_breakdown_by_scenario": {},
+                    "social_population_state_distribution_by_scenario": distribution,
+                },
+                "pml_network_graph_inputs": {
+                    "outage_cause_by_scenario": {
+                        "rp50": {
+                            "storm_cmcc": {
+                                "eau_aep": {
+                                    "direct_damage_eur": 25.0,
+                                    "indirect_damage_eur": 75.0,
+                                }
+                            }
+                        }
+                    }
+                },
+            },
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_population_state_matrix_payload(
+        artifacts,
+        "storm_cmcc",
+        "Guadeloupe - Matrice",
+    )
+
+    assert payload is not None
+    assert payload["outage_cause_cells"][1][0] == {"direct": 25.0, "indirect": 75.0}
 
 
 def test_service_rp_curve_payload_uses_linear_axis_ticks(monkeypatch):
@@ -932,9 +1249,9 @@ def test_build_network_state_chart_payload_uses_percentages(monkeypatch: pytest.
     assert payload is not None
     assert payload["ylabel"] == "% des reseaux"
     assert payload["series"][0]["color"] == "#68b66e"
-    assert payload["series"][0]["name"] == "Opérationnel (S0)"
+    assert payload["series"][0]["name"] == "S0"
     assert payload["series"][0]["values"] == [50.0, 25.0]
-    assert payload["series"][3]["name"] == "Hors service (S3)"
+    assert payload["series"][3]["name"] == "S3"
     assert payload["series"][3]["color"] == "#000000"
     assert payload["series"][3]["values"] == [0.0, 50.0]
 
@@ -1032,11 +1349,79 @@ def test_build_total_damage_by_return_period_payload_adds_family_share_labels() 
     payload = generate_run_graphs._build_total_damage_by_return_period_payload(artifacts, "water", "Degats eau")
 
     assert payload is not None
+    assert payload["type"] == "grouped_bar"
     assert payload["label_strategy"] == "grouped_bar_full_labels"
     assert payload["categories"] == ["RP10", "RP50", "RP100", "RP1000"]
+    assert payload["series"][0]["name"] == "STORM"
+    assert payload["series"][1]["name"] == "STORM_CMCC"
+    assert payload["series"][1]["hatch"] == "..."
     assert payload["label_texts"][0][0] == "35.00 EUR\n(2.50% valeur)"
     assert payload["label_texts"][0][3] == "280.00 EUR\n(20.00% valeur)"
     assert payload["label_texts"][1][1] == "35.00 EUR\n(2.50% valeur)"
+
+
+def test_build_combined_total_damage_payload_uses_service_hazard_line_styles() -> None:
+    damage_breakdowns = {
+        scenario: {
+            "storm": [
+                {"class_key": "eau_aep", "damage_eur": water_value},
+                {"class_key": "elec_bt_aerien", "damage_eur": elec_value},
+            ],
+            "storm_cmcc": [
+                {"class_key": "eau_aep", "damage_eur": water_value + 1.0},
+                {"class_key": "elec_bt_aerien", "damage_eur": elec_value + 1.0},
+            ],
+        }
+        for scenario, water_value, elec_value in (
+            ("rp10", 10.0, 2.0),
+            ("rp50", 20.0, 4.0),
+            ("rp100", 30.0, 6.0),
+            ("rp1000", 40.0, 8.0),
+        )
+    }
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="guadeloupe",
+        complete_analysis=generate_run_graphs.ArchivedArtifact(
+            "/tmp/complete.json",
+            {
+                "asset_results": [
+                    {"asset_type": "eau_aep_cana", "exposure_eur": 1000.0},
+                    {"asset_type": "elec_bt_aerien", "exposure_eur": 1000.0},
+                ],
+                "scientific_graph_inputs": {
+                    "source_of_truth": "complete_analysis",
+                    "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+                    "damage_breakdown_by_scenario": damage_breakdowns,
+                },
+            },
+        ),
+        scientific_web_summary=generate_run_graphs.ArchivedArtifact(
+            "/tmp/summary.json",
+            {"scientific_graph_inputs": {"damage_breakdown_by_scenario": damage_breakdowns}},
+        ),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path=None,
+        water_infra_path=None,
+    )
+
+    payload = generate_run_graphs._build_total_damage_water_electric_by_return_period_payload(
+        artifacts,
+        "Degats eau/elec",
+    )
+
+    assert payload is not None
+    assert [series["name"] for series in payload["series"]] == [
+        "Eau STORM",
+        "Eau STORM_CMCC",
+        "Elec STORM",
+        "Elec STORM_CMCC",
+    ]
+    assert payload["series"][1]["linestyle"] == "dashed"
+    assert payload["series"][2]["color"] == "#b45309"
+    assert payload["series"][3]["color"] == "#f59e0b"
 
 
 def test_resolve_grouped_bar_ymax_adds_headroom_for_multiline_labels() -> None:
@@ -1290,7 +1675,7 @@ def test_build_network_state_matrix_payload_uses_geojson_service_distribution() 
     assert payload["outage_cause_cells"][0][0] is None
     assert payload["outage_cause_cells"][0][2] is None
     assert "network-states.geojson" in payload["note"]
-    assert "Hors service (S3)" in payload["note"]
+    assert "de S0 a S3" in payload["note"]
 
 
 def test_build_network_economic_damage_matrix_disaggregates_electric_networks() -> None:
