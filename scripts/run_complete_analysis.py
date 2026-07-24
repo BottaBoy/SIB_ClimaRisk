@@ -1843,6 +1843,7 @@ def run_territory_analysis(
                 and str(graph_inputs.get("source_of_truth") or "") == "complete_analysis"
                 and bool(graph_inputs.get("state_damage_tables"))
                 and bool(graph_inputs.get("damage_breakdown_by_scenario"))
+                and bool(graph_inputs.get("damage_zones_by_scenario"))
             )
             if not scientific_graph_inputs_complete:
                 raise RuntimeError(

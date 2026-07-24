@@ -101,6 +101,8 @@ HAZARD_LABELS = {
 }
 STORM_CMCC_LAYOUT_CHOICES = ("harmonized", "legacy")
 STORM_CMCC_LAYOUT = "harmonized"
+MATRIX_PERCENT_LABEL_SCALE_DEFAULT = 3.0
+MATRIX_PERCENT_LABEL_SCALE = MATRIX_PERCENT_LABEL_SCALE_DEFAULT
 
 HAZARD_COLORS = {
     "storm": "#0f766e",
@@ -241,6 +243,31 @@ DAMAGE_DETAIL_SUBCLASS_COLORS = {
     "elec_aerien": "#b45309",
     "elec_souterrain": "#f59e0b",
 }
+DAMAGE_ZONE_OUTPUT_DIRNAME = "Damages_Zones"
+DAMAGE_ZONE_HAZARD = "storm"
+DAMAGE_ZONE_SCENARIOS = NETWORK_STATE_MATRIX_SCENARIOS
+DAMAGE_ZONE_FAMILY_ORDER = ("aep", "eu", "elec")
+DAMAGE_ZONE_FAMILY_LABELS = {
+    "aep": "AEP",
+    "eu": "EU",
+    "elec": "Elec",
+}
+DAMAGE_ZONE_FAMILY_NETWORK_KIND = {
+    "aep": "AEP",
+    "eu": "EU",
+    "elec": "ELEC",
+}
+DAMAGE_ZONE_FAMILY_CLASS_KEYS = {
+    "aep": ("eau_aep", "eau_aep_ouvrages"),
+    "eu": ("eau_eu", "eau_eu_pr", "eau_eu_step"),
+    "elec": (
+        "elec_bt_souterrain",
+        "elec_bt_aerien",
+        "elec_hta_souterrain",
+        "elec_hta_aerien",
+    ),
+}
+DAMAGE_ZONE_MAP_COLORS = ["#fff7bc", "#fee391", "#fec44f", "#fb923c", "#ef4444", "#b91c1c"]
 POPULATION_DECISION_PERIODS = ("RP50", "RP100", "RP1000")
 POPULATION_DECISION_SERVICES = ("eau_aep", "eau_eu", "elec")
 POPULATION_DECISION_SERVICE_LABELS = {
@@ -497,6 +524,8 @@ def _auxiliary_output_classification(output_dir: Path, raw_path: str) -> tuple[s
     file_name = relative.name.lower()
     if category == "Population":
         technical_type = "chart" if "matrice_" in file_name else "map"
+    elif category == DAMAGE_ZONE_OUTPUT_DIRNAME:
+        technical_type = "map"
     else:
         technical_type = {"charts": "chart", "maps": "map", "tables": "table"}.get(category, "file")
     if category == "maps":
@@ -507,6 +536,8 @@ def _auxiliary_output_classification(output_dir: Path, raw_path: str) -> tuple[s
         else:
             family = "impact"
     elif category == "Population":
+        family = "impact"
+    elif category == DAMAGE_ZONE_OUTPUT_DIRNAME:
         family = "impact"
     elif category == "charts":
         if "vent_max" in file_name:
@@ -700,6 +731,21 @@ def set_storm_cmcc_layout(layout: str) -> None:
     if normalized not in STORM_CMCC_LAYOUT_CHOICES:
         raise ValueError(f"Unsupported storm/cmcc layout: {layout!r}")
     STORM_CMCC_LAYOUT = normalized
+
+
+def set_matrix_percent_label_scale(scale: Any) -> None:
+    global MATRIX_PERCENT_LABEL_SCALE
+    MATRIX_PERCENT_LABEL_SCALE = max(_safe_float(scale, default=MATRIX_PERCENT_LABEL_SCALE_DEFAULT), 0.1)
+
+
+def _matrix_percent_label_scale(payload: dict[str, Any] | None = None) -> float:
+    if isinstance(payload, dict) and "percent_label_scale" in payload:
+        return max(_safe_float(payload.get("percent_label_scale"), default=MATRIX_PERCENT_LABEL_SCALE), 0.1)
+    return MATRIX_PERCENT_LABEL_SCALE
+
+
+def _matrix_percent_label_fontsize(base_fontsize: int | float, scale: float) -> int:
+    return max(1, int(round(float(base_fontsize) * max(scale, 0.1))))
 
 
 def _hazard_comparison_color(hazard: str, family: str | None = None) -> str:
@@ -997,6 +1043,12 @@ def _normalize_territory(value: str) -> str:
 
 
 def _archived_web_data_dir(record: RunRecord, territory: str) -> Path:
+    if _record_is_graph_pack_manifest(record):
+        entry = _territory_entry(record, territory)
+        payload_path = Path(str(entry.get("payload_path") or ""))
+        if payload_path.exists():
+            return payload_path.parent
+        return Path(record.manifest_path).parent
     return RUN_OUTPUTS_DIR / record.run_id / "territories" / territory / "web" / "data"
 
 
@@ -1020,16 +1072,38 @@ def _load_auxiliary_artifacts(record: RunRecord, bundle: TerritoryPayload) -> Au
     population_overlays = _load_optional_archived_json(POPULATION_OVERLAYS_PATH)
     population_raster_path = POPULATION_RASTER_PATHS.get(territory)
     hydraulic_zones_path = HYDRAULIC_ZONE_BUNDLE_PATHS.get(territory)
+    complete_analysis = ArchivedArtifact(payload_path=bundle.payload_path, payload=bundle.payload)
+    scientific_web_summary = _load_optional_archived_json(base_dir / f"{territory}-scientific-web-summary.json")
+    bundle_payload_path = Path(bundle.payload_path)
+    if bundle_payload_path.name == f"{territory}-scientific-web-summary.json":
+        scientific_web_summary = ArchivedArtifact(payload_path=bundle.payload_path, payload=bundle.payload)
+        sibling_complete = bundle_payload_path.with_name(f"{territory}-complete-analysis.json")
+        if sibling_complete.exists():
+            complete_analysis = ArchivedArtifact(payload_path=str(sibling_complete), payload=_load_json(sibling_complete))
+
+    network_states_candidates = [
+        base_dir / f"{territory}-network-states.geojson",
+        bundle_payload_path.parent / f"{territory}-network-states.geojson",
+    ]
+    water_infra_candidates = [
+        base_dir / f"{territory}-water-infra.geojson",
+        bundle_payload_path.parent / f"{territory}-water-infra.geojson",
+    ]
+    if _record_is_graph_pack_manifest(record):
+        network_states_candidates.append(WEB_DATA_DIR / f"{territory}-network-states.geojson")
+        water_infra_candidates.append(WEB_DATA_DIR / f"{territory}-water-infra.geojson")
+    network_states_path = next((path for path in network_states_candidates if path.exists()), None)
+    water_infra_path = next((path for path in water_infra_candidates if path.exists()), None)
     return AuxiliaryArtifacts(
         territory=territory,
-        complete_analysis=ArchivedArtifact(payload_path=bundle.payload_path, payload=bundle.payload),
-        scientific_web_summary=_load_optional_archived_json(base_dir / f"{territory}-scientific-web-summary.json"),
+        complete_analysis=complete_analysis,
+        scientific_web_summary=scientific_web_summary,
         page7_analysis=_load_optional_archived_json(base_dir / f"{territory}-page7-analysis.json"),
         case_study_analysis=_load_case_study_analysis(base_dir, territory),
         wind_maps=_load_optional_archived_json(base_dir / f"{territory}-wind-maps.json"),
         landslide_maps=_load_optional_archived_json(base_dir / f"{territory}-landslide-maps.json"),
-        network_states_path=str(base_dir / f"{territory}-network-states.geojson") if (base_dir / f"{territory}-network-states.geojson").exists() else None,
-        water_infra_path=str(base_dir / f"{territory}-water-infra.geojson") if (base_dir / f"{territory}-water-infra.geojson").exists() else None,
+        network_states_path=str(network_states_path) if network_states_path else None,
+        water_infra_path=str(water_infra_path) if water_infra_path else None,
         population_overlays=population_overlays,
         population_raster_path=str(population_raster_path) if population_raster_path and population_raster_path.exists() else None,
         hydraulic_zones_path=str(hydraulic_zones_path) if hydraulic_zones_path and hydraulic_zones_path.exists() else None,
@@ -1114,6 +1188,10 @@ def _infer_record_run_family(manifest: dict[str, Any]) -> str:
         return _resolve_run_family(explicit)
     parameters = manifest.get("parameters") if isinstance(manifest.get("parameters"), dict) else {}
     return _resolve_run_family(parameters.get("run_family"))
+
+
+def _record_is_graph_pack_manifest(record: RunRecord) -> bool:
+    return Path(record.manifest_path).name == "graphs-manifest.json"
 
 
 def list_run_records() -> list[RunRecord]:
@@ -1205,6 +1283,30 @@ def resolve_run_record(run_id: str | None, latest_success: bool, records: list[R
                 return record
         manifest_path = RUN_OUTPUTS_DIR / selected_id / "manifest.json"
         if not manifest_path.exists():
+            graph_manifest_path = DEFAULT_OUTPUT_ROOT / selected_id / "graphs-manifest.json"
+            if graph_manifest_path.exists():
+                manifest = _load_json(graph_manifest_path)
+                territories = manifest.get("territories") if isinstance(manifest.get("territories"), dict) else {}
+                return RunRecord(
+                    run_id=str(manifest.get("run_id") or selected_id),
+                    status=str(manifest.get("status") or "success"),
+                    created_at=str(manifest.get("created_at") or "") or None,
+                    updated_at=str(manifest.get("updated_at") or "") or None,
+                    territories=sorted(str(key) for key in territories.keys()),
+                    dynamic_max_tracks=None,
+                    memory_budget_gb=None,
+                    manifest_path=str(graph_manifest_path),
+                    manifest=manifest,
+                    archived_ready_count=sum(
+                        1
+                        for entry in territories.values()
+                        if isinstance(entry, dict)
+                        and str(entry.get("payload_path") or "").strip()
+                        and Path(str(entry.get("payload_path"))).exists()
+                    ),
+                    run_family=_infer_record_run_family(manifest),
+                )
+        if not manifest_path.exists():
             raise FileNotFoundError(f"Run manifest not found for run_id={selected_id}")
         manifest = _load_json(manifest_path)
         territories = manifest.get("territories") if isinstance(manifest.get("territories"), dict) else {}
@@ -1289,6 +1391,9 @@ def _territory_payload_candidates(record: RunRecord, territory: str) -> list[tup
     run_id = record.run_id
     territory_entry = record.manifest.get("territories") if isinstance(record.manifest.get("territories"), dict) else {}
     territory_entry = territory_entry.get(territory) if isinstance(territory_entry.get(territory), dict) else {}
+    if _record_is_graph_pack_manifest(record):
+        payload_path = str(territory_entry.get("payload_path") or "").strip()
+        return [(Path(payload_path), str(territory_entry.get("source_kind") or "graph_pack_payload"))] if payload_path else []
     phases = territory_entry.get("phases") if isinstance(territory_entry.get("phases"), dict) else {}
     export_phase = phases.get("export") if isinstance(phases.get("export"), dict) else {}
     candidates: list[tuple[Path, str]] = []
@@ -1322,7 +1427,7 @@ def load_territory_payload(record: RunRecord, territory: str) -> TerritoryPayloa
             territory=territory,
             payload_path=str(candidate_path),
             payload=payload,
-            source_kind="archived",
+            source_kind=label if _record_is_graph_pack_manifest(record) else "archived",
             warning=None,
         )
     raise FileNotFoundError(
@@ -4915,7 +5020,11 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
 
     nrows = len(row_titles)
     ncols = len(column_titles)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2, 12.9), sharey=True)
+    percent_label_scale = _matrix_percent_label_scale(payload)
+    state_label_fontsize = _matrix_percent_label_fontsize(10, percent_label_scale)
+    cause_label_fontsize = _matrix_percent_label_fontsize(7, percent_label_scale)
+    fig_scale = 1.0 + (max(percent_label_scale - 1.0, 0.0) * 0.24)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2 * fig_scale, 12.9 * fig_scale), sharey=True)
     if nrows == 1 and ncols == 1:
         axes_grid = [[axes]]
     elif nrows == 1:
@@ -4959,7 +5068,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                         f"{_state_short_label(state)}\n{value:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=10,
+                        fontsize=state_label_fontsize,
                         color=text_colors[state],
                         fontweight="bold",
                     )
@@ -4988,14 +5097,14 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                                 f"{OUTAGE_CAUSE_LABELS[cause_key]}\n{value:.0f}%",
                                 ha="center",
                                 va="center",
-                                fontsize=7,
+                                fontsize=cause_label_fontsize,
                                 color="#ffffff" if cause_key == "indirect" else "#0f172a",
                                 fontweight="bold",
                             )
                         cause_bottom += value
                 else:
                     ax.bar([cause_x], [100.0], width=0.24, color="none", edgecolor="#94a3b8", linewidth=0.8)
-                    ax.text(cause_x, 50.0, outage_cause_empty_label, ha="center", va="center", fontsize=7, color="#64748b", fontweight="bold")
+                    ax.text(cause_x, 50.0, outage_cause_empty_label, ha="center", va="center", fontsize=cause_label_fontsize, color="#64748b", fontweight="bold")
                 ax.text(cause_x, -7.0, outage_cause_title, ha="center", va="top", fontsize=7, color="#475569")
             ax.set_ylim(0, 100)
             ax.set_xlim(-0.65, 0.65)
@@ -6015,6 +6124,444 @@ def _build_hydraulic_population_importance_payload(
     }
 
 
+def _damage_zone_family_from_class_key(class_key: Any) -> str | None:
+    key = str(class_key or "").strip().lower()
+    for family_key, class_keys in DAMAGE_ZONE_FAMILY_CLASS_KEYS.items():
+        if key in class_keys:
+            return family_key
+    return None
+
+
+def _damage_zone_breakdown_class_from_asset_type(asset_type: Any) -> str:
+    key = str(asset_type or "").strip().lower()
+    if key == "eau_aep_cana":
+        return "eau_aep"
+    if key == "eau_eu_cana":
+        return "eau_eu"
+    if key.startswith("eau_aep_ouvrage_"):
+        return "eau_aep_ouvrages"
+    return key
+
+
+def _damage_zone_data_is_complete(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+        scenario_block = data.get(scenario_key) if isinstance(data.get(scenario_key), dict) else {}
+        hazard_block = scenario_block.get(DAMAGE_ZONE_HAZARD) if isinstance(scenario_block.get(DAMAGE_ZONE_HAZARD), dict) else {}
+        for family_key in DAMAGE_ZONE_FAMILY_ORDER:
+            if not isinstance(hazard_block.get(family_key), list):
+                return False
+    return True
+
+
+def _damage_zone_graph_input_data(artifacts: AuxiliaryArtifacts) -> dict[str, Any] | None:
+    payloads = []
+    if artifacts.scientific_web_summary is not None:
+        payloads.append(artifacts.scientific_web_summary.payload)
+    payloads.append(artifacts.complete_analysis.payload)
+    for payload in payloads:
+        graph_inputs = _scientific_inputs_from_payload(payload)
+        damage_zones = graph_inputs.get("damage_zones_by_scenario") if isinstance(graph_inputs, dict) else None
+        if _damage_zone_data_is_complete(damage_zones):
+            return damage_zones
+    return None
+
+
+def _feature_geometry_cell_lookup(payload: dict[str, Any]) -> dict[str, str]:
+    feature_collection = payload.get("input_features_geojson") if isinstance(payload.get("input_features_geojson"), dict) else {}
+    features = feature_collection.get("features") if isinstance(feature_collection.get("features"), list) else []
+    if not features:
+        return {}
+    try:
+        from shapely.geometry import shape
+    except Exception:
+        return {}
+    lookup: dict[str, str] = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+        asset_id = str(props.get("asset_id") or props.get("feature_id") or feature.get("id") or "").strip()
+        geometry_payload = feature.get("geometry")
+        if not asset_id or not isinstance(geometry_payload, dict):
+            continue
+        try:
+            geometry = shape(geometry_payload)
+            if geometry is None or geometry.is_empty:
+                continue
+            point = geometry.representative_point()
+            lookup[asset_id] = _territory_cell_id_from_lat_lon(point.y, point.x, ELECTRIC_DECISION_GRID_DEG)
+        except Exception:
+            continue
+    return lookup
+
+
+def _damage_zone_unit_id_from_asset_row(row: dict[str, Any], family_key: str, feature_cell_lookup: dict[str, str]) -> str:
+    if family_key in {"aep", "eu"}:
+        return str(row.get("service_feature_id") or row.get("zone_component_key") or row.get("zone_uid") or "").strip()
+    asset_id = str(row.get("asset_id") or row.get("feature_id") or "").strip()
+    return str(feature_cell_lookup.get(asset_id) or "").strip()
+
+
+def _damage_zone_hazard_weight(row: dict[str, Any], hazard: str) -> float:
+    if hazard == "storm_cmcc":
+        direct = _safe_float(row.get("eai_cmcc_direct_eur"), default=0.0)
+    else:
+        direct = _safe_float(row.get("eai_storm_direct_eur"), default=0.0)
+    if direct > 0.0:
+        return direct
+    return max(_safe_float(row.get("exposure_eur"), default=0.0), 0.0)
+
+
+def _damage_zone_breakdown_direct_totals(graph_inputs: dict[str, Any]) -> dict[str, dict[str, dict[str, float]]]:
+    out: dict[str, dict[str, dict[str, float]]] = {}
+    breakdowns = graph_inputs.get("damage_breakdown_by_scenario") if isinstance(graph_inputs.get("damage_breakdown_by_scenario"), dict) else {}
+    for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+        out[scenario_key] = {}
+        scenario_block = breakdowns.get(scenario_key) if isinstance(breakdowns.get(scenario_key), dict) else {}
+        for hazard in SUPPORTED_HAZARDS:
+            totals: dict[str, float] = {}
+            rows = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), list) else []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                class_key = str(row.get("class_key") or "").strip()
+                if class_key:
+                    totals[class_key] = totals.get(class_key, 0.0) + max(_safe_float(row.get("direct_damage_eur")), 0.0)
+            out[scenario_key][hazard] = totals
+    return out
+
+
+def _approximate_damage_zone_data_from_assets(artifacts: AuxiliaryArtifacts) -> dict[str, Any] | None:
+    graph_inputs = _scientific_inputs_from_payload(artifacts.complete_analysis.payload)
+    if not isinstance(graph_inputs, dict) or not isinstance(graph_inputs.get("damage_breakdown_by_scenario"), dict):
+        return None
+    asset_results = _complete_asset_results(artifacts)
+    if not asset_results:
+        return None
+
+    feature_cell_lookup = _feature_geometry_cell_lookup(artifacts.complete_analysis.payload)
+    direct_totals = _damage_zone_breakdown_direct_totals(graph_inputs)
+    base_rows: dict[tuple[str, str], dict[str, Any]] = {}
+    weights: dict[str, dict[str, dict[tuple[str, str], float]]] = {hazard: {} for hazard in SUPPORTED_HAZARDS}
+
+    for row in asset_results:
+        class_key = _damage_zone_breakdown_class_from_asset_type(row.get("asset_type"))
+        family_key = _damage_zone_family_from_class_key(class_key)
+        if family_key is None:
+            continue
+        unit_id = _damage_zone_unit_id_from_asset_row(row, family_key, feature_cell_lookup)
+        if not unit_id:
+            continue
+        bucket_key = (family_key, unit_id)
+        exposure = max(_safe_float(row.get("exposure_eur")), 0.0)
+        base_bucket = base_rows.setdefault(
+            bucket_key,
+            {
+                "family_key": family_key,
+                "family_label": DAMAGE_ZONE_FAMILY_LABELS.get(family_key, family_key.upper()),
+                "network_kind": DAMAGE_ZONE_FAMILY_NETWORK_KIND.get(family_key, ""),
+                "spatial_unit_kind": "fixed_grid_0p1deg" if family_key == "elec" else "hydraulic_zone_component",
+                "unit_id": unit_id,
+                "zone_component_key": unit_id if family_key in {"aep", "eu"} else "",
+                "zone_uid": str(row.get("zone_uid") or unit_id).strip(),
+                "zone_label": str(row.get("zone_uid") or row.get("asset_label") or unit_id).strip(),
+                "exposure_eur": 0.0,
+                "asset_count": 0,
+                "point_count": 0,
+                "source_method": "approximate_asset_weighted_backfill",
+            },
+        )
+        base_bucket["exposure_eur"] += exposure
+        base_bucket["asset_count"] += 1
+        for hazard in SUPPORTED_HAZARDS:
+            weight = _damage_zone_hazard_weight(row, hazard)
+            weights.setdefault(hazard, {}).setdefault(class_key, {})
+            weights[hazard][class_key][bucket_key] = weights[hazard][class_key].get(bucket_key, 0.0) + weight
+
+    if not base_rows:
+        return None
+
+    out: dict[str, dict[str, dict[str, list[dict[str, Any]]]]] = {
+        scenario_key: {hazard: {family_key: [] for family_key in DAMAGE_ZONE_FAMILY_ORDER} for hazard in SUPPORTED_HAZARDS}
+        for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS
+    }
+    for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+        for hazard in SUPPORTED_HAZARDS:
+            direct_by_bucket = {bucket_key: 0.0 for bucket_key in base_rows}
+            for class_key, class_total in direct_totals.get(scenario_key, {}).get(hazard, {}).items():
+                family_key = _damage_zone_family_from_class_key(class_key)
+                if family_key is None:
+                    continue
+                class_weights = weights.get(hazard, {}).get(class_key, {})
+                denominator = sum(max(float(value), 0.0) for value in class_weights.values())
+                if denominator <= 0.0:
+                    class_bucket_keys = [
+                        bucket_key
+                        for bucket_key, base_bucket in base_rows.items()
+                        if bucket_key[0] == family_key and _safe_float(base_bucket.get("exposure_eur")) > 0.0
+                    ]
+                    denominator = sum(_safe_float(base_rows[bucket_key].get("exposure_eur")) for bucket_key in class_bucket_keys)
+                    class_weights = {
+                        bucket_key: _safe_float(base_rows[bucket_key].get("exposure_eur"))
+                        for bucket_key in class_bucket_keys
+                    }
+                if denominator <= 0.0:
+                    continue
+                for bucket_key, weight in class_weights.items():
+                    direct_by_bucket[bucket_key] += max(_safe_float(class_total), 0.0) * max(float(weight), 0.0) / denominator
+
+            for bucket_key, base_bucket in base_rows.items():
+                family_key, _unit_id = bucket_key
+                row = dict(base_bucket)
+                row["exposure_eur"] = round(_safe_float(row.get("exposure_eur")), 2)
+                row["direct_damage_eur"] = round(max(float(direct_by_bucket.get(bucket_key, 0.0)), 0.0), 2)
+                out[scenario_key][hazard][family_key].append(row)
+
+    for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+        for hazard in SUPPORTED_HAZARDS:
+            for family_key in DAMAGE_ZONE_FAMILY_ORDER:
+                out[scenario_key][hazard][family_key] = sorted(
+                    out[scenario_key][hazard][family_key],
+                    key=lambda row: (
+                        -_safe_float(row.get("direct_damage_eur")),
+                        str(row.get("unit_id") or ""),
+                    ),
+                )
+    return out
+
+
+def _damage_zone_data_from_artifacts(artifacts: AuxiliaryArtifacts) -> tuple[dict[str, Any], str] | None:
+    graph_input_data = _damage_zone_graph_input_data(artifacts)
+    if graph_input_data is not None:
+        return graph_input_data, "postprocess_exact_point_losses"
+    approximate = _approximate_damage_zone_data_from_assets(artifacts)
+    if approximate is not None:
+        return approximate, "approximate_asset_weighted_backfill"
+    return None
+
+
+def _damage_zone_rows(
+    damage_zone_data: dict[str, Any],
+    *,
+    scenario_key: str,
+    hazard: str,
+    family_key: str,
+) -> list[dict[str, Any]]:
+    scenario_block = damage_zone_data.get(scenario_key) if isinstance(damage_zone_data.get(scenario_key), dict) else {}
+    hazard_block = scenario_block.get(hazard) if isinstance(scenario_block.get(hazard), dict) else {}
+    rows = hazard_block.get(family_key) if isinstance(hazard_block.get(family_key), list) else []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _damage_zone_row_metric(rows: list[dict[str, Any]]) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for row in rows:
+        unit_id = str(row.get("unit_id") or row.get("zone_component_key") or row.get("zone_uid") or "").strip()
+        if not unit_id:
+            continue
+        metrics[unit_id] = metrics.get(unit_id, 0.0) + max(_safe_float(row.get("direct_damage_eur")), 0.0)
+    return metrics
+
+
+def _build_damage_zone_gdf(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    family_key: str,
+    rows: list[dict[str, Any]],
+) -> Any | None:
+    gpd = _load_geopandas()
+    metrics = _damage_zone_row_metric(rows)
+    if family_key in {"aep", "eu"}:
+        if not artifacts.hydraulic_zones_path:
+            return None
+        zones = _load_geodataframe_layer_cached(artifacts.hydraulic_zones_path, layer="hydraulic_zones")
+        if zones.empty or "network_kind" not in zones.columns:
+            return None
+        network_kind = DAMAGE_ZONE_FAMILY_NETWORK_KIND[family_key]
+        zones = zones[zones["network_kind"].fillna("").astype(str).str.upper() == network_kind].copy()
+        if zones.empty:
+            return None
+        join_column = "zone_component_key" if "zone_component_key" in zones.columns else "zone_uid"
+        zones["damage_zone_unit_id"] = zones[join_column].fillna("").astype(str)
+        zones["direct_damage_eur"] = zones["damage_zone_unit_id"].map(lambda value: metrics.get(str(value), 0.0))
+        return zones
+
+    records: list[dict[str, Any]] = []
+    if artifacts.network_states_path:
+        states = _load_geodataframe_cached(artifacts.network_states_path)
+        if not states.empty and "layer_key" in states.columns and "feature_id" in states.columns:
+            states = states[states["layer_key"].fillna("").astype(str) == "elec_grid_0p1deg"].copy()
+            if not states.empty:
+                states["damage_zone_unit_id"] = states["feature_id"].fillna("").astype(str)
+                states["direct_damage_eur"] = states["damage_zone_unit_id"].map(lambda value: metrics.get(str(value), 0.0))
+                return states
+
+    for unit_id, damage in metrics.items():
+        geometry = _electric_decision_cell_geometry(unit_id)
+        if geometry is None or getattr(geometry, "is_empty", False):
+            continue
+        records.append(
+            {
+                "damage_zone_unit_id": unit_id,
+                "direct_damage_eur": damage,
+                "geometry": geometry,
+            }
+        )
+    if not records:
+        return None
+    return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
+def _damage_zone_common_vmax(cells: dict[tuple[str, str], dict[str, Any]]) -> float:
+    max_value = 0.0
+    for cell in cells.values():
+        gdf = cell.get("gdf")
+        value_column = str(cell.get("value_column") or "")
+        if gdf is None or not value_column or value_column not in getattr(gdf, "columns", []):
+            continue
+        try:
+            max_value = max(max_value, _safe_float(gdf[value_column].max()))
+        except Exception:
+            continue
+    return max(max_value, 1.0)
+
+
+def _combined_damage_zone_extent_gdf(cells_by_hazard: dict[str, dict[tuple[str, str], dict[str, Any]]]) -> Any | None:
+    gpd = _load_geopandas()
+    geometries: list[Any] = []
+    for cells in cells_by_hazard.values():
+        for cell in cells.values():
+            gdf = cell.get("gdf")
+            if gdf is None or getattr(gdf, "empty", True):
+                continue
+            if gdf.crs is None:
+                gdf = gdf.set_crs(epsg=4326)
+            gdf = gdf.to_crs(epsg=4326)
+            geometries.extend(
+                geometry
+                for geometry in list(gdf.geometry)
+                if geometry is not None and not getattr(geometry, "is_empty", False)
+            )
+    if not geometries:
+        return None
+    return gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+
+
+def _build_damage_zone_output_specs(
+    artifacts: AuxiliaryArtifacts,
+    territory: str,
+) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
+    data_with_source = _damage_zone_data_from_artifacts(artifacts)
+    if data_with_source is None:
+        return [], [_warning_message(territory, DAMAGE_ZONE_OUTPUT_DIRNAME, "missing damage_zones_by_scenario and asset backfill inputs")]
+    damage_zone_data, source_method = data_with_source
+    cells_by_hazard: dict[str, dict[tuple[str, str], dict[str, Any]]] = {
+        hazard: {}
+        for hazard in ("storm", "storm_cmcc")
+    }
+    warnings: list[str] = []
+    for hazard in cells_by_hazard:
+        for family_key in DAMAGE_ZONE_FAMILY_ORDER:
+            for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+                rows = _damage_zone_rows(
+                    damage_zone_data,
+                    scenario_key=scenario_key,
+                    hazard=hazard,
+                    family_key=family_key,
+                )
+                gdf = _build_damage_zone_gdf(artifacts, family_key=family_key, rows=rows)
+                if gdf is None or getattr(gdf, "empty", True):
+                    warnings.append(_warning_message(territory, f"{hazard}_{family_key}_{scenario_key}", "missing spatial units for damage-zone map"))
+                    continue
+                cells_by_hazard[hazard][(family_key, scenario_key)] = {
+                    "gdf": gdf,
+                    "value_column": "direct_damage_eur",
+                }
+    if not any(cells_by_hazard.values()):
+        return [], warnings or [_warning_message(territory, DAMAGE_ZONE_OUTPUT_DIRNAME, "no damage-zone maps could be built")]
+
+    all_cells: dict[tuple[str, str], dict[str, Any]] = {}
+    for hazard, cells in cells_by_hazard.items():
+        for (family_key, scenario_key), cell in cells.items():
+            all_cells[(f"{hazard}:{family_key}", scenario_key)] = cell
+    vmax = _damage_zone_common_vmax(all_cells)
+    extent_gdf = _combined_damage_zone_extent_gdf(cells_by_hazard)
+    source_label = "pertes directes exactes du post-run" if source_method == "postprocess_exact_point_losses" else "backfill approxime pondere par EAI/exposition"
+    note = f"Dommages directs STORM par zonage. Source: {source_label}. Echelle commune 0 - {_format_compact_eur(vmax)}."
+    specs: list[tuple[str, dict[str, Any]]] = []
+    storm_cells = cells_by_hazard.get(DAMAGE_ZONE_HAZARD, {})
+    for family_key in DAMAGE_ZONE_FAMILY_ORDER:
+        for scenario_key, scenario_label in DAMAGE_ZONE_SCENARIOS:
+            cell = storm_cells.get((family_key, scenario_key))
+            if cell is None:
+                continue
+            title = f"{territory_label(territory)} - Dommages directs {DAMAGE_ZONE_FAMILY_LABELS[family_key]} {scenario_label}"
+            specs.append(
+                (
+                    f"dommages_directs_zonages_{family_key}_{scenario_key}.png",
+                    {
+                        "type": "choropleth_map",
+                        "title": title,
+                        "gdf": cell["gdf"],
+                        "value_column": "direct_damage_eur",
+                        "cmap_colors": list(DAMAGE_ZONE_MAP_COLORS),
+                        "legend_title": "Dommages directs (EUR)",
+                        "edgecolor": "#ffffff",
+                        "line_width": 0.35 if family_key in {"aep", "eu"} else 0.28,
+                        "vmin": 0.0,
+                        "vmax": vmax,
+                        "extent_gdf": extent_gdf,
+                        "fixed_canvas": True,
+                        "note": note,
+                    },
+                )
+            )
+
+    for hazard, file_name in (
+        ("storm", "superplot_dommages_directs_zonages.png"),
+        ("storm_cmcc", "superplot_dommages_directs_zonages_storm_cmcc.png"),
+    ):
+        hazard_cells = cells_by_hazard.get(hazard, {})
+        if not hazard_cells:
+            continue
+        grid_cells: list[list[dict[str, Any]]] = []
+        for family_key in DAMAGE_ZONE_FAMILY_ORDER:
+            row_cells: list[dict[str, Any]] = []
+            for scenario_key, _scenario_label in DAMAGE_ZONE_SCENARIOS:
+                row_cells.append(hazard_cells.get((family_key, scenario_key), {}))
+            grid_cells.append(row_cells)
+        hazard_label = HAZARD_LABELS.get(hazard, hazard.upper())
+        specs.append(
+            (
+                file_name,
+                {
+                    "type": "choropleth_map_grid",
+                    "title": f"{territory_label(territory)} - Dommages directs par zonage {hazard_label}",
+                    "rows": [
+                        {"key": family_key, "label": DAMAGE_ZONE_FAMILY_LABELS[family_key]}
+                        for family_key in DAMAGE_ZONE_FAMILY_ORDER
+                    ],
+                    "columns": [
+                        {"key": scenario_key, "label": scenario_label}
+                        for scenario_key, scenario_label in DAMAGE_ZONE_SCENARIOS
+                    ],
+                    "cells": grid_cells,
+                    "cmap_colors": list(DAMAGE_ZONE_MAP_COLORS),
+                    "legend_title": "Dommages directs (EUR)",
+                    "edgecolor": "#ffffff",
+                    "line_width": 0.22,
+                    "vmin": 0.0,
+                    "vmax": vmax,
+                    "extent_gdf": extent_gdf,
+                    "note": f"Dommages directs {hazard_label} par zonage. Source: {source_label}. Echelle commune 0 - {_format_compact_eur(vmax)}.",
+                },
+            )
+        )
+    return specs, warnings
+
+
 def _population_decision_run_id_from_artifacts(artifacts: AuxiliaryArtifacts) -> str | None:
     for part in reversed(Path(artifacts.complete_analysis.payload_path).parts):
         cleaned = str(part).strip()
@@ -6419,6 +6966,7 @@ def _build_population_state_matrix_from_graph_inputs(
         "cells": cells,
         "outage_cause_cells": outage_cause_cells,
         "legend_title": "% de la population totale",
+        "percent_label_scale": MATRIX_PERCENT_LABEL_SCALE,
         "note": (
             "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
             "Source: distribution de population par etats de service derivee de network-states.geojson."
@@ -6498,6 +7046,7 @@ def _build_population_state_matrix_payload(
         "cells": cells,
         "outage_cause_cells": outage_cause_cells,
         "legend_title": "% de la population totale",
+        "percent_label_scale": MATRIX_PERCENT_LABEL_SCALE,
         "note": (
             "Chaque camembert montre la repartition de la population totale de Guadeloupe entre les etats S0 a S3 pour un scenario et un zonage reseau. "
             "Source: croisement local network-states.geojson / population. "
@@ -6659,17 +7208,22 @@ def _render_choropleth_map_png(
     if gdf.crs is None:
         gdf = gdf.set_crs(epsg=4326)
     gdf = gdf.to_crs(epsg=3857)
+    extent_gdf = payload.get("extent_gdf")
+    if extent_gdf is not None and not getattr(extent_gdf, "empty", True):
+        if extent_gdf.crs is None:
+            extent_gdf = extent_gdf.set_crs(epsg=4326)
+        extent_gdf = extent_gdf.to_crs(epsg=3857)
     values = gdf[value_column].map(lambda value: max(_safe_float(value), 0.0))
     gdf = gdf.copy()
     gdf[value_column] = values
 
     fig, ax = plt.subplots(figsize=(8.5, 7.5))
-    _apply_map_extent(ax, gdf)
+    _apply_map_extent(ax, extent_gdf if extent_gdf is not None and not getattr(extent_gdf, "empty", True) else gdf)
     _add_light_basemap(ax)
 
     cmap = _resolve_map_cmap(payload)
-    vmin = 0.0
-    vmax = max(_safe_float(values.max()), 0.0)
+    vmin = _safe_float(payload.get("vmin"), default=0.0)
+    vmax = _safe_float(payload.get("vmax"), default=max(_safe_float(values.max()), 0.0))
     if vmax <= vmin:
         vmax = vmin + 1.0
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -6690,7 +7244,14 @@ def _render_choropleth_map_png(
     cbar = fig.colorbar(mappable, ax=ax, fraction=0.035, pad=0.02)
     cbar.set_label(str(payload.get("legend_title") or "Valeur"))
 
-    _save_figure(fig, output_path, payload.get("note"))
+    if payload.get("fixed_canvas"):
+        fig.subplots_adjust(left=0.02, right=0.87, top=0.92, bottom=0.09)
+        note = payload.get("note")
+        if note:
+            fig.text(0.01, 0.015, note, ha="left", va="bottom", fontsize=8, color="#475569", wrap=True)
+        fig.savefig(output_path, dpi=180)
+    else:
+        _save_figure(fig, output_path, payload.get("note"))
     plt.close(fig)
 
 
@@ -6723,6 +7284,11 @@ def _render_choropleth_map_grid_png(
     norm = mcolors.Normalize(vmin=_safe_float(payload.get("vmin"), 0.0), vmax=max(_safe_float(payload.get("vmax"), 1.0), 1.0))
     edgecolor = str(payload.get("edgecolor") or "#ffffff")
     line_width = _safe_float(payload.get("line_width"), 0.2)
+    extent_gdf = payload.get("extent_gdf")
+    if extent_gdf is not None and not getattr(extent_gdf, "empty", True):
+        if extent_gdf.crs is None:
+            extent_gdf = extent_gdf.set_crs(epsg=4326)
+        extent_gdf = extent_gdf.to_crs(epsg=3857)
 
     for row_idx, row_cfg in enumerate(rows):
         row_cells = cells[row_idx] if row_idx < len(cells) and isinstance(cells[row_idx], list) else []
@@ -6737,7 +7303,7 @@ def _render_choropleth_map_grid_png(
             if gdf.crs is None:
                 gdf = gdf.set_crs(epsg=4326)
             gdf = gdf.to_crs(epsg=3857)
-            _apply_map_extent(ax, gdf)
+            _apply_map_extent(ax, extent_gdf if extent_gdf is not None and not getattr(extent_gdf, "empty", True) else gdf)
             _add_light_basemap(ax)
             values = gdf[value_column].map(lambda value: max(_safe_float(value), 0.0))
             colors = [cmap(norm(value)) for value in values]
@@ -6748,11 +7314,16 @@ def _render_choropleth_map_grid_png(
             if col_idx == 0:
                 ax.text(-0.08, 0.5, str(row_cfg.get("label") or row_cfg.get("key") or ""), transform=ax.transAxes, rotation=90, va="center", ha="center", fontsize=11, fontweight="bold")
 
+    fig.subplots_adjust(top=0.9, bottom=0.08, left=0.07, right=0.88, wspace=0.08, hspace=0.07)
     mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
-    cbar = fig.colorbar(mappable, ax=[ax for row_axes in axes_grid for ax in row_axes], fraction=0.022, pad=0.02)
+    cax = fig.add_axes([0.905, 0.18, 0.018, 0.64])
+    cbar = fig.colorbar(mappable, cax=cax)
     cbar.set_label(str(payload.get("legend_title") or "Valeur"))
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.985)
-    _save_figure(fig, output_path, payload.get("note"))
+    note = payload.get("note")
+    if note:
+        fig.text(0.01, 0.01, note, ha="left", va="bottom", fontsize=8, color="#475569", wrap=True)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -6775,7 +7346,11 @@ def _render_population_state_matrix_png(
 
     nrows = len(row_titles)
     ncols = len(column_titles)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2, 12.9), subplot_kw={"aspect": "equal"})
+    percent_label_scale = _matrix_percent_label_scale(payload)
+    pie_label_fontsize = _matrix_percent_label_fontsize(12, percent_label_scale)
+    cause_label_fontsize = _matrix_percent_label_fontsize(6, percent_label_scale)
+    fig_scale = 1.0 + (max(percent_label_scale - 1.0, 0.0) * 0.24)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15.2 * fig_scale, 12.9 * fig_scale), subplot_kw={"aspect": "equal"})
     if nrows == 1 and ncols == 1:
         axes_grid = [[axes]]
     elif nrows == 1:
@@ -6804,11 +7379,14 @@ def _render_population_state_matrix_png(
                     wedgeprops={"linewidth": 0.8, "edgecolor": "white"},
                 )
                 impacted = sum(values[1:])
-                ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=12, fontweight="bold", color="#0f172a")
+                dominant_state = STATE_SEQUENCE[values.index(max(values))]
+                center_label_color = "#ffffff" if dominant_state == "S3" else "#0f172a"
+                ax.text(0, 0, f"{impacted:.0f}%", ha="center", va="center", fontsize=pie_label_fontsize, fontweight="bold", color=center_label_color)
             else:
-                ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=12, fontweight="bold", color="#64748b")
+                ax.text(0.5, 0.5, "0%", transform=ax.transAxes, ha="center", va="center", fontsize=pie_label_fontsize, fontweight="bold", color="#64748b")
             if cause_cell is not None:
-                inset = ax.inset_axes([0.82, 0.14, 0.12, 0.72])
+                inset_width = min(0.24, 0.12 * (1.0 + max(percent_label_scale - 1.0, 0.0) * 0.38))
+                inset = ax.inset_axes([0.94 - inset_width, 0.14, inset_width, 0.72])
                 cause_bottom = 0.0
                 outage_share = max(_safe_float(cell.get("S3")), 0.0)
                 cause_total = 0.0 if outage_share <= 0.0 else sum(max(_safe_float(cause_cell.get(key)), 0.0) for key in OUTAGE_CAUSE_LABELS)
@@ -6827,7 +7405,7 @@ def _render_population_state_matrix_png(
                         cause_bottom += value
                 else:
                     inset.bar([0], [100.0], width=0.8, color="none", edgecolor="#94a3b8", linewidth=0.8)
-                    inset.text(0, 50.0, "HS\n0%", ha="center", va="center", fontsize=6, color="#64748b", fontweight="bold")
+                    inset.text(0, 50.0, "HS\n0%", ha="center", va="center", fontsize=cause_label_fontsize, color="#64748b", fontweight="bold")
                 inset.set_ylim(0, 100)
                 inset.set_xlim(-0.8, 0.8)
                 inset.set_xticks([])
@@ -7075,7 +7653,7 @@ def _render_population_decision_zone_map_png(
 
 
 def _clean_output_categories(output_dir: Path) -> None:
-    for category in ("charts", "maps", "tables", "Population"):
+    for category in ("charts", "maps", "tables", "Population", DAMAGE_ZONE_OUTPUT_DIRNAME):
         category_dir = output_dir / category
         if category_dir.exists():
             shutil.rmtree(category_dir)
@@ -7828,6 +8406,7 @@ def _build_network_economic_damage_matrix_payload(
         "outage_cause_legend_prefix": "Origine des dommages",
         "outage_cause_empty_label": "Dom.\n0%",
         "cause_bar_requires_s3": False,
+        "percent_label_scale": MATRIX_PERCENT_LABEL_SCALE,
         "note": (
             "Matrice de criticite economique reconstruite depuis les state_damage_tables. "
             "Les etats S0-S3 sont agreges par valeur exposee pour les groupes multi-classes; cette figure ne represente pas un etat de service spatialise. "
@@ -7907,6 +8486,7 @@ def _build_network_state_matrix_payload(
         "row_titles": [label for _scenario_key, label in NETWORK_STATE_MATRIX_SCENARIOS],
         "cells": cells,
         "outage_cause_cells": outage_cause_cells,
+        "percent_label_scale": MATRIX_PERCENT_LABEL_SCALE,
         "note": (
             f"Chaque vignette montre la repartition des etats de service issus de network-states.geojson, de {_state_range_label('S0', 'S3')}, pour un scenario et un type d'infrastructure. "
             "Pour les reseaux d'eau, la petite barre a droite ventile l'origine directe/indirecte des hors services depuis les causes GeoJSON quand cette decomposition est disponible."
@@ -8622,6 +9202,44 @@ def _render_targeted_event_assets(
     return generated_paths, warnings
 
 
+def _render_damage_zone_assets_from_artifacts(
+    plt: Any,
+    artifacts_by_territory: dict[str, AuxiliaryArtifacts],
+    output_dir: Path,
+    *,
+    clean: bool = False,
+) -> tuple[list[str], list[str]]:
+    damage_zones_dir = output_dir / DAMAGE_ZONE_OUTPUT_DIRNAME
+    if clean and damage_zones_dir.exists():
+        shutil.rmtree(damage_zones_dir)
+    damage_zones_dir.mkdir(parents=True, exist_ok=True)
+    generated_paths: list[str] = []
+    warnings: list[str] = []
+    for territory, artifacts in artifacts_by_territory.items():
+        specs, build_warnings = _build_damage_zone_output_specs(artifacts, territory)
+        warnings.extend(build_warnings)
+        for file_name, payload in specs:
+            output_path = damage_zones_dir / file_name
+            try:
+                _render_auxiliary_output(plt, output_path, payload)
+                generated_paths.append(str(output_path))
+            except Exception as exc:
+                warnings.append(_warning_message(territory, output_path.name, f"render failed: {type(exc).__name__}: {exc}"))
+    return sorted(generated_paths), warnings
+
+
+def _render_damage_zone_assets(
+    record: RunRecord,
+    payloads: dict[str, TerritoryPayload],
+    output_dir: Path,
+    *,
+    clean: bool = False,
+) -> tuple[list[str], list[str]]:
+    _, plt = _load_matplotlib()
+    artifacts_by_territory = {territory: _load_auxiliary_artifacts(record, bundle) for territory, bundle in payloads.items()}
+    return _render_damage_zone_assets_from_artifacts(plt, artifacts_by_territory, output_dir, clean=clean)
+
+
 def _render_integrated_vincennes_assets(
     record: RunRecord,
     payloads: dict[str, TerritoryPayload],
@@ -8637,10 +9255,12 @@ def _render_integrated_vincennes_assets(
     maps_dir = output_dir / "maps"
     tables_dir = output_dir / "tables"
     population_dir = output_dir / "Population"
+    damage_zones_dir = output_dir / DAMAGE_ZONE_OUTPUT_DIRNAME
     charts_dir.mkdir(parents=True, exist_ok=True)
     maps_dir.mkdir(parents=True, exist_ok=True)
     tables_dir.mkdir(parents=True, exist_ok=True)
     population_dir.mkdir(parents=True, exist_ok=True)
+    damage_zones_dir.mkdir(parents=True, exist_ok=True)
 
     for territory, artifacts in artifacts_by_territory.items():
         hazard_map_payloads = _build_hazard_scatter_map_payloads(artifacts, territory)
@@ -8942,6 +9562,15 @@ def _render_integrated_vincennes_assets(
             except Exception as exc:
                 warnings.append(_warning_message(territory, output_path.name, f"render failed: {type(exc).__name__}: {exc}"))
 
+    damage_zone_paths, damage_zone_warnings = _render_damage_zone_assets_from_artifacts(
+        plt,
+        artifacts_by_territory,
+        output_dir,
+        clean=False,
+    )
+    generated_paths.extend(damage_zone_paths)
+    warnings.extend(damage_zone_warnings)
+
     return sorted(generated_paths), warnings
 
 
@@ -9027,6 +9656,89 @@ def write_graph_manifest(
     return manifest_path
 
 
+def _manifest_path_starts_with_category(output_dir: Path, raw_path: Any, category: str) -> bool:
+    path = Path(str(raw_path))
+    try:
+        relative = path.relative_to(output_dir)
+    except ValueError:
+        relative = Path(str(raw_path))
+    return bool(relative.parts) and relative.parts[0] == category
+
+
+def merge_damage_zone_manifest(
+    record: RunRecord,
+    payloads: dict[str, TerritoryPayload],
+    output_dir: Path,
+    damage_zone_paths: list[str],
+    warnings: list[str],
+) -> Path:
+    manifest_path = output_dir / "graphs-manifest.json"
+    existing = _load_json(manifest_path) if manifest_path.exists() else {}
+    damage_zone_prefix = f"{DAMAGE_ZONE_OUTPUT_DIRNAME}/"
+
+    png_paths = [
+        str(path)
+        for path in (existing.get("png_paths") if isinstance(existing.get("png_paths"), list) else [])
+    ]
+    auxiliary_output_paths = [
+        str(path)
+        for path in (existing.get("auxiliary_output_paths") if isinstance(existing.get("auxiliary_output_paths"), list) else [])
+        if not _manifest_path_starts_with_category(output_dir, path, DAMAGE_ZONE_OUTPUT_DIRNAME)
+    ]
+    auxiliary_output_paths.extend(str(path) for path in damage_zone_paths)
+
+    generated_outputs = [
+        item
+        for item in (existing.get("generated_outputs") if isinstance(existing.get("generated_outputs"), list) else [])
+        if isinstance(item, dict) and not str(item.get("path") or "").startswith(damage_zone_prefix)
+    ]
+    for raw_path in damage_zone_paths:
+        relative, technical_type, family = _auxiliary_output_classification(output_dir, raw_path)
+        hazard = "storm_cmcc" if "storm_cmcc" in str(relative).lower() else DAMAGE_ZONE_HAZARD
+        generated_outputs.append(
+            {
+                "path": relative,
+                "technical_type": technical_type,
+                "family": family,
+                "source": "integrated_auxiliary",
+                "graph_type": None,
+                "territory": None,
+                "hazard": hazard,
+            }
+        )
+
+    merged_warnings = [
+        str(item)
+        for item in (existing.get("warnings") if isinstance(existing.get("warnings"), list) else [])
+    ]
+    for warning in warnings:
+        if warning not in merged_warnings:
+            merged_warnings.append(warning)
+
+    all_output_paths = [*png_paths, *auxiliary_output_paths]
+    payload = {
+        **existing,
+        "run_id": existing.get("run_id") or record.run_id,
+        "run_family": existing.get("run_family") or record.run_family,
+        "status": existing.get("status") or record.status,
+        "created_at": existing.get("created_at") or record.created_at,
+        "updated_at": datetime.now(tz=UTC).isoformat(),
+        "output_dir": str(output_dir),
+        "png_count": len(png_paths),
+        "auxiliary_output_count": len(auxiliary_output_paths),
+        "output_counts_by_category": _count_outputs_by_category(output_dir, all_output_paths),
+        "output_counts_by_technical_type": _count_generated_outputs(generated_outputs, "technical_type"),
+        "output_counts_by_family": _count_generated_outputs(generated_outputs, "family"),
+        "warnings": merged_warnings,
+        "territories": {name: asdict(bundle) | {"payload": None} for name, bundle in payloads.items()},
+        "png_paths": png_paths,
+        "auxiliary_output_paths": auxiliary_output_paths,
+        "generated_outputs": generated_outputs,
+    }
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest_path
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate HTML and PNG graph packs from SIB archived runs."
@@ -9042,6 +9754,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--formats", default="html", help="Comma-separated outputs: html,png")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_ROOT), help="Output root directory for generated graph packs")
     parser.add_argument(
+        "--damages-zones-only",
+        action="store_true",
+        help="Render only the Damages_Zones maps and merge them into an existing graph manifest.",
+    )
+    parser.add_argument(
         "--state-label-style",
         choices=STATE_LABEL_STYLE_CHOICES,
         default="code",
@@ -9052,6 +9769,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=STORM_CMCC_LAYOUT_CHOICES,
         default="harmonized",
         help="Style storm/cmcc comparisons. harmonized gives STORM solid/darker and STORM_CMCC dashed or dotted/lighter.",
+    )
+    parser.add_argument(
+        "--matrix-percent-label-scale",
+        type=float,
+        default=MATRIX_PERCENT_LABEL_SCALE_DEFAULT,
+        help="Scale factor for percentage labels inside network-state bars and population pie sectors.",
     )
     parser.add_argument("--open-index", action="store_true", help="Open the generated HTML index in the default browser")
     parser.add_argument("--verbose", action="store_true", help="Print extra diagnostic information while generating graphs")
@@ -9064,6 +9787,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     set_state_label_style(args.state_label_style)
     set_storm_cmcc_layout(args.storm_cmcc_layout)
+    set_matrix_percent_label_scale(args.matrix_percent_label_scale)
     run_family = _resolve_run_family(args.run_family)
     RUN_OUTPUTS_DIR = RUN_FAMILY_OUTPUT_DIRS[run_family]
 
@@ -9104,15 +9828,17 @@ def main(argv: list[str] | None = None) -> int:
         else _default_graph_types_for_run_family(selected_record.run_family)
     )
 
-    graphs: list[GraphSpec] = [build_run_overview_graph(selected_record, payloads)]
-    if selected_record.run_family == "targeted-cyclone":
-        for territory in selected_territories:
-            graphs.extend(build_targeted_graphs_for_territory(territory, payloads[territory], selected_hazards))
-    else:
-        for territory in selected_territories:
-            graphs.extend(build_graphs_for_territory(selected_record, territory, payloads[territory], selected_hazards))
-    graphs = filter_graphs(graphs, selected_graph_types)
-    if not graphs:
+    graphs: list[GraphSpec] = []
+    if not args.damages_zones_only:
+        graphs = [build_run_overview_graph(selected_record, payloads)]
+        if selected_record.run_family == "targeted-cyclone":
+            for territory in selected_territories:
+                graphs.extend(build_targeted_graphs_for_territory(territory, payloads[territory], selected_hazards))
+        else:
+            for territory in selected_territories:
+                graphs.extend(build_graphs_for_territory(selected_record, territory, payloads[territory], selected_hazards))
+        graphs = filter_graphs(graphs, selected_graph_types)
+    if not args.damages_zones_only and not graphs:
         raise RuntimeError("No graphs left after applying filters")
 
     output_root, output_root_warning = _resolve_output_root(args.output_dir)
@@ -9121,6 +9847,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[warn] {output_root_warning}", file=sys.stderr)
     run_output_dir = output_root / selected_record.run_id
     run_output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.damages_zones_only:
+        damage_zone_paths, damage_zone_warnings = _render_damage_zone_assets(
+            selected_record,
+            payloads,
+            run_output_dir,
+            clean=True,
+        )
+        for damage_zone_warning in damage_zone_warnings:
+            warnings.append(damage_zone_warning)
+            print(f"[warn] {damage_zone_warning}", file=sys.stderr)
+        if not damage_zone_paths:
+            raise RuntimeError("No Damages_Zones maps were generated")
+        manifest_path = merge_damage_zone_manifest(selected_record, payloads, run_output_dir, damage_zone_paths, warnings)
+        print(f"[ok] Damages_Zones maps written to {run_output_dir / DAMAGE_ZONE_OUTPUT_DIRNAME}")
+        print(f"[ok] Graph manifest updated at {manifest_path}")
+        print(f"[ok] Selected run: {selected_record.run_id}")
+        print(f"[ok] Run family: {selected_record.run_family}")
+        print(f"[ok] Damages_Zones output count: {len(damage_zone_paths)}")
+        return 0
 
     html_index: Path | None = None
     if "html" in output_formats:

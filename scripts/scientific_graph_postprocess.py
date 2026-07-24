@@ -136,6 +136,26 @@ ASSET_TYPE_TO_BREAKDOWN_CLASS = {
     "eau_eu_pr": "eau_eu_pr",
     "eau_eu_step": "eau_eu_step",
 }
+DAMAGE_ZONE_FAMILY_CLASS_KEYS = {
+    "aep": ("eau_aep", "eau_aep_ouvrages"),
+    "eu": ("eau_eu", "eau_eu_pr", "eau_eu_step"),
+    "elec": (
+        "elec_bt_souterrain",
+        "elec_bt_aerien",
+        "elec_hta_souterrain",
+        "elec_hta_aerien",
+    ),
+}
+DAMAGE_ZONE_FAMILY_LABELS = {
+    "aep": "AEP",
+    "eu": "EU",
+    "elec": "Elec",
+}
+DAMAGE_ZONE_FAMILY_NETWORK_KIND = {
+    "aep": "AEP",
+    "eu": "EU",
+    "elec": "ELEC",
+}
 
 
 @dataclass(frozen=True)
@@ -192,12 +212,19 @@ def needs_strict_scientific_rebuild(complete_analysis: dict[str, Any]) -> bool:
         return True
     state_tables = _safe_dict(graph_inputs.get("state_damage_tables"))
     breakdowns = _safe_dict(graph_inputs.get("damage_breakdown_by_scenario"))
+    damage_zones = _safe_dict(graph_inputs.get("damage_zones_by_scenario"))
     for scenario in EVENT_SCENARIOS:
         if not _safe_list(state_tables.get(scenario)):
             return True
         block = _safe_dict(breakdowns.get(scenario))
         if not _safe_list(block.get("storm")) or not _safe_list(block.get("storm_cmcc")):
             return True
+        zone_block = _safe_dict(damage_zones.get(scenario))
+        for hazard_key in HAZARD_KEYS:
+            hazard_block = _safe_dict(zone_block.get(hazard_key))
+            for family_key in DAMAGE_ZONE_FAMILY_CLASS_KEYS:
+                if not _safe_list(hazard_block.get(family_key)):
+                    return True
     event_selection = _safe_dict(graph_inputs.get("event_selection"))
     event_indices = _safe_dict(event_selection.get("event_indices_by_hazard"))
     event_losses = _safe_dict(event_selection.get("event_loss_eur_by_hazard"))
@@ -1349,6 +1376,126 @@ def _row_from_state_distribution(
     }
 
 
+def _damage_zone_family_from_breakdown_class(class_key: str | None) -> str | None:
+    if not class_key:
+        return None
+    for family_key, class_keys in DAMAGE_ZONE_FAMILY_CLASS_KEYS.items():
+        if class_key in class_keys:
+            return family_key
+    return None
+
+
+def _damage_zone_unit_id_from_point(point_record: dict[str, Any], family_key: str) -> str:
+    if family_key in {"aep", "eu"}:
+        return str(
+            point_record.get("service_feature_id")
+            or point_record.get("zone_component_key")
+            or point_record.get("zone_uid")
+            or ""
+        ).strip()
+    if family_key == "elec":
+        return str(_electric_native_unit_id_from_point(point_record) or "").strip()
+    return ""
+
+
+def _damage_zone_label_from_point(point_record: dict[str, Any], family_key: str, unit_id: str) -> str:
+    label = str(point_record.get("zone_uid") or point_record.get("label") or "").strip()
+    if label:
+        return label
+    prefix = DAMAGE_ZONE_FAMILY_LABELS.get(family_key, family_key.upper())
+    return f"{prefix} - {unit_id}" if unit_id else prefix
+
+
+def _aggregate_damage_zones_by_scenario(
+    *,
+    point_records: list[dict[str, Any]],
+    values: np.ndarray,
+    breakdown_class_keys: list[str | None],
+    scenario_direct_loss_by_hazard: dict[str, dict[str, np.ndarray]],
+) -> dict[str, dict[str, dict[str, list[dict[str, Any]]]]]:
+    point_units: list[tuple[int, str, str] | None] = []
+    base_buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for idx, point_record in enumerate(point_records):
+        class_key = breakdown_class_keys[idx] if idx < len(breakdown_class_keys) else None
+        family_key = _damage_zone_family_from_breakdown_class(class_key)
+        if family_key is None:
+            point_units.append(None)
+            continue
+        unit_id = _damage_zone_unit_id_from_point(point_record, family_key)
+        if not unit_id:
+            point_units.append(None)
+            continue
+        bucket_key = (family_key, unit_id)
+        bucket = base_buckets.setdefault(
+            bucket_key,
+            {
+                "family_key": family_key,
+                "family_label": DAMAGE_ZONE_FAMILY_LABELS.get(family_key, family_key.upper()),
+                "network_kind": DAMAGE_ZONE_FAMILY_NETWORK_KIND.get(family_key, ""),
+                "spatial_unit_kind": "fixed_grid_0p1deg" if family_key == "elec" else "hydraulic_zone_component",
+                "unit_id": unit_id,
+                "zone_component_key": unit_id if family_key in {"aep", "eu"} else "",
+                "zone_uid": str(point_record.get("zone_uid") or unit_id).strip(),
+                "zone_label": _damage_zone_label_from_point(point_record, family_key, unit_id),
+                "exposure_eur": 0.0,
+                "point_count": 0,
+                "_asset_ids": set(),
+            },
+        )
+        bucket["exposure_eur"] += max(float(values[idx]) if idx < values.size else 0.0, 0.0)
+        bucket["point_count"] += 1
+        asset_id = str(point_record.get("feature_id") or point_record.get("asset_id") or "").strip()
+        if asset_id:
+            bucket["_asset_ids"].add(asset_id)
+        point_units.append((idx, family_key, unit_id))
+
+    out: dict[str, dict[str, dict[str, list[dict[str, Any]]]]] = {
+        scenario: {hazard_key: {family_key: [] for family_key in DAMAGE_ZONE_FAMILY_CLASS_KEYS} for hazard_key in HAZARD_KEYS}
+        for scenario in SCENARIOS
+    }
+    if not base_buckets:
+        return out
+
+    for scenario in SCENARIOS:
+        for hazard_key in HAZARD_KEYS:
+            direct_loss = np.minimum(
+                np.maximum(np.asarray(scenario_direct_loss_by_hazard[hazard_key][scenario], dtype=float), 0.0),
+                values,
+            )
+            direct_by_bucket = {bucket_key: 0.0 for bucket_key in base_buckets}
+            for point_unit in point_units:
+                if point_unit is None:
+                    continue
+                point_idx, family_key, unit_id = point_unit
+                if point_idx >= direct_loss.size:
+                    continue
+                direct_by_bucket[(family_key, unit_id)] += max(float(direct_loss[point_idx]), 0.0)
+
+            for bucket_key, base_bucket in base_buckets.items():
+                family_key, _unit_id = bucket_key
+                row = {
+                    key: value
+                    for key, value in base_bucket.items()
+                    if key != "_asset_ids"
+                }
+                row["exposure_eur"] = _round2(row.get("exposure_eur"))
+                row["direct_damage_eur"] = _round2(direct_by_bucket.get(bucket_key))
+                row["asset_count"] = len(base_bucket.get("_asset_ids") or set())
+                out[scenario][hazard_key][family_key].append(row)
+
+    for scenario in SCENARIOS:
+        for hazard_key in HAZARD_KEYS:
+            for family_key in DAMAGE_ZONE_FAMILY_CLASS_KEYS:
+                out[scenario][hazard_key][family_key] = sorted(
+                    out[scenario][hazard_key][family_key],
+                    key=lambda row: (
+                        -float(row.get("direct_damage_eur") or 0.0),
+                        str(row.get("unit_id") or ""),
+                    ),
+                )
+    return out
+
+
 def rebuild_scientific_graph_inputs(
     *,
     territory: str,
@@ -1671,6 +1818,12 @@ def rebuild_scientific_graph_inputs(
             scenario_unit_states_by_hazard=scenario_unit_states_by_hazard,
         )
     )
+    damage_zones_by_scenario = _aggregate_damage_zones_by_scenario(
+        point_records=point_records,
+        values=values,
+        breakdown_class_keys=breakdown_class_keys,
+        scenario_direct_loss_by_hazard=scenario_direct_loss_by_hazard,
+    )
 
     for scenario in EVENT_SCENARIOS:
         scenario_rows: list[dict[str, Any]] = []
@@ -1761,6 +1914,10 @@ def rebuild_scientific_graph_inputs(
             scenario: _safe_dict(damage_breakdowns.get(scenario)) or {"storm": [], "storm_cmcc": []}
             for scenario in SCENARIOS
         },
+        "damage_zones_by_scenario": {
+            scenario: _safe_dict(damage_zones_by_scenario.get(scenario))
+            for scenario in SCENARIOS
+        },
         "social_impact_by_scenario": {
             scenario: _safe_dict(social_summary_by_scenario.get(scenario))
             for scenario in SCENARIOS
@@ -1784,6 +1941,17 @@ def rebuild_scientific_graph_inputs(
                 "social_impact_by_scenario": bool(_safe_dict(social_summary_by_scenario.get(scenario))) and bool(social_availability.get(scenario)),
                 "network_states": bool(_safe_dict(network_state_distribution_by_scenario.get(scenario)).get("storm"))
                 and bool(_safe_dict(network_state_distribution_by_scenario.get(scenario)).get("storm_cmcc")),
+                "damage_zones_by_scenario": all(
+                    bool(
+                        _safe_list(
+                            _safe_dict(
+                                _safe_dict(damage_zones_by_scenario.get(scenario)).get(hazard_key)
+                            ).get(family_key)
+                        )
+                    )
+                    for hazard_key in HAZARD_KEYS
+                    for family_key in DAMAGE_ZONE_FAMILY_CLASS_KEYS
+                ),
             }
             for scenario in SCENARIOS
         },
