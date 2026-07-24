@@ -5023,6 +5023,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
     percent_label_scale = _matrix_percent_label_scale(payload)
     state_label_fontsize = _matrix_percent_label_fontsize(10, percent_label_scale)
     cause_label_fontsize = _matrix_percent_label_fontsize(7, percent_label_scale)
+    legend_fontsize = _matrix_percent_label_fontsize(9, percent_label_scale)
     fig_scale = 1.0 + (max(percent_label_scale - 1.0, 0.0) * 0.24)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15.2 * fig_scale, 12.9 * fig_scale), sharey=True)
     if nrows == 1 and ncols == 1:
@@ -5091,10 +5092,15 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                             linewidth=0.7,
                         )
                         if value >= 18.0:
+                            cause_label = (
+                                f"{value:.0f}%"
+                                if percent_label_scale >= 2.0
+                                else f"{OUTAGE_CAUSE_LABELS[cause_key]}\n{value:.0f}%"
+                            )
                             ax.text(
                                 cause_x,
                                 cause_bottom + (value / 2.0),
-                                f"{OUTAGE_CAUSE_LABELS[cause_key]}\n{value:.0f}%",
+                                cause_label,
                                 ha="center",
                                 va="center",
                                 fontsize=cause_label_fontsize,
@@ -5106,7 +5112,7 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
                     ax.bar([cause_x], [100.0], width=0.24, color="none", edgecolor="#94a3b8", linewidth=0.8)
                     ax.text(cause_x, 50.0, outage_cause_empty_label, ha="center", va="center", fontsize=cause_label_fontsize, color="#64748b", fontweight="bold")
                 ax.text(cause_x, -7.0, outage_cause_title, ha="center", va="top", fontsize=7, color="#475569")
-            ax.set_ylim(0, 100)
+            ax.set_ylim(-18, 122)
             ax.set_xlim(-0.65, 0.65)
             ax.set_xticks([])
             if col_idx == 0:
@@ -5125,11 +5131,21 @@ def _render_network_state_matrix_png(plt: Any, payload: dict[str, Any], output_p
 
     handles = [Patch(facecolor=state_palette[state], label=_state_label(state)) for state in STATE_SEQUENCE]
     handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"{outage_cause_legend_prefix} - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
-    fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.955), frameon=False, fontsize=9)
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.018),
+        frameon=False,
+        fontsize=legend_fontsize,
+        handlelength=1.35,
+        columnspacing=1.1,
+        labelspacing=0.7,
+    )
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.989)
     fig.text(0.03, 0.5, str(payload.get("ylabel") or "% des reseaux"), rotation="vertical", va="center", fontsize=11)
-    fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.86))
-    _save_figure(fig, output_path, payload.get("note"))
+    fig.tight_layout(rect=(0.05, 0.17, 1.0, 0.92))
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -7349,6 +7365,7 @@ def _render_population_state_matrix_png(
     percent_label_scale = _matrix_percent_label_scale(payload)
     pie_label_fontsize = _matrix_percent_label_fontsize(12, percent_label_scale)
     cause_label_fontsize = _matrix_percent_label_fontsize(6, percent_label_scale)
+    legend_fontsize = _matrix_percent_label_fontsize(9, percent_label_scale)
     fig_scale = 1.0 + (max(percent_label_scale - 1.0, 0.0) * 0.24)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15.2 * fig_scale, 12.9 * fig_scale), subplot_kw={"aspect": "equal"})
     if nrows == 1 and ncols == 1:
@@ -7422,11 +7439,21 @@ def _render_population_state_matrix_png(
 
     handles = [Patch(facecolor=state_palette[idx], label=_state_label(state)) for idx, state in enumerate(STATE_SEQUENCE)]
     handles.extend(Patch(facecolor=OUTAGE_CAUSE_COLORS[key], label=f"{OUTAGE_CAUSE_LEGEND_PREFIX} - {label}") for key, label in OUTAGE_CAUSE_LABELS.items())
-    fig.legend(handles=handles, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 0.958), frameon=False, fontsize=9)
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.018),
+        frameon=False,
+        fontsize=legend_fontsize,
+        handlelength=1.35,
+        columnspacing=1.1,
+        labelspacing=0.7,
+    )
     fig.suptitle(payload.get("title") or "", fontsize=18, y=0.991)
     fig.text(0.03, 0.5, str(payload.get("legend_title") or "%"), rotation="vertical", va="center", fontsize=11)
-    fig.tight_layout(rect=(0.05, 0.04, 1.0, 0.88))
-    _save_figure(fig, output_path, payload.get("note"))
+    fig.tight_layout(rect=(0.05, 0.17, 1.0, 0.92))
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
