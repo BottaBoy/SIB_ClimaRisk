@@ -382,6 +382,7 @@ GRAPH_TYPE_ORDER = (
     "pml_ladder_by_territory_hazard",
     "pml_ladder_detail_by_territory_hazard",
     "pml_ladder_detail_key_periods_by_territory_hazard",
+    "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard",
     "top_events_by_hazard",
     "wind_year_hist_by_hazard",
     "hazard_component_share_by_return_period",
@@ -396,6 +397,7 @@ GRAPH_TYPE_LABELS = {
     "pml_ladder_by_territory_hazard": "Echelle PML",
     "pml_ladder_detail_by_territory_hazard": "Echelle PML detaillee",
     "pml_ladder_detail_key_periods_by_territory_hazard": "Echelle PML detaillee periodes principales",
+    "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard": "Echelle PML detaillee split tornado",
     "top_events_by_hazard": "Top evenements",
     "wind_year_hist_by_hazard": "Histogramme vent max par annee",
     "hazard_component_share_by_return_period": "Contribution aleas par temps de retour",
@@ -707,6 +709,18 @@ def _format_pml_total_side_label(value_eur: Any) -> str:
 
 def _format_side_segment_label(value_eur: Any, pct_value: Any) -> str:
     return f"{_format_million_label(value_eur)} ({_format_compact_percent_label(pct_value)})"
+
+
+def _format_tornado_abs_label(value_eur: Any) -> str:
+    numeric = _safe_float(value_eur)
+    magnitude = abs(numeric)
+    if magnitude >= 1_000_000_000.0:
+        return f"{numeric / 1_000_000_000.0:.2f}B"
+    if magnitude >= 1_000_000.0:
+        return f"{numeric / 1_000_000.0:.1f}M"
+    if magnitude >= 1_000.0:
+        return f"{numeric / 1_000.0:.1f}k"
+    return f"{numeric:.0f}"
 
 
 def set_state_label_style(style: str) -> None:
@@ -1369,6 +1383,7 @@ def _default_graph_types_for_run_family(run_family: str) -> list[str]:
         "pml_ladder_by_territory_hazard",
         "pml_ladder_detail_by_territory_hazard",
         "pml_ladder_detail_key_periods_by_territory_hazard",
+        "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard",
         "wind_year_hist_by_hazard",
         "hazard_component_share_by_return_period",
     ]
@@ -1393,7 +1408,15 @@ def _territory_payload_candidates(record: RunRecord, territory: str) -> list[tup
     territory_entry = territory_entry.get(territory) if isinstance(territory_entry.get(territory), dict) else {}
     if _record_is_graph_pack_manifest(record):
         payload_path = str(territory_entry.get("payload_path") or "").strip()
-        return [(Path(payload_path), str(territory_entry.get("source_kind") or "graph_pack_payload"))] if payload_path else []
+        if not payload_path:
+            return []
+        path = Path(payload_path)
+        source_kind = str(territory_entry.get("source_kind") or "graph_pack_payload")
+        candidates: list[tuple[Path, str]] = []
+        if path.name == f"{territory}-scientific-web-summary.json":
+            candidates.append((path.with_name(f"{territory}-complete-analysis.json"), "graph_pack_complete_analysis_sibling"))
+        candidates.append((path, source_kind))
+        return candidates
     phases = territory_entry.get("phases") if isinstance(territory_entry.get("phases"), dict) else {}
     export_phase = phases.get("export") if isinstance(phases.get("export"), dict) else {}
     candidates: list[tuple[Path, str]] = []
@@ -3024,6 +3047,124 @@ def build_pml_ladder_detail_key_periods_graph(territory: str, payload: dict[str,
     )
 
 
+def build_pml_ladder_detail_split_tornado_key_periods_graph(
+    territory: str,
+    payload: dict[str, Any],
+    hazard: str,
+) -> GraphSpec | None:
+    territory_name = _display_territory_name(territory)
+    hazard_label = HAZARD_LABELS[hazard]
+    periods = (10, 50, 100, 1000)
+    rows: list[dict[str, Any]] = []
+    for period in periods:
+        scenario_key = _nearest_return_period_scenario(int(period))
+        hazard_metrics = _extract_hazard_metrics(payload, hazard)
+        total_value = _safe_float(hazard_metrics.get(f"pml_{period}_eur"))
+        if total_value <= 0.0:
+            continue
+        damage_rows = _hazard_damage_detail_rows_for_payload(payload, hazard, scenario_key)
+        raw_damage, exposure_totals = _damage_detail_subclass_totals_from_rows(damage_rows)
+        denominator = sum(raw_damage.values())
+        if denominator <= 0.0:
+            continue
+        allocated = {
+            subclass_key: round(max(total_value, 0.0) * (raw_damage[subclass_key] / denominator), 2)
+            for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER
+        }
+        drift = round(max(total_value, 0.0) - sum(allocated.values()), 2)
+        if abs(drift) >= 0.01:
+            target_key = max(DAMAGE_DETAIL_SUBCLASS_ORDER, key=lambda item: allocated[item])
+            allocated[target_key] = round(max(allocated[target_key] + drift, 0.0), 2)
+        segments = []
+        for subclass_key in DAMAGE_DETAIL_SUBCLASS_ORDER:
+            absolute_value = allocated[subclass_key]
+            exposure_value = exposure_totals[subclass_key]
+            relative_pct = (absolute_value / exposure_value) * 100.0 if exposure_value > 0.0 else 0.0
+            segments.append(
+                {
+                    "key": subclass_key,
+                    "name": DAMAGE_DETAIL_SUBCLASS_LABELS[subclass_key],
+                    "color": DAMAGE_DETAIL_SUBCLASS_COLORS[subclass_key],
+                    "absolute_eur": absolute_value,
+                    "relative_pct": round(relative_pct, 4),
+                    "absolute_label": _format_tornado_abs_label(absolute_value),
+                    "relative_label": _format_percent(relative_pct),
+                }
+            )
+        if not any(_safe_float(segment.get("absolute_eur")) > 0.0 for segment in segments):
+            continue
+        total_abs_eur = round(sum(_safe_float(segment.get("absolute_eur")) for segment in segments), 2)
+        total_exposure_eur = sum(max(_safe_float(value), 0.0) for value in exposure_totals.values())
+        total_relative_pct = (total_abs_eur / total_exposure_eur) * 100.0 if total_exposure_eur > 0.0 else 0.0
+        rows.append(
+            {
+                "label": f"PML{period}",
+                "period": int(period),
+                "hazard": hazard,
+                "hazard_label": hazard_label,
+                "hatch": _hazard_group_hatch(hazard),
+                "segments": segments,
+                "total_abs_eur": total_abs_eur,
+                "relative_bar_total_pct": round(sum(_safe_float(segment.get("relative_pct")) for segment in segments), 4),
+                "total_exposure_eur": round(total_exposure_eur, 2),
+                "total_relative_pct": round(total_relative_pct, 4),
+            }
+        )
+
+    if not rows:
+        return None
+    graph_type = "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard"
+    title = f"Echelle PML detaillee split tornado - {hazard_label} - {territory_name}"
+    return GraphSpec(
+        graph_id=_graph_id(graph_type, territory, hazard),
+        graph_type=graph_type,
+        title=title,
+        section="loss",
+        territory=territory,
+        hazard=hazard,
+        kind="chart",
+        description=(
+            "Version tornado de l echelle PML detaillee : pertes absolues par sous-classe a gauche, "
+            "degats relatifs a la valeur d infrastructure a droite."
+        ),
+        echarts_option=None,
+        png_payload={
+            "type": "split_tornado_stacked_bar",
+            "title": title,
+            "rows": rows,
+            "left_title": "Degats absolus",
+            "right_title": "Degats relatifs",
+            "left_xlabel": "Pertes absolues (EUR)",
+            "right_xlabel": "% de la valeur d infrastructure",
+            "segment_legend_title": "Sous-classe",
+            "hatch_legend_title": "Scenario",
+            "label_fontsize": 16,
+            "row_label_fontsize": 15,
+            "axis_label_fontsize": 14,
+            "tick_label_fontsize": 12,
+            "panel_title_fontsize": 19,
+            "title_fontsize": 23,
+            "legend_fontsize": 13,
+            "legend_title_fontsize": 16,
+            "show_total_labels": True,
+            "total_label_fontsize": 18,
+        },
+    )
+
+
+def build_pml_ladder_detail_split_tornado_key_periods_graphs(
+    territory: str,
+    payload: dict[str, Any],
+    hazards: list[str],
+) -> list[GraphSpec]:
+    graphs: list[GraphSpec] = []
+    for hazard in hazards:
+        graph = build_pml_ladder_detail_split_tornado_key_periods_graph(territory, payload, hazard)
+        if graph is not None:
+            graphs.append(graph)
+    return graphs
+
+
 def build_top_events_graph(territory: str, payload: dict[str, Any], hazard: str) -> GraphSpec | None:
     territory_name = _display_territory_name(territory)
     events = _extract_event_list(payload, hazard)[:10]
@@ -3557,6 +3698,12 @@ def build_graphs_for_territory(
     pml_ladder_detail_key_periods_graph = build_pml_ladder_detail_key_periods_graph(territory, payload, selected_hazards)
     if pml_ladder_detail_key_periods_graph is not None:
         graphs.append(pml_ladder_detail_key_periods_graph)
+    pml_ladder_detail_split_tornado_graphs = build_pml_ladder_detail_split_tornado_key_periods_graphs(
+        territory,
+        payload,
+        selected_hazards,
+    )
+    graphs.extend(pml_ladder_detail_split_tornado_graphs)
     component_share_graph = build_hazard_component_share_by_return_period_graph(territory, payload, selected_hazards)
     if component_share_graph is not None:
         graphs.append(component_share_graph)
@@ -4749,6 +4896,323 @@ def _render_grouped_stacked_bar_side_segment_labels_png(plt: Any, payload: dict[
         )
 
     _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
+def _render_split_tornado_stacked_bar_png(plt: Any, payload: dict[str, Any], output_path: Path) -> None:
+    from matplotlib.patches import Patch
+    from matplotlib.ticker import FuncFormatter
+
+    rows = [item for item in (payload.get("rows") or []) if isinstance(item, dict)]
+    if not rows:
+        fig, _ax = plt.subplots(figsize=(13.5, 8.5))
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+
+    def _row_segments(row: dict[str, Any]) -> list[dict[str, Any]]:
+        return [item for item in (row.get("segments") or []) if isinstance(item, dict)]
+
+    max_abs_total = max(
+        (
+            sum(max(_safe_float(segment.get("absolute_eur")), 0.0) for segment in _row_segments(row))
+            for row in rows
+        ),
+        default=0.0,
+    )
+    max_relative_total = max(
+        (
+            sum(max(_safe_float(segment.get("relative_pct")), 0.0) for segment in _row_segments(row))
+            for row in rows
+        ),
+        default=0.0,
+    )
+    left_limit = max(max_abs_total * 1.52, 1.0)
+    right_limit = max(max_relative_total * 1.52, 1.0)
+    label_fontsize = int(_safe_int(payload.get("label_fontsize"), default=16) or 16)
+    total_label_fontsize_default = max(label_fontsize + 2, 18)
+    total_label_fontsize = int(
+        _safe_int(payload.get("total_label_fontsize"), default=total_label_fontsize_default)
+        or total_label_fontsize_default
+    )
+    row_label_fontsize = int(_safe_int(payload.get("row_label_fontsize"), default=15) or 15)
+    axis_label_fontsize = int(_safe_int(payload.get("axis_label_fontsize"), default=14) or 14)
+    tick_label_fontsize = int(_safe_int(payload.get("tick_label_fontsize"), default=12) or 12)
+    panel_title_fontsize = int(_safe_int(payload.get("panel_title_fontsize"), default=19) or 19)
+    title_fontsize = int(_safe_int(payload.get("title_fontsize"), default=23) or 23)
+    legend_fontsize = int(_safe_int(payload.get("legend_fontsize"), default=13) or 13)
+    legend_title_fontsize = int(_safe_int(payload.get("legend_title_fontsize"), default=16) or 16)
+    y_positions: list[float] = []
+    cursor = 0.0
+    previous_period: int | None = None
+    for row in rows:
+        period = _safe_int(row.get("period"), default=0)
+        if previous_period is not None and period != previous_period:
+            cursor += 0.36
+        y_positions.append(cursor)
+        cursor += 1.72
+        previous_period = period
+    fig_height = max(10.6, (max(y_positions, default=0.0) - min(y_positions, default=0.0)) * 0.78 + 4.0)
+    fig, (left_ax, right_ax) = plt.subplots(
+        1,
+        2,
+        sharey=True,
+        figsize=(18.8, fig_height),
+        gridspec_kw={"width_ratios": [1.0, 1.0], "wspace": 0.018},
+    )
+    bar_height = 0.74
+    outside_offsets = (-0.72, 0.72, -0.46, 0.46, -1.02, 1.02)
+    segment_legend: dict[str, str] = {}
+    hatch_legend: dict[str, str] = {}
+
+    def _draw_segment_label(
+        ax: Any,
+        *,
+        y_pos: float,
+        start: float,
+        width: float,
+        axis_limit: float,
+        label: str,
+        facecolor: Any,
+        side: str,
+        segment_idx: int,
+    ) -> None:
+        if not label or width <= 0.0:
+            return
+        inside_threshold = axis_limit * (0.17 if side == "left" else 0.13)
+        if width >= inside_threshold:
+            ax.text(
+                start + (width / 2.0),
+                y_pos,
+                label,
+                ha="center",
+                va="center",
+                fontsize=label_fontsize,
+                fontweight="bold",
+                color=label_text_color_for_face(facecolor),
+                clip_on=True,
+            )
+            return
+        x_anchor = start + (width / 2.0)
+        x_edge = start + width
+        x_text = min(max(x_edge + (axis_limit * 0.018), axis_limit * 0.018), axis_limit * 0.985)
+        y_text = y_pos + outside_offsets[segment_idx % len(outside_offsets)]
+        ax.annotate(
+            label,
+            xy=(x_anchor, y_pos),
+            xytext=(x_text, y_text),
+            ha="right" if side == "left" else "left",
+            va="center",
+            fontsize=label_fontsize,
+            color="#0f172a",
+            clip_on=False,
+            arrowprops={
+                "arrowstyle": "-",
+                "color": "#64748b",
+                "linewidth": 0.55,
+                "shrinkA": 0,
+                "shrinkB": 2,
+                "connectionstyle": "angle3,angleA=0,angleB=90",
+            },
+            bbox={"boxstyle": "round,pad=0.14", "facecolor": "white", "edgecolor": "none", "alpha": 0.9},
+        )
+
+    def _draw_total_label(
+        ax: Any,
+        *,
+        y_pos: float,
+        total: float,
+        axis_limit: float,
+        label: str,
+        side: str,
+    ) -> None:
+        if not payload.get("show_total_labels", True) or total <= 0.0 or not label:
+            return
+        gap = axis_limit * 0.035
+        x_text = min(max(total + gap, gap), axis_limit * 0.985)
+        ax.annotate(
+            label,
+            xy=(total, y_pos),
+            xytext=(x_text, y_pos),
+            ha="right" if side == "left" else "left",
+            va="center",
+            fontsize=total_label_fontsize,
+            fontweight="bold",
+            color="#0f172a",
+            clip_on=False,
+            arrowprops={
+                "arrowstyle": "-",
+                "color": "#0f172a",
+                "linewidth": 0.85,
+                "shrinkA": 0,
+                "shrinkB": 3,
+            },
+            bbox={
+                "boxstyle": "round,pad=0.18",
+                "facecolor": "white",
+                "edgecolor": "#cbd5e1",
+                "linewidth": 0.5,
+                "alpha": 0.94,
+            },
+        )
+
+    for ax in (left_ax, right_ax):
+        for row_idx, y_pos in enumerate(y_positions):
+            if row_idx % 2 == 1:
+                ax.axhspan(y_pos - 0.72, y_pos + 0.72, color="#f8fafc", zorder=0)
+        ax.grid(True, axis="x", alpha=0.16, zorder=0)
+        ax.set_axisbelow(True)
+        ax.spines["top"].set_visible(False)
+        ax.spines["bottom"].set_color("#334155")
+
+    for row_idx, row in enumerate(rows):
+        y_pos = y_positions[row_idx]
+        hatch = str(row.get("hatch") or "")
+        hazard_label = str(row.get("hazard_label") or row.get("hazard") or f"Scenario {row_idx + 1}")
+        hatch_legend[hazard_label] = hatch
+        left_start = 0.0
+        right_start = 0.0
+        for segment_idx, segment in enumerate(_row_segments(row)):
+            color = str(segment.get("color") or "#64748b")
+            name = str(segment.get("name") or "")
+            if name and name not in segment_legend:
+                segment_legend[name] = color
+            absolute_value = max(_safe_float(segment.get("absolute_eur")), 0.0)
+            relative_value = max(_safe_float(segment.get("relative_pct")), 0.0)
+            if absolute_value > 0.0:
+                bars = left_ax.barh(
+                    [y_pos],
+                    [absolute_value],
+                    left=[left_start],
+                    height=bar_height,
+                    color=color,
+                    edgecolor="#334155",
+                    linewidth=0.5,
+                    hatch=hatch,
+                    zorder=2,
+                )
+                bar = bars[0]
+                _draw_segment_label(
+                    left_ax,
+                    y_pos=float(y_pos),
+                    start=left_start,
+                    width=absolute_value,
+                    axis_limit=left_limit,
+                    label=str(segment.get("absolute_label") or _format_tornado_abs_label(absolute_value)),
+                    facecolor=bar.get_facecolor(),
+                    side="left",
+                    segment_idx=segment_idx,
+                )
+            if relative_value > 0.0:
+                bars = right_ax.barh(
+                    [y_pos],
+                    [relative_value],
+                    left=[right_start],
+                    height=bar_height,
+                    color=color,
+                    edgecolor="#334155",
+                    linewidth=0.5,
+                    hatch=hatch,
+                    zorder=2,
+                )
+                bar = bars[0]
+                _draw_segment_label(
+                    right_ax,
+                    y_pos=float(y_pos),
+                    start=right_start,
+                    width=relative_value,
+                    axis_limit=right_limit,
+                    label=str(segment.get("relative_label") or _format_percent(relative_value)),
+                    facecolor=bar.get_facecolor(),
+                    side="right",
+                    segment_idx=segment_idx,
+                )
+            left_start += absolute_value
+            right_start += relative_value
+        absolute_total = max(_safe_float(row.get("total_abs_eur"), default=left_start), 0.0)
+        relative_bar_total = max(_safe_float(row.get("relative_bar_total_pct"), default=right_start), 0.0)
+        relative_total = max(_safe_float(row.get("total_relative_pct"), default=relative_bar_total), 0.0)
+        _draw_total_label(
+            left_ax,
+            y_pos=float(y_pos),
+            total=absolute_total,
+            axis_limit=left_limit,
+            label=_format_tornado_abs_label(absolute_total),
+            side="left",
+        )
+        _draw_total_label(
+            right_ax,
+            y_pos=float(y_pos),
+            total=relative_bar_total,
+            axis_limit=right_limit,
+            label=_format_percent(relative_total),
+            side="right",
+        )
+
+    row_labels = [str(row.get("label") or "") for row in rows]
+    left_ax.set_yticks(y_positions)
+    left_ax.set_yticklabels(row_labels, fontsize=row_label_fontsize)
+    left_ax.tick_params(axis="y", length=0, pad=8)
+    right_ax.tick_params(axis="y", left=False, labelleft=False)
+    left_ax.set_ylim(min(y_positions) - 1.35, max(y_positions) + 1.35)
+    left_ax.invert_yaxis()
+
+    left_ax.set_xlim(left_limit, 0.0)
+    right_ax.set_xlim(0.0, right_limit)
+    left_ax.spines["left"].set_visible(False)
+    right_ax.spines["right"].set_visible(False)
+    left_ax.spines["right"].set_color("#0f172a")
+    right_ax.spines["left"].set_color("#0f172a")
+    left_ax.spines["right"].set_linewidth(1.35)
+    right_ax.spines["left"].set_linewidth(1.35)
+    left_ax.set_title(str(payload.get("left_title") or "Valeurs absolues"), fontsize=panel_title_fontsize, fontweight="bold", pad=14)
+    right_ax.set_title(str(payload.get("right_title") or "Valeurs relatives"), fontsize=panel_title_fontsize, fontweight="bold", pad=14)
+    left_ax.set_xlabel(str(payload.get("left_xlabel") or "Valeur absolue"), fontsize=axis_label_fontsize)
+    right_ax.set_xlabel(str(payload.get("right_xlabel") or "Valeur relative"), fontsize=axis_label_fontsize)
+    left_ax.tick_params(axis="x", labelsize=tick_label_fontsize)
+    right_ax.tick_params(axis="x", labelsize=tick_label_fontsize)
+    left_ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_eur(value).replace(" EUR", "")))
+    right_ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _pos: _format_compact_percent_label(value)))
+    left_ax.xaxis.get_offset_text().set_visible(False)
+    right_ax.xaxis.get_offset_text().set_visible(False)
+
+    segment_handles = [
+        Patch(facecolor=color, edgecolor="#334155", label=label)
+        for label, color in segment_legend.items()
+    ]
+    hatch_handles = [
+        Patch(facecolor="white", edgecolor="#334155", hatch=hatch, label=label)
+        for label, hatch in hatch_legend.items()
+    ]
+    if segment_handles:
+        fig.legend(
+            handles=segment_handles,
+            loc="upper left",
+            bbox_to_anchor=(0.145, 0.965),
+            frameon=False,
+            title=str(payload.get("segment_legend_title") or "Famille"),
+            ncol=3,
+            fontsize=legend_fontsize,
+            title_fontsize=legend_title_fontsize,
+        )
+    if hatch_handles:
+        fig.legend(
+            handles=hatch_handles,
+            loc="upper right",
+            bbox_to_anchor=(0.98, 0.965),
+            frameon=False,
+            title=str(payload.get("hatch_legend_title") or "Scenario"),
+            ncol=2,
+            fontsize=legend_fontsize,
+            title_fontsize=legend_title_fontsize,
+        )
+
+    fig.suptitle(str(payload.get("title") or ""), fontsize=title_fontsize, y=0.995)
+    fig.subplots_adjust(left=0.13, right=0.985, top=0.78, bottom=0.095, wspace=0.018)
+    note = payload.get("note")
+    if note:
+        fig.text(0.01, 0.015, note, ha="left", va="bottom", fontsize=8, color="#475569", wrap=True)
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -7929,6 +8393,8 @@ def _render_auxiliary_output(
         _render_grouped_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "grouped_stacked_bar_segment_labels":
         _render_grouped_stacked_bar_segment_labels_png(plt, payload, output_path)
+    elif plot_type == "split_tornado_stacked_bar":
+        _render_split_tornado_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "stacked_bar":
         _render_stacked_bar_png(plt, payload, output_path)
     elif plot_type == "network_state_matrix":
@@ -9623,6 +10089,8 @@ def render_png_graphs(graphs: list[GraphSpec], png_dir: Path) -> list[str]:
             _render_grouped_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "grouped_stacked_bar_segment_labels":
             _render_grouped_stacked_bar_segment_labels_png(plt, payload, output_path)
+        elif plot_type == "split_tornado_stacked_bar":
+            _render_split_tornado_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "stacked_bar":
             _render_stacked_bar_png(plt, payload, output_path)
         elif plot_type == "stacked_bar_with_line":

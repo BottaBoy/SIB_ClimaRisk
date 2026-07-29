@@ -53,6 +53,39 @@ def test_load_territory_payload_rejects_mutable_only_paths(tmp_path, monkeypatch
         generate_run_graphs.load_territory_payload(_run_record(manifest), "guadeloupe")
 
 
+def test_graph_pack_payload_prefers_complete_analysis_sibling(tmp_path):
+    summary_path = tmp_path / "guadeloupe-scientific-web-summary.json"
+    complete_path = tmp_path / "guadeloupe-complete-analysis.json"
+    summary_path.write_text('{"payload": "summary"}', encoding="utf-8")
+    complete_path.write_text('{"payload": "complete"}', encoding="utf-8")
+    manifest = {
+        "territories": {
+            "guadeloupe": {
+                "payload_path": str(summary_path),
+                "source_kind": "adapted_graph_pack_with_scientific_archive",
+            }
+        }
+    }
+    record = generate_run_graphs.RunRecord(
+        run_id="20260711_071243",
+        status="success",
+        created_at=None,
+        updated_at=None,
+        territories=["guadeloupe"],
+        dynamic_max_tracks=None,
+        memory_budget_gb=None,
+        manifest_path=str(tmp_path / "graphs-manifest.json"),
+        manifest=manifest,
+        archived_ready_count=1,
+    )
+
+    bundle = generate_run_graphs.load_territory_payload(record, "guadeloupe")
+
+    assert bundle.payload_path == str(complete_path)
+    assert bundle.source_kind == "graph_pack_complete_analysis_sibling"
+    assert bundle.payload == {"payload": "complete"}
+
+
 def test_build_hazard_metric_scorecard_is_chart():
     payload = {
         "portfolio_results": {
@@ -220,12 +253,103 @@ def test_build_pml_ladder_detail_key_periods_graph_keeps_main_periods_only():
     assert graph.png_payload["groups"][0]["segments"][0]["label_pcts"] == [50.0, 250.0, 500.0, 5000.0]
 
 
+def test_build_pml_ladder_detail_split_tornado_key_periods_graph_separates_abs_and_relative():
+    rows = [
+        {"class_key": "eau_aep", "damage_eur": 50.0, "exposure_eur": 100.0},
+        {"class_key": "eau_eu", "damage_eur": 50.0, "exposure_eur": 200.0},
+        {"class_key": "elec_bt_souterrain", "damage_eur": 0.0, "exposure_eur": 700.0},
+    ]
+    payload = {
+        "portfolio_results": {
+            hazard: {
+                "pml_10_eur": 100.0,
+                "pml_50_eur": 500.0,
+                "pml_100_eur": 1000.0,
+                "pml_1000_eur": 10000.0,
+            }
+            for hazard in ("storm", "storm_cmcc")
+        },
+        "scientific_graph_inputs": {
+            "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+            "state_damage_tables": {},
+            "damage_breakdown_by_scenario": {
+                scenario: {"storm": rows, "storm_cmcc": rows}
+                for scenario in ("rp10", "rp50", "rp100", "rp1000")
+            },
+        },
+    }
+
+    graph = generate_run_graphs.build_pml_ladder_detail_split_tornado_key_periods_graph(
+        "guadeloupe",
+        payload,
+        "storm",
+    )
+
+    assert graph is not None
+    assert graph.graph_type == "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard"
+    assert graph.hazard == "storm"
+    assert graph.png_payload["type"] == "split_tornado_stacked_bar"
+    assert graph.png_payload["rows"][0]["label"] == "PML10"
+    assert len(graph.png_payload["rows"]) == 4
+    assert graph.png_payload["label_fontsize"] == 16
+    assert graph.png_payload["total_label_fontsize"] == 18
+    assert graph.png_payload["show_total_labels"] is True
+    assert graph.png_payload["rows"][0]["total_abs_eur"] == 100.0
+    assert graph.png_payload["rows"][0]["relative_bar_total_pct"] == 75.0
+    assert graph.png_payload["rows"][0]["total_exposure_eur"] == 1000.0
+    assert graph.png_payload["rows"][0]["total_relative_pct"] == 10.0
+    first_segments = graph.png_payload["rows"][0]["segments"]
+    assert first_segments[0]["absolute_eur"] == 50.0
+    assert first_segments[0]["relative_pct"] == 50.0
+    assert first_segments[2]["absolute_eur"] == 50.0
+    assert first_segments[2]["relative_pct"] == 25.0
+
+
+def test_build_pml_ladder_detail_split_tornado_key_periods_graphs_splits_hazards():
+    rows = [
+        {"class_key": "eau_aep", "damage_eur": 50.0, "exposure_eur": 100.0},
+        {"class_key": "eau_eu", "damage_eur": 50.0, "exposure_eur": 200.0},
+    ]
+    payload = {
+        "portfolio_results": {
+            hazard: {
+                "pml_10_eur": 100.0,
+                "pml_50_eur": 500.0,
+                "pml_100_eur": 1000.0,
+                "pml_1000_eur": 10000.0,
+            }
+            for hazard in ("storm", "storm_cmcc")
+        },
+        "scientific_graph_inputs": {
+            "scenarios": ["rp10", "rp50", "rp100", "rp1000"],
+            "state_damage_tables": {},
+            "damage_breakdown_by_scenario": {
+                scenario: {"storm": rows, "storm_cmcc": rows}
+                for scenario in ("rp10", "rp50", "rp100", "rp1000")
+            },
+        },
+    }
+
+    graphs = generate_run_graphs.build_pml_ladder_detail_split_tornado_key_periods_graphs(
+        "guadeloupe",
+        payload,
+        ["storm", "storm_cmcc"],
+    )
+
+    assert [graph.hazard for graph in graphs] == ["storm", "storm_cmcc"]
+    assert [graph.graph_id for graph in graphs] == [
+        "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard__guadeloupe__storm",
+        "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard__guadeloupe__storm_cmcc",
+    ]
+
+
 def test_default_complete_graph_types_drop_removed_png_outputs():
     assert generate_run_graphs._default_graph_types_for_run_family("complete-analysis") == [
         "run_overview_summary",
         "pml_ladder_by_territory_hazard",
         "pml_ladder_detail_by_territory_hazard",
         "pml_ladder_detail_key_periods_by_territory_hazard",
+        "pml_ladder_detail_split_tornado_key_periods_by_territory_hazard",
         "wind_year_hist_by_hazard",
         "hazard_component_share_by_return_period",
     ]
