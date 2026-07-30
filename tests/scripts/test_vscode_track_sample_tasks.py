@@ -53,6 +53,25 @@ def test_v2_intensity_track_sample_tasks_point_to_quoted_manifests():
     assert found == expected
 
 
+def test_full_tracks_single_territory_tasks_have_no_deploy_contract():
+    tasks_path = Path(".vscode/tasks.json")
+    data = json.loads(tasks_path.read_text(encoding="utf-8"))
+    tasks = {str(task.get("label") or ""): task for task in data.get("tasks", [])}
+    expected = {
+        "SIB: Run Complete Analysis (Full Tracks: Guadeloupe Only, No Deploy)": "gua",
+        "SIB: Run Complete Analysis (Full Tracks: Martinique Only, No Deploy)": "mar",
+        "SIB: Run Complete Analysis (Full Tracks: Saint-Barthélemy Only, No Deploy)": "stb",
+    }
+
+    for label, territory in expected.items():
+        task = tasks[label]
+        args = task.get("args") or []
+        assert args[args.index("--territories") + 1] == territory
+        assert args[args.index("--dynamic-max-tracks") + 1] == "0"
+        assert "--no-deploy" in args
+        assert "--track-sample-manifest" not in args
+
+
 def test_sensitivity_default_pack_v2_task_uses_v1_sample_and_significant_graph_task():
     tasks_path = Path(".vscode/tasks.json")
     data = json.loads(tasks_path.read_text(encoding="utf-8"))

@@ -669,7 +669,38 @@
       }
     },
     {
-      "label": "SIB: Run Complete Analysis (Saint-Barthélemy Full Tracks, No Deploy)",
+      "label": "SIB: Run Complete Analysis (Full Tracks: Martinique Only, No Deploy)",
+      "type": "shell",
+      "command": "${workspaceFolder}/backend/.venv/bin/python",
+      "args": [
+        "scripts/run_complete_analysis.py",
+        "--territories",
+        "mar",
+        "--dynamic-max-tracks",
+        "0",
+        "--no-deploy",
+        "--memory-budget-gb",
+        "6"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      }
+    },
+    {
+      "label": "SIB: Run Complete Analysis (Full Tracks: Saint-Barthélemy Only, No Deploy)",
       "type": "shell",
       "command": "${workspaceFolder}/backend/.venv/bin/python",
       "args": [

@@ -22,6 +22,9 @@ Ce document resume les taches actuellement definies dans [tasks.json](/home/ubun
 | `SIB: Run Complete Analysis (Very Fast: 150 tracks)` | `build` | `Ctrl+Shift+B` | Variante de validation rapide avec `dynamic_max_tracks=150` et `--no-deploy` |
 | `SIB: Run Complete Analysis (Rich: 1500 tracks)` | `build` | `Ctrl+Shift+B` | Variante plus riche avec `dynamic_max_tracks=1500` |
 | `SIB: Monitor Complete Analysis Run` | `build` | `Ctrl+Shift+B` | Suit l'etat du manifest du run complet en cours |
+| `SIB: Run Complete Analysis (Full Tracks: Guadeloupe Only, No Deploy)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe sans deploy avec `--dynamic-max-tracks 0`, donc sans cap sur les tracks dynamiques |
+| `SIB: Run Complete Analysis (Full Tracks: Martinique Only, No Deploy)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Martinique sans deploy avec `--dynamic-max-tracks 0`, donc sans cap sur les tracks dynamiques |
+| `SIB: Run Complete Analysis (Full Tracks: Saint-Barthélemy Only, No Deploy)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Saint-Barthelemy sans deploy avec `--dynamic-max-tracks 0`, donc sans cap sur les tracks dynamiques |
 | `SIB: Run Complete Analysis (Full Tracks: Guadeloupe + Martinique, No Deploy)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe + Martinique sans deploy avec `--dynamic-max-tracks 0`, donc sans cap sur les tracks dynamiques |
 | `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 50 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_0050` |
 | `SIB: Run Complete Analysis V2 Intensity (Guadeloupe Only, No Deploy, 100 tracks)` | `build` | `Ctrl+Shift+B` | Lance la chaine complete Guadeloupe avec l'echantillon V2 intensite-distance `sample_0100` |
@@ -31,8 +34,8 @@ Ce document resume les taches actuellement definies dans [tasks.json](/home/ubun
 
 Notes d'audit:
 
-- La tache `Full Tracks: Guadeloupe + Martinique` existe bien dans [tasks.json](/home/ubuntu/.vscode/tasks.json#L139).
-- Elle est coherente avec le contrat runtime actuel: `--dynamic-max-tracks 0` signifie bien `full tracks` pour la chaine complete, tout en gardant `--no-deploy` par securite operateur.
+- Les taches single-territory `Full Tracks: Guadeloupe Only`, `Full Tracks: Martinique Only` et `Full Tracks: Saint-Barthélemy Only` existent bien dans [tasks.json](/home/ubuntu/.vscode/tasks.json).
+- Elles sont coherentes avec le contrat runtime actuel: `--dynamic-max-tracks 0` signifie bien `full tracks` pour la chaine complete, tout en gardant `--no-deploy` par securite operateur.
 
 La tache `SIB: Run Complete Analysis (Default)` a ete retiree du workspace racine. Elle ne doit plus etre utilisee.
 
