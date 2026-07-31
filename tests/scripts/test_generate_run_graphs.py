@@ -728,6 +728,74 @@ def test_build_population_output_specs_returns_guadeloupe_pack(monkeypatch):
     ]
 
 
+def test_build_population_output_specs_returns_saint_barthelemy_pack(monkeypatch):
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="saint-barthelemy",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {"territory_results": []}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path="/tmp/network.geojson",
+        water_infra_path="/tmp/water.geojson",
+        population_overlays=generate_run_graphs.ArchivedArtifact("/tmp/population-overlays.json", {"territories": []}),
+        population_raster_path="/tmp/blm.tif",
+        hydraulic_zones_path="/tmp/hydraulic.gpkg",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_build_population_overlay_map_payload", lambda *args, **kwargs: {"type": "raster_overlay_map", "title": "population"})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_hotspot_superplot_payload", lambda *args, **kwargs: {"type": "choropleth_map_grid", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_hydraulic_population_importance_payload", lambda *args, **kwargs: {"type": "choropleth_map", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_state_matrix_payload", lambda *args, **kwargs: {"type": "population_state_matrix", "title": kwargs.get("title") or args[2]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_bar_payload", lambda *args, **kwargs: {"type": "population_decision_grouped_bar", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_zone_map_payload", lambda *args, **kwargs: {"type": "population_decision_zone_map", "title": kwargs.get("title") or args[1]})
+
+    specs = generate_run_graphs._build_population_output_specs(artifacts)
+
+    assert [name for name, _payload in specs] == [
+        "carte_population_saint-barthelemy.png",
+        "superplot_hotspots_population_affectee.png",
+        "importance_zonages_hydrauliques_aep.png",
+        "matrice_population_etats_reseaux_storm.png",
+        "matrice_population_etats_reseaux_storm_cmcc.png",
+        "synthese_zones_population_storm_barres.png",
+        "carte_zones_population_storm_decision.png",
+    ]
+
+
+def test_build_population_output_specs_returns_martinique_pack(monkeypatch):
+    artifacts = generate_run_graphs.AuxiliaryArtifacts(
+        territory="martinique",
+        complete_analysis=generate_run_graphs.ArchivedArtifact("/tmp/complete.json", {"territory_results": []}),
+        page7_analysis=None,
+        case_study_analysis=None,
+        wind_maps=None,
+        landslide_maps=None,
+        network_states_path="/tmp/network.geojson",
+        water_infra_path="/tmp/water.geojson",
+        population_overlays=generate_run_graphs.ArchivedArtifact("/tmp/population-overlays.json", {"territories": []}),
+        population_raster_path="/tmp/mtq.tif",
+        hydraulic_zones_path="/tmp/hydraulic.gpkg",
+    )
+    monkeypatch.setattr(generate_run_graphs, "_build_population_overlay_map_payload", lambda *args, **kwargs: {"type": "raster_overlay_map", "title": "population"})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_hotspot_superplot_payload", lambda *args, **kwargs: {"type": "choropleth_map_grid", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_hydraulic_population_importance_payload", lambda *args, **kwargs: {"type": "choropleth_map", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_state_matrix_payload", lambda *args, **kwargs: {"type": "population_state_matrix", "title": kwargs.get("title") or args[2]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_bar_payload", lambda *args, **kwargs: {"type": "population_decision_grouped_bar", "title": kwargs.get("title") or args[1]})
+    monkeypatch.setattr(generate_run_graphs, "_build_population_decision_zone_map_payload", lambda *args, **kwargs: {"type": "population_decision_zone_map", "title": kwargs.get("title") or args[1]})
+
+    specs = generate_run_graphs._build_population_output_specs(artifacts)
+
+    assert [name for name, _payload in specs] == [
+        "carte_population_martinique.png",
+        "superplot_hotspots_population_affectee.png",
+        "importance_zonages_hydrauliques_aep.png",
+        "matrice_population_etats_reseaux_storm.png",
+        "matrice_population_etats_reseaux_storm_cmcc.png",
+        "synthese_zones_population_storm_barres.png",
+        "carte_zones_population_storm_decision.png",
+    ]
+
+
 def test_population_decision_bar_payload_selects_top5_and_skips_empty_elec(monkeypatch):
     def _row(period, service, idx, population, basis):
         prefix = {"eau_aep": "AEP", "eau_eu": "EU", "elec": "Électricité"}[service]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a decision-oriented population impact table for Guadeloupe STORM."""
+"""Build a decision-oriented population impact table for STORM."""
 
 from __future__ import annotations
 
@@ -195,12 +195,17 @@ def _load_hydraulic_metadata(gpkg_path: Path) -> dict[str, dict[str, Any]]:
     conn.row_factory = sqlite3.Row
     metadata: dict[str, dict[str, Any]] = {}
 
+    def _columns(table_name: str) -> set[str]:
+        return {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table_name})")}
+
+    zone_columns = _columns("hydraulic_zones")
+    line_km_expr = "line_km" if "line_km" in zone_columns else "NULL AS line_km"
     for row in conn.execute(
-        """
+        f"""
         SELECT zone_uid, zone_component_key, zone_label, network_kind, line_km,
                asset_count, critical_asset_count
         FROM hydraulic_zones
-        """
+        """.replace("line_km,", f"{line_km_expr},")
     ):
         record = dict(row)
         label = _clean_label(record.get("zone_label")) or _clean_label(record.get("zone_uid"))
@@ -216,19 +221,25 @@ def _load_hydraulic_metadata(gpkg_path: Path) -> dict[str, dict[str, Any]]:
             if key and key not in metadata:
                 metadata[key] = dict(item)
 
-    commune_rows = conn.execute(
-        """
-        SELECT zone_uid, zone_component_key, commune, SUM(line_length_m) / 1000.0 AS km
-        FROM hydraulic_lines
-        WHERE commune IS NOT NULL AND TRIM(commune) != ''
-        GROUP BY zone_uid, zone_component_key, commune
-        ORDER BY km DESC
-        """
-    ).fetchall()
+    line_columns = _columns("hydraulic_lines")
+    if "commune" in line_columns:
+        commune_rows = conn.execute(
+            """
+            SELECT zone_uid, zone_component_key, commune, SUM(line_length_m) / 1000.0 AS km
+            FROM hydraulic_lines
+            WHERE commune IS NOT NULL AND TRIM(commune) != ''
+            GROUP BY zone_uid, zone_component_key, commune
+            ORDER BY km DESC
+            """
+        ).fetchall()
+    else:
+        commune_rows = []
 
+    asset_columns = _columns("hydraulic_assets")
+    commune_expr = "commune" if "commune" in asset_columns else "'' AS commune"
     asset_rows = conn.execute(
-        """
-        SELECT zone_uid, zone_component_key, feature_role, commune, asset_name
+        f"""
+        SELECT zone_uid, zone_component_key, feature_role, {commune_expr}, asset_name
         FROM hydraulic_assets
         WHERE asset_name IS NOT NULL AND TRIM(asset_name) != ''
         """

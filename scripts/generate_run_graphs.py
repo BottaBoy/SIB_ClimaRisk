@@ -50,8 +50,15 @@ from app.risk_engine.png_label_layout import (
 )
 
 POPULATION_OVERLAYS_PATH = REPO_ROOT / "web" / "hazard-maps" / "population-overlays.json"
+POPULATION_OVERLAY_CODES = {
+    "guadeloupe": "glp",
+    "martinique": "mtq",
+    "saint-barthelemy": "blm",
+}
 POPULATION_RASTER_PATHS = {
     "guadeloupe": Path("/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif"),
+    "martinique": Path("/home/ubuntu/uploads/Population/mtq_pop_2020_CN_100m_R2025A_v1.tif"),
+    "saint-barthelemy": Path("/home/ubuntu/uploads/Population/blm_pop_2020_CN_100m_R2025A_v1.tif"),
 }
 POPULATION_OVERLAY_COLORS = [
     "#ffffff",
@@ -64,6 +71,8 @@ POPULATION_OVERLAY_COLORS = [
 ]
 HYDRAULIC_ZONE_BUNDLE_PATHS = {
     "guadeloupe": HYDRAULIC_ZONING_V2_DIR / "guadeloupe_hydraulic_zones_estimate.gpkg",
+    "martinique": HYDRAULIC_ZONING_V2_DIR / "martinique_water_systems_estimate.gpkg",
+    "saint-barthelemy": HYDRAULIC_ZONING_V2_DIR / "saint-barthelemy_water_systems_estimate.gpkg",
 }
 TERRITORY_GRID_DEG = 0.2
 HOTSPOT_GRID_DEG = 0.05
@@ -6138,8 +6147,11 @@ def _aligned_grid_edges(min_coord: float, max_coord: float, step: float) -> list
     return edges
 
 
-def _population_overlay_territory_payload(artifacts: AuxiliaryArtifacts, code: str = "glp") -> dict[str, Any] | None:
+def _population_overlay_territory_payload(artifacts: AuxiliaryArtifacts, code: str | None = None) -> dict[str, Any] | None:
     if artifacts.population_overlays is None:
+        return None
+    overlay_code = str(code or POPULATION_OVERLAY_CODES.get(artifacts.territory) or "").strip().lower()
+    if not overlay_code:
         return None
     territories = artifacts.population_overlays.payload.get("territories")
     if not isinstance(territories, list):
@@ -6147,7 +6159,7 @@ def _population_overlay_territory_payload(artifacts: AuxiliaryArtifacts, code: s
     for item in territories:
         if not isinstance(item, dict):
             continue
-        if str(item.get("code") or "").strip().lower() == code:
+        if str(item.get("code") or "").strip().lower() == overlay_code:
             return item
     return None
 
@@ -6395,7 +6407,7 @@ def _compute_hotspot_population_state_analysis(
 ) -> dict[str, Any] | None:
     if not artifacts.network_states_path or not artifacts.population_raster_path:
         return None
-    territory_payload = _population_overlay_territory_payload(artifacts, "glp")
+    territory_payload = _population_overlay_territory_payload(artifacts)
     bounds = territory_payload.get("bounds") if isinstance(territory_payload, dict) and isinstance(territory_payload.get("bounds"), dict) else None
     if bounds is None:
         return None
@@ -6444,13 +6456,10 @@ def _compute_hotspot_population_state_analysis(
 
 
 def _build_population_overlay_map_payload(artifacts: AuxiliaryArtifacts, title: str) -> dict[str, Any] | None:
-    if artifacts.territory != "guadeloupe" or artifacts.population_overlays is None:
+    if artifacts.population_overlays is None:
         return None
     payload = artifacts.population_overlays.payload
-    territories = payload.get("territories")
-    if not isinstance(territories, list):
-        return None
-    territory_payload = next((item for item in territories if str(item.get("code") or "").strip().lower() == "glp"), None)
+    territory_payload = _population_overlay_territory_payload(artifacts)
     if not isinstance(territory_payload, dict):
         return None
     overlay_rel = str(territory_payload.get("overlay") or "").strip()
@@ -7059,7 +7068,7 @@ def _population_decision_existing_csv_path(artifacts: AuxiliaryArtifacts) -> Pat
     run_id = _population_decision_run_id_from_artifacts(artifacts)
     if not run_id:
         return None
-    path = DEFAULT_OUTPUT_ROOT / run_id / "tables" / "guadeloupe_tableau_synthese_zones_population_storm.csv"
+    path = DEFAULT_OUTPUT_ROOT / run_id / "tables" / f"{artifacts.territory}_tableau_synthese_zones_population_storm.csv"
     return path if path.exists() else None
 
 
@@ -7069,8 +7078,6 @@ def _read_population_decision_csv(path: Path) -> list[dict[str, str]]:
 
 
 def _population_decision_source_rows(artifacts: AuxiliaryArtifacts) -> list[dict[str, str]]:
-    if artifacts.territory != "guadeloupe":
-        return []
     if artifacts.scientific_web_summary is not None and artifacts.network_states_path and artifacts.hydraulic_zones_path:
         return build_population_decision_rows(
             artifacts.complete_analysis.payload,
@@ -9291,12 +9298,10 @@ def _build_population_coverage_table_payload(artifacts: AuxiliaryArtifacts, titl
 
 
 def _build_population_output_specs(artifacts: AuxiliaryArtifacts) -> list[tuple[str, dict[str, Any] | None]]:
-    if artifacts.territory != "guadeloupe":
-        return []
     territory_name = territory_label(artifacts.territory)
     return [
         (
-            "carte_population_guadeloupe.png",
+            f"carte_population_{artifacts.territory}.png",
             _build_population_overlay_map_payload(artifacts, f"{territory_name} - Carte de population"),
         ),
         (
