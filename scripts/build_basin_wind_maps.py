@@ -42,11 +42,13 @@ USECOLS = ["Year", "Basin ID", "Latitude", "Longitude", "Maximum wind speed", "T
 BASIN_DEFAULT_ID: dict[str, int] = {
     "na": 1,
     "si": 3,
+    "sp": 4,
 }
 
 BASIN_LABEL: dict[str, str] = {
     "na": "Nord Atlantique",
     "si": "Sud Indien",
+    "sp": "Sud Pacifique",
 }
 
 

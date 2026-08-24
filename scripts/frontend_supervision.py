@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+from typing import Any, Callable
+
+
+UTC = timezone.utc
+ENV_FRONTEND_SUPERVISION_JOURNAL = "SIB_FRONTEND_SUPERVISION_JOURNAL"
+ENV_FRONTEND_SUPERVISION_RUN_ID = "SIB_FRONTEND_SUPERVISION_RUN_ID"
+PARENT_TERMINAL_EVENTS = frozenset({"frontend_rebuild_completed", "frontend_rebuild_failed"})
+CHILD_TERMINAL_EVENTS = frozenset({"child_completed", "child_failed"})
+
+
+def frontend_supervision_journal_path(run_dir: Path) -> Path:
+    return Path(run_dir) / "frontend-supervision.jsonl"
+
+
+def frontend_supervision_journal_from_env() -> Path | None:
+    raw = str(os.environ.get(ENV_FRONTEND_SUPERVISION_JOURNAL) or "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def frontend_supervision_run_id_from_env() -> str | None:
+    raw = str(os.environ.get(ENV_FRONTEND_SUPERVISION_RUN_ID) or "").strip()
+    return raw or None
+
+
+def _journal_line_count(journal_path: Path) -> int:
+    if not journal_path.exists():
+        return 0
+    try:
+        return len(journal_path.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return 0
+
+
+def write_frontend_supervision_event(
+    journal_path: Path | None,
+    *,
+    actor: str,
+    event: str,
+    **payload: Any,
+) -> None:
+    if journal_path is None:
+        return
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "actor": str(actor),
+        "event": str(event),
+        **payload,
+    }
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    with journal_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def read_process_start_ticks(pid: int) -> int | None:
+    stat_path = Path(f"/proc/{int(pid)}/stat")
+    try:
+        raw = stat_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        after_comm = raw.rsplit(")", 1)[1].strip()
+        fields = after_comm.split()
+        return int(fields[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def is_same_process_alive(pid: int, start_ticks: int | None) -> bool:
+    if int(pid) <= 0:
+        return False
+    current_start_ticks = read_process_start_ticks(pid)
+    if current_start_ticks is None:
+        return False
+    if start_ticks is None:
+        return True
+    return int(current_start_ticks) == int(start_ticks)
+
+
+def _event_run_id(payload: dict[str, Any]) -> str:
+    return str(payload.get("run_id") or payload.get("complete_analysis_run_id") or "").strip()
+
+
+def _event_scope_start_line(
+    journal_path: Path,
+    *,
+    run_id: str | None,
+    parent_pid: int,
+    child_pid: int,
+) -> int:
+    if not journal_path.exists():
+        return 0
+    try:
+        lines = journal_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+
+    scope_start = 0
+    requested_run_id = str(run_id or "").strip()
+    for index, raw_line in enumerate(lines):
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if str(payload.get("actor") or "") != "parent":
+            continue
+        if str(payload.get("event") or "") != "frontend_child_spawned":
+            continue
+        if requested_run_id and _event_run_id(payload) not in {"", requested_run_id}:
+            continue
+        if int(payload.get("parent_pid") or -1) != int(parent_pid):
+            continue
+        if int(payload.get("child_pid") or -1) != int(child_pid):
+            continue
+        scope_start = index + 1
+    return scope_start
+
+
+def has_terminal_event(
+    journal_path: Path,
+    actor: str,
+    *,
+    start_line: int = 0,
+    run_id: str | None = None,
+) -> bool:
+    terminal_events = PARENT_TERMINAL_EVENTS if actor == "parent" else CHILD_TERMINAL_EVENTS
+    if not journal_path.exists():
+        return False
+    requested_run_id = str(run_id or "").strip()
+    try:
+        lines = journal_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for raw_line in lines[max(0, int(start_line)):]:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if str(payload.get("actor") or "") != actor:
+            continue
+        if requested_run_id and _event_run_id(payload) not in {"", requested_run_id}:
+            continue
+        if str(payload.get("event") or "") in terminal_events:
+            return True
+    return False
+
+
+def _complete_analysis_manifest_paths_from_journal(journal_path: Path) -> tuple[Path, Path]:
+    run_dir = Path(journal_path).resolve().parent
+    return run_dir / "manifest.json", run_dir.parent / "latest-manifest.json"
+
+
+def reconcile_interrupted_frontend_manifest(
+    *,
+    journal_path: Path,
+    run_id: str | None,
+    territories: list[str],
+    summary: dict[str, Any],
+) -> bool:
+    manifest_path, latest_path = _complete_analysis_manifest_paths_from_journal(Path(journal_path))
+    if not manifest_path.exists():
+        return False
+
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    manifest_run_id = str(payload.get("run_id") or "").strip()
+    if run_id and manifest_run_id and manifest_run_id != str(run_id):
+        return False
+
+    current_status = str(payload.get("status") or "").strip().lower()
+    frontend_payload = payload.get("frontend_artifacts") if isinstance(payload.get("frontend_artifacts"), dict) else {}
+    frontend_status = str(frontend_payload.get("status") or "").strip().lower()
+    if current_status != "running" and frontend_status != "running":
+        return False
+
+    territory_payload = payload.get("territories") if isinstance(payload.get("territories"), dict) else {}
+    completed_territories = [
+        key
+        for key, value in territory_payload.items()
+        if isinstance(value, dict) and str(value.get("status") or "").strip().lower() == "complete"
+    ]
+    final_status = "partial" if completed_territories else "failed"
+    finished_at = datetime.now(UTC).isoformat()
+    frontend_error = "frontend supervision detected parent/child disappearance before terminal rebuild events"
+
+    updated_frontend_payload = dict(frontend_payload)
+    updated_frontend_payload.update(
+        {
+            "status": "failed",
+            "error": frontend_error,
+            "territories": list(updated_frontend_payload.get("territories") or territories),
+            "supervision_journal": str(journal_path),
+            "monitor_summary": dict(summary),
+            "reconciled_at": finished_at,
+        }
+    )
+
+    payload["status"] = final_status
+    payload["finished_at"] = finished_at
+    payload["frontend_artifacts"] = updated_frontend_payload
+    payload["frontend_artifacts_success"] = False
+    payload["latest_event"] = {
+        "timestamp": finished_at,
+        "phase": "frontend_artifacts",
+        "status": final_status,
+        "reason": "frontend_supervision_reconciled_missing_terminal_events",
+    }
+    payload["updated_at"] = finished_at
+
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2)
+    manifest_path.write_text(encoded, encoding="utf-8")
+
+    if latest_path.exists():
+        try:
+            latest_payload = json.loads(latest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            latest_payload = None
+        if isinstance(latest_payload, dict) and str(latest_payload.get("run_id") or "").strip() == manifest_run_id:
+            latest_path.write_text(encoded, encoding="utf-8")
+    else:
+        latest_path.write_text(encoded, encoding="utf-8")
+
+    write_frontend_supervision_event(
+        Path(journal_path),
+        actor="monitor",
+        event="manifest_reconciled",
+        run_id=manifest_run_id or run_id,
+        final_status=final_status,
+        completed_territories=sorted(completed_territories),
+    )
+    return True
+
+
+def monitor_frontend_processes(
+    *,
+    journal_path: Path,
+    run_id: str | None,
+    territories: list[str],
+    parent_pid: int,
+    parent_start_ticks: int | None,
+    child_pid: int,
+    child_start_ticks: int | None,
+    poll_interval_seconds: float = 1.0,
+    max_wait_seconds: float | None = 7200.0,
+    process_alive_fn: Callable[[int, int | None], bool] = is_same_process_alive,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    journal_path = Path(journal_path)
+    event_scope_start_line = _event_scope_start_line(
+        journal_path,
+        run_id=run_id,
+        parent_pid=int(parent_pid),
+        child_pid=int(child_pid),
+    )
+    write_frontend_supervision_event(
+        journal_path,
+        actor="monitor",
+        event="monitor_started",
+        monitor_pid=os.getpid(),
+        run_id=run_id,
+        territories=list(territories),
+        parent_pid=int(parent_pid),
+        parent_start_ticks=parent_start_ticks,
+        child_pid=int(child_pid),
+        child_start_ticks=child_start_ticks,
+        poll_interval_seconds=float(poll_interval_seconds),
+    )
+
+    deadline = None if max_wait_seconds is None else (time.monotonic() + float(max_wait_seconds))
+    parent_missing_logged = False
+    child_missing_logged = False
+    parent_terminal_event_seen = False
+    child_terminal_event_seen = False
+
+    while True:
+        parent_terminal_event_seen = has_terminal_event(
+            journal_path,
+            "parent",
+            start_line=event_scope_start_line,
+            run_id=run_id,
+        )
+        child_terminal_event_seen = has_terminal_event(
+            journal_path,
+            "child",
+            start_line=event_scope_start_line,
+            run_id=run_id,
+        )
+        if parent_terminal_event_seen and child_terminal_event_seen:
+            break
+
+        parent_alive = bool(process_alive_fn(int(parent_pid), parent_start_ticks))
+        child_alive = bool(process_alive_fn(int(child_pid), child_start_ticks))
+
+        if not parent_alive and not parent_missing_logged:
+            write_frontend_supervision_event(
+                journal_path,
+                actor="monitor",
+                event="parent_process_missing",
+                run_id=run_id,
+                parent_pid=int(parent_pid),
+                child_pid=int(child_pid),
+                parent_terminal_event_seen=parent_terminal_event_seen,
+                child_alive=child_alive,
+            )
+            parent_missing_logged = True
+
+        if not child_alive and not child_missing_logged:
+            write_frontend_supervision_event(
+                journal_path,
+                actor="monitor",
+                event="child_process_missing",
+                run_id=run_id,
+                parent_pid=int(parent_pid),
+                child_pid=int(child_pid),
+                child_terminal_event_seen=child_terminal_event_seen,
+                parent_alive=parent_alive,
+            )
+            child_missing_logged = True
+
+        if (parent_missing_logged or parent_terminal_event_seen) and (child_missing_logged or child_terminal_event_seen):
+            break
+
+        if deadline is not None and time.monotonic() >= deadline:
+            write_frontend_supervision_event(
+                journal_path,
+                actor="monitor",
+                event="monitor_timeout",
+                run_id=run_id,
+                parent_missing_logged=parent_missing_logged,
+                child_missing_logged=child_missing_logged,
+                parent_terminal_event_seen=parent_terminal_event_seen,
+                child_terminal_event_seen=child_terminal_event_seen,
+            )
+            break
+
+        sleep_fn(max(0.0, float(poll_interval_seconds)))
+
+    summary = {
+        "run_id": run_id,
+        "parent_missing_logged": parent_missing_logged,
+        "child_missing_logged": child_missing_logged,
+        "parent_terminal_event_seen": parent_terminal_event_seen,
+        "child_terminal_event_seen": child_terminal_event_seen,
+    }
+    manifest_reconciled = False
+    if (parent_missing_logged or child_missing_logged) and (
+        not parent_terminal_event_seen or not child_terminal_event_seen
+    ):
+        manifest_reconciled = reconcile_interrupted_frontend_manifest(
+            journal_path=journal_path,
+            run_id=run_id,
+            territories=list(territories),
+            summary=summary,
+        )
+    summary["manifest_reconciled"] = bool(manifest_reconciled)
+    write_frontend_supervision_event(
+        journal_path,
+        actor="monitor",
+        event="monitor_completed",
+        **summary,
+    )
+    return summary
+
+
+def launch_frontend_supervision_monitor(
+    *,
+    journal_path: Path,
+    run_id: str | None,
+    territories: list[str],
+    parent_pid: int,
+    parent_start_ticks: int | None,
+    child_pid: int,
+    child_start_ticks: int | None,
+    poll_interval_seconds: float = 1.0,
+    max_wait_seconds: float = 7200.0,
+) -> subprocess.Popen[Any]:
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "monitor",
+        "--journal-path",
+        str(journal_path),
+        "--parent-pid",
+        str(int(parent_pid)),
+        "--child-pid",
+        str(int(child_pid)),
+        "--poll-interval-seconds",
+        str(float(poll_interval_seconds)),
+        "--max-wait-seconds",
+        str(float(max_wait_seconds)),
+    ]
+    if run_id:
+        command.extend(["--run-id", str(run_id)])
+    if territories:
+        command.extend(["--territories", *[str(territory) for territory in territories]])
+    if parent_start_ticks is not None:
+        command.extend(["--parent-start-ticks", str(int(parent_start_ticks))])
+    if child_start_ticks is not None:
+        command.extend(["--child-start-ticks", str(int(child_start_ticks))])
+
+    return subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Frontend rebuild supervision helpers.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    monitor_parser = subparsers.add_parser("monitor", help="Monitor parent/child PID disappearance during frontend rebuilds.")
+    monitor_parser.add_argument("--journal-path", required=True)
+    monitor_parser.add_argument("--run-id", default=None)
+    monitor_parser.add_argument("--territories", nargs="*", default=[])
+    monitor_parser.add_argument("--parent-pid", required=True, type=int)
+    monitor_parser.add_argument("--parent-start-ticks", default=None, type=int)
+    monitor_parser.add_argument("--child-pid", required=True, type=int)
+    monitor_parser.add_argument("--child-start-ticks", default=None, type=int)
+    monitor_parser.add_argument("--poll-interval-seconds", default=1.0, type=float)
+    monitor_parser.add_argument("--max-wait-seconds", default=7200.0, type=float)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command != "monitor":
+        parser.error(f"Unsupported command: {args.command}")
+
+    monitor_frontend_processes(
+        journal_path=Path(args.journal_path),
+        run_id=args.run_id,
+        territories=list(args.territories),
+        parent_pid=int(args.parent_pid),
+        parent_start_ticks=args.parent_start_ticks,
+        child_pid=int(args.child_pid),
+        child_start_ticks=args.child_start_ticks,
+        poll_interval_seconds=float(args.poll_interval_seconds),
+        max_wait_seconds=float(args.max_wait_seconds),
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

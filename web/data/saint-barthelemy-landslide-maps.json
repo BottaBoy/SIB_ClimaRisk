@@ -1,0 +1,292 @@
+{
+  "meta": {
+    "generated_at": "2026-07-30T19:06:43+00:00",
+    "case_study_run_id": "saint-barthelemy_case_20260730T190551Z",
+    "territory": "saint-barthelemy",
+    "territory_label": "Saint-Barthelemy",
+    "bbox": {
+      "lat_min": 17.86,
+      "lat_max": 17.98,
+      "lon_min": -62.95,
+      "lon_max": -62.78
+    },
+    "grid_cell_deg": 0.02,
+    "hazard_components": [
+      "landslide"
+    ],
+    "component_units": {
+      "landslide": "risque score"
+    },
+    "landslide_sources": {
+      "storm": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ],
+      "storm_cmcc": [
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+      ]
+    },
+    "landslide_class_mapping": {
+      "0": "probabilite nulle",
+      "1": "probabilite nulle",
+      "2": "faible",
+      "3": "moyenne",
+      "4": "forte",
+      "5": "tres forte"
+    },
+    "territory_mask_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+    "territory_mask_source": "ADM0 administrative boundaries",
+    "cell_clip_rule": "Only cells intersecting the territory mask are retained; each display point is the representative point of the land portion of the cell."
+  },
+  "storm": {
+    "cell_count": 14,
+    "mean_landslide_score_min": 0.0,
+    "mean_landslide_score_max": 0.0,
+    "mean_landslide_score_mean": 0.0,
+    "source_tifs": [
+      "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+      "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+    ],
+    "sample_count": 576,
+    "cells": [
+      {
+        "i": 0,
+        "j": 5,
+        "lat": 17.879792,
+        "lon": -62.840021,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 4,
+        "lat": 17.896028,
+        "lon": -62.852,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 5,
+        "lat": 17.88912,
+        "lon": -62.839389,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 6,
+        "lat": 17.891013,
+        "lon": -62.821069,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 7,
+        "lat": 17.897472,
+        "lon": -62.806479,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 3,
+        "lat": 17.917486,
+        "lon": -62.871479,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 4,
+        "lat": 17.908348,
+        "lon": -62.854798,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 5,
+        "lat": 17.910625,
+        "lon": -62.846459,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 6,
+        "lat": 17.905625,
+        "lon": -62.82,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 7,
+        "lat": 17.909778,
+        "lon": -62.801535,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 3,
+        "lat": 17.92664,
+        "lon": -62.87189,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 4,
+        "lat": 17.925625,
+        "lon": -62.868836,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 5,
+        "lat": 17.920076,
+        "lon": -62.849921,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 6,
+        "lat": 17.921236,
+        "lon": -62.818806,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      }
+    ]
+  },
+  "storm_cmcc": {
+    "cell_count": 14,
+    "mean_landslide_score_min": 0.0,
+    "mean_landslide_score_max": 0.0,
+    "mean_landslide_score_mean": 0.0,
+    "source_tifs": [
+      "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+      "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif"
+    ],
+    "sample_count": 576,
+    "cells": [
+      {
+        "i": 0,
+        "j": 5,
+        "lat": 17.879792,
+        "lon": -62.840021,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 4,
+        "lat": 17.896028,
+        "lon": -62.852,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 5,
+        "lat": 17.88912,
+        "lon": -62.839389,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 6,
+        "lat": 17.891013,
+        "lon": -62.821069,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 1,
+        "j": 7,
+        "lat": 17.897472,
+        "lon": -62.806479,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 3,
+        "lat": 17.917486,
+        "lon": -62.871479,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 4,
+        "lat": 17.908348,
+        "lon": -62.854798,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 5,
+        "lat": 17.910625,
+        "lon": -62.846459,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 6,
+        "lat": 17.905625,
+        "lon": -62.82,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 2,
+        "j": 7,
+        "lat": 17.909778,
+        "lon": -62.801535,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 3,
+        "lat": 17.92664,
+        "lon": -62.87189,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 4,
+        "lat": 17.925625,
+        "lon": -62.868836,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 5,
+        "lat": 17.920076,
+        "lon": -62.849921,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      },
+      {
+        "i": 3,
+        "j": 6,
+        "lat": 17.921236,
+        "lon": -62.818806,
+        "mean_landslide_score": 0.0,
+        "sample_count": 576
+      }
+    ]
+  }
+}

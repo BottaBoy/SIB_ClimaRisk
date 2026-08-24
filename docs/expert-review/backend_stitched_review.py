@@ -23,24 +23,30 @@ Repository root: /home/ubuntu/sib-work
 # 08. backend/app/risk_engine/climada_engine.py
 # 09. backend/app/risk_engine/hazard_loader.py
 # 10. backend/app/risk_engine/impact_functions.py
-# 11. backend/app/risk_engine/interdependency.py
-# 12. backend/app/risk_engine/analysis_export.py
-# 13. backend/app/config.py
-# 14. backend/app/models.py
-# 15. backend/app/job_store.py
-# 16. backend/app/risk_engine/types.py
-# 17. backend/app/risk_engine/errors.py
-# 18. backend/app/__init__.py
-# 19. backend/app/risk_engine/__init__.py
-# 20. backend/scripts/run_backoffice_sample.py
-# 21. backend/scripts/cleanup_expired_jobs.py
+# 11. backend/app/risk_engine/impact_functions_multi_hazard.py
+# 12. backend/app/risk_engine/impact_functions_landslide.py
+# 13. backend/app/risk_engine/landslide_engine.py
+# 14. backend/app/risk_engine/interdependency.py
+# 15. backend/app/risk_engine/population_loader.py
+# 16. backend/app/risk_engine/social_impact.py
+# 17. backend/app/risk_engine/sensitivity_scenarios.py
+# 18. backend/app/risk_engine/analysis_export.py
+# 19. backend/app/config.py
+# 20. backend/app/models.py
+# 21. backend/app/job_store.py
+# 22. backend/app/risk_engine/types.py
+# 23. backend/app/risk_engine/errors.py
+# 24. backend/app/__init__.py
+# 25. backend/app/risk_engine/__init__.py
+# 26. backend/scripts/run_backoffice_sample.py
+# 27. backend/scripts/cleanup_expired_jobs.py
 
 # ============================================================================
-# MODULE 01/21
+# MODULE 01/27
 # Source file: backend/app/main.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/main.py
-# Original line span: 1-212
-# Source SHA256: 821f568765ece26837f655a9d8db6b21882f4b0a9e020357acdb3cac72069245
+# Original line span: 1-236
+# Source SHA256: c7489c856d3271d2fdc69701d2972a7b445a8ffb59ca62110a6ddf67df9c6490
 # Purpose: FastAPI entrypoint exposing run/job/artefact endpoints and API lifecycle.
 # Key Inputs: HTTP requests, uploaded files, run parameters, application settings.
 # Key Outputs: Queued jobs, status/result payloads, downloadable artefacts.
@@ -65,6 +71,9 @@ from .job_runner import JobProcessor
 from .job_store import JobStore
 from .models import HealthResponse, JobStatus, RunInputMode
 from .risk_engine.hazard_loader import list_default_basin_coverages
+from .risk_engine.impact_functions import get_tc_vulnerability_payload
+from .risk_engine.impact_functions_landslide import get_landslide_vulnerability_payload
+from .risk_engine.impact_functions_multi_hazard import get_multi_hazard_vulnerability_payload
 
 
 UTC = timezone.utc
@@ -119,8 +128,29 @@ def health() -> HealthResponse:
 def hazard_coverage():
     return {
         "hazards": ["storm", "storm_cmcc"],
+        "hazard_components": ["wind", "rain", "surge"],
         "coverages": list_default_basin_coverages(),
     }
+
+
+@app.get("/api/v1/vulnerability/curves")
+def vulnerability_curves(hazard_component: str = Query("wind")):
+    component = str(hazard_component or "wind").strip().lower()
+    if component in {"wind", "storm", "tc"}:
+        return get_tc_vulnerability_payload()
+    if component in {"rain", "surge"}:
+        settings = get_settings()
+        return get_multi_hazard_vulnerability_payload(
+            hazard_component=component,
+            flood_curve_file=settings.d2_flood_curve_file,
+        )
+    if component in {"landslide", "ls"}:
+        settings = get_settings()
+        return get_landslide_vulnerability_payload(d2_curve_file=settings.d2_flood_curve_file)
+    raise HTTPException(
+        status_code=400,
+        detail="hazard_component must be one of: wind, rain, surge, landslide",
+    )
 
 
 @app.post("/api/v1/runs")
@@ -263,11 +293,11 @@ def get_run_artifact(job_id: str, name: str):
 # END SOURCE: backend/app/main.py
 
 # ============================================================================
-# MODULE 02/21
+# MODULE 02/27
 # Source file: backend/app/job_runner.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/job_runner.py
-# Original line span: 1-86
-# Source SHA256: 3e0e173f551c0886531cfc53939f15568b5a9f03def9a1fea3a7c1947c38bbd5
+# Original line span: 1-85
+# Source SHA256: aac8041fe2dc2122f206782f00d566a3f3226568644e3593b350498510ad354d
 # Purpose: Single-worker async queue processor for risk jobs.
 # Key Inputs: Queued job IDs and per-job parameters from file-backed store.
 # Key Outputs: Job state transitions and persisted run results.
@@ -279,7 +309,6 @@ from __future__ import annotations
 
 from queue import Empty, Queue
 from threading import Event, Thread
-from typing import Any
 
 from .config import Settings
 from .job_store import JobStore
@@ -364,11 +393,11 @@ class JobProcessor:
 # END SOURCE: backend/app/job_runner.py
 
 # ============================================================================
-# MODULE 03/21
+# MODULE 03/27
 # Source file: backend/app/risk_engine/pipeline.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/pipeline.py
-# Original line span: 1-67
-# Source SHA256: 6a38c9988d25cc4bd01fd2b27902310153dc1892250a47af2d8d441c607bfc36
+# Original line span: 1-66
+# Source SHA256: a0202ce713c14f859ec83403a90618ad442255cbc2e68834e455daa7f57f895f
 # Purpose: End-to-end orchestration: ingest -> disaggregation -> impacts -> export.
 # Key Inputs: Run params, uploaded/drawn exposures, runtime settings.
 # Key Outputs: Unified API payload and downloadable CSV/JSON artefacts.
@@ -378,7 +407,6 @@ class JobProcessor:
 # ============================================================================
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from ..config import Settings
@@ -446,11 +474,11 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
 # END SOURCE: backend/app/risk_engine/pipeline.py
 
 # ============================================================================
-# MODULE 04/21
+# MODULE 04/27
 # Source file: backend/app/risk_engine/exposure_ingest.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/exposure_ingest.py
-# Original line span: 1-601
-# Source SHA256: b49f04225d1b33c6cb9744cfa60dfdc9a821bdb3c55eb1db391aa83d77613619
+# Original line span: 1-645
+# Source SHA256: 7a000fc594503ffc44b66841ec398003c3c3702394c5e2d419893ff300a9aceb
 # Purpose: Input normalization for CSV/XLSX/GeoJSON/GPKG and drawn GeoJSON.
 # Key Inputs: Raw exposure files or drawn FeatureCollection + field mapping options.
 # Key Outputs: Normalized exposure model consumed by the risk engine.
@@ -523,6 +551,34 @@ ASSET_TYPE_ALIASES = {
 }
 VALID_ASSET_TYPES = sorted(set(ASSET_TYPE_ALIASES.values()))
 VALID_EXPOSURE_CATEGORIES = sorted(set(EXPOSURE_CATEGORY_ALIASES.values()))
+
+
+def _apply_valuation_metadata(
+    props: dict[str, Any],
+    *,
+    uses_default_value: bool,
+    valuation_source: str,
+    default_value_eur: float | None = None,
+) -> None:
+    props["uses_default_value"] = bool(uses_default_value)
+    props["valuation_source"] = str(valuation_source)
+    if default_value_eur is not None:
+        props["default_value_eur"] = float(default_value_eur)
+
+
+def _append_default_value_summary_warning(warnings: list[str], features: list[NormalizedFeature]) -> None:
+    default_features = [feat for feat in features if bool((feat.properties or {}).get("uses_default_value"))]
+    if not default_features:
+        return
+    first_default = default_features[0]
+    default_value_eur = float((first_default.properties or {}).get("default_value_eur") or 0.0)
+    preview = ", ".join(str(feat.feature_id) for feat in default_features[:10])
+    suffix = ""
+    if len(default_features) > 10:
+        suffix = f", ... +{len(default_features) - 10} more"
+    warnings.append(
+        f"Default valuation assumption of {default_value_eur:.0f} EUR applied to {len(default_features)} feature(s): {preview}{suffix}."
+    )
 
 
 def _to_float(value: Any, field_name: str) -> float:
@@ -650,6 +706,7 @@ def _feature_from_geojson_feature(
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
         extra["asset_type"] = _normalize_asset_type(props[asset_type_field], strict=True)
+    _apply_valuation_metadata(extra, uses_default_value=False, valuation_source=f"input:{value_field}")
     if exposure_category_field and exposure_category_field in props:
         category_raw = props[exposure_category_field]
     else:
@@ -708,12 +765,19 @@ def ingest_drawn_geojson(
         lon = centroid[0] if centroid else None
         lat = centroid[1] if centroid else None
         value_raw = props.get("value_eur", props.get("value"))
-        value_eur = float(default_value_eur) if value_raw in (None, "") else _to_float(value_raw, "value_eur")
+        uses_default_value = value_raw in (None, "")
+        value_eur = float(default_value_eur) if uses_default_value else _to_float(value_raw, "value_eur")
         label = str(props.get("label") or props.get("name") or f"Drawn {gtype} {idx + 1}")
         feature_id = str(props.get("asset_id") or idx + 1)
         extra_props: dict[str, Any] = {}
         if props.get("asset_type") is not None:
             extra_props["asset_type"] = props.get("asset_type")
+        _apply_valuation_metadata(
+            extra_props,
+            uses_default_value=uses_default_value,
+            valuation_source=("drawn_geojson:default_1000000_eur" if uses_default_value else "drawn_geojson:value_eur"),
+            default_value_eur=(float(default_value_eur) if uses_default_value else None),
+        )
         features.append(
             NormalizedFeature(
                 feature_id=feature_id,
@@ -730,6 +794,8 @@ def ingest_drawn_geojson(
                 properties=extra_props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name="drawn_geojson",
@@ -883,6 +949,7 @@ def _ingest_csv(
         except InputValidationError as exc:
             _append_row_error(row_errors, feature_id=feature_id, column=asset_type_field, detail=str(exc))
             continue
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         category_raw = row.get(exposure_category_field) if exposure_category_field else None
         try:
             exposure_category = _normalize_exposure_category(
@@ -917,6 +984,7 @@ def _ingest_csv(
 
     if wkt_key:
         warnings.append("CSV WKT parsing uses Shapely when available; install geospatial dependencies for full fidelity.")
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,
@@ -1034,6 +1102,8 @@ def _ingest_gpkg(
     for pos, (idx, row) in enumerate(gdf_wgs84.iterrows()):
         geom = row.geometry
         raw_asset_type = row.get(asset_type_field) if asset_type_field and asset_type_field in row else None
+        props = {"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {}
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         features.append(
             NormalizedFeature(
                 feature_id=str(row.get(id_field) if id_field and id_field in row else idx),
@@ -1048,9 +1118,11 @@ def _ingest_gpkg(
                 lon=float(geom.centroid.x) if geom is not None else None,
                 lat=float(geom.centroid.y) if geom is not None else None,
                 geometry_geojson=(json.loads(gdf_wgs84.iloc[[pos]].to_json())["features"][0]["geometry"] if geom is not None else None),
-                properties={"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {},
+                properties=props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,
@@ -1062,7 +1134,7 @@ def _ingest_gpkg(
 # END SOURCE: backend/app/risk_engine/exposure_ingest.py
 
 # ============================================================================
-# MODULE 05/21
+# MODULE 05/27
 # Source file: backend/app/risk_engine/exposure_disaggregation.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/exposure_disaggregation.py
 # Original line span: 1-90
@@ -1167,11 +1239,11 @@ def summarize_disaggregation(
 # END SOURCE: backend/app/risk_engine/exposure_disaggregation.py
 
 # ============================================================================
-# MODULE 06/21
+# MODULE 06/27
 # Source file: backend/app/risk_engine/impact_runner.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_runner.py
-# Original line span: 1-917
-# Source SHA256: 1dd0271681ce41b25cd169a3968b9472bbf73b73b63e4295ba3ccd7d34d4afab
+# Original line span: 1-1101
+# Source SHA256: c2a1c6514060532208253e20df03c4e96913791547335be8d4d875e397c4046f
 # Purpose: Main impact orchestration (CLIMADA path + deterministic fallback path).
 # Key Inputs: Normalized exposure, disaggregation summary, runtime settings.
 # Key Outputs: Territory/asset/portfolio results, graphs, notes, modeling metadata.
@@ -1183,15 +1255,24 @@ from __future__ import annotations
 
 from collections import defaultdict
 from hashlib import blake2b
+import logging
 import math
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from ..config import Settings, load_settings
-from .climada_engine import ClimadaRunResult, run_climada_direct_impacts
-from .errors import DependencyMissingError
+from .climada_engine import ClimadaRunResult, RETURN_PERIODS, run_climada_direct_impacts
 from .exposure_to_climada import build_climada_exposure
+from .impact_functions import resolve_tc_impact_func_id
 from .interdependency import aggregate_impacts_with_interdependency
+from .population_loader import load_population_data, get_population_for_cell
+from .social_impact import (
+    aggregate_social_metrics_by_territory,
+    aggregate_social_summary,
+)
 from .types import DisaggregationSummary, ImpactComputationResult, NormalizedExposure
+
+logger = logging.getLogger(__name__)
 
 
 TERRITORY_GRID_DEG = 0.2
@@ -1427,7 +1508,7 @@ def _summarize_component_health(
 
 
 def _build_fec_curve(total_exposure_eur: float, ratio: float, lifetime_years: int | None = None) -> dict[str, Any]:
-    return_periods = [1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 200]
+    return_periods = [int(rp) for rp in RETURN_PERIODS]
     curve_y: list[float] = []
     for rp in return_periods:
         damp = 1.0 / math.sqrt(max(1.0, rp))
@@ -1479,10 +1560,10 @@ def _build_fallback_graphs(total_exposure: float, storm_ratio: float, cmcc_ratio
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [round(total_exposure * storm_ratio, 2), round(total_exposure * cmcc_ratio, 2)],
-                    "max_event_loss": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
+                    "pml_1000": [round(total_exposure * storm_ratio * 4.5, 2), round(total_exposure * cmcc_ratio * 4.9, 2)],
                 },
             }
         },
@@ -1522,7 +1603,7 @@ def _build_climada_graphs(
         bins1, perc1 = _build_hist_percent(losses, bins_count=7)
         bins2, perc2 = _build_hist_percent([math.sqrt(v) if v > 0.0 else 0.0 for v in losses], bins_count=7)
 
-        annual_rp = [10, 20, 50, 100, 200]
+        annual_rp = [int(rp) for rp in RETURN_PERIODS]
         annual_dmg = [round(float(raw.pml_eur.get(rp, 0.0)) * scaler, 2) for rp in annual_rp]
         fec30 = [round(v * 1.105, 2) for v in annual_dmg]
         fec50 = [round(v * 1.175, 2) for v in annual_dmg]
@@ -1559,15 +1640,15 @@ def _build_climada_graphs(
         "comparison": {
             "side_by_side": {
                 "hazards": ["STORM", "STORM_CMCC"],
-                "metrics": ["annual_eai", "max_event_loss"],
+                "metrics": ["annual_eai", "pml_1000"],
                 "values": {
                     "annual_eai": [
                         round(float((portfolio_results.get("storm") or {}).get("eai_eur", 0.0)), 2),
                         round(float((portfolio_results.get("storm_cmcc") or {}).get("eai_eur", 0.0)), 2),
                     ],
-                    "max_event_loss": [
-                        round(float((portfolio_results.get("storm") or {}).get("max_event_loss_eur", 0.0)), 2),
-                        round(float((portfolio_results.get("storm_cmcc") or {}).get("max_event_loss_eur", 0.0)), 2),
+                    "pml_1000": [
+                        round(float((portfolio_results.get("storm") or {}).get("pml_1000_eur", 0.0)), 2),
+                        round(float((portfolio_results.get("storm_cmcc") or {}).get("pml_1000_eur", 0.0)), 2),
                     ],
                 },
             }
@@ -1599,13 +1680,44 @@ def _compute_impacts_climada(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
     settings: Settings,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
 ) -> ImpactComputationResult:
+    wind_asset_mapping = dict(settings.wind_asset_type_to_curve_code or {}) or None
+    flood_asset_mapping = dict(settings.flood_asset_type_to_curve_code or {}) or None
+    state_thresholds = {
+        "S0_to_S1_damage_ratio": float(settings.interdependency_state_threshold_s0_to_s1),
+        "S1_to_S2_damage_ratio": float(settings.interdependency_state_threshold_s1_to_s2),
+        "S2_to_S3_damage_ratio": float(settings.interdependency_state_threshold_s2_to_s3),
+    }
+    health_weights_by_state = {
+        "S1": float(settings.interdependency_health_weight_s1),
+        "S2": float(settings.interdependency_health_weight_s2),
+        "S3": float(settings.interdependency_health_weight_s3),
+    }
+    dependency_state_thresholds = {
+        "S1": float(settings.interdependency_dependency_state_threshold_s1),
+        "S2": float(settings.interdependency_dependency_state_threshold_s2),
+        "S3": float(settings.interdependency_dependency_state_threshold_s3),
+    }
+    uplift_by_state = {
+        "S0": float(settings.interdependency_uplift_s0),
+        "S1": float(settings.interdependency_uplift_s1),
+        "S2": float(settings.interdependency_uplift_s2),
+        "S3": float(settings.interdependency_uplift_s3),
+    }
+
     bundle = build_climada_exposure(
         exposure,
         spacing_m=float(disagg.spacing_m),
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=max(1, int(settings.climada_max_points_per_feature)),
-        impact_func_id=2,
+        territory_grid_deg=float(settings.territory_grid_deg),
+        impact_func_id_resolver=lambda asset_type: resolve_tc_impact_func_id(
+            asset_type,
+            asset_type_to_curve_code=wind_asset_mapping,
+        ),
     )
     climada = run_climada_direct_impacts(
         bundle,
@@ -1614,12 +1726,32 @@ def _compute_impacts_climada(
         storm_years=max(1, int(settings.storm_years)),
         top_n_events=max(1, int(settings.climada_top_events_count)),
         prefer_dynamic_hazards=bool(settings.hazard_prefer_dynamic_from_parquet),
-        fallback_to_precomputed_hazards=bool(settings.hazard_fallback_to_precomputed),
+        fallback_to_precomputed_hazards=False,
         storm_parquet_path=settings.storm_parquet_path,
         storm_cmcc_parquet_path=settings.storm_cmcc_parquet_path,
         wind_unit_in=settings.storm_wind_unit_in,
+        convert_10min_to_1min=bool(settings.storm_convert_10min_to_1min),
         radius_unit_in=settings.storm_radius_unit_in,
         env_pressure_hpa=float(settings.storm_env_pressure_hpa),
+        dynamic_max_tracks=int(settings.hazard_dynamic_max_tracks),
+        track_cache_max_entries=int(settings.hazard_track_cache_max_entries),
+        multi_hazard_enabled=bool(settings.multi_hazard_enabled),
+        rain_model=settings.hazard_rain_model,
+        rain_max_dist_inland_km=float(settings.hazard_rain_max_dist_inland_km),
+        surge_topo_path=settings.hazard_surge_topo_path,
+        flood_curve_file=settings.d2_flood_curve_file,
+        wind_asset_type_to_curve_code=wind_asset_mapping,
+        flood_asset_type_to_curve_code=flood_asset_mapping,
+        rain_proxy_base_runoff_coeff=float(settings.multi_hazard_rain_base_runoff_coeff),
+        execution_profile=settings.climada_execution_profile,
+        memory_budget_gb=float(settings.climada_memory_budget_gb),
+        max_points_per_shard=int(settings.climada_max_points_per_shard),
+        min_points_per_shard=int(settings.climada_min_points_per_shard),
+        max_shard_retry_depth=int(settings.climada_max_shard_retry_depth),
+        strict_required_components=True,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        resume_enabled=resume_enabled,
     )
 
     point_count = len(bundle.point_records)
@@ -1636,7 +1768,42 @@ def _compute_impacts_climada(
         point_records=bundle.point_records,
         hazard_direct_eai=hazard_direct_eai,
         hazard_max_loss=hazard_max_loss,
+        state_thresholds=state_thresholds,
+        health_weights_by_state=health_weights_by_state,
+        dependency_state_thresholds=dependency_state_thresholds,
+        uplift_by_state=uplift_by_state,
     )
+
+    # Load and integrate population data for social impact metrics
+    population_by_territory = {}
+    social_summary_by_hazard = {}
+    
+    try:
+        population_data_dir = settings.population_data_dir or Path("/home/ubuntu/uploads/Population")
+        if Path(population_data_dir).exists():
+            pop_data = load_population_data(
+                population_data_dir=population_data_dir,
+                territories=["GUA", "MTQ"],
+                cell_size_deg=float(settings.territory_grid_deg),
+            )
+            # Flatten the nested dict: {territory_id -> {cell_id -> pop}} => {cell_id -> pop}
+            for territory_pop_dict in pop_data.values():
+                population_by_territory.update(territory_pop_dict)
+            
+            # Calculate social impact metrics
+            if population_by_territory and aggregated.detailed_states_by_territory:
+                social_metrics = aggregate_social_metrics_by_territory(
+                    population_by_territory=population_by_territory,
+                    detailed_states=aggregated.detailed_states_by_territory,
+                )
+                social_summary_by_hazard = aggregate_social_summary(social_metrics)
+            else:
+                logger.info("Population data available but detailed states not available for social impact")
+        else:
+            logger.info(f"Population data directory not found: {population_data_dir}")
+    except Exception as e:
+        logger.warning(f"Failed to load population data for social impact: {e}")
+        social_summary_by_hazard = {}
 
     storm_direct = float(aggregated.portfolio_by_hazard["storm"]["eai_direct_eur"])
     storm_indirect = float(aggregated.portfolio_by_hazard["storm"]["eai_indirect_eur"])
@@ -1651,11 +1818,34 @@ def _compute_impacts_climada(
     storm_direct_metrics = climada.hazards["storm"]
     cmcc_direct_metrics = climada.hazards["storm_cmcc"]
 
+    storm_components_raw = (climada.component_hazards or {}).get("storm", {})
+    cmcc_components_raw = (climada.component_hazards or {}).get("storm_cmcc", {})
+
+    def _component_direct_eai_map(component_map: dict[str, Any], combined_direct: float) -> dict[str, float]:
+        ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
+        ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
+        out = {name: round(max(0.0, float(getattr(component_map[name], "aai_agg_eur", 0.0))), 2) for name in ordered_names}
+        out["combined_capped"] = round(max(0.0, float(combined_direct)), 2)
+        return out
+
+    def _component_direct_percentile_99_map(component_map: dict[str, Any]) -> dict[str, float]:
+        ordered_names = [name for name in ("wind", "rain", "surge") if name in component_map]
+        ordered_names.extend(sorted(name for name in component_map.keys() if name not in {"wind", "rain", "surge"}))
+        return {
+            name: round(max(0.0, float(getattr(component_map[name], "max_event_loss_eur", 0.0))), 2)
+            for name in ordered_names
+        }
+
+    storm_components_direct = _component_direct_eai_map(storm_components_raw, storm_direct)
+    cmcc_components_direct = _component_direct_eai_map(cmcc_components_raw, cmcc_direct)
+    storm_components_p99 = _component_direct_percentile_99_map(storm_components_raw)
+    cmcc_components_p99 = _component_direct_percentile_99_map(cmcc_components_raw)
+
     portfolio_results = {
         "storm": {
             "eai_eur": round(storm_total, 2),
             "aai_agg_eur": round(storm_total, 2),
-            "max_event_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
+            "percentile_99_loss_eur": round(storm_direct_metrics.max_event_loss_eur * storm_scaler, 2),
             "eai_direct_eur": round(storm_direct, 2),
             "eai_indirect_eur": round(storm_indirect, 2),
             "pml_10_eur": round(float(storm_direct_metrics.pml_eur.get(10, 0.0)) * storm_scaler, 2),
@@ -1669,18 +1859,20 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(storm_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(storm_direct_metrics.max_event_loss_eur),
+                            float(storm_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * storm_scaler,
                 2,
             ),
             "tvar_95_eur": round(float(storm_direct_metrics.tvar_95_eur) * storm_scaler, 2),
+            "components_direct_eai_eur": storm_components_direct,
+            "components_direct_percentile_99_loss_eur": storm_components_p99,
         },
         "storm_cmcc": {
             "eai_eur": round(cmcc_total, 2),
             "aai_agg_eur": round(cmcc_total, 2),
-            "max_event_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
+            "percentile_99_loss_eur": round(cmcc_direct_metrics.max_event_loss_eur * cmcc_scaler, 2),
             "eai_direct_eur": round(cmcc_direct, 2),
             "eai_indirect_eur": round(cmcc_indirect, 2),
             "pml_10_eur": round(float(cmcc_direct_metrics.pml_eur.get(10, 0.0)) * cmcc_scaler, 2),
@@ -1694,13 +1886,15 @@ def _compute_impacts_climada(
                         1000,
                         max(
                             float(cmcc_direct_metrics.pml_eur.get(200, 0.0)),
-                            float(cmcc_direct_metrics.max_event_loss_eur),
+                            float(cmcc_direct_metrics.raw_max_event_loss_eur),
                         ),
                     )
                 ) * cmcc_scaler,
                 2,
             ),
             "tvar_95_eur": round(float(cmcc_direct_metrics.tvar_95_eur) * cmcc_scaler, 2),
+            "components_direct_eai_eur": cmcc_components_direct,
+            "components_direct_percentile_99_loss_eur": cmcc_components_p99,
         },
         "delta": {
             "eai_eur": round(cmcc_total - storm_total, 2),
@@ -1708,6 +1902,7 @@ def _compute_impacts_climada(
         },
         "component_health": aggregated.component_health,
         "interdependency": aggregated.interdependency,
+        "social_impact_summary": social_summary_by_hazard,
         "event_summary": {
             "storm_top_events": _scale_top_events(storm_direct_metrics.top_events, storm_scaler),
             "storm_cmcc_top_events": _scale_top_events(cmcc_direct_metrics.top_events, cmcc_scaler),
@@ -1718,29 +1913,73 @@ def _compute_impacts_climada(
     notes = [
         "CLIMADA production engine is active (STORM + STORM_CMCC with annualized frequencies).",
         "Direct impact is computed by CLIMADA and indirect impact is added by conservative electricity-to-water dependency post-processing.",
-        "Component health uses: health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total.",
+        (
+            "Component health uses: health = 1 - "
+            f"({health_weights_by_state['S1']}*L_S1 + {health_weights_by_state['S2']}*L_S2 + "
+            f"{health_weights_by_state['S3']}*L_S3) / L_total."
+        ),
         "Electricity-health lookup for water assets uses local territory, then nearest electric territory, then global fallback.",
         "Per-asset EAI is capped to asset exposure value: EAI_total <= exposure_eur.",
+        "When enabled, direct multi-hazard uses additive wind+rain+surge losses with per-point capping before interdependency uplift.",
         *climada.notes,
         *bundle.warnings,
     ]
+    
+    # Enrich territory_results with population and social impact metrics
+    enriched_territory_results = []
+    for tr in aggregated.territory_results:
+        territory_id = str(tr.get("territory_id") or "uploaded-aggregate")
+        pop_total = population_by_territory.get(territory_id, 0.0)
+        
+        # Add population
+        tr["population_total"] = round(pop_total, 0)
+        
+        # Add social metrics per hazard if available
+        if social_summary_by_hazard and aggregated.detailed_states_by_territory:
+            tr["social_metrics"] = {}
+            for hazard in aggregated.detailed_states_by_territory.keys():
+                if hazard in aggregated.detailed_states_by_territory and territory_id in aggregated.detailed_states_by_territory[hazard]:
+                    # Rebuild social metrics for this specific territory
+                    from .social_impact import calculate_social_impact_metrics
+                    infra_states = aggregated.detailed_states_by_territory[hazard][territory_id]
+                    metrics = calculate_social_impact_metrics(
+                        hazard=hazard,
+                        territory_id=territory_id,
+                        population_total=pop_total,
+                        infra_states=infra_states,
+                    )
+                    tr["social_metrics"][hazard] = metrics.to_dict()
+        
+        enriched_territory_results.append(tr)
+    
     modeling = {
         **climada.modeling,
         "dependency_mode": "postprocess_electricity_to_water",
         "scenario_mode": "prudent",
         "metric_crs": settings.climada_metric_crs,
         "sampling_spacing_m": float(disagg.spacing_m),
+        "territory_grid_deg": float(settings.territory_grid_deg),
         "max_points_per_feature": int(settings.climada_max_points_per_feature),
+        "rain_max_dist_inland_km": float(settings.hazard_rain_max_dist_inland_km),
+        "rain_proxy_base_runoff_coeff": float(settings.multi_hazard_rain_base_runoff_coeff),
+        "state_thresholds": state_thresholds,
+        "health_weights_by_state": health_weights_by_state,
+        "dependency_state_thresholds": dependency_state_thresholds,
+        "uplift_by_state": uplift_by_state,
+        "wind_asset_type_to_curve_code": wind_asset_mapping,
+        "flood_asset_type_to_curve_code": flood_asset_mapping,
     }
+    matching_qa = dict(climada.modeling.get("hazard_exposure_matching_qa") or {})
 
     return ImpactComputationResult(
         engine="climada_with_interdependency_v1",
-        territory_results=aggregated.territory_results,
+        territory_results=enriched_territory_results,
         asset_results=aggregated.asset_results,
         portfolio_results=portfolio_results,
         graphs=graphs,
         notes=notes,
         modeling=modeling,
+        matching_qa=matching_qa,
     )
 
 
@@ -1832,6 +2071,10 @@ def compute_impacts_fallback(
                 "asset_label": str(feat.label or feat.feature_id),
                 "geometry_type": str(feat.geometry_type or "Unknown"),
                 "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                "uses_default_value": bool((feat.properties or {}).get("uses_default_value")),
+                "valuation_source": str((feat.properties or {}).get("valuation_source") or ""),
+                "valuation_version": str((feat.properties or {}).get("valuation_version") or ""),
+                "default_value_eur": (feat.properties or {}).get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -1949,6 +2192,10 @@ def compute_impacts_fallback(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
@@ -1980,7 +2227,7 @@ def compute_impacts_fallback(
         "storm": {
             "eai_eur": storm_total,
             "aai_agg_eur": storm_total,
-            "max_event_loss_eur": max_event_storm,
+            "percentile_99_loss_eur": max_event_storm,
             "eai_direct_eur": storm_direct,
             "eai_indirect_eur": storm_indirect,
             "pml_10_eur": round(storm_total * 2.3, 2),
@@ -1994,7 +2241,7 @@ def compute_impacts_fallback(
         "storm_cmcc": {
             "eai_eur": cmcc_total,
             "aai_agg_eur": cmcc_total,
-            "max_event_loss_eur": max_event_cmcc,
+            "percentile_99_loss_eur": max_event_cmcc,
             "eai_direct_eur": cmcc_direct,
             "eai_indirect_eur": cmcc_indirect,
             "pml_10_eur": round(cmcc_total * 2.3, 2),
@@ -2062,6 +2309,10 @@ def compute_impacts_fallback(
             "scenario_mode": "prudent",
             "fallback_reason": "explicit_fallback_mode",
         },
+        matching_qa={
+            "status": "not_available",
+            "reason": "fallback_engine",
+        },
     )
 
 
@@ -2069,41 +2320,46 @@ def compute_impacts(
     exposure: NormalizedExposure,
     disagg: DisaggregationSummary,
     settings: Settings | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
 ) -> ImpactComputationResult:
     runtime_settings = settings or load_settings()
+    if bool(runtime_settings.allow_climada_fallback):
+        raise ValueError(
+            "SIB_RISK_ALLOW_CLIMADA_FALLBACK is no longer supported: scientific CLIMADA fallback has been removed."
+        )
+    if bool(runtime_settings.hazard_fallback_to_precomputed):
+        raise ValueError(
+            "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED is no longer supported: dynamic hazard failures must stop the scientific run."
+        )
+    if not bool(runtime_settings.climada_strict_required_components):
+        raise ValueError(
+            "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS must remain enabled: incomplete multi-hazard scientific runs now fail explicitly."
+        )
     mode = str(runtime_settings.impact_engine_mode or "climada").strip().lower()
 
     if mode == "fallback":
-        return compute_impacts_fallback(exposure, disagg)
+        raise ValueError("Scientific fallback impact mode has been removed; use 'climada'.")
     if mode not in {"climada", "auto"}:
         raise ValueError(f"Unsupported impact engine mode: {mode}")
 
-    try:
-        return _compute_impacts_climada(exposure, disagg, runtime_settings)
-    except DependencyMissingError as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA dependency missing ({exc}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = str(exc)
-            return res
-        raise
-    except Exception as exc:
-        if runtime_settings.allow_climada_fallback:
-            res = compute_impacts_fallback(exposure, disagg)
-            res.notes.append(f"CLIMADA runtime failed ({type(exc).__name__}); fallback enabled by configuration.")
-            if isinstance(res.modeling, dict):
-                res.modeling["fallback_reason"] = f"{type(exc).__name__}: {exc}"
-            return res
-        raise
+    return _compute_impacts_climada(
+        exposure,
+        disagg,
+        runtime_settings,
+        progress_callback=progress_callback,
+        checkpoint_dir=checkpoint_dir,
+        resume_enabled=resume_enabled,
+    )
 # END SOURCE: backend/app/risk_engine/impact_runner.py
 
 # ============================================================================
-# MODULE 07/21
+# MODULE 07/27
 # Source file: backend/app/risk_engine/exposure_to_climada.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/exposure_to_climada.py
-# Original line span: 1-319
-# Source SHA256: f9f3dc507fab620effffa979449e0933546b4fc905a1ee0e3c61463e3e0cf7e3
+# Original line span: 1-379
+# Source SHA256: f64394b4b02eac3bfc4411420193581c2c305b1e881a7b7cdd5465ee0bafb48f
 # Purpose: Converts exposure geometries to CLIMADA-compatible sampled points.
 # Key Inputs: Normalized features, spacing, metric CRS, max points per feature.
 # Key Outputs: CLIMADA Exposures object + point-level records with business mapping.
@@ -2115,7 +2371,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any
+from typing import Any, Callable
 
 from .errors import DependencyMissingError, InputValidationError
 from .types import NormalizedExposure, NormalizedFeature
@@ -2160,11 +2416,16 @@ def _infer_infra_class(feature: Any) -> str:
     return "habitation"
 
 
-def _territory_for_coords(lat: float | None, lon: float | None) -> tuple[str, str]:
+def _territory_for_coords(
+    lat: float | None,
+    lon: float | None,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
+) -> tuple[str, str]:
     if lat is None or lon is None:
         return "uploaded-aggregate", "Uploaded Exposure (aggregate)"
-    lat_bin = round(float(lat) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
-    lon_bin = round(float(lon) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
+    grid_deg = max(1e-6, float(territory_grid_deg or TERRITORY_GRID_DEG))
+    lat_bin = round(float(lat) / grid_deg) * grid_deg
+    lon_bin = round(float(lon) / grid_deg) * grid_deg
     return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}", f"Zone ({lat_bin:.2f}, {lon_bin:.2f})"
 
 
@@ -2345,7 +2606,9 @@ def build_climada_exposure(
     spacing_m: float,
     metric_crs: str = DEFAULT_METRIC_CRS,
     max_points_per_feature: int = DEFAULT_MAX_POINTS_PER_FEATURE,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
     impact_func_id: int = 2,
+    impact_func_id_resolver: Callable[[str | None], int] | None = None,
 ) -> ClimadaExposureBundle:
     deps = _require_geo_dependencies()
     gpd = deps["gpd"]
@@ -2381,12 +2644,26 @@ def build_climada_exposure(
         split_value = max(0.0, float(feat.value_eur)) / float(len(sampled))
         infra_class = _infer_infra_class(feat)
         asset_type = str((feat.properties or {}).get("asset_type") or "")
+        uses_default_value = bool((feat.properties or {}).get("uses_default_value"))
+        valuation_source = str((feat.properties or {}).get("valuation_source") or "")
+        valuation_version = str((feat.properties or {}).get("valuation_version") or "")
+        default_value_eur = (feat.properties or {}).get("default_value_eur")
+        point_impact_func_id = int(impact_func_id)
+        if impact_func_id_resolver is not None:
+            try:
+                point_impact_func_id = int(impact_func_id_resolver(asset_type))
+            except Exception:
+                point_impact_func_id = int(impact_func_id)
         for idx, (lon, lat) in enumerate(sampled, start=1):
-            territory_id, territory_label = _territory_for_coords(lat, lon)
+            territory_id, territory_label = _territory_for_coords(
+                lat,
+                lon,
+                territory_grid_deg=float(territory_grid_deg),
+            )
             point_id = f"{feat.feature_id}::p{idx}"
             row = {
                 "value": float(split_value),
-                "impf_TC": int(impact_func_id),
+                "impf_TC": int(point_impact_func_id),
                 "point_id": point_id,
                 "feature_id": str(feat.feature_id),
                 "label": str(feat.label),
@@ -2409,6 +2686,11 @@ def build_climada_exposure(
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
+                    "uses_default_value": uses_default_value,
+                    "valuation_source": valuation_source,
+                    "valuation_version": valuation_version,
+                    "default_value_eur": float(default_value_eur) if default_value_eur is not None else None,
+                    "impf_tc": int(point_impact_func_id),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "territory_id": territory_id,
                     "territory_label": territory_label,
@@ -2430,14 +2712,48 @@ def build_climada_exposure(
         metric_crs=metric_crs,
         warnings=warnings,
     )
+
+
+def subset_climada_exposure_bundle(
+    exposure_bundle: ClimadaExposureBundle,
+    *,
+    point_indices: list[int],
+) -> ClimadaExposureBundle:
+    """Return an exact subset of a CLIMADA exposure bundle for point-level sharding."""
+    if not point_indices:
+        raise InputValidationError("CLIMADA exposure shard requires at least one point index.")
+
+    exposures = getattr(exposure_bundle, "exposures", None)
+    gdf = getattr(exposures, "gdf", None)
+    if exposures is None or gdf is None:
+        raise DependencyMissingError("CLIMADA exposure object is required for sharded impact computation.")
+
+    point_records = list(exposure_bundle.point_records or [])
+    valid_indices = [int(idx) for idx in point_indices if 0 <= int(idx) < len(point_records)]
+    if not valid_indices:
+        raise InputValidationError("No valid CLIMADA point indices were provided for the shard.")
+
+    subset_gdf = gdf.iloc[valid_indices].copy()
+    subset_point_records = [point_records[idx] for idx in valid_indices]
+
+    exposures_cls = type(exposures)
+    subset_exposures = exposures_cls(subset_gdf)
+    subset_exposures.check()
+
+    return ClimadaExposureBundle(
+        exposures=subset_exposures,
+        point_records=subset_point_records,
+        metric_crs=str(exposure_bundle.metric_crs),
+        warnings=list(exposure_bundle.warnings or []),
+    )
 # END SOURCE: backend/app/risk_engine/exposure_to_climada.py
 
 # ============================================================================
-# MODULE 08/21
+# MODULE 08/27
 # Source file: backend/app/risk_engine/climada_engine.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/climada_engine.py
-# Original line span: 1-285
-# Source SHA256: 22fce58387ce46daf443ae18b39d77b7f77fea7f5b02d33de6509c05866d2a3b
+# Original line span: 1-3058
+# Source SHA256: 1ef0e9713e4b36d10b3471285b3ee9d5c1fa92f17086796839d22544cd098238
 # Purpose: Computes direct impacts with CLIMADA and extracts risk metrics.
 # Key Inputs: Point exposures + STORM/STORM_CMCC hazards + runtime options.
 # Key Outputs: Per-hazard direct metrics (EAI, event losses, PML, TVaR, top events).
@@ -2447,22 +2763,44 @@ def build_climada_exposure(
 # ============================================================================
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
+import logging
+import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+import copy
+import hashlib
 
 from .errors import DependencyMissingError
-from .exposure_to_climada import ClimadaExposureBundle
+from .exposure_to_climada import ClimadaExposureBundle, subset_climada_exposure_bundle
 from .hazard_loader import (
     DEFAULT_BASIN_COVERAGES,
     BasinCoverage,
+    _build_centroids_from_points,
+    _build_hazard_from_tracks,
     load_storm_hazards,
     load_storm_hazards_from_parquet_for_points,
 )
-from .impact_functions import try_build_climada_impact_func
+from .impact_functions import get_tc_vulnerability_payload, try_build_climada_impact_funcs
+from .impact_functions_multi_hazard import (
+    build_multi_hazard_impact_model,
+    resolve_rain_impf_id,
+    resolve_surge_impf_id,
+)
 
 
-RETURN_PERIODS = (10, 20, 50, 100, 200)
+RETURN_PERIODS = (10, 20, 50, 100, 200, 1000)
+PUBLIC_EVENT_LOSS_PERCENTILE = 0.99
+_TOPO_RASTER_CACHE: dict[str, Path] = {}
+_SHARD_MEMORY_MULTIPLIER = {
+    "wind": 0.95,
+    "rain": 1.2,
+    "surge": 1.75,
+}
+_DYNAMIC_HAZARD_MEMORY_MULTIPLIER = 6.0
+CENTROID_ASSIGNMENT_THRESHOLD_DEG = 5.0
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -2478,13 +2816,35 @@ class HazardImpactResult:
     pml_eur: dict[int, float]
     tvar_95_eur: float
     top_events: list[dict[str, Any]]
+    matching: dict[str, Any] = field(default_factory=dict)
+    raw_max_event_loss_eur: float = 0.0
 
 
 @dataclass
 class ClimadaRunResult:
     hazards: dict[str, HazardImpactResult]
-    modeling: dict[str, Any]
-    notes: list[str]
+    component_hazards: dict[str, dict[str, HazardImpactResult]] = field(default_factory=dict)
+    modeling: dict[str, Any] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _SimpleImpactView:
+    event_id: Any
+    event_name: Any
+
+
+@dataclass(frozen=True)
+class _ExposureShard:
+    shard_id: str
+    point_indices: tuple[int, ...]
+    territory_id: str
+    infra_class: str
+    retry_depth: int = 0
+
+    @property
+    def point_count(self) -> int:
+        return len(self.point_indices)
 
 
 def _require_runtime() -> dict[str, Any]:
@@ -2530,6 +2890,323 @@ def _approx_max_loss_per_point(np: Any, eai_exp: Any, at_event: Any) -> Any:
     return eai * max(0.0, factor)
 
 
+def _approx_percentile_loss_per_point(np: Any, eai_exp: Any, percentile_loss_eur: float) -> Any:
+    eai = _as_1d_float(np, eai_exp)
+    if eai.size == 0:
+        return np.zeros(0, dtype=float)
+    eai_sum = float(eai.sum())
+    percentile_loss = max(0.0, float(percentile_loss_eur or 0.0))
+    factor = (percentile_loss / eai_sum) if eai_sum > 0.0 else 0.0
+    return eai * max(0.0, factor)
+
+
+def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    radius_km = 6371.0088
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    dlat = lat2_rad - lat1_rad
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1_rad) * math.cos(lat2_rad) * (math.sin(dlon / 2.0) ** 2)
+    return radius_km * (2.0 * math.asin(math.sqrt(a)))
+
+
+def _round_or_none(value: Any, digits: int = 4) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return round(numeric, digits)
+
+
+def _resolve_centroid_assignment_column(exposures: Any, hazard_obj: Any) -> str | None:
+    gdf = getattr(exposures, "gdf", None)
+    columns = getattr(gdf, "columns", None)
+    if gdf is None or columns is None:
+        return None
+
+    column_names = [str(col) for col in list(columns)]
+    haz_type = str(getattr(hazard_obj, "haz_type", "") or "").strip()
+    preferred = f"centr_{haz_type}" if haz_type else None
+    if preferred and preferred in column_names:
+        return preferred
+
+    centroid_columns = [name for name in column_names if name.startswith("centr_")]
+    if len(centroid_columns) == 1:
+        return centroid_columns[0]
+    if centroid_columns:
+        return centroid_columns[0]
+    return None
+
+
+def _coerce_centroid_index(raw_value: Any, centroid_count: int) -> int | None:
+    if raw_value is None:
+        return None
+    try:
+        numeric = float(raw_value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    index = int(numeric)
+    if index < 0 or index >= max(0, int(centroid_count)):
+        return None
+    return index
+
+
+def _positive_intensity_centroid_mask(np: Any, hazard_obj: Any, centroid_count: int) -> Any:
+    if centroid_count <= 0:
+        return np.zeros(0, dtype=bool)
+
+    intensity = getattr(hazard_obj, "intensity", None)
+    if intensity is None:
+        return np.zeros(int(centroid_count), dtype=bool)
+
+    try:
+        positive = (intensity > 0).sum(axis=0)
+        if hasattr(positive, "A1"):
+            arr = np.asarray(positive.A1, dtype=float).reshape(-1)
+        elif hasattr(positive, "toarray"):
+            arr = np.asarray(positive.toarray(), dtype=float).reshape(-1)
+        else:
+            arr = np.asarray(positive, dtype=float).reshape(-1)
+        if arr.size == centroid_count:
+            return arr > 0.0
+    except Exception:
+        pass
+
+    try:
+        dense = np.asarray(intensity, dtype=float)
+        if dense.ndim == 1:
+            dense = dense.reshape(1, -1)
+        if dense.ndim >= 2 and dense.shape[-1] == centroid_count:
+            return np.nan_to_num(dense, nan=0.0, posinf=0.0, neginf=0.0).max(axis=0) > 0.0
+    except Exception:
+        pass
+
+    return np.zeros(int(centroid_count), dtype=bool)
+
+
+def _compute_matching_summary(
+    np: Any,
+    *,
+    exposures: Any,
+    point_records: list[dict[str, Any]],
+    hazard_obj: Any,
+    direct_eai_by_point: Any,
+    component_name: str,
+    hazard_key: str | None,
+) -> dict[str, Any]:
+    point_count = int(len(point_records))
+    point_values = np.asarray(
+        [max(0.0, float(rec.get("value_eur", 0.0) or 0.0)) for rec in point_records],
+        dtype=float,
+    )
+    point_value_total = float(point_values.sum()) if point_values.size else 0.0
+    centroid_count = int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0)
+    centroid_column = _resolve_centroid_assignment_column(exposures, hazard_obj)
+    haz_type = str(getattr(hazard_obj, "haz_type", "") or "").strip() or None
+
+    summary: dict[str, Any] = {
+        "status": "complete",
+        "hazard": str(hazard_key or "unknown"),
+        "component": str(component_name),
+        "haz_type": haz_type,
+        "centroid_column": centroid_column,
+        "point_count": point_count,
+        "point_value_total_eur": round(point_value_total, 2),
+        "centroid_count": centroid_count,
+        "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+    }
+
+    gdf = getattr(exposures, "gdf", None)
+    if gdf is None or centroid_column is None or centroid_column not in getattr(gdf, "columns", []):
+        summary.update(
+            {
+                "status": "unavailable",
+                "reason": "missing_centroid_assignment",
+                "assigned_point_count": 0,
+                "assigned_point_fraction": 0.0,
+                "positive_hazard_point_count": 0,
+                "positive_hazard_point_fraction": 0.0,
+                "positive_direct_loss_point_count": 0,
+                "positive_direct_loss_point_fraction": 0.0,
+            }
+        )
+        return summary
+
+    assignment_values = list(gdf[centroid_column])
+    centroid_lats = _as_1d_float(np, getattr(getattr(hazard_obj, "centroids", None), "lat", []))
+    centroid_lons = _as_1d_float(np, getattr(getattr(hazard_obj, "centroids", None), "lon", []))
+    positive_centroid_mask = _positive_intensity_centroid_mask(np, hazard_obj, centroid_count)
+
+    assigned_mask = np.zeros(point_count, dtype=bool)
+    positive_hazard_mask = np.zeros(point_count, dtype=bool)
+    direct_eai = _as_1d_float(np, direct_eai_by_point)
+    positive_direct_mask = np.zeros(point_count, dtype=bool)
+    positive_direct_mask[: min(point_count, direct_eai.size)] = direct_eai[: min(point_count, direct_eai.size)] > 0.0
+    unique_assigned_centroids: set[int] = set()
+    distance_km_values: list[float] = []
+
+    for idx, rec in enumerate(point_records):
+        assigned_idx = _coerce_centroid_index(
+            assignment_values[idx] if idx < len(assignment_values) else None,
+            centroid_count,
+        )
+        if assigned_idx is None:
+            continue
+        assigned_mask[idx] = True
+        unique_assigned_centroids.add(int(assigned_idx))
+
+        if assigned_idx < positive_centroid_mask.size and bool(positive_centroid_mask[assigned_idx]):
+            positive_hazard_mask[idx] = True
+
+        lat = rec.get("lat")
+        lon = rec.get("lon")
+        if (
+            lat is not None
+            and lon is not None
+            and assigned_idx < centroid_lats.size
+            and assigned_idx < centroid_lons.size
+        ):
+            distance_km = _haversine_km(
+                float(lon),
+                float(lat),
+                float(centroid_lons[assigned_idx]),
+                float(centroid_lats[assigned_idx]),
+            )
+            if math.isfinite(distance_km):
+                distance_km_values.append(float(distance_km))
+
+    assigned_value = float(point_values[assigned_mask].sum()) if point_values.size else 0.0
+    positive_hazard_value = float(point_values[positive_hazard_mask].sum()) if point_values.size else 0.0
+    positive_direct_value = float(point_values[positive_direct_mask].sum()) if point_values.size else 0.0
+    distance_arr = np.asarray(distance_km_values, dtype=float) if distance_km_values else np.zeros(0, dtype=float)
+
+    summary.update(
+        {
+            "assigned_centroid_count": int(len(unique_assigned_centroids)),
+            "positive_centroid_count": int(positive_centroid_mask.sum()) if positive_centroid_mask.size else 0,
+            "positive_centroid_fraction": _round_or_none(
+                float(positive_centroid_mask.sum()) / float(max(centroid_count, 1)),
+                digits=4,
+            ),
+            "assigned_point_count": int(assigned_mask.sum()),
+            "assigned_point_fraction": _round_or_none(float(assigned_mask.sum()) / float(max(point_count, 1)), digits=4),
+            "assigned_value_eur": round(assigned_value, 2),
+            "assigned_value_fraction": _round_or_none(assigned_value / float(max(point_value_total, 1.0)), digits=4),
+            "unassigned_point_count": int(point_count - int(assigned_mask.sum())),
+            "positive_hazard_point_count": int(positive_hazard_mask.sum()),
+            "positive_hazard_point_fraction": _round_or_none(
+                float(positive_hazard_mask.sum()) / float(max(point_count, 1)),
+                digits=4,
+            ),
+            "positive_hazard_value_eur": round(positive_hazard_value, 2),
+            "positive_hazard_value_fraction": _round_or_none(
+                positive_hazard_value / float(max(point_value_total, 1.0)),
+                digits=4,
+            ),
+            "positive_direct_loss_point_count": int(positive_direct_mask.sum()),
+            "positive_direct_loss_point_fraction": _round_or_none(
+                float(positive_direct_mask.sum()) / float(max(point_count, 1)),
+                digits=4,
+            ),
+            "positive_direct_loss_value_eur": round(positive_direct_value, 2),
+            "positive_direct_loss_value_fraction": _round_or_none(
+                positive_direct_value / float(max(point_value_total, 1.0)),
+                digits=4,
+            ),
+            "assignment_distance_mean_km": _round_or_none(distance_arr.mean() if distance_arr.size else None, digits=3),
+            "assignment_distance_p95_km": _round_or_none(
+                np.percentile(distance_arr, 95) if distance_arr.size else None,
+                digits=3,
+            ),
+            "assignment_distance_max_km": _round_or_none(distance_arr.max() if distance_arr.size else None, digits=3),
+        }
+    )
+    return summary
+
+
+def _build_combined_matching_summary(
+    np: Any,
+    *,
+    hazard_key: str,
+    point_records: list[dict[str, Any]],
+    total_metrics: HazardImpactResult,
+    component_metrics: dict[str, HazardImpactResult],
+    hazard_zero_intensity: bool,
+) -> dict[str, Any]:
+    point_values = np.asarray(
+        [max(0.0, float(rec.get("value_eur", 0.0) or 0.0)) for rec in point_records],
+        dtype=float,
+    )
+    point_count = int(point_values.size)
+    point_value_total = float(point_values.sum()) if point_values.size else 0.0
+    direct_eai = _as_1d_float(np, total_metrics.eai_direct_by_point)
+    positive_direct_mask = np.zeros(point_count, dtype=bool)
+    positive_direct_mask[: min(point_count, direct_eai.size)] = direct_eai[: min(point_count, direct_eai.size)] > 0.0
+    positive_direct_value = float(point_values[positive_direct_mask].sum()) if point_values.size else 0.0
+
+    reference_component_name = None
+    reference_matching: dict[str, Any] | None = None
+    for candidate_name in ("wind", "rain", "surge"):
+        candidate = component_metrics.get(candidate_name)
+        candidate_matching = dict(getattr(candidate, "matching", {}) or {}) if candidate is not None else {}
+        if candidate_matching.get("status") == "complete":
+            reference_component_name = candidate_name
+            reference_matching = candidate_matching
+            break
+
+    summary: dict[str, Any] = {
+        "status": "complete" if reference_matching else "unavailable",
+        "hazard": str(hazard_key),
+        "component": "combined",
+        "component_names": [name for name in ("wind", "rain", "surge") if name in component_metrics],
+        "reference_component": reference_component_name,
+        "point_count": point_count,
+        "point_value_total_eur": round(point_value_total, 2),
+        "hazard_zero_intensity": bool(hazard_zero_intensity),
+        "positive_direct_loss_point_count": int(positive_direct_mask.sum()),
+        "positive_direct_loss_point_fraction": _round_or_none(
+            float(positive_direct_mask.sum()) / float(max(point_count, 1)),
+            digits=4,
+        ),
+        "positive_direct_loss_value_eur": round(positive_direct_value, 2),
+        "positive_direct_loss_value_fraction": _round_or_none(
+            positive_direct_value / float(max(point_value_total, 1.0)),
+            digits=4,
+        ),
+    }
+    if reference_matching is not None:
+        for key in (
+            "haz_type",
+            "centroid_column",
+            "centroid_count",
+            "positive_centroid_count",
+            "positive_centroid_fraction",
+            "assigned_centroid_count",
+            "assigned_point_count",
+            "assigned_point_fraction",
+            "assigned_value_eur",
+            "assigned_value_fraction",
+            "unassigned_point_count",
+            "positive_hazard_point_count",
+            "positive_hazard_point_fraction",
+            "positive_hazard_value_eur",
+            "positive_hazard_value_fraction",
+            "assignment_distance_mean_km",
+            "assignment_distance_p95_km",
+            "assignment_distance_max_km",
+            "assignment_threshold_deg",
+        ):
+            if key in reference_matching:
+                summary[key] = reference_matching[key]
+    return summary
+
+
 def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
     losses_arr = _as_1d_float(np, losses)
     freq_arr = _as_1d_float(np, frequency)
@@ -2537,19 +3214,79 @@ def _compute_pml(np: Any, losses: Any, frequency: Any, return_periods: tuple[int
     if not valid.any():
         return {rp: 0.0 for rp in return_periods}
 
-    losses_sorted = losses_arr[valid][np.argsort(-losses_arr[valid])]
-    freq_sorted = freq_arr[valid][np.argsort(-losses_arr[valid])]
-    cum_rate = np.cumsum(freq_sorted)
+    losses_valid = losses_arr[valid]
+    freq_valid = freq_arr[valid]
+    sort_idxs = np.argsort(losses_valid)[::-1]
+    exceed_freq = np.cumsum(freq_valid[sort_idxs])
+    impact_curve = losses_valid[sort_idxs][::-1]
+    return_curve = np.divide(
+        1.0,
+        exceed_freq[::-1],
+        out=np.full(exceed_freq.size, np.inf, dtype=float),
+        where=exceed_freq[::-1] > 0.0,
+    )
+    finite = np.isfinite(return_curve) & (return_curve > 0.0)
+    if not finite.any():
+        return {rp: 0.0 for rp in return_periods}
 
-    out: dict[int, float] = {}
-    for rp in return_periods:
-        target_rate = 1.0 / float(rp)
-        idx = int(np.searchsorted(cum_rate, target_rate, side="left"))
-        if idx >= losses_sorted.size:
-            out[rp] = 0.0
-        else:
-            out[rp] = float(max(0.0, losses_sorted[idx]))
-    return out
+    interpolated = np.interp(
+        np.asarray(return_periods, dtype=float),
+        return_curve[finite],
+        impact_curve[finite],
+    )
+    return {
+        int(rp): float(max(0.0, interpolated[idx]))
+        for idx, rp in enumerate(return_periods)
+    }
+
+
+def _compute_pml_from_impact(np: Any, impact_obj: Any, return_periods: tuple[int, ...]) -> dict[int, float]:
+    target = np.asarray(return_periods, dtype=float)
+    try:
+        freq_curve = impact_obj.calc_freq_curve(target)
+        impacts = _as_1d_float(np, getattr(freq_curve, "impact", []))
+        if impacts.size == target.size:
+            return {
+                int(rp): float(max(0.0, impacts[idx]))
+                for idx, rp in enumerate(return_periods)
+            }
+    except Exception:
+        pass
+    return _compute_pml(
+        np,
+        getattr(impact_obj, "at_event", []),
+        getattr(impact_obj, "frequency", []),
+        return_periods,
+    )
+
+
+def _compute_loss_percentile(np: Any, losses: Any, frequency: Any, percentile: float) -> float:
+    losses_arr = np.clip(_as_1d_float(np, losses), 0.0, None)
+    weights = _as_1d_float(np, frequency)
+    valid = weights > 0.0
+    if not valid.any():
+        return 0.0
+
+    probs = weights[valid]
+    total_w = float(probs.sum())
+    if total_w <= 0.0:
+        return 0.0
+
+    q = float(percentile)
+    if q > 1.0:
+        q = q / 100.0
+    q = min(max(q, 0.0), 1.0)
+
+    sorted_idx = np.argsort(losses_arr[valid])
+    sorted_losses = losses_arr[valid][sorted_idx]
+    sorted_probs = probs[sorted_idx] / total_w
+    cdf = np.cumsum(sorted_probs)
+
+    if q >= 1.0:
+        return float(max(0.0, sorted_losses[-1])) if sorted_losses.size else 0.0
+    idx = int(np.searchsorted(cdf, q, side="left"))
+    idx = max(0, min(idx, sorted_losses.size - 1))
+    return float(max(0.0, sorted_losses[idx]))
 
 
 def _compute_tvar_95(np: Any, losses: Any, frequency: Any) -> float:
@@ -2605,6 +3342,1898 @@ def _extract_top_events(np: Any, impact_obj: Any, losses: Any, frequency: Any, t
     return out
 
 
+def _normalize_frequency_on_copy(hazard_obj: Any, storm_years: int) -> Any:
+    hazard_copy = copy.deepcopy(hazard_obj)
+    freq = getattr(hazard_copy, "frequency", None)
+    if freq is None:
+        return hazard_copy
+    if getattr(hazard_copy, "_sib_frequency_normalized", False):
+        return hazard_copy
+    try:
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            import numpy as np  # type: ignore
+
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
+        setattr(hazard_copy, "_sib_frequency_normalized", True)
+    except Exception:
+        return hazard_obj
+    return hazard_copy
+
+
+def _normalize_rain_model(raw_model: str | None) -> str:
+    model = str(raw_model or "R-CLIPER").strip().upper().replace("_", "-")
+    if model in {"RCLIPER", "R-CLIPER"}:
+        return "R-CLIPER"
+    if model == "TCR":
+        return "TCR"
+    return "R-CLIPER"
+
+
+def _build_exposure_with_impf_column(
+    base_exposure: Any,
+    *,
+    haz_type: str,
+    impf_ids: list[int],
+) -> Any:
+    exposure_copy = copy.deepcopy(base_exposure)
+    column = f"impf_{str(haz_type)}"
+    gdf = getattr(exposure_copy, "gdf", None)
+    if gdf is None:
+        return exposure_copy
+
+    n_rows = int(len(gdf.index))
+    values = [int(v) for v in list(impf_ids)[:n_rows]]
+    if len(values) < n_rows:
+        filler = int(values[-1]) if values else 1
+        values.extend([filler] * (n_rows - len(values)))
+    gdf[column] = values
+    return exposure_copy
+
+
+def _prepare_topo_raster_with_crs(topo_path: Path) -> Path:
+    path = Path(topo_path).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"DEM file not found: {path}")
+
+    try:
+        import rasterio  # type: ignore
+    except Exception:
+        return path
+
+    with rasterio.open(path) as src:
+        if src.crs:
+            return path
+        meta = src.meta.copy()
+        data = src.read()
+
+    cache_key = f"{path.resolve(strict=False)}::{path.stat().st_mtime_ns}::{path.stat().st_size}"
+    cached = _TOPO_RASTER_CACHE.get(cache_key)
+    if cached is not None and cached.exists():
+        return cached
+
+    cache_hash = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()[:16]
+    cache_dir = Path("/tmp/sib-risk-topo-cache")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out_path = cache_dir / f"{path.stem}_{cache_hash}_epsg4326.tif"
+
+    meta.update(driver="GTiff", crs="EPSG:4326", compress="deflate")
+    with rasterio.open(out_path, "w", **meta) as dst:
+        dst.write(data)
+
+    _TOPO_RASTER_CACHE[cache_key] = out_path
+    return out_path
+
+
+def _point_records_bounds_wgs84(
+    point_records: list[dict[str, Any]],
+    *,
+    padding_degrees: float = 0.5,
+) -> tuple[float, float, float, float] | None:
+    coords = [
+        (float(rec.get("lon")), float(rec.get("lat")))
+        for rec in list(point_records or [])
+        if rec.get("lon") is not None and rec.get("lat") is not None
+    ]
+    if not coords:
+        return None
+
+    lons = [coord[0] for coord in coords]
+    lats = [coord[1] for coord in coords]
+    pad = max(0.0, float(padding_degrees))
+    min_lon = max(-180.0, min(lons) - pad)
+    max_lon = min(180.0, max(lons) + pad)
+    min_lat = max(-90.0, min(lats) - pad)
+    max_lat = min(90.0, max(lats) + pad)
+    if min_lon >= max_lon or min_lat >= max_lat:
+        return None
+    return (min_lon, min_lat, max_lon, max_lat)
+
+
+def _prepare_topo_raster_for_exposure(
+    topo_path: Path,
+    *,
+    point_records: list[dict[str, Any]],
+    padding_degrees: float = 0.5,
+) -> Path:
+    prepared_path = _prepare_topo_raster_with_crs(topo_path)
+    bounds_wgs84 = _point_records_bounds_wgs84(point_records, padding_degrees=padding_degrees)
+    if bounds_wgs84 is None:
+        return prepared_path
+
+    try:
+        import rasterio  # type: ignore
+        from rasterio.windows import Window  # type: ignore
+        from rasterio.windows import from_bounds as window_from_bounds  # type: ignore
+        from rasterio.warp import transform_bounds  # type: ignore
+    except Exception:
+        return prepared_path
+
+    cache_key = (
+        f"{prepared_path.resolve(strict=False)}::{prepared_path.stat().st_mtime_ns}::{prepared_path.stat().st_size}"
+        f"::{bounds_wgs84!r}"
+    )
+    cached = _TOPO_RASTER_CACHE.get(cache_key)
+    if cached is not None and cached.exists():
+        return cached
+
+    with rasterio.open(prepared_path) as src:
+        src_crs = src.crs
+        if src_crs is None:
+            return prepared_path
+
+        try:
+            left, bottom, right, top = transform_bounds("EPSG:4326", src_crs, *bounds_wgs84, densify_pts=21)
+            window = window_from_bounds(left, bottom, right, top, transform=src.transform)
+            window = window.round_offsets().round_lengths()
+            full_window = Window(0, 0, src.width, src.height)
+            window = window.intersection(full_window)
+        except Exception:
+            return prepared_path
+
+        if int(window.width) <= 0 or int(window.height) <= 0:
+            return prepared_path
+        if int(window.width) >= int(src.width) and int(window.height) >= int(src.height):
+            return prepared_path
+
+        data = src.read(window=window)
+        meta = src.meta.copy()
+        meta.update(
+            driver="GTiff",
+            height=int(window.height),
+            width=int(window.width),
+            transform=src.window_transform(window),
+            compress="deflate",
+        )
+
+    cache_hash = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()[:16]
+    cache_dir = Path("/tmp/sib-risk-topo-cache")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out_path = cache_dir / f"{prepared_path.stem}_{cache_hash}_cropped.tif"
+
+    with rasterio.open(out_path, "w", **meta) as dst:
+        dst.write(data)
+
+    _TOPO_RASTER_CACHE[cache_key] = out_path
+    return out_path
+
+
+def _estimate_fraction_raster_shape(
+    centroids: Any,
+    *,
+    get_resolution_fn: Callable[[Any, Any], Any] | None = None,
+    pts_to_raster_meta_fn: Callable[..., Any] | None = None,
+) -> dict[str, int] | None:
+    if centroids is None:
+        return None
+
+    try:
+        if get_resolution_fn is None or pts_to_raster_meta_fn is None:
+            import climada.util.coordinates as u_coord  # type: ignore
+
+            get_resolution_fn = get_resolution_fn or u_coord.get_resolution
+            pts_to_raster_meta_fn = pts_to_raster_meta_fn or u_coord.pts_to_raster_meta
+
+        lat = getattr(centroids, "lat", None)
+        lon = getattr(centroids, "lon", None)
+        bounds = getattr(centroids, "total_bounds", None)
+        centroid_count = int(getattr(centroids, "size", 0) or 0)
+        if lat is None or lon is None or bounds is None or centroid_count <= 0:
+            return None
+
+        resolution = get_resolution_fn(lat, lon)
+        res_x = abs(float(resolution[0]))
+        res_y = abs(float(resolution[1]))
+        res = min(value for value in (res_x, res_y) if value > 0.0)
+        rows, cols, _ = pts_to_raster_meta_fn(
+            points_bounds=[float(value) for value in list(bounds)],
+            res=res,
+        )
+        rows_i = int(rows)
+        cols_i = int(cols)
+        if rows_i <= 0 or cols_i <= 0:
+            return None
+        return {
+            "rows": rows_i,
+            "cols": cols_i,
+            "cells": rows_i * cols_i,
+            "centroid_count": centroid_count,
+        }
+    except Exception:
+        return None
+
+
+def _should_use_pointwise_surge_fraction(
+    centroids: Any,
+    *,
+    fraction_grid_info: dict[str, int] | None = None,
+    max_fraction_cells: int = 5_000_000,
+    raster_cell_ratio_threshold: float = 25.0,
+    get_resolution_fn: Callable[[Any, Any], Any] | None = None,
+    pts_to_raster_meta_fn: Callable[..., Any] | None = None,
+) -> bool:
+    info = fraction_grid_info or _estimate_fraction_raster_shape(
+        centroids,
+        get_resolution_fn=get_resolution_fn,
+        pts_to_raster_meta_fn=pts_to_raster_meta_fn,
+    )
+    if not info:
+        return False
+    cells = int(info.get("cells") or 0)
+    centroid_count = max(1, int(info.get("centroid_count") or 0))
+    return cells > int(max_fraction_cells) and cells > int(raster_cell_ratio_threshold * centroid_count)
+
+
+def _build_pointwise_surge_hazard(
+    np: Any,
+    *,
+    surge_hazard_cls: Any,
+    wind_hazard: Any,
+    topo_path: Path | str,
+    inland_decay_rate: float = 0.2,
+    add_sea_level_rise: float = 0.0,
+    read_raster_sample_fn: Callable[..., Any] | None = None,
+) -> Any:
+    if read_raster_sample_fn is None:
+        import climada.util.coordinates as u_coord  # type: ignore
+
+        read_raster_sample_fn = u_coord.read_raster_sample
+
+    centroids = copy.deepcopy(wind_hazard.centroids)
+
+    centroids_dist_coast = centroids.get_dist_coast(signed=True)
+    coastal_msk = (wind_hazard.intensity > 0).sum(axis=0).A1 > 0
+    coastal_msk &= (centroids_dist_coast < 0)
+    coastal_msk &= (centroids_dist_coast >= -50 * 1000)
+    coastal_msk &= (np.abs(centroids.lat) <= 61)
+
+    coastal_centroids_h = read_raster_sample_fn(
+        str(topo_path),
+        centroids.lat[coastal_msk],
+        centroids.lon[coastal_msk],
+    )
+
+    elevation_msk = coastal_centroids_h >= 0
+    elevation_msk &= coastal_centroids_h <= 10 + add_sea_level_rise
+    coastal_msk[coastal_msk] = elevation_msk
+
+    coastal_centroids_h = coastal_centroids_h[elevation_msk]
+    coastal_idx = coastal_msk.nonzero()[0]
+
+    cent_to_coastal_idx = np.full(coastal_msk.shape, coastal_idx.size, dtype=np.int64)
+    cent_to_coastal_idx[coastal_msk] = np.arange(coastal_idx.size)
+
+    inten_surge = wind_hazard.intensity.copy()
+    inten_surge.data[~coastal_msk[inten_surge.indices]] = 0
+    inten_surge.eliminate_zeros()
+    inten_surge.data = 0.1023 * np.fmax(inten_surge.data - 26.8224, 0) + 1.8288
+
+    if inland_decay_rate != 0:
+        dist_coast_km = np.abs(centroids_dist_coast[coastal_idx]) / 1000
+        coastal_centroids_h += inland_decay_rate * dist_coast_km
+    coastal_centroids_h -= add_sea_level_rise
+
+    inten_surge.data -= coastal_centroids_h[cent_to_coastal_idx[inten_surge.indices]]
+    inten_surge.data = np.fmax(inten_surge.data, 0)
+    inten_surge.eliminate_zeros()
+
+    fract_surge = inten_surge.copy()
+    fract_surge.data[:] = 1.0
+
+    haz = surge_hazard_cls()
+    haz.centroids = centroids
+    haz.units = "m"
+    haz.event_id = wind_hazard.event_id
+    haz.event_name = wind_hazard.event_name
+    haz.date = wind_hazard.date
+    haz.orig = wind_hazard.orig
+    haz.frequency = wind_hazard.frequency
+    haz.intensity = inten_surge
+    haz.fraction = fract_surge
+    return haz
+
+
+def _build_surge_hazard(
+    np: Any,
+    *,
+    surge_hazard_cls: Any,
+    wind_hazard: Any,
+    topo_path: Path | str,
+    hazard_source: str | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    fraction_grid_info = _estimate_fraction_raster_shape(getattr(wind_hazard, "centroids", None))
+    source_name = str(hazard_source or "").strip().lower()
+    use_pointwise = source_name == "dynamic_parquet"
+    reason = "dynamic_exposure_centroids" if use_pointwise else "raster_fraction"
+
+    if not use_pointwise and _should_use_pointwise_surge_fraction(
+        getattr(wind_hazard, "centroids", None),
+        fraction_grid_info=fraction_grid_info,
+    ):
+        use_pointwise = True
+        reason = "fraction_grid_explodes"
+
+    if use_pointwise:
+        surge_hazard = _build_pointwise_surge_hazard(
+            np,
+            surge_hazard_cls=surge_hazard_cls,
+            wind_hazard=wind_hazard,
+            topo_path=topo_path,
+        )
+        return surge_hazard, {
+            "fraction_mode": "pointwise",
+            "reason": reason,
+            **(fraction_grid_info or {}),
+        }
+
+    surge_hazard = surge_hazard_cls.from_tc_winds(wind_hazard, str(topo_path))
+    return surge_hazard, {
+        "fraction_mode": "raster",
+        "reason": reason,
+        **(fraction_grid_info or {}),
+    }
+
+
+def _component_checkpoint_dir(
+    checkpoint_dir: Path | None,
+    *,
+    hazard_key: str | None,
+    component_name: str,
+) -> Path | None:
+    if checkpoint_dir is None:
+        return None
+    root = Path(checkpoint_dir) / str(hazard_key or "unknown") / str(component_name)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _shard_result_path(
+    checkpoint_dir: Path | None,
+    *,
+    hazard_key: str | None,
+    component_name: str,
+    shard_id: str,
+) -> Path | None:
+    base_dir = _component_checkpoint_dir(checkpoint_dir, hazard_key=hazard_key, component_name=component_name)
+    if base_dir is None:
+        return None
+    result_dir = base_dir / "results"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    return result_dir / f"{shard_id}.npz"
+
+
+def _shard_split_plan_path(
+    checkpoint_dir: Path | None,
+    *,
+    hazard_key: str | None,
+    component_name: str,
+    shard_id: str,
+) -> Path | None:
+    base_dir = _component_checkpoint_dir(checkpoint_dir, hazard_key=hazard_key, component_name=component_name)
+    if base_dir is None:
+        return None
+    split_dir = base_dir / "splits"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    return split_dir / f"{shard_id}.json"
+
+
+def _point_id_values(point_records: list[dict[str, Any]]) -> list[str]:
+    return [str(rec.get("point_id") or rec.get("feature_id") or "") for rec in list(point_records or [])]
+
+
+def _save_shard_checkpoint(
+    np: Any,
+    *,
+    checkpoint_dir: Path | None,
+    hazard_key: str | None,
+    component_name: str,
+    shard: _ExposureShard,
+    point_records: list[dict[str, Any]],
+    metrics: HazardImpactResult,
+) -> Path | None:
+    result_path = _shard_result_path(
+        checkpoint_dir,
+        hazard_key=hazard_key,
+        component_name=component_name,
+        shard_id=shard.shard_id,
+    )
+    if result_path is None:
+        return None
+
+    raw_event_ids = getattr(metrics, "event_id", None)
+    raw_event_names = getattr(metrics, "event_name", None)
+    event_ids = np.asarray([str(value) for value in ([] if raw_event_ids is None else list(raw_event_ids))], dtype=str)
+    event_names = np.asarray(
+        ["" if value is None else str(value) for value in ([] if raw_event_names is None else list(raw_event_names))],
+        dtype=str,
+    )
+    point_ids = np.asarray(_point_id_values(point_records), dtype=str)
+    np.savez_compressed(
+        result_path,
+        eai_direct_by_point=_as_1d_float(np, metrics.eai_direct_by_point),
+        max_loss_by_point=_as_1d_float(np, metrics.max_loss_by_point),
+        at_event_loss=_as_1d_float(np, metrics.at_event_loss),
+        event_frequency=_as_1d_float(np, metrics.event_frequency),
+        event_id=event_ids,
+        event_name=event_names,
+        point_id=point_ids,
+    )
+    return result_path
+
+
+def _load_shard_checkpoint(
+    np: Any,
+    *,
+    checkpoint_dir: Path | None,
+    hazard_key: str | None,
+    component_name: str,
+    shard: _ExposureShard,
+    point_records: list[dict[str, Any]],
+    top_n_events: int,
+) -> HazardImpactResult | None:
+    result_path = _shard_result_path(
+        checkpoint_dir,
+        hazard_key=hazard_key,
+        component_name=component_name,
+        shard_id=shard.shard_id,
+    )
+    if result_path is None or not result_path.exists():
+        return None
+
+    expected_point_ids = _point_id_values(point_records)
+    try:
+        with np.load(result_path, allow_pickle=False) as payload:
+            stored_point_ids = [str(value) for value in list(payload.get("point_id", []))]
+            if stored_point_ids != expected_point_ids:
+                return None
+            if "max_loss_by_point" not in payload.files:
+                return None
+            return _rebuild_component_result(
+                np,
+                eai_by_point=payload["eai_direct_by_point"],
+                max_loss_by_point=payload["max_loss_by_point"],
+                at_event_loss=payload["at_event_loss"],
+                event_frequency=payload["event_frequency"],
+                event_id=[str(value) for value in list(payload.get("event_id", []))],
+                event_name=[(str(value) if str(value) else None) for value in list(payload.get("event_name", []))],
+                top_n_events=top_n_events,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Ignoring unreadable shard checkpoint %s (%s: %s)",
+            result_path,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+
+def _save_shard_split_plan(
+    *,
+    checkpoint_dir: Path | None,
+    hazard_key: str | None,
+    component_name: str,
+    parent_shard: _ExposureShard,
+    child_shards: list[_ExposureShard],
+) -> Path | None:
+    plan_path = _shard_split_plan_path(
+        checkpoint_dir,
+        hazard_key=hazard_key,
+        component_name=component_name,
+        shard_id=parent_shard.shard_id,
+    )
+    if plan_path is None:
+        return None
+    payload = {
+        "parent_shard_id": parent_shard.shard_id,
+        "retry_depth": int(parent_shard.retry_depth),
+        "children": [
+            {
+                "shard_id": shard.shard_id,
+                "point_indices": [int(value) for value in shard.point_indices],
+                "territory_id": shard.territory_id,
+                "infra_class": shard.infra_class,
+                "retry_depth": int(shard.retry_depth),
+            }
+            for shard in child_shards
+        ],
+    }
+    plan_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return plan_path
+
+
+def _load_shard_split_plan(
+    *,
+    checkpoint_dir: Path | None,
+    hazard_key: str | None,
+    component_name: str,
+    shard: _ExposureShard,
+) -> list[_ExposureShard] | None:
+    plan_path = _shard_split_plan_path(
+        checkpoint_dir,
+        hazard_key=hazard_key,
+        component_name=component_name,
+        shard_id=shard.shard_id,
+    )
+    if plan_path is None or not plan_path.exists():
+        return None
+    try:
+        payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(
+            "Ignoring unreadable shard split plan %s (%s: %s)",
+            plan_path,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    children = payload.get("children") if isinstance(payload, dict) else None
+    if not isinstance(children, list) or not children:
+        return None
+    out: list[_ExposureShard] = []
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        indices = tuple(int(value) for value in list(child.get("point_indices") or []))
+        if not indices:
+            continue
+        out.append(
+            _ExposureShard(
+                shard_id=str(child.get("shard_id") or f"{shard.shard_id}-child"),
+                point_indices=indices,
+                territory_id=str(child.get("territory_id") or shard.territory_id),
+                infra_class=str(child.get("infra_class") or shard.infra_class),
+                retry_depth=int(child.get("retry_depth") or (int(shard.retry_depth) + 1)),
+            )
+        )
+    return out or None
+
+
+def _emit_progress(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    payload: dict[str, Any],
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(dict(payload))
+    except Exception as exc:
+        logger.warning("Progress callback failed (%s: %s)", type(exc).__name__, exc)
+
+
+def _estimate_component_memory_bytes(
+    *,
+    event_count: int,
+    point_count: int,
+    component_name: str,
+) -> int:
+    if event_count <= 0 or point_count <= 0:
+        return 0
+    multiplier = float(_SHARD_MEMORY_MULTIPLIER.get(str(component_name), 1.0))
+    dense_bytes = float(event_count) * float(point_count) * 8.0
+    return int(max(0.0, dense_bytes * 1.35 * multiplier))
+
+
+def _resolve_component_point_cap(
+    *,
+    total_points: int,
+    event_count: int,
+    component_name: str,
+    memory_budget_gb: float,
+    max_points_per_shard: int,
+    min_points_per_shard: int,
+) -> int:
+    if total_points <= 0:
+        return 0
+    if max_points_per_shard > 0:
+        return max(1, min(total_points, int(max_points_per_shard)))
+    if memory_budget_gb <= 0.0 or event_count <= 0:
+        return total_points
+
+    min_points = max(1, int(min_points_per_shard))
+    budget_bytes = float(memory_budget_gb) * float(1024**3)
+    per_point_bytes = max(
+        1.0,
+        float(
+            _estimate_component_memory_bytes(
+                event_count=event_count,
+                point_count=1,
+                component_name=component_name,
+            )
+        ),
+    )
+    point_cap = int(budget_bytes / per_point_bytes)
+    point_cap = max(min_points, point_cap)
+    return max(1, min(total_points, point_cap))
+
+
+def _estimate_dynamic_hazard_memory_bytes(
+    *,
+    event_count: int,
+    point_count: int,
+) -> int:
+    if event_count <= 0 or point_count <= 0:
+        return 0
+    dense_bytes = float(event_count) * float(point_count) * 8.0
+    return int(max(0.0, dense_bytes * float(_DYNAMIC_HAZARD_MEMORY_MULTIPLIER)))
+
+
+def _resolve_dynamic_hazard_point_cap(
+    *,
+    total_points: int,
+    event_count: int,
+    memory_budget_gb: float,
+    max_points_per_shard: int,
+    min_points_per_shard: int,
+) -> int:
+    if total_points <= 0:
+        return 0
+    if max_points_per_shard > 0:
+        return max(1, min(total_points, int(max_points_per_shard)))
+    if memory_budget_gb <= 0.0 or event_count <= 0:
+        return total_points
+
+    min_points = max(1, int(min_points_per_shard))
+    budget_bytes = float(memory_budget_gb) * float(1024**3)
+    per_point_bytes = max(
+        1.0,
+        float(
+            _estimate_dynamic_hazard_memory_bytes(
+                event_count=event_count,
+                point_count=1,
+            )
+        ),
+    )
+    point_cap = int(budget_bytes / per_point_bytes)
+    point_cap = max(min_points, point_cap)
+    return max(1, min(total_points, point_cap))
+
+
+def _dynamic_hazard_budget_exceeded_at_min_shard(
+    *,
+    event_count: int,
+    memory_budget_gb: float,
+    min_points_per_shard: int,
+) -> bool:
+    if memory_budget_gb <= 0.0 or event_count <= 0:
+        return False
+    min_points = max(1, int(min_points_per_shard))
+    shard_bytes = _estimate_dynamic_hazard_memory_bytes(
+        event_count=event_count,
+        point_count=min_points,
+    )
+    return float(shard_bytes) > float(memory_budget_gb) * float(1024**3)
+
+
+def _plan_hazard_shards(
+    point_records: list[dict[str, Any]],
+    *,
+    max_points_per_shard: int,
+) -> list[_ExposureShard]:
+    total_points = len(point_records)
+    if total_points <= 0:
+        return []
+    point_cap = max(1, int(max_points_per_shard))
+    if total_points <= point_cap:
+        first = point_records[0] if point_records else {}
+        return [
+            _ExposureShard(
+                shard_id="hazard-0001",
+                point_indices=tuple(range(total_points)),
+                territory_id=str(first.get("territory_id") or "mixed"),
+                infra_class="mixed",
+            )
+        ]
+
+    grouped_indices: dict[str, list[int]] = {}
+    for idx, rec in enumerate(point_records):
+        territory_id = str(rec.get("territory_id") or "unknown")
+        grouped_indices.setdefault(territory_id, []).append(idx)
+
+    shards: list[_ExposureShard] = []
+    counter = 1
+    for territory_id, indices in grouped_indices.items():
+        for start in range(0, len(indices), point_cap):
+            chunk = tuple(indices[start : start + point_cap])
+            if not chunk:
+                continue
+            shards.append(
+                _ExposureShard(
+                    shard_id=f"hazard-{counter:04d}",
+                    point_indices=chunk,
+                    territory_id=territory_id,
+                    infra_class="mixed",
+                )
+            )
+            counter += 1
+    return shards
+
+
+def _init_component_result_accumulator(np: Any, *, total_points: int) -> dict[str, Any]:
+    return {
+        "eai_by_point": np.zeros(total_points, dtype=float),
+        "max_loss_by_point": np.zeros(total_points, dtype=float),
+        "at_event_total": None,
+        "event_frequency": None,
+        "event_id": None,
+        "event_name": None,
+    }
+
+
+def _merge_component_result_accumulator(
+    np: Any,
+    *,
+    accumulator: dict[str, Any],
+    shard: _ExposureShard,
+    metrics: HazardImpactResult,
+) -> None:
+    shard_eai = _as_1d_float(np, metrics.eai_direct_by_point)
+    shard_max_loss = _as_1d_float(np, metrics.max_loss_by_point)
+    for offset, point_idx in enumerate(shard.point_indices):
+        if offset >= shard_eai.size:
+            break
+        accumulator["eai_by_point"][int(point_idx)] = float(shard_eai[offset])
+    for offset, point_idx in enumerate(shard.point_indices):
+        if offset >= shard_max_loss.size:
+            break
+        accumulator["max_loss_by_point"][int(point_idx)] = float(shard_max_loss[offset])
+
+    shard_at_event = _as_1d_float(np, metrics.at_event_loss)
+    if accumulator["at_event_total"] is None:
+        accumulator["at_event_total"] = np.zeros(shard_at_event.size, dtype=float)
+    elif shard_at_event.size != accumulator["at_event_total"].size:
+        raise RuntimeError(
+            "Hazard-sharded component aggregation produced inconsistent event counts: "
+            f"expected {accumulator['at_event_total'].size}, got {shard_at_event.size}."
+        )
+    if shard_at_event.size:
+        accumulator["at_event_total"] += shard_at_event
+
+    if accumulator["event_frequency"] is None:
+        accumulator["event_frequency"] = _as_1d_float(np, metrics.event_frequency)
+    if accumulator["event_id"] is None:
+        accumulator["event_id"] = getattr(metrics, "event_id", [])
+    if accumulator["event_name"] is None:
+        accumulator["event_name"] = getattr(metrics, "event_name", [])
+
+
+def _finalize_component_result_accumulator(
+    np: Any,
+    *,
+    accumulator: dict[str, Any],
+    event_count: int,
+    top_n_events: int,
+) -> HazardImpactResult:
+    at_event_total = accumulator["at_event_total"]
+    if at_event_total is None:
+        at_event_total = np.zeros(event_count, dtype=float)
+    event_frequency = accumulator["event_frequency"]
+    if event_frequency is None:
+        event_frequency = np.zeros(event_count, dtype=float)
+    event_id = accumulator["event_id"] if accumulator["event_id"] is not None else []
+    event_name = accumulator["event_name"] if accumulator["event_name"] is not None else []
+    return _rebuild_component_result(
+        np,
+        eai_by_point=accumulator["eai_by_point"],
+        max_loss_by_point=accumulator["max_loss_by_point"],
+        at_event_loss=at_event_total,
+        event_frequency=event_frequency,
+        event_id=event_id,
+        event_name=event_name,
+        top_n_events=top_n_events,
+    )
+
+
+def _scoped_dynamic_progress_callback(
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    *,
+    hazard_shard_id: str,
+) -> Callable[[dict[str, Any]], None] | None:
+    if progress_callback is None:
+        return None
+
+    def _callback(payload: dict[str, Any]) -> None:
+        event_name = str(payload.get("event") or "")
+        if event_name in {"component_plan", "component_complete"}:
+            return
+        scoped = dict(payload)
+        scoped["hazard_shard_id"] = str(hazard_shard_id)
+        shard_id = scoped.get("shard_id")
+        if shard_id is not None:
+            scoped["shard_id"] = f"{hazard_shard_id}__{shard_id}"
+        progress_callback(scoped)
+
+    return _callback
+
+
+def _plan_exposure_shards(
+    point_records: list[dict[str, Any]],
+    *,
+    max_points_per_shard: int,
+) -> list[_ExposureShard]:
+    total_points = len(point_records)
+    if total_points <= 0:
+        return []
+    point_cap = max(1, int(max_points_per_shard))
+    if total_points <= point_cap:
+        first = point_records[0] if point_records else {}
+        return [
+            _ExposureShard(
+                shard_id="shard-0001",
+                point_indices=tuple(range(total_points)),
+                territory_id=str(first.get("territory_id") or "mixed"),
+                infra_class=str(first.get("infra_class") or "mixed"),
+            )
+        ]
+
+    grouped_indices: dict[tuple[str, str], list[int]] = {}
+    for idx, rec in enumerate(point_records):
+        key = (
+            str(rec.get("territory_id") or "unknown"),
+            str(rec.get("infra_class") or "unknown"),
+        )
+        grouped_indices.setdefault(key, []).append(idx)
+
+    shards: list[_ExposureShard] = []
+    counter = 1
+    for (territory_id, infra_class), indices in grouped_indices.items():
+        for start in range(0, len(indices), point_cap):
+            chunk = tuple(indices[start : start + point_cap])
+            if not chunk:
+                continue
+            shards.append(
+                _ExposureShard(
+                    shard_id=f"shard-{counter:04d}",
+                    point_indices=chunk,
+                    territory_id=territory_id,
+                    infra_class=infra_class,
+                )
+            )
+            counter += 1
+    return shards
+
+
+def _split_exposure_shard(
+    shard: _ExposureShard,
+    *,
+    min_points_per_shard: int,
+) -> list[_ExposureShard] | None:
+    min_points = max(1, int(min_points_per_shard))
+    if shard.point_count < (min_points * 2):
+        return None
+
+    mid = shard.point_count // 2
+    left = tuple(shard.point_indices[:mid])
+    right = tuple(shard.point_indices[mid:])
+    if len(left) < min_points or len(right) < min_points:
+        return None
+
+    next_depth = int(shard.retry_depth) + 1
+    return [
+        _ExposureShard(
+            shard_id=f"{shard.shard_id}a",
+            point_indices=left,
+            territory_id=shard.territory_id,
+            infra_class=shard.infra_class,
+            retry_depth=next_depth,
+        ),
+        _ExposureShard(
+            shard_id=f"{shard.shard_id}b",
+            point_indices=right,
+            territory_id=shard.territory_id,
+            infra_class=shard.infra_class,
+            retry_depth=next_depth,
+        ),
+    ]
+
+
+def _rebuild_component_result(
+    np: Any,
+    *,
+    eai_by_point: Any,
+    max_loss_by_point: Any | None = None,
+    at_event_loss: Any,
+    event_frequency: Any,
+    event_id: Any,
+    event_name: Any,
+    top_n_events: int,
+) -> HazardImpactResult:
+    eai = _as_1d_float(np, eai_by_point)
+    at_event = _as_1d_float(np, at_event_loss)
+    frequency = _as_1d_float(np, event_frequency)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    if max_loss_by_point is None:
+        resolved_max_loss = _approx_percentile_loss_per_point(np, eai, public_event_loss)
+    else:
+        resolved_max_loss = _as_1d_float(np, max_loss_by_point)
+    view = _SimpleImpactView(event_id=event_id, event_name=event_name)
+    return HazardImpactResult(
+        eai_direct_by_point=eai,
+        max_loss_by_point=resolved_max_loss,
+        at_event_loss=at_event,
+        event_frequency=frequency,
+        event_id=event_id,
+        event_name=event_name,
+        aai_agg_eur=float(eai.sum()),
+        max_event_loss_eur=public_event_loss,
+        pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
+        tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
+        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+    )
+
+
+def _compute_component_impact_sharded(
+    np: Any,
+    ImpactCalc: Any,
+    *,
+    exposure_bundle: ClimadaExposureBundle,
+    exposure_builder: Callable[[ClimadaExposureBundle], Any],
+    impfset: Any,
+    hazard_obj: Any,
+    top_n_events: int,
+    component_name: str,
+    memory_budget_gb: float,
+    max_points_per_shard: int,
+    min_points_per_shard: int,
+    max_shard_retry_depth: int,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    hazard_key: str | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
+) -> tuple[HazardImpactResult, dict[str, Any]]:
+    point_records = list(exposure_bundle.point_records or [])
+    total_points = len(point_records)
+    event_count = int(_as_1d_float(np, getattr(hazard_obj, "frequency", [])).size)
+    full_estimated_bytes = _estimate_component_memory_bytes(
+        event_count=event_count,
+        point_count=total_points,
+        component_name=component_name,
+    )
+    point_cap = _resolve_component_point_cap(
+        total_points=total_points,
+        event_count=event_count,
+        component_name=component_name,
+        memory_budget_gb=memory_budget_gb,
+        max_points_per_shard=max_points_per_shard,
+        min_points_per_shard=min_points_per_shard,
+    )
+
+    sharding_info: dict[str, Any] = {
+        "component": str(component_name),
+        "total_points": int(total_points),
+        "event_count": int(event_count),
+        "memory_budget_gb": round(float(memory_budget_gb), 3),
+        "estimated_full_memory_gb": round(float(full_estimated_bytes) / float(1024**3), 3),
+        "max_points_per_shard": int(point_cap),
+        "planned_shards": 1,
+        "completed_shards": 0,
+        "retry_splits": 0,
+        "resumed_shards": 0,
+        "sharded": bool(point_cap > 0 and point_cap < total_points),
+        "status": "running",
+    }
+
+    if total_points <= 0:
+        result = _rebuild_component_result(
+            np,
+            eai_by_point=np.zeros(0, dtype=float),
+            at_event_loss=np.zeros(event_count, dtype=float),
+            event_frequency=np.asarray(getattr(hazard_obj, "frequency", []), dtype=float).reshape(-1),
+            event_id=getattr(hazard_obj, "event_id", []),
+            event_name=getattr(hazard_obj, "event_name", []),
+            top_n_events=top_n_events,
+        )
+        result.matching = {
+            "status": "complete",
+            "hazard": str(hazard_key or "unknown"),
+            "component": str(component_name),
+            "point_count": 0,
+            "point_value_total_eur": 0.0,
+            "centroid_count": int(getattr(getattr(hazard_obj, "centroids", None), "size", 0) or 0),
+            "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+            "assigned_point_count": 0,
+            "assigned_point_fraction": 0.0,
+            "positive_hazard_point_count": 0,
+            "positive_hazard_point_fraction": 0.0,
+            "positive_direct_loss_point_count": 0,
+            "positive_direct_loss_point_fraction": 0.0,
+        }
+        sharding_info["status"] = "complete"
+        return result, sharding_info
+
+    if not sharding_info["sharded"]:
+        single_shard = _ExposureShard(
+            shard_id="shard-0001",
+            point_indices=tuple(range(total_points)),
+            territory_id=str((point_records[0] or {}).get("territory_id") or "mixed") if point_records else "mixed",
+            infra_class=str((point_records[0] or {}).get("infra_class") or "mixed") if point_records else "mixed",
+        )
+        _emit_progress(
+            progress_callback,
+            {
+                "event": "component_plan",
+                "hazard": hazard_key,
+                "component": component_name,
+                **sharding_info,
+            },
+        )
+        if resume_enabled:
+            cached_metrics = _load_shard_checkpoint(
+                np,
+                checkpoint_dir=checkpoint_dir,
+                hazard_key=hazard_key,
+                component_name=component_name,
+                shard=single_shard,
+                point_records=point_records,
+                top_n_events=top_n_events,
+            )
+            if cached_metrics is not None:
+                sharding_info["completed_shards"] = 1
+                sharding_info["resumed_shards"] = 1
+                sharding_info["status"] = "complete"
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "shard_complete",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        "shard_id": single_shard.shard_id,
+                        "retry_depth": int(single_shard.retry_depth),
+                        "point_count": int(single_shard.point_count),
+                        "completed_shards": 1,
+                        "planned_shards": 1,
+                        "territory_id": single_shard.territory_id,
+                        "infra_class": single_shard.infra_class,
+                        "resumed": True,
+                    },
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "component_complete",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        **sharding_info,
+                    },
+                )
+                return cached_metrics, sharding_info
+        component_exposures = exposure_builder(exposure_bundle)
+        metrics = _compute_component_impact(
+            np,
+            ImpactCalc,
+            exposures=component_exposures,
+            impfset=impfset,
+            hazard_obj=hazard_obj,
+            top_n_events=top_n_events,
+        )
+        metrics.matching = _compute_matching_summary(
+            np,
+            exposures=component_exposures,
+            point_records=point_records,
+            hazard_obj=hazard_obj,
+            direct_eai_by_point=metrics.eai_direct_by_point,
+            component_name=component_name,
+            hazard_key=hazard_key,
+        )
+        _save_shard_checkpoint(
+            np,
+            checkpoint_dir=checkpoint_dir,
+            hazard_key=hazard_key,
+            component_name=component_name,
+            shard=single_shard,
+            point_records=point_records,
+            metrics=metrics,
+        )
+        sharding_info["completed_shards"] = 1
+        sharding_info["status"] = "complete"
+        _emit_progress(
+            progress_callback,
+            {
+                "event": "component_complete",
+                "hazard": hazard_key,
+                "component": component_name,
+                **sharding_info,
+            },
+        )
+        return metrics, sharding_info
+
+    pending_shards = _plan_exposure_shards(
+        point_records,
+        max_points_per_shard=point_cap,
+    )
+    sharding_info["planned_shards"] = len(pending_shards)
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "component_plan",
+            "hazard": hazard_key,
+            "component": component_name,
+            **sharding_info,
+        },
+    )
+
+    eai_by_point = np.zeros(total_points, dtype=float)
+    at_event_total = None
+    event_frequency = None
+    event_id = None
+    event_name = None
+
+    while pending_shards:
+        shard = pending_shards.pop(0)
+        if resume_enabled:
+            split_plan = _load_shard_split_plan(
+                checkpoint_dir=checkpoint_dir,
+                hazard_key=hazard_key,
+                component_name=component_name,
+                shard=shard,
+            )
+            if split_plan:
+                pending_shards = list(split_plan) + pending_shards
+                sharding_info["planned_shards"] = int(sharding_info["completed_shards"]) + len(pending_shards)
+                continue
+
+            cached_metrics = _load_shard_checkpoint(
+                np,
+                checkpoint_dir=checkpoint_dir,
+                hazard_key=hazard_key,
+                component_name=component_name,
+                shard=shard,
+                point_records=[point_records[idx] for idx in shard.point_indices],
+                top_n_events=top_n_events,
+            )
+            if cached_metrics is not None:
+                shard_eai = _as_1d_float(np, cached_metrics.eai_direct_by_point)
+                for offset, point_idx in enumerate(shard.point_indices):
+                    if offset >= shard_eai.size:
+                        break
+                    eai_by_point[int(point_idx)] = float(shard_eai[offset])
+
+                shard_at_event = _as_1d_float(np, cached_metrics.at_event_loss)
+                if at_event_total is None:
+                    at_event_total = np.zeros(shard_at_event.size, dtype=float)
+                elif shard_at_event.size != at_event_total.size:
+                    raise RuntimeError(
+                        f"Sharded component '{component_name}' produced inconsistent cached event counts: "
+                        f"expected {at_event_total.size}, got {shard_at_event.size}."
+                    )
+                if shard_at_event.size:
+                    at_event_total += shard_at_event
+
+                if event_frequency is None:
+                    event_frequency = _as_1d_float(np, cached_metrics.event_frequency)
+                if event_id is None:
+                    event_id = getattr(cached_metrics, "event_id", [])
+                if event_name is None:
+                    event_name = getattr(cached_metrics, "event_name", [])
+
+                sharding_info["completed_shards"] = int(sharding_info["completed_shards"]) + 1
+                sharding_info["resumed_shards"] = int(sharding_info["resumed_shards"]) + 1
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "shard_complete",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        "shard_id": shard.shard_id,
+                        "retry_depth": int(shard.retry_depth),
+                        "point_count": int(shard.point_count),
+                        "completed_shards": int(sharding_info["completed_shards"]),
+                        "planned_shards": int(sharding_info["planned_shards"]),
+                        "territory_id": shard.territory_id,
+                        "infra_class": shard.infra_class,
+                        "resumed": True,
+                    },
+                )
+                continue
+
+        _emit_progress(
+            progress_callback,
+            {
+                "event": "shard_start",
+                "hazard": hazard_key,
+                "component": component_name,
+                "shard_id": shard.shard_id,
+                "retry_depth": int(shard.retry_depth),
+                "point_count": int(shard.point_count),
+                "planned_shards": int(sharding_info["planned_shards"]),
+                "completed_shards": int(sharding_info["completed_shards"]),
+                "territory_id": shard.territory_id,
+                "infra_class": shard.infra_class,
+            },
+        )
+        try:
+            shard_bundle = subset_climada_exposure_bundle(
+                exposure_bundle,
+                point_indices=list(shard.point_indices),
+            )
+            shard_metrics = _compute_component_impact(
+                np,
+                ImpactCalc,
+                exposures=exposure_builder(shard_bundle),
+                impfset=impfset,
+                hazard_obj=hazard_obj,
+                top_n_events=top_n_events,
+            )
+        except MemoryError as exc:
+            split_shards = None
+            if int(shard.retry_depth) < max(0, int(max_shard_retry_depth)):
+                split_shards = _split_exposure_shard(
+                    shard,
+                    min_points_per_shard=min_points_per_shard,
+                )
+            if split_shards:
+                pending_shards = list(split_shards) + pending_shards
+                sharding_info["retry_splits"] = int(sharding_info["retry_splits"]) + 1
+                sharding_info["planned_shards"] = int(sharding_info["completed_shards"]) + len(pending_shards)
+                _save_shard_split_plan(
+                    checkpoint_dir=checkpoint_dir,
+                    hazard_key=hazard_key,
+                    component_name=component_name,
+                    parent_shard=shard,
+                    child_shards=split_shards,
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "shard_split_retry",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        "shard_id": shard.shard_id,
+                        "retry_depth": int(shard.retry_depth),
+                        "point_count": int(shard.point_count),
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "planned_shards": int(sharding_info["planned_shards"]),
+                    },
+                )
+                continue
+            raise
+
+        shard_eai = _as_1d_float(np, shard_metrics.eai_direct_by_point)
+        for offset, point_idx in enumerate(shard.point_indices):
+            if offset >= shard_eai.size:
+                break
+            eai_by_point[int(point_idx)] = float(shard_eai[offset])
+
+        shard_at_event = _as_1d_float(np, shard_metrics.at_event_loss)
+        if at_event_total is None:
+            at_event_total = np.zeros(shard_at_event.size, dtype=float)
+        elif shard_at_event.size != at_event_total.size:
+            raise RuntimeError(
+                f"Sharded component '{component_name}' produced inconsistent event counts: "
+                f"expected {at_event_total.size}, got {shard_at_event.size}."
+            )
+        if shard_at_event.size:
+            at_event_total += shard_at_event
+
+        _save_shard_checkpoint(
+            np,
+            checkpoint_dir=checkpoint_dir,
+            hazard_key=hazard_key,
+            component_name=component_name,
+            shard=shard,
+            point_records=[point_records[idx] for idx in shard.point_indices],
+            metrics=shard_metrics,
+        )
+
+        if event_frequency is None:
+            event_frequency = _as_1d_float(np, shard_metrics.event_frequency)
+        if event_id is None:
+            event_id = getattr(shard_metrics, "event_id", [])
+        if event_name is None:
+            event_name = getattr(shard_metrics, "event_name", [])
+
+        sharding_info["completed_shards"] = int(sharding_info["completed_shards"]) + 1
+        _emit_progress(
+            progress_callback,
+            {
+                "event": "shard_complete",
+                "hazard": hazard_key,
+                "component": component_name,
+                "shard_id": shard.shard_id,
+                "retry_depth": int(shard.retry_depth),
+                "point_count": int(shard.point_count),
+                "completed_shards": int(sharding_info["completed_shards"]),
+                "planned_shards": int(sharding_info["planned_shards"]),
+                "territory_id": shard.territory_id,
+                "infra_class": shard.infra_class,
+            },
+        )
+
+    if at_event_total is None:
+        at_event_total = np.zeros(event_count, dtype=float)
+    if event_frequency is None:
+        event_frequency = _as_1d_float(np, getattr(hazard_obj, "frequency", []))
+    if event_id is None:
+        event_id = getattr(hazard_obj, "event_id", [])
+    if event_name is None:
+        event_name = getattr(hazard_obj, "event_name", [])
+
+    result = _rebuild_component_result(
+        np,
+        eai_by_point=eai_by_point,
+        at_event_loss=at_event_total,
+        event_frequency=event_frequency,
+        event_id=event_id,
+        event_name=event_name,
+        top_n_events=top_n_events,
+    )
+    matching_exposures = exposure_builder(exposure_bundle)
+    result.matching = _compute_matching_summary(
+        np,
+        exposures=matching_exposures,
+        point_records=point_records,
+        hazard_obj=hazard_obj,
+        direct_eai_by_point=result.eai_direct_by_point,
+        component_name=component_name,
+        hazard_key=hazard_key,
+    )
+    sharding_info["status"] = "complete"
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "component_complete",
+            "hazard": hazard_key,
+            "component": component_name,
+            **sharding_info,
+        },
+    )
+    return result, sharding_info
+
+
+def _compute_component_impact(
+    np: Any,
+    ImpactCalc: Any,
+    *,
+    exposures: Any,
+    impfset: Any,
+    hazard_obj: Any,
+    top_n_events: int,
+) -> HazardImpactResult:
+    exposures.assign_centroids(
+        hazard_obj,
+        distance="euclidean",
+        threshold=float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+        overwrite=True,
+    )
+    impact = ImpactCalc(exposures, impfset, hazard_obj).impact(
+        save_mat=True,
+        assign_centroids=False,
+    )
+    eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
+    at_event = _as_1d_float(np, getattr(impact, "at_event", []))
+    frequency = _as_1d_float(np, getattr(impact, "frequency", []))
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    max_loss_point = _max_loss_per_point(np, impact, eai_exp.size)
+
+    return HazardImpactResult(
+        eai_direct_by_point=eai_exp,
+        max_loss_by_point=max_loss_point,
+        at_event_loss=at_event,
+        event_frequency=frequency,
+        event_id=getattr(impact, "event_id", []),
+        event_name=getattr(impact, "event_name", []),
+        aai_agg_eur=float(getattr(impact, "aai_agg", 0.0) or 0.0),
+        max_event_loss_eur=public_event_loss,
+        pml_eur=_compute_pml_from_impact(np, impact, RETURN_PERIODS),
+        tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
+        top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+    )
+
+
+def _combine_component_results(
+    np: Any,
+    *,
+    components: list[HazardImpactResult],
+    point_values_eur: list[float],
+    top_n_events: int,
+) -> HazardImpactResult:
+    if len(components) == 1:
+        return components[0]
+
+    point_values = _as_1d_float(np, point_values_eur)
+    if point_values.size == 0:
+        point_values = np.zeros(0, dtype=float)
+
+    sum_eai = np.zeros(point_values.size, dtype=float)
+    sum_max = np.zeros(point_values.size, dtype=float)
+    for comp in components:
+        eai = _as_1d_float(np, comp.eai_direct_by_point)
+        max_loss = _as_1d_float(np, comp.max_loss_by_point)
+        n_eai = min(sum_eai.size, eai.size)
+        n_max = min(sum_max.size, max_loss.size)
+        if n_eai > 0:
+            sum_eai[:n_eai] += eai[:n_eai]
+        if n_max > 0:
+            sum_max[:n_max] += max_loss[:n_max]
+
+    capped_eai = np.minimum(np.maximum(point_values, 0.0), np.maximum(sum_eai, 0.0))
+    capped_max = np.minimum(np.maximum(point_values, 0.0), np.maximum(sum_max, 0.0))
+
+    base = components[0]
+    at_event = _as_1d_float(np, base.at_event_loss).copy()
+    frequency = _as_1d_float(np, base.event_frequency)
+    event_id = getattr(base, "event_id", [])
+    event_name = getattr(base, "event_name", [])
+    for comp in components[1:]:
+        comp_at_event = _as_1d_float(np, comp.at_event_loss)
+        if comp_at_event.size == at_event.size:
+            at_event += comp_at_event
+
+    view = _SimpleImpactView(event_id=event_id, event_name=event_name)
+    public_event_loss = _compute_loss_percentile(np, at_event, frequency, PUBLIC_EVENT_LOSS_PERCENTILE)
+    return HazardImpactResult(
+        eai_direct_by_point=capped_eai,
+        max_loss_by_point=capped_max,
+        at_event_loss=at_event,
+        event_frequency=frequency,
+        event_id=event_id,
+        event_name=event_name,
+        aai_agg_eur=float(capped_eai.sum()),
+        max_event_loss_eur=public_event_loss,
+        pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
+        tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
+        top_events=_extract_top_events(np, view, at_event, frequency, top_n_events),
+        raw_max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
+    )
+
+
+def _compute_dynamic_hazard_sharded_results(
+    np: Any,
+    ImpactCalc: Any,
+    *,
+    exposure_bundle: ClimadaExposureBundle,
+    tracks: Any,
+    hazard_key: str,
+    storm_years: int,
+    top_n_events: int,
+    hazard_shards: list[_ExposureShard],
+    hazard_point_cap: int,
+    impfset_wind: Any,
+    requested_rain_model: str,
+    rain_max_dist_inland_km: float,
+    multi_hazard_ready: bool,
+    multi_hazard_model: Any,
+    impfset_rain: Any,
+    impfset_surge: Any,
+    TCRain: Any,
+    TCSurgeBathtub: Any,
+    surge_topo_path: Path | None,
+    memory_budget_gb: float,
+    max_points_per_shard: int,
+    min_points_per_shard: int,
+    max_shard_retry_depth: int,
+    strict_required_components: bool,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
+) -> tuple[HazardImpactResult, dict[str, HazardImpactResult], dict[str, str], dict[str, dict[str, Any]], list[str]]:
+    point_records = list(exposure_bundle.point_records or [])
+    total_points = len(point_records)
+    point_values_eur = [max(0.0, float(rec.get("value_eur", 0.0))) for rec in point_records]
+    event_count = int(len(getattr(tracks, "data", []))) if tracks is not None else 0
+    planned_shards = max(1, len(hazard_shards))
+    full_hazard_bytes = _estimate_dynamic_hazard_memory_bytes(
+        event_count=event_count,
+        point_count=total_points,
+    )
+
+    component_notes: list[str] = [
+        f"{hazard_key}: dynamic hazard construction sharded across {planned_shards} centroid shard(s) with a cap of {int(max(1, hazard_point_cap))} points per shard.",
+    ]
+    components: dict[str, HazardImpactResult] = {}
+    component_status: dict[str, str] = {}
+    component_sharding: dict[str, dict[str, Any]] = {}
+
+    if total_points <= 0:
+        empty = _rebuild_component_result(
+            np,
+            eai_by_point=np.zeros(0, dtype=float),
+            at_event_loss=np.zeros(event_count, dtype=float),
+            event_frequency=np.zeros(event_count, dtype=float),
+            event_id=[],
+            event_name=[],
+            top_n_events=top_n_events,
+        )
+        components["wind"] = empty
+        component_status["wind"] = "complete"
+        component_sharding["wind"] = {
+            "component": "wind",
+            "status": "complete",
+            "sharded": False,
+            "hazard_sharded": False,
+            "planned_shards": 0,
+            "completed_shards": 0,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+        }
+        return empty, components, component_status, component_sharding, component_notes
+
+    if multi_hazard_ready:
+        if multi_hazard_model is None or impfset_rain is None or TCRain is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain setup is unavailable for hazard-sharded execution."
+            )
+        if impfset_surge is None or TCSurgeBathtub is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge setup is unavailable for hazard-sharded execution."
+            )
+        if tracks is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} rain component requires dynamic tracks during hazard-sharded execution."
+            )
+        if surge_topo_path is None:
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+            )
+        if not Path(surge_topo_path).exists():
+            raise RuntimeError(
+                f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+            )
+
+    component_enabled = {
+        "wind": True,
+        "rain": bool(multi_hazard_ready),
+        "surge": bool(multi_hazard_ready),
+    }
+
+    component_accumulators: dict[str, dict[str, Any] | None] = {}
+    component_completed_shards: dict[str, int] = {}
+    component_resumed_shards: dict[str, int] = {}
+    component_retry_splits: dict[str, int] = {}
+    component_inner_sharded: dict[str, bool] = {}
+    component_plan_payloads: dict[str, dict[str, Any]] = {}
+
+    for component_name in ("wind", "rain", "surge"):
+        if not component_enabled.get(component_name):
+            continue
+        component_accumulators[component_name] = _init_component_result_accumulator(np, total_points=total_points)
+        component_completed_shards[component_name] = 0
+        component_resumed_shards[component_name] = 0
+        component_retry_splits[component_name] = 0
+        component_inner_sharded[component_name] = False
+        component_plan_payloads[component_name] = {
+            "event": "component_plan",
+            "hazard": hazard_key,
+            "component": component_name,
+            "total_points": int(total_points),
+            "event_count": int(event_count),
+            "memory_budget_gb": round(float(memory_budget_gb), 3),
+            "estimated_full_memory_gb": round(
+                float(
+                    max(
+                        full_hazard_bytes,
+                        _estimate_component_memory_bytes(
+                            event_count=event_count,
+                            point_count=total_points,
+                            component_name=component_name,
+                        ),
+                    )
+                )
+                / float(1024**3),
+                3,
+            ),
+            "max_points_per_shard": int(max(1, hazard_point_cap)),
+            "planned_shards": int(planned_shards),
+            "completed_shards": 0,
+            "retry_splits": 0,
+            "resumed_shards": 0,
+            "sharded": bool(planned_shards > 1),
+            "hazard_sharded": True,
+        }
+        _emit_progress(progress_callback, component_plan_payloads[component_name])
+
+    surge_fraction_note_added = False
+    surge_topo_note_added = False
+
+    for hazard_shard in hazard_shards:
+        shard_point_indices = list(hazard_shard.point_indices)
+        shard_bundle = subset_climada_exposure_bundle(
+            exposure_bundle,
+            point_indices=shard_point_indices,
+        )
+        shard_point_records = list(shard_bundle.point_records or [])
+        shard_coords = [
+            (float(rec.get("lat")), float(rec.get("lon")))
+            for rec in shard_point_records
+            if rec.get("lat") is not None and rec.get("lon") is not None
+        ]
+        if not shard_coords:
+            continue
+
+        centroids = _build_centroids_from_points(shard_coords)
+        wind_hazard = _normalize_frequency_on_copy(
+            _build_hazard_from_tracks(tracks, centroids),
+            storm_years,
+        )
+        scoped_progress_callback = _scoped_dynamic_progress_callback(
+            progress_callback,
+            hazard_shard_id=hazard_shard.shard_id,
+        )
+
+        for component_name in ("wind", "surge", "rain"):
+            if not component_enabled.get(component_name):
+                continue
+            if component_accumulators.get(component_name) is None:
+                continue
+
+            inner_checkpoint_dir = (
+                Path(checkpoint_dir) / "dynamic-hazard-shards" / hazard_key / component_name / hazard_shard.shard_id
+                if checkpoint_dir is not None
+                else None
+            )
+
+            _emit_progress(
+                progress_callback,
+                {
+                    "event": "shard_start",
+                    "hazard": hazard_key,
+                    "component": component_name,
+                    "shard_id": hazard_shard.shard_id,
+                    "retry_depth": int(hazard_shard.retry_depth),
+                    "point_count": int(hazard_shard.point_count),
+                    "completed_shards": int(component_completed_shards.get(component_name, 0)),
+                    "planned_shards": int(planned_shards),
+                    "territory_id": hazard_shard.territory_id,
+                    "infra_class": hazard_shard.infra_class,
+                },
+            )
+
+            try:
+                if component_name == "wind":
+                    shard_metrics, inner_sharding = _compute_component_impact_sharded(
+                        np,
+                        ImpactCalc,
+                        exposure_bundle=shard_bundle,
+                        exposure_builder=lambda hazard_shard_bundle: hazard_shard_bundle.exposures,
+                        impfset=impfset_wind,
+                        hazard_obj=wind_hazard,
+                        top_n_events=top_n_events,
+                        component_name="wind",
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=int(max_points_per_shard),
+                        min_points_per_shard=int(min_points_per_shard),
+                        max_shard_retry_depth=int(max_shard_retry_depth),
+                        progress_callback=scoped_progress_callback,
+                        hazard_key=hazard_key,
+                        checkpoint_dir=inner_checkpoint_dir,
+                        resume_enabled=resume_enabled,
+                    )
+                elif component_name == "surge":
+                    prepared_topo = _prepare_topo_raster_for_exposure(
+                        Path(surge_topo_path),
+                        point_records=shard_point_records,
+                    )
+                    if prepared_topo != Path(surge_topo_path) and not surge_topo_note_added:
+                        component_notes.append(
+                            f"{hazard_key}: prepared cropped DEM for surge hazard at {prepared_topo}."
+                        )
+                        surge_topo_note_added = True
+                    surge_hazard, surge_meta = _build_surge_hazard(
+                        np,
+                        surge_hazard_cls=TCSurgeBathtub,
+                        wind_hazard=wind_hazard,
+                        topo_path=prepared_topo,
+                        hazard_source="dynamic_parquet",
+                    )
+                    if str(surge_meta.get("fraction_mode") or "") == "pointwise" and not surge_fraction_note_added:
+                        rows = surge_meta.get("rows")
+                        cols = surge_meta.get("cols")
+                        grid_desc = f" estimated fraction grid {rows}x{cols}" if rows and cols else ""
+                        component_notes.append(
+                            f"{hazard_key}: surge used pointwise land fractions for exposure-aligned centroid shards ({surge_meta.get('reason')}).{grid_desc}"
+                        )
+                        surge_fraction_note_added = True
+                    surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+                    shard_metrics, inner_sharding = _compute_component_impact_sharded(
+                        np,
+                        ImpactCalc,
+                        exposure_bundle=shard_bundle,
+                        exposure_builder=lambda hazard_shard_bundle: _build_exposure_with_impf_column(
+                            hazard_shard_bundle.exposures,
+                            haz_type=multi_hazard_model.surge_haz_type,
+                            impf_ids=[
+                                resolve_surge_impf_id(rec.get("asset_type"), multi_hazard_model)
+                                for rec in list(hazard_shard_bundle.point_records or [])
+                            ],
+                        ),
+                        impfset=impfset_surge,
+                        hazard_obj=surge_hazard,
+                        top_n_events=top_n_events,
+                        component_name="surge",
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=int(max_points_per_shard),
+                        min_points_per_shard=int(min_points_per_shard),
+                        max_shard_retry_depth=int(max_shard_retry_depth),
+                        progress_callback=scoped_progress_callback,
+                        hazard_key=hazard_key,
+                        checkpoint_dir=inner_checkpoint_dir,
+                        resume_enabled=resume_enabled,
+                    )
+                else:
+                    rain_hazard = TCRain.from_tracks(
+                        tracks,
+                        centroids=wind_hazard.centroids,
+                        model=requested_rain_model,
+                        ignore_distance_to_coast=True,
+                        max_dist_inland_km=float(rain_max_dist_inland_km),
+                    )
+                    rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
+                    shard_metrics, inner_sharding = _compute_component_impact_sharded(
+                        np,
+                        ImpactCalc,
+                        exposure_bundle=shard_bundle,
+                        exposure_builder=lambda hazard_shard_bundle: _build_exposure_with_impf_column(
+                            hazard_shard_bundle.exposures,
+                            haz_type=multi_hazard_model.rain_haz_type,
+                            impf_ids=[
+                                resolve_rain_impf_id(rec.get("asset_type"), multi_hazard_model)
+                                for rec in list(hazard_shard_bundle.point_records or [])
+                            ],
+                        ),
+                        impfset=impfset_rain,
+                        hazard_obj=rain_hazard,
+                        top_n_events=top_n_events,
+                        component_name="rain",
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=int(max_points_per_shard),
+                        min_points_per_shard=int(min_points_per_shard),
+                        max_shard_retry_depth=int(max_shard_retry_depth),
+                        progress_callback=scoped_progress_callback,
+                        hazard_key=hazard_key,
+                        checkpoint_dir=inner_checkpoint_dir,
+                        resume_enabled=resume_enabled,
+                    )
+            except Exception as exc:
+                component_status[component_name] = "failed"
+                component_sharding[component_name] = {
+                    "component": component_name,
+                    "status": "failed",
+                    "hazard_sharded": True,
+                    "planned_shards": int(planned_shards),
+                    "completed_shards": int(component_completed_shards.get(component_name, 0)),
+                    "retry_splits": int(component_retry_splits.get(component_name, 0)),
+                    "resumed_shards": int(component_resumed_shards.get(component_name, 0)),
+                    "max_points_per_shard": int(max(1, hazard_point_cap)),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                component_accumulators[component_name] = None
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "component_failed",
+                        "hazard": hazard_key,
+                        "component": component_name,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                if component_name == "wind" or strict_required_components:
+                    raise RuntimeError(
+                        f"{hazard_key} {component_name} component failed under hazard sharding: {type(exc).__name__}: {exc}"
+                    ) from exc
+                logger.warning(
+                    "%s %s component failed during hazard-sharded execution (%s: %s)",
+                    hazard_key,
+                    component_name,
+                    type(exc).__name__,
+                    exc,
+                )
+                component_notes.append(
+                    f"{hazard_key}: {component_name} component failed during hazard-sharded execution ({type(exc).__name__}): {exc}"
+                )
+                continue
+
+            _merge_component_result_accumulator(
+                np,
+                accumulator=component_accumulators[component_name],
+                shard=hazard_shard,
+                metrics=shard_metrics,
+            )
+            component_completed_shards[component_name] = int(component_completed_shards.get(component_name, 0)) + 1
+            component_resumed_shards[component_name] = int(component_resumed_shards.get(component_name, 0)) + int(inner_sharding.get("resumed_shards") or 0)
+            component_retry_splits[component_name] = int(component_retry_splits.get(component_name, 0)) + int(inner_sharding.get("retry_splits") or 0)
+            component_inner_sharded[component_name] = bool(component_inner_sharded.get(component_name) or inner_sharding.get("sharded"))
+            _emit_progress(
+                progress_callback,
+                {
+                    "event": "shard_complete",
+                    "hazard": hazard_key,
+                    "component": component_name,
+                    "shard_id": hazard_shard.shard_id,
+                    "retry_depth": int(hazard_shard.retry_depth),
+                    "point_count": int(hazard_shard.point_count),
+                    "completed_shards": int(component_completed_shards.get(component_name, 0)),
+                    "planned_shards": int(planned_shards),
+                    "territory_id": hazard_shard.territory_id,
+                    "infra_class": hazard_shard.infra_class,
+                    "resumed": bool(
+                        int(inner_sharding.get("completed_shards") or 0) > 0
+                        and int(inner_sharding.get("completed_shards") or 0) == int(inner_sharding.get("resumed_shards") or 0)
+                    ),
+                },
+            )
+
+    for component_name in ("wind", "rain", "surge"):
+        accumulator = component_accumulators.get(component_name)
+        if accumulator is None:
+            continue
+        metrics = _finalize_component_result_accumulator(
+            np,
+            accumulator=accumulator,
+            event_count=event_count,
+            top_n_events=top_n_events,
+        )
+        components[component_name] = metrics
+        component_status[component_name] = "complete"
+        component_sharding[component_name] = {
+            "component": component_name,
+            "status": "complete",
+            "hazard_sharded": True,
+            "sharded": bool(planned_shards > 1 or component_inner_sharded.get(component_name)),
+            "planned_shards": int(planned_shards),
+            "completed_shards": int(component_completed_shards.get(component_name, 0)),
+            "retry_splits": int(component_retry_splits.get(component_name, 0)),
+            "resumed_shards": int(component_resumed_shards.get(component_name, 0)),
+            "max_points_per_shard": int(max(1, hazard_point_cap)),
+            "estimated_full_memory_gb": component_plan_payloads.get(component_name, {}).get("estimated_full_memory_gb"),
+            "inner_sharded": bool(component_inner_sharded.get(component_name)),
+        }
+        _emit_progress(
+            progress_callback,
+            {
+                "event": "component_complete",
+                "hazard": hazard_key,
+                "component": component_name,
+                **component_plan_payloads.get(component_name, {}),
+                "event": "component_complete",
+                "completed_shards": int(component_completed_shards.get(component_name, 0)),
+                "retry_splits": int(component_retry_splits.get(component_name, 0)),
+                "resumed_shards": int(component_resumed_shards.get(component_name, 0)),
+            },
+        )
+
+    total_metrics = _combine_component_results(
+        np,
+        components=[components[name] for name in ("wind", "rain", "surge") if name in components],
+        point_values_eur=point_values_eur,
+        top_n_events=top_n_events,
+    )
+    total_metrics.matching = _build_combined_matching_summary(
+        np,
+        hazard_key=hazard_key,
+        point_records=point_records,
+        total_metrics=total_metrics,
+        component_metrics=components,
+        hazard_zero_intensity=bool(
+            float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+        ),
+    )
+    return total_metrics, components, component_status, component_sharding, component_notes
+
+
 def run_climada_direct_impacts(
     exposure_bundle: ClimadaExposureBundle,
     *,
@@ -2618,25 +5247,81 @@ def run_climada_direct_impacts(
     storm_cmcc_parquet_path: Path | None = None,
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
+    dynamic_max_tracks: int = 1200,
+    track_cache_max_entries: int | None = None,
+    multi_hazard_enabled: bool = True,
+    rain_model: str = "R-CLIPER",
+    rain_max_dist_inland_km: float = 2000.0,
+    surge_topo_path: Path | None = None,
+    flood_curve_file: Path | None = None,
+    wind_asset_type_to_curve_code: dict[str, str] | None = None,
+    flood_asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = 0.25,
+    execution_profile: str = "default",
+    memory_budget_gb: float = 0.0,
+    max_points_per_shard: int = 0,
+    min_points_per_shard: int = 512,
+    max_shard_retry_depth: int = 4,
+    strict_required_components: bool = False,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    checkpoint_dir: Path | None = None,
+    resume_enabled: bool = False,
 ) -> ClimadaRunResult:
+    if fallback_to_precomputed_hazards:
+        raise ValueError(
+            "Scientific fallback to precomputed hazards has been removed. Disable fallback_to_precomputed_hazards and fix the dynamic hazard input instead."
+        )
+    if not strict_required_components:
+        raise ValueError(
+            "Incomplete multi-hazard CLIMADA execution is no longer supported. Keep strict_required_components enabled."
+        )
+
     runtime = _require_runtime()
     np = runtime["np"]
     ImpactCalc = runtime["ImpactCalc"]
     ImpactFuncSet = runtime["ImpactFuncSet"]
 
-    impf = try_build_climada_impact_func()
-    if impf is None:
-        raise DependencyMissingError("Unable to instantiate CLIMADA impact function for tropical cyclone.")
-    impfset = ImpactFuncSet([impf])
+    vulnerability_payload = get_tc_vulnerability_payload(
+        asset_type_to_curve_code=wind_asset_type_to_curve_code,
+    )
+    impact_funcs = try_build_climada_impact_funcs()
+    if impact_funcs is None:
+        raise DependencyMissingError("Unable to instantiate CLIMADA impact functions for tropical cyclone.")
+    impfset_wind = ImpactFuncSet(impact_funcs)
 
     notes = [
         "Direct damages are computed with CLIMADA ImpactCalc on STORM and STORM_CMCC hazards.",
         "Hazard frequencies are normalized by the synthetic catalog length before annualized metrics are reported.",
+        (
+            "STORM track winds are converted from 10-minute to 1-minute sustained winds before CLIMADA hazard generation."
+            if convert_10min_to_1min
+            else "STORM track winds are kept in their input sustained-wind averaging convention."
+        ),
+        f"Impact functions: profile={vulnerability_payload.get('profile')} with {len(impact_funcs)} TC curves.",
     ]
+    execution_profile_name = str(execution_profile or "default").strip().lower()
+    sharding_enabled = bool(max_points_per_shard > 0 or memory_budget_gb > 0.0)
+    if execution_profile_name != "default":
+        notes.append(f"Execution profile: {execution_profile_name}.")
+    if sharding_enabled:
+        if max_points_per_shard > 0:
+            notes.append(f"Impact execution uses exposure shards capped at {int(max_points_per_shard)} points per shard.")
+        else:
+            notes.append(f"Impact execution uses exposure shards derived from an approximate memory budget of {float(memory_budget_gb):.2f} GiB per component.")
+    if strict_required_components:
+        notes.append("Eligible multi-hazard components run in strict mode: failures stop the complete-analysis territory run.")
+    if checkpoint_dir is not None:
+        notes.append(f"Shard checkpoints directory: {Path(checkpoint_dir)}.")
+    if resume_enabled:
+        notes.append("Resume mode enabled: completed shards are reused from on-disk checkpoints when available.")
 
     bundle = None
+    dynamic_hazard_shards: list[_ExposureShard] = []
+    dynamic_hazard_point_cap = 0
+    dynamic_hazard_estimated_full_memory_bytes = 0
     if (
         prefer_dynamic_hazards
         and storm_parquet_path is not None
@@ -2656,18 +5341,75 @@ def run_climada_direct_impacts(
                     storm_years=storm_years,
                     basin_coverages=basin_coverages,
                     wind_unit_in=wind_unit_in,
+                    convert_10min_to_1min=convert_10min_to_1min,
                     radius_unit_in=radius_unit_in,
                     env_pressure_hpa=env_pressure_hpa,
+                    max_tracks=max(100, int(dynamic_max_tracks)),
+                    track_cache_max_entries=track_cache_max_entries,
+                    build_hazards=False,
                 )
+                dynamic_hazard_event_count = max(
+                    int(bundle.track_count_storm or 0),
+                    int(bundle.track_count_storm_cmcc or 0),
+                )
+                dynamic_hazard_estimated_full_memory_bytes = _estimate_dynamic_hazard_memory_bytes(
+                    event_count=dynamic_hazard_event_count,
+                    point_count=len(point_coords),
+                )
+                if _dynamic_hazard_budget_exceeded_at_min_shard(
+                    event_count=dynamic_hazard_event_count,
+                    memory_budget_gb=float(memory_budget_gb),
+                    min_points_per_shard=1,
+                ):
+                    raise RuntimeError(
+                        "Dynamic hazard construction exceeds the configured memory budget even for a single centroid shard. "
+                        f"tracks={dynamic_hazard_event_count}, memory_budget_gb={float(memory_budget_gb):.2f}"
+                    )
+
+                dynamic_hazard_budget_cap = _resolve_dynamic_hazard_point_cap(
+                    total_points=len(point_coords),
+                    event_count=dynamic_hazard_event_count,
+                    memory_budget_gb=float(memory_budget_gb),
+                    max_points_per_shard=0,
+                    min_points_per_shard=1,
+                )
+                if int(max_points_per_shard) > 0:
+                    dynamic_hazard_point_cap = max(1, min(int(max_points_per_shard), int(dynamic_hazard_budget_cap)))
+                else:
+                    dynamic_hazard_point_cap = max(1, int(dynamic_hazard_budget_cap))
+
+                dynamic_hazard_shards = _plan_hazard_shards(
+                    list(exposure_bundle.point_records or []),
+                    max_points_per_shard=max(1, int(dynamic_hazard_point_cap)),
+                )
+                if len(dynamic_hazard_shards) <= 1:
+                    centroids = _build_centroids_from_points(point_coords)
+                    bundle.centroids = centroids
+                    bundle.storm = _normalize_frequency_on_copy(
+                        _build_hazard_from_tracks(bundle.tracks_storm, centroids),
+                        storm_years,
+                    )
+                    bundle.storm_cmcc = _normalize_frequency_on_copy(
+                        _build_hazard_from_tracks(bundle.tracks_storm_cmcc, centroids),
+                        storm_years,
+                    )
+                    bundle.global_hazards_built = True
                 notes.append(
-                    f"Hazard source: dynamic STORM/STORM_CMCC parquet (basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count})."
+                    "Hazard source: dynamic STORM/STORM_CMCC parquet "
+                    f"(basin_id={list(bundle.basin_ids) or ['n/a']}, points={bundle.point_count}, "
+                    f"tracks={int(bundle.track_count_storm or 0)}/{int(bundle.track_count_storm_cmcc or 0)})."
                 )
+                if len(dynamic_hazard_shards) > 1:
+                    notes.append(
+                        "Dynamic hazard construction uses centroid sharding before ImpactCalc "
+                        f"({len(dynamic_hazard_shards)} shards, cap={int(max(1, dynamic_hazard_point_cap))} points per shard, "
+                        f"estimated full build={float(dynamic_hazard_estimated_full_memory_bytes) / float(1024**3):.2f} GiB)."
+                    )
             except Exception as exc:
-                if not fallback_to_precomputed_hazards:
-                    raise
-                notes.append(
-                    f"Dynamic hazard build failed ({type(exc).__name__}): {exc}. Falling back to precomputed HDF5 hazards."
-                )
+                raise RuntimeError(
+                    "Dynamic hazard build failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     if bundle is None:
         bundle = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, storm_years)
@@ -2675,69 +5417,416 @@ def run_climada_direct_impacts(
             f"Hazard source: precomputed HDF5 ({hazard_storm_path.name}, {hazard_storm_cmcc_path.name})."
         )
 
-    hazards = {"storm": bundle.storm, "storm_cmcc": bundle.storm_cmcc}
+    hazards_wind = {"storm": bundle.storm, "storm_cmcc": bundle.storm_cmcc}
+    point_values_eur = [max(0.0, float(rec.get("value_eur", 0.0))) for rec in list(exposure_bundle.point_records or [])]
+
+    requested_rain_model = _normalize_rain_model(rain_model)
+    multi_hazard_model = None
+    multi_hazard_ready = False
+    impfset_rain = None
+    impfset_surge = None
+    TCRain = None
+    TCSurgeBathtub = None
+
+    if bool(multi_hazard_enabled):
+        if flood_curve_file is None:
+            raise RuntimeError("Multi-hazard CLIMADA execution requires a configured flood depth curve file.")
+        elif not Path(flood_curve_file).exists():
+            raise FileNotFoundError(
+                f"Multi-hazard CLIMADA execution requires flood depth curves at {flood_curve_file}."
+            )
+        else:
+            try:
+                from climada_petals.hazard.tc_rainfield import TCRain as _TCRain  # type: ignore
+                from climada_petals.hazard.tc_surge_bathtub import TCSurgeBathtub as _TCSurgeBathtub  # type: ignore
+
+                multi_hazard_model = build_multi_hazard_impact_model(
+                    surge_haz_type="TCSurgeBathtub",
+                    rain_haz_type="TR",
+                    flood_curve_file=Path(flood_curve_file),
+                    asset_type_to_curve_code=flood_asset_type_to_curve_code,
+                    rain_proxy_base_runoff_coeff=rain_proxy_base_runoff_coeff,
+                )
+                impfset_rain = ImpactFuncSet(multi_hazard_model.rain_funcs)
+                impfset_surge = ImpactFuncSet(multi_hazard_model.surge_funcs)
+                TCRain = _TCRain
+                TCSurgeBathtub = _TCSurgeBathtub
+                multi_hazard_ready = True
+                notes.append(
+                    "Multi-hazard V1 enabled: wind (TC) + rain proxy (TCRain) + coastal surge (TCSurgeBathtub)."
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "Multi-hazard setup failed and scientific fallback is disabled: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
 
     out: dict[str, HazardImpactResult] = {}
+    component_out: dict[str, dict[str, HazardImpactResult]] = {}
     hazard_zero_intensity: dict[str, bool] = {}
-    for hazard_key, hazard_obj in hazards.items():
+    components_by_hazard: dict[str, list[str]] = {}
+    component_status_by_hazard: dict[str, dict[str, str]] = {}
+    component_sharding_by_hazard: dict[str, dict[str, dict[str, Any]]] = {}
+    dynamic_hazard_sharding_active = bool(
+        str(getattr(bundle, "source", "") or "") == "dynamic_parquet"
+        and not bool(getattr(bundle, "global_hazards_built", True))
+        and bool(dynamic_hazard_shards)
+    )
+
+    for hazard_key in ("storm", "storm_cmcc"):
+        if dynamic_hazard_sharding_active:
+            tracks = bundle.tracks_storm if hazard_key == "storm" else bundle.tracks_storm_cmcc
+            total_metrics, components, component_status, component_sharding, hazard_notes = _compute_dynamic_hazard_sharded_results(
+                np,
+                ImpactCalc,
+                exposure_bundle=exposure_bundle,
+                tracks=tracks,
+                hazard_key=hazard_key,
+                storm_years=storm_years,
+                top_n_events=top_n_events,
+                hazard_shards=dynamic_hazard_shards,
+                hazard_point_cap=max(1, int(dynamic_hazard_point_cap or len(exposure_bundle.point_records or []))),
+                impfset_wind=impfset_wind,
+                requested_rain_model=requested_rain_model,
+                rain_max_dist_inland_km=float(rain_max_dist_inland_km),
+                multi_hazard_ready=multi_hazard_ready,
+                multi_hazard_model=multi_hazard_model,
+                impfset_rain=impfset_rain,
+                impfset_surge=impfset_surge,
+                TCRain=TCRain,
+                TCSurgeBathtub=TCSurgeBathtub,
+                surge_topo_path=surge_topo_path,
+                memory_budget_gb=float(memory_budget_gb),
+                max_points_per_shard=int(max_points_per_shard),
+                min_points_per_shard=int(min_points_per_shard),
+                max_shard_retry_depth=int(max_shard_retry_depth),
+                strict_required_components=bool(strict_required_components),
+                progress_callback=progress_callback,
+                checkpoint_dir=checkpoint_dir,
+                resume_enabled=resume_enabled,
+            )
+            notes.extend(hazard_notes)
+            out[hazard_key] = total_metrics
+            component_out[hazard_key] = components
+            components_by_hazard[hazard_key] = [name for name in ("wind", "rain", "surge") if name in components]
+            component_status_by_hazard[hazard_key] = component_status
+            component_sharding_by_hazard[hazard_key] = component_sharding
+            hazard_zero_intensity[hazard_key] = bool(
+                float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+            )
+            if hazard_zero_intensity[hazard_key]:
+                notes.append(f"Warning: hazard '{hazard_key}' has zero combined intensity values; computed impacts can be null.")
+            continue
+
+        wind_hazard = hazards_wind.get(hazard_key)
+        components: dict[str, HazardImpactResult] = {}
+        component_status: dict[str, str] = {}
+        component_sharding: dict[str, dict[str, Any]] = {}
+
         try:
-            intensity_max = float(hazard_obj.intensity.max())
-        except Exception:
-            intensity_max = 0.0
-        hazard_zero_intensity[hazard_key] = intensity_max <= 0.0
+            wind_metrics, wind_sharding = _compute_component_impact_sharded(
+                np,
+                ImpactCalc,
+                exposure_bundle=exposure_bundle,
+                exposure_builder=lambda shard_bundle: shard_bundle.exposures,
+                impfset=impfset_wind,
+                hazard_obj=wind_hazard,
+                top_n_events=top_n_events,
+                component_name="wind",
+                memory_budget_gb=float(memory_budget_gb),
+                max_points_per_shard=int(max_points_per_shard),
+                min_points_per_shard=int(min_points_per_shard),
+                max_shard_retry_depth=int(max_shard_retry_depth),
+                progress_callback=progress_callback,
+                hazard_key=hazard_key,
+                checkpoint_dir=checkpoint_dir,
+                resume_enabled=resume_enabled,
+            )
+            components["wind"] = wind_metrics
+            component_status["wind"] = "complete"
+            component_sharding["wind"] = wind_sharding
+        except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                {
+                    "event": "component_failed",
+                    "hazard": hazard_key,
+                    "component": "wind",
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            raise
+
+        if multi_hazard_ready and multi_hazard_model is not None and impfset_surge is not None and TCSurgeBathtub is not None:
+            if surge_topo_path is None:
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge component requires a DEM path."
+                )
+            elif not Path(surge_topo_path).exists():
+                raise RuntimeError(
+                    f"Incomplete multi-hazard CLIMADA execution is not allowed: {hazard_key} surge DEM not found at {surge_topo_path}."
+                )
+            else:
+                try:
+                    prepared_topo = _prepare_topo_raster_for_exposure(
+                        Path(surge_topo_path),
+                        point_records=list(exposure_bundle.point_records or []),
+                    )
+                    if prepared_topo != Path(surge_topo_path):
+                        notes.append(
+                            f"{hazard_key}: prepared cropped DEM for surge hazard at {prepared_topo}."
+                        )
+                    surge_hazard, surge_meta = _build_surge_hazard(
+                        np,
+                        surge_hazard_cls=TCSurgeBathtub,
+                        wind_hazard=wind_hazard,
+                        topo_path=prepared_topo,
+                        hazard_source=getattr(bundle, "source", None),
+                    )
+                    if str(surge_meta.get("fraction_mode") or "") == "pointwise":
+                        rows = surge_meta.get("rows")
+                        cols = surge_meta.get("cols")
+                        grid_desc = f" estimated fraction grid {rows}x{cols}" if rows and cols else ""
+                        notes.append(
+                            f"{hazard_key}: surge used pointwise land fractions for exposure-aligned centroids ({surge_meta.get('reason')}).{grid_desc}"
+                        )
+                    surge_hazard = _normalize_frequency_on_copy(surge_hazard, storm_years)
+                    surge_metrics, surge_sharding = _compute_component_impact_sharded(
+                        np,
+                        ImpactCalc,
+                        exposure_bundle=exposure_bundle,
+                        exposure_builder=lambda shard_bundle: _build_exposure_with_impf_column(
+                            shard_bundle.exposures,
+                            haz_type=multi_hazard_model.surge_haz_type,
+                            impf_ids=[
+                                resolve_surge_impf_id(rec.get("asset_type"), multi_hazard_model)
+                                for rec in list(shard_bundle.point_records or [])
+                            ],
+                        ),
+                        impfset=impfset_surge,
+                        hazard_obj=surge_hazard,
+                        top_n_events=top_n_events,
+                        component_name="surge",
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=int(max_points_per_shard),
+                        min_points_per_shard=int(min_points_per_shard),
+                        max_shard_retry_depth=int(max_shard_retry_depth),
+                        progress_callback=progress_callback,
+                        hazard_key=hazard_key,
+                        checkpoint_dir=checkpoint_dir,
+                        resume_enabled=resume_enabled,
+                    )
+                    components["surge"] = surge_metrics
+                    component_status["surge"] = "complete"
+                    component_sharding["surge"] = surge_sharding
+                except Exception as exc:
+                    component_status["surge"] = "failed"
+                    component_sharding["surge"] = {
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                    _emit_progress(
+                        progress_callback,
+                        {
+                            "event": "component_failed",
+                            "hazard": hazard_key,
+                            "component": "surge",
+                            "error": f"{type(exc).__name__}: {exc}",
+                        },
+                    )
+                    logger.warning(
+                        "%s surge component failed (%s: %s)",
+                        hazard_key,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    notes.append(f"{hazard_key}: surge component failed ({type(exc).__name__}): {exc}")
+                    if strict_required_components:
+                        raise RuntimeError(
+                            f"{hazard_key} surge component failed under strict mode: {type(exc).__name__}: {exc}"
+                        ) from exc
+
+        if multi_hazard_ready and multi_hazard_model is not None and impfset_rain is not None and TCRain is not None:
+            tracks = bundle.tracks_storm if hazard_key == "storm" else bundle.tracks_storm_cmcc
+            if tracks is None:
+                raise RuntimeError(
+                    "Incomplete multi-hazard CLIMADA execution is not allowed: "
+                    f"{hazard_key} rain component requires dynamic tracks; precomputed hazards are insufficient."
+                )
+            else:
+                try:
+                    rain_hazard = TCRain.from_tracks(
+                        tracks,
+                        centroids=wind_hazard.centroids,
+                        model=requested_rain_model,
+                        ignore_distance_to_coast=True,
+                        max_dist_inland_km=float(rain_max_dist_inland_km),
+                    )
+                    rain_hazard = _normalize_frequency_on_copy(rain_hazard, storm_years)
+                    rain_metrics, rain_sharding = _compute_component_impact_sharded(
+                        np,
+                        ImpactCalc,
+                        exposure_bundle=exposure_bundle,
+                        exposure_builder=lambda shard_bundle: _build_exposure_with_impf_column(
+                            shard_bundle.exposures,
+                            haz_type=multi_hazard_model.rain_haz_type,
+                            impf_ids=[
+                                resolve_rain_impf_id(rec.get("asset_type"), multi_hazard_model)
+                                for rec in list(shard_bundle.point_records or [])
+                            ],
+                        ),
+                        impfset=impfset_rain,
+                        hazard_obj=rain_hazard,
+                        top_n_events=top_n_events,
+                        component_name="rain",
+                        memory_budget_gb=float(memory_budget_gb),
+                        max_points_per_shard=int(max_points_per_shard),
+                        min_points_per_shard=int(min_points_per_shard),
+                        max_shard_retry_depth=int(max_shard_retry_depth),
+                        progress_callback=progress_callback,
+                        hazard_key=hazard_key,
+                        checkpoint_dir=checkpoint_dir,
+                        resume_enabled=resume_enabled,
+                    )
+                    components["rain"] = rain_metrics
+                    component_status["rain"] = "complete"
+                    component_sharding["rain"] = rain_sharding
+                except Exception as exc:
+                    component_status["rain"] = "failed"
+                    component_sharding["rain"] = {
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                    _emit_progress(
+                        progress_callback,
+                        {
+                            "event": "component_failed",
+                            "hazard": hazard_key,
+                            "component": "rain",
+                            "error": f"{type(exc).__name__}: {exc}",
+                        },
+                    )
+                    logger.warning(
+                        "%s rain component failed (%s: %s)",
+                        hazard_key,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    notes.append(f"{hazard_key}: rain component failed ({type(exc).__name__}): {exc}")
+                    if strict_required_components:
+                        raise RuntimeError(
+                            f"{hazard_key} rain component failed under strict mode: {type(exc).__name__}: {exc}"
+                        ) from exc
+
+        component_list = [components[name] for name in ("wind", "rain", "surge") if name in components]
+        total_metrics = _combine_component_results(
+            np,
+            components=component_list,
+            point_values_eur=point_values_eur,
+            top_n_events=top_n_events,
+        )
+        total_metrics.matching = _build_combined_matching_summary(
+            np,
+            hazard_key=hazard_key,
+            point_records=list(exposure_bundle.point_records or []),
+            total_metrics=total_metrics,
+            component_metrics=components,
+            hazard_zero_intensity=bool(
+                float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+            ),
+        )
+
+        out[hazard_key] = total_metrics
+        component_out[hazard_key] = components
+        components_by_hazard[hazard_key] = [name for name in ("wind", "rain", "surge") if name in components]
+        component_status_by_hazard[hazard_key] = component_status
+        component_sharding_by_hazard[hazard_key] = component_sharding
+        hazard_zero_intensity[hazard_key] = bool(
+            float(total_metrics.max_event_loss_eur) <= 0.0 and float(sum(total_metrics.eai_direct_by_point)) <= 0.0
+        )
         if hazard_zero_intensity[hazard_key]:
-            notes.append(f"Warning: hazard '{hazard_key}' has zero intensity values; computed impacts can be null.")
+            notes.append(f"Warning: hazard '{hazard_key}' has zero combined intensity values; computed impacts can be null.")
 
-        # Explicit centroid assignment avoids CLIMADA auto-threshold estimation
-        # failures when the dynamic hazard has very few centroids (e.g. 1 point).
-        exposure_bundle.exposures.assign_centroids(
-            hazard_obj,
-            distance="euclidean",
-            threshold=5.0,
-            overwrite=True,
-        )
-        impact = ImpactCalc(exposure_bundle.exposures, impfset, hazard_obj).impact(
-            save_mat=False,
-            assign_centroids=False,
-        )
-        eai_exp = _as_1d_float(np, getattr(impact, "eai_exp", []))
-        at_event = _as_1d_float(np, getattr(impact, "at_event", []))
-        max_loss_point = _approx_max_loss_per_point(np, eai_exp, at_event)
-        frequency = _as_1d_float(np, getattr(impact, "frequency", []))
+    effective_multi_hazard = any(
+        any(name in {"rain", "surge"} for name in names)
+        for names in components_by_hazard.values()
+    )
 
-        out[hazard_key] = HazardImpactResult(
-            eai_direct_by_point=eai_exp,
-            max_loss_by_point=max_loss_point,
-            at_event_loss=at_event,
-            event_frequency=frequency,
-            event_id=getattr(impact, "event_id", []),
-            event_name=getattr(impact, "event_name", []),
-            aai_agg_eur=float(getattr(impact, "aai_agg", 0.0) or 0.0),
-            max_event_loss_eur=float(at_event.max()) if at_event.size else 0.0,
-            pml_eur=_compute_pml(np, at_event, frequency, RETURN_PERIODS),
-            tvar_95_eur=_compute_tvar_95(np, at_event, frequency),
-            top_events=_extract_top_events(np, impact, at_event, frequency, top_n_events),
-        )
+    matching_qa = {
+        "status": "complete",
+        "point_count": int(len(exposure_bundle.point_records or [])),
+        "point_value_total_eur": round(sum(point_values_eur), 2),
+        "assignment_threshold_deg": float(CENTROID_ASSIGNMENT_THRESHOLD_DEG),
+        "hazards": {},
+    }
+    for hazard_key in ("storm", "storm_cmcc"):
+        if hazard_key not in out:
+            continue
+        matching_qa["hazards"][hazard_key] = {
+            "combined": dict(getattr(out[hazard_key], "matching", {}) or {}),
+            "components": {
+                component_name: dict(getattr(component_metrics, "matching", {}) or {})
+                for component_name, component_metrics in (component_out.get(hazard_key) or {}).items()
+            },
+        }
 
     modeling = {
         "storm_years": int(storm_years),
+        "execution_profile": execution_profile_name,
+        "strict_required_components": bool(strict_required_components),
+        "sharding_enabled": bool(sharding_enabled),
+        "sharding_memory_budget_gb": round(float(memory_budget_gb), 3),
+        "sharding_max_points_per_shard_requested": int(max_points_per_shard),
+        "sharding_min_points_per_shard": int(min_points_per_shard),
+        "sharding_max_retry_depth": int(max_shard_retry_depth),
+        "sharding_checkpoint_dir": str(checkpoint_dir) if checkpoint_dir else None,
+        "resume_enabled": bool(resume_enabled),
         "frequency_normalized": bool(bundle.normalized_on_copy),
         "top_events_count": int(top_n_events),
         "hazard_zero_intensity": hazard_zero_intensity,
         "hazard_source": str(bundle.source),
         "hazard_basin_ids": [int(v) for v in list(bundle.basin_ids or [])],
         "hazard_point_count": int(bundle.point_count or 0),
+        "hazard_track_count_storm": int(getattr(bundle, "track_count_storm", 0) or 0),
+        "hazard_track_count_storm_cmcc": int(getattr(bundle, "track_count_storm_cmcc", 0) or 0),
+        "hazard_global_hazards_built": bool(getattr(bundle, "global_hazards_built", True)),
+        "hazard_build_sharded": bool(dynamic_hazard_sharding_active),
+        "hazard_build_planned_shards": int(len(dynamic_hazard_shards)),
+        "hazard_build_max_points_per_shard": int(dynamic_hazard_point_cap or 0),
+        "hazard_build_estimated_full_memory_gb": round(
+            float(dynamic_hazard_estimated_full_memory_bytes) / float(1024**3),
+            3,
+        ),
+        "impact_function_profile": str(vulnerability_payload.get("profile") or "unknown"),
+        "impact_function_default_curve": vulnerability_payload.get("default_curve"),
+        "impact_function_mapping": vulnerability_payload.get("explicit_asset_type_mapping") or {},
+        "multi_hazard_enabled_requested": bool(multi_hazard_enabled),
+        "multi_hazard_enabled_effective": bool(effective_multi_hazard),
+        "multi_hazard_components_by_hazard": components_by_hazard,
+        "multi_hazard_component_status_by_hazard": component_status_by_hazard,
+        "climada_component_sharding": component_sharding_by_hazard,
+        "multi_hazard_rain_model": requested_rain_model,
+        "multi_hazard_surge_topo_path": str(surge_topo_path) if surge_topo_path else None,
+        "multi_hazard_flood_curve_file": str(flood_curve_file) if flood_curve_file else None,
+        "hazard_exposure_matching_qa": matching_qa,
     }
+    if multi_hazard_model is not None:
+        modeling["multi_hazard_impact_mapping"] = multi_hazard_model.mapping_info
 
-    return ClimadaRunResult(hazards=out, modeling=modeling, notes=notes)
+    return ClimadaRunResult(
+        hazards=out,
+        component_hazards=component_out,
+        modeling=modeling,
+        notes=notes,
+    )
 # END SOURCE: backend/app/risk_engine/climada_engine.py
 
 # ============================================================================
-# MODULE 09/21
+# MODULE 09/27
 # Source file: backend/app/risk_engine/hazard_loader.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/hazard_loader.py
-# Original line span: 1-592
-# Source SHA256: 790b4b425fdc54b380ccf893f9a423feaa846a216d7d581e5e6097fca0986bb0
+# Original line span: 1-719
+# Source SHA256: bec389f77814f492dc99a1453ca25aa7b95c07d6f0d155b8f1daed2505312321
 # Purpose: Loads precomputed hazards and optionally builds dynamic hazards from parquet.
 # Key Inputs: Hazard files/datasets, basin coverage, point coordinates, unit settings.
 # Key Outputs: HazardBundle with normalized frequencies and source metadata.
@@ -2747,7 +5836,10 @@ def run_climada_direct_impacts(
 # ============================================================================
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
+import logging
+import os
 from pathlib import Path
 from typing import Any, Iterable
 import copy
@@ -2789,6 +5881,12 @@ class HazardBundle:
     source: str = "precomputed_hdf5"
     basin_ids: tuple[int, ...] = ()
     point_count: int = 0
+    tracks_storm: Any | None = None
+    tracks_storm_cmcc: Any | None = None
+    track_count_storm: int = 0
+    track_count_storm_cmcc: int = 0
+    centroids: Any | None = None
+    global_hazards_built: bool = True
 
 
 @dataclass(frozen=True)
@@ -2802,11 +5900,44 @@ class SpatialWindow:
 
 
 _TRACK_CACHE_LOCK = threading.Lock()
-_TRACK_CACHE: dict[tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int], Any] = {}
+_TRACK_CACHE: OrderedDict[
+    tuple[str, str, tuple[int, ...], str, str, float, tuple[float, float, float, float] | None, int],
+    Any,
+] = OrderedDict()
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_SPATIAL_PADDING_DEG = 4.0
 DEFAULT_MAX_TRACKS = 4000
+DEFAULT_TRACK_CACHE_MAX_ENTRIES = 8
+DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG = 0.01
+DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD = 50
+STORM_10MIN_TO_1MIN_WIND_FACTOR = 1.0 / 0.88
+
+
+def _resolve_track_cache_limit(track_cache_max_entries: int | None) -> int:
+    if track_cache_max_entries is not None:
+        try:
+            return int(track_cache_max_entries)
+        except Exception:
+            logger.warning(
+                "Invalid explicit track cache size (%r); using default=%d",
+                track_cache_max_entries,
+                DEFAULT_TRACK_CACHE_MAX_ENTRIES,
+            )
+            return DEFAULT_TRACK_CACHE_MAX_ENTRIES
+    raw = os.environ.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES")
+    if raw is None:
+        return DEFAULT_TRACK_CACHE_MAX_ENTRIES
+    try:
+        return int(raw)
+    except Exception:
+        logger.warning(
+            "Invalid SIB_RISK_TRACK_CACHE_MAX_ENTRIES=%r; using default=%d",
+            raw,
+            DEFAULT_TRACK_CACHE_MAX_ENTRIES,
+        )
+        return DEFAULT_TRACK_CACHE_MAX_ENTRIES
 
 
 def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
@@ -2820,11 +5951,20 @@ def _normalize_frequency_safe(hazard_obj: Any, storm_years: int) -> Any:
         return hazard_copy
 
     try:
-        hazard_copy.frequency = freq / float(storm_years)
+        import numpy as np  # type: ignore
+
+        annual_years = float(max(1, int(storm_years)))
+        try:
+            hazard_copy.frequency = freq / annual_years
+        except Exception:
+            hazard_copy.frequency = np.asarray(freq, dtype=float) / annual_years
         setattr(hazard_copy, "_sib_frequency_normalized", True)
-    except Exception:
-        # Leave hazard unchanged if structure is not compatible.
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Failed to normalize hazard frequency on copy (%s): %s",
+            type(exc).__name__,
+            exc,
+        )
     return hazard_copy
 
 
@@ -2978,6 +6118,18 @@ def _convert_wind_to_mps(values: Any, unit_in: str) -> Any:
     return wind / 3.6  # km/h -> m/s
 
 
+def _convert_storm_wind_to_climada_mps(
+    values: Any,
+    unit_in: str,
+    *,
+    convert_10min_to_1min: bool,
+) -> Any:
+    wind = _convert_wind_to_mps(values, unit_in)
+    if not convert_10min_to_1min:
+        return wind
+    return wind * STORM_10MIN_TO_1MIN_WIND_FACTOR
+
+
 def _normalize_distance_unit(raw: str) -> str:
     unit = str(raw or "km").strip().lower()
     aliases = {
@@ -3041,6 +6193,7 @@ def _build_tracks_from_parquet(
     max_tracks: int = DEFAULT_MAX_TRACKS,
     timestep_hours: int = 3,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
 ) -> Any:
@@ -3060,7 +6213,14 @@ def _build_tracks_from_parquet(
         read_kwargs["filters"] = [("Basin ID", "in", [int(b) for b in basin_ids])]
     try:
         df = pd.read_parquet(parquet_path, **read_kwargs)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Parquet predicate read failed for %s (filters=%s, %s: %s); retrying full read",
+            parquet_path,
+            read_kwargs.get("filters"),
+            type(exc).__name__,
+            exc,
+        )
         df = pd.read_parquet(parquet_path)
     df = _normalize_columns(df)
 
@@ -3093,7 +6253,14 @@ def _build_tracks_from_parquet(
 
     try:
         max_tracks_int = int(max_tracks)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Invalid max_tracks=%r (%s: %s); using default=%d",
+            max_tracks,
+            type(exc).__name__,
+            exc,
+            DEFAULT_MAX_TRACKS,
+        )
         max_tracks_int = DEFAULT_MAX_TRACKS
     if max_tracks_int > 0:
         track_count = int(df["track_id"].nunique(dropna=True))
@@ -3113,7 +6280,11 @@ def _build_tracks_from_parquet(
             keep_track_ids = set(ranked_tracks.index.tolist())
             df = df[df["track_id"].isin(keep_track_ids)].copy()
 
-    df["wind_max"] = _convert_wind_to_mps(df["wind_max"], wind_unit_in)
+    df["wind_max"] = _convert_storm_wind_to_climada_mps(
+        df["wind_max"],
+        wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
+    )
     df["rmax"] = _convert_radius_to_nm(df["rmax"], radius_unit_in)
 
     df = df.sort_values(["track_id", "time_step"]).reset_index(drop=True)
@@ -3160,6 +6331,7 @@ def _build_tracks_from_parquet(
             },
             attrs={
                 "max_sustained_wind_unit": "m/s",
+                "max_sustained_wind_averaging_period_minutes": 1 if convert_10min_to_1min else 10,
                 "radius_max_wind_unit": "nm",
                 "central_pressure_unit": "hPa",
                 "sid": f"{provider_name}_{year}_{track_id}",
@@ -3185,8 +6357,10 @@ def _get_or_build_tracks(
     spatial_window: SpatialWindow | None,
     max_tracks: int,
     wind_unit_in: str,
+    convert_10min_to_1min: bool,
     radius_unit_in: str,
     env_pressure_hpa: float,
+    track_cache_max_entries: int | None = None,
 ) -> Any:
     window_key = None
     if spatial_window is not None:
@@ -3201,15 +6375,19 @@ def _get_or_build_tracks(
         str(provider_name),
         tuple(sorted(int(b) for b in basin_ids)),
         str(wind_unit_in),
+        bool(convert_10min_to_1min),
         str(radius_unit_in),
         float(env_pressure_hpa),
         window_key,
         int(max_tracks),
     )
-    with _TRACK_CACHE_LOCK:
-        cached = _TRACK_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+    cache_limit = _resolve_track_cache_limit(track_cache_max_entries)
+    if cache_limit != 0:
+        with _TRACK_CACHE_LOCK:
+            cached = _TRACK_CACHE.get(cache_key)
+            if cached is not None:
+                _TRACK_CACHE.move_to_end(cache_key)
+                return cached
 
     tracks = _build_tracks_from_parquet(
         parquet_path,
@@ -3218,11 +6396,19 @@ def _get_or_build_tracks(
         spatial_window=spatial_window,
         max_tracks=max_tracks,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
+    if cache_limit == 0:
+        return tracks
     with _TRACK_CACHE_LOCK:
         _TRACK_CACHE[cache_key] = tracks
+        _TRACK_CACHE.move_to_end(cache_key)
+        if cache_limit > 0:
+            while len(_TRACK_CACHE) > cache_limit:
+                evicted_key, _ = _TRACK_CACHE.popitem(last=False)
+                logger.debug("Evicted dynamic track cache entry: %s", evicted_key)
     return tracks
 
 
@@ -3252,6 +6438,19 @@ def _build_centroids_from_points(point_coords: Iterable[tuple[float, float]]) ->
 
     if not lat_vals:
         raise ValueError("No valid coordinates available to build dynamic hazard centroids")
+
+    if len(seen) <= DEFAULT_SMALL_SAMPLE_GRID_THRESHOLD:
+        augmented = set(seen)
+        step = float(DEFAULT_SMALL_SAMPLE_GRID_STEP_DEG)
+        for latf, lonf in list(seen):
+            for dlat in (-step, 0.0, step):
+                for dlon in (-step, 0.0, step):
+                    new_lat = max(-90.0, min(90.0, latf + dlat))
+                    new_lon = _normalize_lon(lonf + dlon)
+                    augmented.add((round(new_lat, 5), round(new_lon, 5)))
+        seen = augmented
+        lat_vals = [item[0] for item in sorted(seen)]
+        lon_vals = [item[1] for item in sorted(seen)]
     return Centroids.from_lat_lon(lat=lat_vals, lon=lon_vals, crs="EPSG:4326")
 
 
@@ -3276,9 +6475,12 @@ def load_storm_hazards_from_parquet_for_points(
     basin_coverages: tuple[BasinCoverage, ...] = DEFAULT_BASIN_COVERAGES,
     spatial_padding_deg: float = DEFAULT_SPATIAL_PADDING_DEG,
     max_tracks: int = DEFAULT_MAX_TRACKS,
+    track_cache_max_entries: int | None = None,
     wind_unit_in: str = "m/s",
+    convert_10min_to_1min: bool = True,
     radius_unit_in: str = "km",
     env_pressure_hpa: float = 1010.0,
+    build_hazards: bool = True,
 ) -> HazardBundle:
     coords = list(point_coords)
     if not coords:
@@ -3286,14 +6488,15 @@ def load_storm_hazards_from_parquet_for_points(
 
     basin_ids = _basin_ids_for_points(coords, basin_coverages)
     spatial_window = _build_spatial_window(coords, padding_deg=spatial_padding_deg)
-    centroids = _build_centroids_from_points(coords)
     tracks_storm = _get_or_build_tracks(
         storm_parquet_path,
         provider_name="STORM",
         basin_ids=basin_ids,
         spatial_window=spatial_window,
         max_tracks=max_tracks,
+        track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
@@ -3303,21 +6506,32 @@ def load_storm_hazards_from_parquet_for_points(
         basin_ids=basin_ids,
         spatial_window=spatial_window,
         max_tracks=max_tracks,
+        track_cache_max_entries=track_cache_max_entries,
         wind_unit_in=wind_unit_in,
+        convert_10min_to_1min=convert_10min_to_1min,
         radius_unit_in=radius_unit_in,
         env_pressure_hpa=env_pressure_hpa,
     )
+    track_count_storm = int(len(getattr(tracks_storm, "data", [])))
+    track_count_cmcc = int(len(getattr(tracks_cmcc, "data", [])))
 
-    storm = _build_hazard_from_tracks(tracks_storm, centroids)
-    storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids)
+    centroids = _build_centroids_from_points(coords) if build_hazards else None
+    storm = _build_hazard_from_tracks(tracks_storm, centroids) if centroids is not None else None
+    storm_cmcc = _build_hazard_from_tracks(tracks_cmcc, centroids) if centroids is not None else None
     return HazardBundle(
-        storm=_normalize_frequency_safe(storm, storm_years),
-        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years),
+        storm=_normalize_frequency_safe(storm, storm_years) if storm is not None else None,
+        storm_cmcc=_normalize_frequency_safe(storm_cmcc, storm_years) if storm_cmcc is not None else None,
         storm_years=storm_years,
         normalized_on_copy=True,
         source="dynamic_parquet",
         basin_ids=tuple(sorted(int(v) for v in basin_ids)),
         point_count=int(len(coords)),
+        tracks_storm=tracks_storm,
+        tracks_storm_cmcc=tracks_cmcc,
+        track_count_storm=track_count_storm,
+        track_count_storm_cmcc=track_count_cmcc,
+        centroids=centroids,
+        global_hazards_built=bool(centroids is not None),
     )
 
 
@@ -3336,15 +6550,17 @@ def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> H
         storm_years=storm_years,
         normalized_on_copy=True,
         source="precomputed_hdf5",
+        track_count_storm=int(len(getattr(storm, "event_id", []))),
+        track_count_storm_cmcc=int(len(getattr(storm_cmcc, "event_id", []))),
     )
 # END SOURCE: backend/app/risk_engine/hazard_loader.py
 
 # ============================================================================
-# MODULE 10/21
+# MODULE 10/27
 # Source file: backend/app/risk_engine/impact_functions.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_functions.py
-# Original line span: 1-76
-# Source SHA256: b3b4f44f5a67dc7b8033270898051f51afe8aeabc7af8258b866fe2c970335e6
+# Original line span: 1-307
+# Source SHA256: cc3039f75979c241df5d9f93d1b114d8441d43aea73a95b36bfdf257fda0eff0
 # Purpose: Builds tropical-cyclone impact function set used by CLIMADA.
 # Key Inputs: Configured/default vulnerability curve assumptions.
 # Key Outputs: CLIMADA-compatible impact function instance(s).
@@ -3355,7 +6571,9 @@ def load_storm_hazards(storm_path: Path, cmcc_path: Path, storm_years: int) -> H
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
+import json
+from pathlib import Path
+from typing import Any
 
 try:
     import numpy as np  # type: ignore
@@ -3369,6 +6587,81 @@ class EberenzTCParams:
     v_half: float = 59.6
     intensity_max: int = 300
     intensity_step: int = 1
+
+
+DEFAULT_EBERENZ_IMPF_ID = 2
+D2_CURVE_FILE = Path(__file__).resolve().parent / "data" / "tc_vulnerability_curves_sib_v1.json"
+D2_IMPF_ID_BY_CODE = {
+    "W3.10": 310,
+    "W3.14": 314,
+    "W16.1": 316,
+    "W19.1": 319,
+    "W21.2": 212,
+    "W21.4": 214,
+    "W21.5": 215,
+    "W21.10": 2110,
+}
+
+D2_MODELED_INFRA_BY_CODE = {
+    "W3.10": {
+        "type": "Power tower",
+        "characteristics": "Design speed 160 km/h, urban terrain",
+    },
+    "W3.14": {
+        "type": "Power tower",
+        "characteristics": "Design speed 200 km/h, urban terrain",
+    },
+    "W16.1": {
+        "type": "Transmission and distribution pipelines",
+        "characteristics": "Buried pipelines",
+    },
+    "W19.1": {
+        "type": "Sewers & interceptors",
+        "characteristics": "Buried pipelines",
+    },
+    "W21.2": {
+        "type": "School",
+        "characteristics": "Building design: BLSB1",
+    },
+    "W21.4": {
+        "type": "School",
+        "characteristics": "Building design: DECS std.",
+    },
+    "W21.5": {
+        "type": "School",
+        "characteristics": "Building design: DepEd STD",
+    },
+    "W21.10": {
+        "type": "School",
+        "characteristics": "Wooden roof structure",
+    },
+}
+
+EBERENZ_MODELED_INFRA = {
+    "type": "Caribbean buildings (generic)",
+    "characteristics": "TC vulnerability model (Eberenz et al., 2021)",
+}
+
+# Normalized (lower-case) asset_type mapping used in SIB work.
+ASSET_TYPE_TO_CURVE_CODE = {
+    "elec_bt_aerien": "W3.10",
+    "elec_hta_aerien": "W3.14",
+    "elec_bt_souterrain": "W16.1",
+    "elec_hta_souterrain": "W16.1",
+    "eau_aep_cana": "W16.1",
+    "eau_eu_cana": "W19.1",
+    # User request: keep Eberenz for this infrastructure.
+    "eau_eu_pr": "EBERENZ_2021_TC",
+    "eau_eu_step": "W21.2",
+    "eau_aep_ouvrage_trait": "W21.2",
+    "eau_aep_ouvrage_stpmp": "W21.4",
+    "eau_aep_ouvrage_cap": "W21.10",
+    "eau_aep_ouvrage_cuv": "W21.5",
+    "eau_aep_ouvrage_ouveb": "W21.5",
+    "eau_aep_ouvrage_na": "W21.5",
+}
+
+_CURVE_CATALOG_CACHE: dict[int, dict[str, Any]] | None = None
 
 
 def vulnerability_function(v: float, v_thresh: float, v_half: float) -> float:
@@ -3401,41 +6694,1224 @@ def build_eberenz_curve(params: EberenzTCParams | None = None) -> dict[str, list
     }
 
 
-def try_build_climada_impact_func() -> object | None:
-    """Create a CLIMADA ImpactFunc object when CLIMADA is available.
+def _normalize_asset_type(value: str | None) -> str:
+    return str(value or "").strip().lower()
 
-    The production backend should use this instead of notebook-only dummy/example curves.
-    """
+
+def _effective_asset_type_to_curve_code(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if not asset_type_to_curve_code:
+        return dict(ASSET_TYPE_TO_CURVE_CODE)
+    normalized: dict[str, str] = {}
+    for asset_type, code in asset_type_to_curve_code.items():
+        asset_key = _normalize_asset_type(asset_type)
+        code_key = str(code or "").strip()
+        if not asset_key or not code_key:
+            continue
+        normalized[asset_key] = code_key
+    return normalized or dict(ASSET_TYPE_TO_CURVE_CODE)
+
+
+def _load_d2_curves() -> dict[str, Any]:
+    if not D2_CURVE_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(D2_CURVE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    curves = raw.get("curves")
+    if not isinstance(curves, dict):
+        return {}
+    return curves
+
+
+def _build_curve_catalog() -> dict[int, dict[str, Any]]:
+    eberenz = build_eberenz_curve()
+    catalog: dict[int, dict[str, Any]] = {
+        DEFAULT_EBERENZ_IMPF_ID: {
+            "impf_id": DEFAULT_EBERENZ_IMPF_ID,
+            "code": "EBERENZ_2021_TC",
+            "name": "Eberenz Caraibes Impact Function",
+            "source": "Eberenz et al. (2021)",
+            "geography": "Caribbean (generalized)",
+            "haz_type": "TC",
+            "intensity_unit": str(eberenz["intensity_unit"]),
+            "intensity": [float(v) for v in eberenz["intensity"]],
+            "mdd": [float(v) for v in eberenz["mdd"]],
+            "paa": [1.0 for _ in eberenz["intensity"]],
+            "modeled_infrastructure_type": str(EBERENZ_MODELED_INFRA["type"]),
+            "modeled_infrastructure_characteristics": str(EBERENZ_MODELED_INFRA["characteristics"]),
+            "uncertainty_lower": None,
+            "uncertainty_upper": None,
+        }
+    }
+
+    d2_curves = _load_d2_curves()
+    for code, impf_id in D2_IMPF_ID_BY_CODE.items():
+        curve = d2_curves.get(code)
+        if not isinstance(curve, dict):
+            continue
+        intensity = [float(v) for v in list(curve.get("intensity") or [])]
+        mdd = [float(v) for v in list(curve.get("mdd") or [])]
+        if not intensity or not mdd or len(intensity) != len(mdd):
+            continue
+        modeled = D2_MODELED_INFRA_BY_CODE.get(str(code), {})
+        catalog[int(impf_id)] = {
+            "impf_id": int(impf_id),
+            "code": str(code),
+            "name": str(curve.get("name") or f"D2_{code}"),
+            "source": str(curve.get("source") or "Unknown"),
+            "geography": str(curve.get("geography") or "Unknown"),
+            "haz_type": "TC",
+            "intensity_unit": str(curve.get("intensity_unit") or "m/s"),
+            "intensity": intensity,
+            "mdd": mdd,
+            "paa": [1.0 for _ in intensity],
+            "modeled_infrastructure_type": str(modeled.get("type") or "Unknown"),
+            "modeled_infrastructure_characteristics": str(modeled.get("characteristics") or "N/A"),
+            "uncertainty_lower": curve.get("uncertainty_lower"),
+            "uncertainty_upper": curve.get("uncertainty_upper"),
+        }
+    return catalog
+
+
+def get_tc_curve_catalog() -> dict[int, dict[str, Any]]:
+    global _CURVE_CATALOG_CACHE
+    if _CURVE_CATALOG_CACHE is None:
+        _CURVE_CATALOG_CACHE = _build_curve_catalog()
+    return _CURVE_CATALOG_CACHE
+
+
+def resolve_tc_impact_func_id(
+    asset_type: str | None,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> int:
+    asset = _normalize_asset_type(asset_type)
+    mapping = _effective_asset_type_to_curve_code(asset_type_to_curve_code)
+    code = mapping.get(asset, "EBERENZ_2021_TC")
+    if code == "EBERENZ_2021_TC":
+        return DEFAULT_EBERENZ_IMPF_ID
+    return int(D2_IMPF_ID_BY_CODE.get(code, DEFAULT_EBERENZ_IMPF_ID))
+
+
+def get_tc_vulnerability_payload(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    catalog = get_tc_curve_catalog()
+    effective_mapping = _effective_asset_type_to_curve_code(asset_type_to_curve_code)
+    asset_types_by_code: dict[str, list[str]] = {}
+    for asset_type, code in effective_mapping.items():
+        asset_types_by_code.setdefault(str(code), []).append(str(asset_type))
+    for code in asset_types_by_code:
+        asset_types_by_code[code] = sorted(asset_types_by_code[code])
+
+    curves = []
+    for curve in sorted(catalog.values(), key=lambda item: int(item.get("impf_id", 0))):
+        curve_item = dict(curve)
+        curve_code = str(curve_item.get("code") or "")
+        curve_item["sib_asset_types"] = list(asset_types_by_code.get(curve_code, []))
+        curves.append(curve_item)
+    explicit_mapping = {}
+    for asset_type, code in effective_mapping.items():
+        if code == "EBERENZ_2021_TC":
+            impf_id = DEFAULT_EBERENZ_IMPF_ID
+        else:
+            impf_id = int(D2_IMPF_ID_BY_CODE.get(code, DEFAULT_EBERENZ_IMPF_ID))
+        explicit_mapping[asset_type] = {"code": code, "impf_id": impf_id}
+    return {
+        "profile": "sib_tc_multicurve_v1",
+        "haz_type": "TC",
+        "intensity_unit": "m/s",
+        "explicit_asset_type_mapping": explicit_mapping,
+        "default_curve": {"code": "EBERENZ_2021_TC", "impf_id": DEFAULT_EBERENZ_IMPF_ID},
+        "curves": curves,
+    }
+
+
+def _build_climada_impact_func(curve: dict[str, Any]) -> object | None:
+    if np is None:
+        return None
     try:
         from climada.entity.impact_funcs.base import ImpactFunc  # type: ignore
     except Exception:
         return None
 
-    curve = build_eberenz_curve()
-    if np is None:
-        return None
-
     impf = ImpactFunc()
-    impf.id = 2
-    impf.haz_type = "TC"
-    impf.name = "Eberenz Caraibes Impact Function"
-    impf.intensity = np.array(curve["intensity"])
-    impf.mdd = np.array(curve["mdd"])
-    impf.paa = np.array(curve["paa"])
-    impf.intensity_unit = curve["intensity_unit"]
+    impf.id = int(curve["impf_id"])
+    impf.haz_type = str(curve.get("haz_type") or "TC")
+    impf.name = str(curve.get("name") or f"TC Impact Function {impf.id}")
+    impf.intensity = np.array(list(curve.get("intensity") or []), dtype=float)
+    impf.mdd = np.array(list(curve.get("mdd") or []), dtype=float)
+    impf.paa = np.array(list(curve.get("paa") or []), dtype=float)
+    impf.intensity_unit = str(curve.get("intensity_unit") or "m/s")
     try:
         impf.check()
     except Exception:
         return None
     return impf
+
+
+def try_build_climada_impact_func() -> object | None:
+    """Create a CLIMADA ImpactFunc object when CLIMADA is available.
+
+    The production backend should use this instead of notebook-only dummy/example curves.
+    """
+    curve = get_tc_curve_catalog().get(DEFAULT_EBERENZ_IMPF_ID)
+    if not curve:
+        return None
+    return _build_climada_impact_func(curve)
+
+
+def try_build_climada_impact_funcs() -> list[object] | None:
+    catalog = get_tc_curve_catalog()
+    if not catalog:
+        return None
+    funcs: list[object] = []
+    for impf_id in sorted(catalog.keys()):
+        impf = _build_climada_impact_func(catalog[impf_id])
+        if impf is not None:
+            funcs.append(impf)
+    if not funcs:
+        return None
+    return funcs
 # END SOURCE: backend/app/risk_engine/impact_functions.py
 
 # ============================================================================
-# MODULE 11/21
+# MODULE 11/27
+# Source file: backend/app/risk_engine/impact_functions_multi_hazard.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_functions_multi_hazard.py
+# Original line span: 1-558
+# Source SHA256: 78d810ba0ad7726b20e7d70c8ddcaaa37b4910cfc276f347bc760f753804e482
+# Purpose: Builds rain/surge impact-function sets and asset-type mapping from D2 flood curves.
+# Key Inputs: Flood curve workbook, hazard type identifiers, per-asset mapping overrides.
+# Key Outputs: Multi-hazard impact-function model with rain+surge CLIMADA functions.
+# Dependency Notes: openpyxl/pandas/numpy parsing and CLIMADA ImpactFunc constructors.
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/impact_functions_multi_hazard.py
+# ============================================================================
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any
+import re
+
+from .errors import DependencyMissingError
+
+
+SURGE_IMPF_ID_BASE = 4100
+RAIN_IMPF_ID_BASE = 5100
+DEFAULT_FLOOD_CURVE_CODE = "F17.5"
+DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF = 0.25
+
+# Detailed V1 mapping (chosen defaults, documented in methodology note).
+FLOOD_ASSET_TYPE_TO_CURVE_CODE = {
+    "elec_bt_aerien": "F6.2",
+    "elec_hta_aerien": "F6.2",
+    "elec_bt_souterrain": "F6.1",
+    "elec_hta_souterrain": "F6.1",
+    # Courbe mise en cohérence avec les futures sorties pluie/submersion pour AEP canalisations.
+    "eau_aep_cana": "F19.3",
+    "eau_eu_cana": "F19.3",
+    "eau_eu_pr": "F20.3",
+    "eau_eu_step": "F18.4",
+    "eau_aep_ouvrage_trait": "F14.4",
+    "eau_aep_ouvrage_stpmp": "F17.4",
+    "eau_aep_ouvrage_cap": "F15.1",
+    "eau_aep_ouvrage_cuv": "F13.1",
+    "eau_aep_ouvrage_ouveb": "F13.1",
+    "eau_aep_ouvrage_na": "F14.4",
+}
+
+# Rainfall-to-depth proxy coefficients (dimensionless).
+RUNOFF_COEFF_BY_INFRA_CLASS = {
+    "elec_aerien": 0.10,
+    "elec_souterrain": 0.30,
+    "eau_reseau": 0.25,
+    "eau_ouvrage": 0.35,
+    "habitation": 0.20,
+}
+
+_FLOOD_CURVE_CACHE: dict[str, dict[str, Any]] = {}
+_MODEL_CACHE: dict[tuple[str, str, str, str, str], "MultiHazardImpactModel"] = {}
+
+
+@dataclass(frozen=True)
+class MultiHazardImpactModel:
+    surge_funcs: list[Any]
+    rain_funcs: list[Any]
+    surge_impf_by_asset_type: dict[str, int]
+    rain_impf_by_asset_type: dict[str, int]
+    flood_curve_file: Path
+    surge_haz_type: str
+    rain_haz_type: str
+    mapping_info: dict[str, Any]
+
+
+def _normalize_asset_type(asset_type: str | None) -> str:
+    return str(asset_type or "").strip().lower()
+
+
+def _effective_flood_asset_mapping(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if not asset_type_to_curve_code:
+        return dict(FLOOD_ASSET_TYPE_TO_CURVE_CODE)
+    normalized: dict[str, str] = {}
+    for asset_type, code in asset_type_to_curve_code.items():
+        asset_key = _normalize_asset_type(asset_type)
+        code_key = str(code or "").strip()
+        if not asset_key or not code_key:
+            continue
+        normalized[asset_key] = code_key
+    return normalized or dict(FLOOD_ASSET_TYPE_TO_CURVE_CODE)
+
+
+def _infer_infra_class_from_asset_type(asset_type: str | None) -> str:
+    asset = _normalize_asset_type(asset_type)
+    if asset.startswith("elec_"):
+        if "souterrain" in asset or "underground" in asset:
+            return "elec_souterrain"
+        return "elec_aerien"
+    if asset.startswith("eau_"):
+        if asset.endswith("_cana"):
+            return "eau_reseau"
+        return "eau_ouvrage"
+    return "habitation"
+
+
+def _effective_runoff_coeff(infra_class: str | None, base_coeff: float) -> float:
+    infra_key = str(infra_class or "").strip().lower()
+    reference = float(DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+    scale = float(base_coeff) / reference if reference > 0.0 else 1.0
+    if scale <= 0.0:
+        scale = 1.0
+    class_coeff = float(RUNOFF_COEFF_BY_INFRA_CLASS.get(infra_key, reference))
+    effective = class_coeff * scale
+    if effective <= 0.0:
+        return reference
+    return effective
+
+
+def _rain_curve_key(code: str, infra_class: str) -> str:
+    return f"{str(code)}::{str(infra_class)}"
+
+
+def _safe_text(value: Any, default: str = "") -> str:
+    txt = str(value or "").strip()
+    if not txt or txt.lower() == "nan":
+        return default
+    return txt
+
+
+def _load_flood_depth_curves(curve_file: Path) -> dict[str, dict[str, Any]]:
+    cache_key = str(curve_file.resolve(strict=False))
+    cached = _FLOOD_CURVE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        import numpy as np  # type: ignore
+        import pandas as pd  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("pandas/numpy are required to load D2 flood curves") from exc
+
+    if not curve_file.exists():
+        raise FileNotFoundError(f"Missing D2 flood curve file: {curve_file}")
+
+    df = pd.read_excel(curve_file, sheet_name="F_Vuln_Depth", header=None)
+    if df.shape[0] < 8 or df.shape[1] < 3:
+        raise ValueError(f"Invalid F_Vuln_Depth sheet shape in {curve_file}: {df.shape}")
+
+    id_row = df.iloc[0, :].tolist()
+    depth_vals = pd.to_numeric(df.iloc[5:, 0], errors="coerce").to_numpy(dtype=float)
+
+    curves: dict[str, dict[str, Any]] = {}
+    for col_idx in range(1, len(id_row)):
+        raw_id = str(id_row[col_idx] or "").strip()
+        if not re.match(r"^F\d+(\.\d+)?[a-zA-Z]?$", raw_id):
+            continue
+        mdd_vals = pd.to_numeric(df.iloc[5:, col_idx], errors="coerce").to_numpy(dtype=float)
+        mask = np.isfinite(depth_vals) & np.isfinite(mdd_vals)
+        if not mask.any():
+            continue
+        depth = np.asarray(depth_vals[mask], dtype=float)
+        mdd = np.asarray(mdd_vals[mask], dtype=float)
+        if depth.size == 0:
+            continue
+        order = np.argsort(depth)
+        depth = depth[order]
+        mdd = mdd[order]
+        # Keep monotonic depth axis and clamp MDD to [0,1].
+        uniq_depth, uniq_idx = np.unique(depth, return_index=True)
+        uniq_mdd = np.clip(mdd[uniq_idx], 0.0, 1.0)
+        if uniq_depth.size < 2:
+            continue
+        curves[raw_id] = {
+            "code": raw_id,
+            "depth_m": uniq_depth.astype(float),
+            "mdd": uniq_mdd.astype(float),
+            "intensity_unit": "m",
+            "modeled_infrastructure_type": _safe_text(df.iat[1, col_idx], "Unknown"),
+            "modeled_infrastructure_characteristics": _safe_text(df.iat[2, col_idx], "N/A"),
+        }
+
+    if DEFAULT_FLOOD_CURVE_CODE not in curves:
+        raise ValueError(
+            f"Default flood curve {DEFAULT_FLOOD_CURVE_CODE} was not found in {curve_file}#F_Vuln_Depth"
+        )
+
+    _FLOOD_CURVE_CACHE[cache_key] = curves
+    return curves
+
+
+def _build_climada_impact_func(
+    *,
+    impf_id: int,
+    haz_type: str,
+    name: str,
+    intensity: Any,
+    mdd: Any,
+    intensity_unit: str,
+) -> Any:
+    try:
+        import numpy as np  # type: ignore
+        from climada.entity.impact_funcs.base import ImpactFunc  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise DependencyMissingError("CLIMADA ImpactFunc runtime is required") from exc
+
+    impf = ImpactFunc()
+    impf.id = int(impf_id)
+    impf.haz_type = str(haz_type)
+    impf.name = str(name)
+    impf.intensity = np.asarray(intensity, dtype=float)
+    impf.mdd = np.clip(np.asarray(mdd, dtype=float), 0.0, 1.0)
+    impf.paa = np.ones_like(impf.intensity, dtype=float)
+    impf.intensity_unit = str(intensity_unit)
+    impf.check()
+    return impf
+
+
+def build_multi_hazard_impact_model(
+    *,
+    surge_haz_type: str,
+    rain_haz_type: str,
+    flood_curve_file: Path,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
+) -> MultiHazardImpactModel:
+    effective_mapping = _effective_flood_asset_mapping(asset_type_to_curve_code)
+    base_coeff = float(rain_proxy_base_runoff_coeff or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+    if base_coeff <= 0.0:
+        base_coeff = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF
+    key = (
+        str(surge_haz_type or "").strip(),
+        str(rain_haz_type or "").strip(),
+        str(flood_curve_file.resolve(strict=False)),
+        json.dumps(effective_mapping, sort_keys=True),
+        f"{base_coeff:.6f}",
+    )
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    curves = _load_flood_depth_curves(flood_curve_file)
+    used_codes = sorted(
+        {DEFAULT_FLOOD_CURVE_CODE, *[str(v) for v in effective_mapping.values() if str(v) in curves]}
+    )
+
+    surge_funcs: list[Any] = []
+    rain_funcs: list[Any] = []
+    surge_impf_id_by_code: dict[str, int] = {}
+    rain_impf_id_by_key: dict[str, int] = {}
+    rain_curve_specs: list[dict[str, Any]] = []
+    infra_classes = sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
+
+    for idx, code in enumerate(used_codes, start=1):
+        curve = curves[code]
+        surge_impf_id = SURGE_IMPF_ID_BASE + idx
+        surge_impf_id_by_code[code] = surge_impf_id
+
+        surge_funcs.append(
+            _build_climada_impact_func(
+                impf_id=surge_impf_id,
+                haz_type=surge_haz_type,
+                name=f"SIB Flood Depth Curve {code}",
+                intensity=curve["depth_m"],
+                mdd=curve["mdd"],
+                intensity_unit="m",
+            )
+        )
+
+    rain_idx = 0
+    for code in used_codes:
+        curve = curves[code]
+        for infra_class in infra_classes:
+            rain_idx += 1
+            rain_impf_id = RAIN_IMPF_ID_BASE + rain_idx
+            runoff_coeff = _effective_runoff_coeff(infra_class, base_coeff)
+            rain_key = _rain_curve_key(code, infra_class)
+            rain_impf_id_by_key[rain_key] = rain_impf_id
+
+            # Rain proxy curves are derived from depth curves:
+            # equivalent_depth_m = runoff_coeff * rain_mm / 1000
+            # rain_mm = depth_m * 1000 / runoff_coeff
+            rain_intensity_mm = [float(value) * 1000.0 / runoff_coeff for value in list(curve["depth_m"])]
+            rain_funcs.append(
+                _build_climada_impact_func(
+                    impf_id=rain_impf_id,
+                    haz_type=rain_haz_type,
+                    name=f"SIB Rain Proxy Curve {code} ({infra_class})",
+                    intensity=rain_intensity_mm,
+                    mdd=curve["mdd"],
+                    intensity_unit="mm_proxy",
+                )
+            )
+            rain_curve_specs.append(
+                {
+                    "impf_id": int(rain_impf_id),
+                    "code": str(code),
+                    "infra_class": str(infra_class),
+                    "runoff_coeff": float(runoff_coeff),
+                }
+            )
+
+    def code_for_asset(asset_type: str | None) -> str:
+        asset = _normalize_asset_type(asset_type)
+        code = effective_mapping.get(asset, DEFAULT_FLOOD_CURVE_CODE)
+        return code if code in surge_impf_id_by_code else DEFAULT_FLOOD_CURVE_CODE
+
+    surge_impf_by_asset_type: dict[str, int] = {}
+    rain_impf_by_asset_type: dict[str, int] = {}
+    for asset in {DEFAULT_FLOOD_CURVE_CODE, *effective_mapping.keys()}:
+        if asset == DEFAULT_FLOOD_CURVE_CODE:
+            continue
+        c = code_for_asset(asset)
+        infra_class = _infer_infra_class_from_asset_type(asset)
+        rain_key = _rain_curve_key(c, infra_class)
+        surge_impf_by_asset_type[str(asset)] = int(surge_impf_id_by_code[c])
+        rain_impf_by_asset_type[str(asset)] = int(
+            rain_impf_id_by_key.get(
+                rain_key,
+                rain_impf_id_by_key[_rain_curve_key(DEFAULT_FLOOD_CURVE_CODE, "habitation")],
+            )
+        )
+
+    effective_runoff_coeffs = {
+        infra_class: float(_effective_runoff_coeff(infra_class, base_coeff))
+        for infra_class in infra_classes
+    }
+
+    model = MultiHazardImpactModel(
+        surge_funcs=surge_funcs,
+        rain_funcs=rain_funcs,
+        surge_impf_by_asset_type=surge_impf_by_asset_type,
+        rain_impf_by_asset_type=rain_impf_by_asset_type,
+        flood_curve_file=flood_curve_file,
+        surge_haz_type=str(surge_haz_type),
+        rain_haz_type=str(rain_haz_type),
+        mapping_info={
+            "default_curve_code": DEFAULT_FLOOD_CURVE_CODE,
+            "curve_codes_used": used_codes,
+            "asset_type_to_curve_code": dict(effective_mapping),
+            "runoff_coeff_by_infra_class": dict(RUNOFF_COEFF_BY_INFRA_CLASS),
+            "effective_runoff_coeff_by_infra_class": effective_runoff_coeffs,
+            "base_rain_coeff_for_curve_construction": base_coeff,
+            "rain_impf_id_by_curve_and_infra_class": dict(rain_impf_id_by_key),
+            "rain_curve_specs": rain_curve_specs,
+        },
+    )
+    _MODEL_CACHE[key] = model
+    return model
+
+
+def _default_impf_id(funcs: list[Any]) -> int:
+    for func in list(funcs):
+        if DEFAULT_FLOOD_CURVE_CODE in str(getattr(func, "name", "")):
+            return int(getattr(func, "id", 0) or 0)
+    return int(min(int(getattr(func, "id", 0) or 0) for func in list(funcs)))
+
+
+def resolve_surge_impf_id(asset_type: str | None, model: MultiHazardImpactModel) -> int:
+    asset = _normalize_asset_type(asset_type)
+    if asset in model.surge_impf_by_asset_type:
+        return int(model.surge_impf_by_asset_type[asset])
+    return int(_default_impf_id(model.surge_funcs))
+
+
+def resolve_rain_impf_id(asset_type: str | None, model: MultiHazardImpactModel) -> int:
+    asset = _normalize_asset_type(asset_type)
+    if asset in model.rain_impf_by_asset_type:
+        return int(model.rain_impf_by_asset_type[asset])
+    mapping_info = dict(model.mapping_info or {})
+    default_code = str(mapping_info.get("default_curve_code") or DEFAULT_FLOOD_CURVE_CODE)
+    infra_class = _infer_infra_class_from_asset_type(asset)
+    rain_impf_id_by_key = dict(mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {})
+    fallback_id = rain_impf_id_by_key.get(_rain_curve_key(default_code, infra_class))
+    if fallback_id is not None:
+        return int(fallback_id)
+    return int(_default_impf_id(model.rain_funcs))
+
+
+def get_multi_hazard_vulnerability_payload(
+    *,
+    hazard_component: str,
+    flood_curve_file: Path,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
+) -> dict[str, Any]:
+    component = str(hazard_component or "").strip().lower()
+    if component not in {"rain", "surge"}:
+        raise ValueError("hazard_component must be 'rain' or 'surge'")
+
+    model = build_multi_hazard_impact_model(
+        surge_haz_type="TCSurgeBathtub",
+        rain_haz_type="TR",
+        flood_curve_file=Path(flood_curve_file),
+        asset_type_to_curve_code=asset_type_to_curve_code,
+        rain_proxy_base_runoff_coeff=rain_proxy_base_runoff_coeff,
+    )
+    curves_raw = _load_flood_depth_curves(Path(flood_curve_file))
+    base_coeff = float(
+        model.mapping_info.get(
+            "base_rain_coeff_for_curve_construction",
+            DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
+        )
+        or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF
+    )
+    if base_coeff <= 0.0:
+        base_coeff = 0.25
+
+    if component == "surge":
+        profile = "sib_tc_surge_depth_multicurve_v1"
+        haz_type = str(model.surge_haz_type)
+        intensity_unit = "m"
+        impf_base = SURGE_IMPF_ID_BASE
+    else:
+        profile = "sib_tc_rain_proxy_multicurve_v1"
+        haz_type = str(model.rain_haz_type)
+        intensity_unit = "mm_proxy"
+
+    curves: list[dict[str, Any]] = []
+    if component == "surge":
+        used_codes = [str(code) for code in list(model.mapping_info.get("curve_codes_used") or [])]
+        if not used_codes:
+            used_codes = [DEFAULT_FLOOD_CURVE_CODE]
+        impf_id_by_code: dict[str, int] = {}
+        for idx, code in enumerate(used_codes, start=1):
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
+            intensity = [float(v) for v in depth]
+            impf_id = int(impf_base + idx)
+            impf_id_by_code[code] = impf_id
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "name": f"SIB Surge depth curve {code}",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
+    else:
+        rain_curve_specs = list(model.mapping_info.get("rain_curve_specs") or [])
+        impf_id_by_code: dict[str, int] = {}
+        for spec in rain_curve_specs:
+            code = str(spec.get("code") or DEFAULT_FLOOD_CURVE_CODE)
+            infra_class = str(spec.get("infra_class") or "habitation")
+            runoff_coeff = float(spec.get("runoff_coeff") or base_coeff or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
+            intensity = [float(v) * 1000.0 / runoff_coeff for v in depth]
+            impf_id = int(spec.get("impf_id") or 0)
+            impf_id_by_code.setdefault(code, impf_id)
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "infra_class": infra_class,
+                    "runoff_coeff": runoff_coeff,
+                    "name": f"SIB Rain proxy curve {code} ({infra_class})",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
+
+    if not curves:
+        raise ValueError("No usable curves were found for multi-hazard vulnerability payload")
+
+    default_code = str(model.mapping_info.get("default_curve_code") or DEFAULT_FLOOD_CURVE_CODE)
+    default_impf_id = int(impf_id_by_code.get(default_code, curves[0]["impf_id"]))
+
+    asset_type_to_code = dict(model.mapping_info.get("asset_type_to_curve_code") or FLOOD_ASSET_TYPE_TO_CURVE_CODE)
+    explicit_mapping: dict[str, dict[str, Any]] = {}
+    by_curve_assets: dict[str, list[str]] = {}
+    for asset_type, code in asset_type_to_code.items():
+        resolved_code = str(code if code in impf_id_by_code else default_code)
+        if component == "surge":
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": int(impf_id_by_code.get(resolved_code, default_impf_id)),
+            }
+            by_curve_assets.setdefault(resolved_code, []).append(str(asset_type))
+        else:
+            infra_class = _infer_infra_class_from_asset_type(asset_type)
+            curve_key = _rain_curve_key(resolved_code, infra_class)
+            matching_curve = next(
+                (
+                    curve_entry
+                    for curve_entry in curves
+                    if _rain_curve_key(str(curve_entry.get("code") or ""), str(curve_entry.get("infra_class") or ""))
+                    == curve_key
+                ),
+                None,
+            )
+            impf_id = int(matching_curve.get("impf_id")) if isinstance(matching_curve, dict) else default_impf_id
+            runoff_coeff = (
+                float(matching_curve.get("runoff_coeff"))
+                if isinstance(matching_curve, dict) and matching_curve.get("runoff_coeff") is not None
+                else _effective_runoff_coeff(infra_class, base_coeff)
+            )
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": impf_id,
+                "infra_class": infra_class,
+                "runoff_coeff": runoff_coeff,
+            }
+            by_curve_assets.setdefault(curve_key, []).append(str(asset_type))
+
+    for curve in curves:
+        if component == "surge":
+            code = str(curve.get("code") or "")
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(code, []))
+        else:
+            curve_key = _rain_curve_key(
+                str(curve.get("code") or ""),
+                str(curve.get("infra_class") or "habitation"),
+            )
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(curve_key, []))
+
+    payload = {
+        "profile": profile,
+        "haz_type": haz_type,
+        "hazard_component": component,
+        "intensity_unit": intensity_unit,
+        "explicit_asset_type_mapping": explicit_mapping,
+        "default_curve": {"code": default_code, "impf_id": default_impf_id},
+        "curves": curves,
+    }
+    if component == "rain":
+        payload["default_curve_by_infra_class"] = {
+            infra_class: {
+                "code": default_code,
+                "impf_id": int(
+                    (
+                        model.mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {}
+                    ).get(_rain_curve_key(default_code, infra_class), default_impf_id)
+                ),
+                "runoff_coeff": float(_effective_runoff_coeff(infra_class, base_coeff)),
+            }
+            for infra_class in sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
+        }
+    return payload
+# END SOURCE: backend/app/risk_engine/impact_functions_multi_hazard.py
+
+# ============================================================================
+# MODULE 12/27
+# Source file: backend/app/risk_engine/impact_functions_landslide.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/impact_functions_landslide.py
+# Original line span: 1-226
+# Source SHA256: 2edfb5e69e757919d9287ac032143c936e65f3c7d51de94fb383ad490fb8df31
+# Purpose: Defines landslide vulnerability curves and CLIMADA bridge helpers.
+# Key Inputs: SIB landslide assumptions and optional D2 proxy worksheet values.
+# Key Outputs: Landslide vulnerability payload and optional CLIMADA impact functions.
+# Dependency Notes: openpyxl (optional), numpy (optional), CLIMADA impact function primitives.
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/impact_functions_landslide.py
+# ============================================================================
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+try:
+    import numpy as np  # type: ignore
+except Exception:  # pragma: no cover - optional during import
+    np = None  # type: ignore
+
+from .impact_functions import ASSET_TYPE_TO_CURVE_CODE
+from .impact_functions_multi_hazard import FLOOD_ASSET_TYPE_TO_CURVE_CODE
+
+
+LANDSLIDE_IMPF_ID_HYPOTHESIS = 6100
+LANDSLIDE_IMPF_ID_D2_PROXY = 6101
+LANDSLIDE_HAZ_TYPE = "LS"
+LANDSLIDE_INTENSITY_UNIT = "class"
+LANDSLIDE_INTENSITIES = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+LANDSLIDE_HYPOTHESIS_CURVE = [0.0, 0.0, 0.25, 0.50, 0.75, 1.0]
+LANDSLIDE_PROXY_FALLBACK_CURVE = [0.0, 0.0, 0.15, 0.30, 0.76, 1.0]
+LANDSLIDE_D2_WORKBOOK = Path("/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx")
+
+_CURVE_CACHE: dict[str, dict[str, Any]] | None = None
+
+
+def _all_sib_asset_types() -> list[str]:
+    asset_types = set(ASSET_TYPE_TO_CURVE_CODE.keys()) | set(FLOOD_ASSET_TYPE_TO_CURVE_CODE.keys())
+    return sorted(str(asset) for asset in asset_types)
+
+
+def _build_curve_entry(
+    *,
+    impf_id: int,
+    code: str,
+    name: str,
+    source: str,
+    geography: str,
+    mdd: list[float],
+    modeled_infrastructure_type: str,
+    modeled_infrastructure_characteristics: str,
+    proxy_source: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "impf_id": int(impf_id),
+        "code": str(code),
+        "name": str(name),
+        "source": str(source),
+        "geography": str(geography),
+        "haz_type": LANDSLIDE_HAZ_TYPE,
+        "intensity_unit": LANDSLIDE_INTENSITY_UNIT,
+        "intensity": [float(v) for v in LANDSLIDE_INTENSITIES],
+        "mdd": [float(v) for v in mdd],
+        "paa": [1.0 for _ in LANDSLIDE_INTENSITIES],
+        "modeled_infrastructure_type": str(modeled_infrastructure_type),
+        "modeled_infrastructure_characteristics": str(modeled_infrastructure_characteristics),
+        "uncertainty_lower": None,
+        "uncertainty_upper": None,
+        "proxy_source": proxy_source,
+    }
+
+
+def _extract_row_average_from_categorical_sheet(ws: Any, target_label: str) -> float | None:
+    for row in ws.iter_rows(values_only=True):
+        values = list(row)
+        if target_label not in {str(v).strip() for v in values if v is not None}:
+            continue
+        try:
+            idx = next(i for i, value in enumerate(values) if str(value).strip() == target_label)
+        except StopIteration:
+            continue
+        numeric_values = [float(value) for value in values[idx + 1 :] if isinstance(value, (int, float))]
+        if not numeric_values:
+            return None
+        return float(sum(numeric_values) / len(numeric_values))
+    return None
+
+
+def _build_d2_proxy_curve_from_workbook(workbook_path: Path | None = None) -> list[float]:
+    fallback = list(LANDSLIDE_PROXY_FALLBACK_CURVE)
+    path = Path(workbook_path or LANDSLIDE_D2_WORKBOOK)
+    if not path.exists():
+        return fallback
+
+    try:
+        from openpyxl import load_workbook
+    except Exception:
+        return fallback
+
+    try:
+        wb = load_workbook(path, data_only=True, read_only=True)
+        if "L_Categorical" not in wb.sheetnames:
+            return fallback
+        ws = wb["L_Categorical"]
+        class_to_label = {
+            2.0: "M-I",
+            3.0: "M-II",
+            4.0: "M-III",
+        }
+        values = [0.0, 0.0]
+        for class_value in (2.0, 3.0, 4.0):
+            label = class_to_label[class_value]
+            avg = _extract_row_average_from_categorical_sheet(ws, label)
+            if avg is None:
+                return fallback
+            values.append(max(0.0, min(1.0, float(avg))))
+        values.append(1.0)
+    except Exception:
+        return fallback
+
+    if np is not None:
+        arr = np.asarray(values, dtype=float)
+        arr = np.maximum.accumulate(arr)
+        arr[0] = 0.0
+        arr[1] = 0.0
+        arr[-1] = 1.0
+        return [float(v) for v in arr.tolist()]
+
+    out: list[float] = []
+    running = 0.0
+    for idx, value in enumerate(values):
+        running = max(running, float(value))
+        if idx in {0, 1}:
+            running = 0.0
+        out.append(running)
+    out[-1] = 1.0
+    return out
+
+
+def _build_curve_catalog(workbook_path: Path | None = None) -> dict[int, dict[str, Any]]:
+    asset_types = _all_sib_asset_types()
+    proxy_curve = _build_d2_proxy_curve_from_workbook(workbook_path)
+    default_curve = _build_curve_entry(
+        impf_id=LANDSLIDE_IMPF_ID_HYPOTHESIS,
+        code="LS_HYPOTHESIS_5STEP",
+        name="Hypothèse 5 paliers",
+        source="Hypothèse SIB",
+        geography="Guadeloupe / Martinique",
+        mdd=list(LANDSLIDE_HYPOTHESIS_CURVE),
+        modeled_infrastructure_type="Portefeuille SIB",
+        modeled_infrastructure_characteristics="Generic probabilistic landslide curve",
+    )
+    proxy_entry = _build_curve_entry(
+        impf_id=LANDSLIDE_IMPF_ID_D2_PROXY,
+        code="LS_D2_PROXY",
+        name="Proxy D2",
+        source="D2 workbook L_Categorical",
+        geography="Proxy derived from the D2 landslide sheet",
+        mdd=proxy_curve,
+        modeled_infrastructure_type="Portefeuille SIB",
+        modeled_infrastructure_characteristics="Proxy derived from the D2 landslide categorical sheet",
+        proxy_source="L_Categorical",
+    )
+    default_curve["sib_asset_types"] = asset_types
+    proxy_entry["sib_asset_types"] = asset_types
+
+    return {
+        LANDSLIDE_IMPF_ID_HYPOTHESIS: default_curve,
+        LANDSLIDE_IMPF_ID_D2_PROXY: proxy_entry,
+    }
+
+
+def get_landslide_curve_catalog(workbook_path: Path | None = None) -> dict[int, dict[str, Any]]:
+    global _CURVE_CACHE
+    if _CURVE_CACHE is None:
+        _CURVE_CACHE = _build_curve_catalog(workbook_path)
+    return _CURVE_CACHE
+
+
+def get_landslide_vulnerability_payload(*, d2_curve_file: Path | None = None) -> dict[str, Any]:
+    catalog = get_landslide_curve_catalog(d2_curve_file)
+    curves = [dict(catalog[key]) for key in sorted(catalog.keys())]
+
+    explicit_mapping: dict[str, dict[str, Any]] = {}
+    for asset_type in _all_sib_asset_types():
+        explicit_mapping[asset_type] = {
+            "code": "LS_HYPOTHESIS_5STEP",
+            "impf_id": LANDSLIDE_IMPF_ID_HYPOTHESIS,
+        }
+
+    return {
+        "profile": "sib_landslide_multicurve_v1",
+        "haz_type": LANDSLIDE_HAZ_TYPE,
+        "hazard_component": "landslide",
+        "intensity_unit": LANDSLIDE_INTENSITY_UNIT,
+        "default_curve": {
+            "code": "LS_HYPOTHESIS_5STEP",
+            "impf_id": LANDSLIDE_IMPF_ID_HYPOTHESIS,
+        },
+        "explicit_asset_type_mapping": explicit_mapping,
+        "curves": curves,
+    }
+
+
+def _build_climada_impact_func(curve: dict[str, Any]) -> Any | None:
+    if np is None:
+        return None
+    try:
+        from climada.entity.impact_funcs.base import ImpactFunc  # type: ignore
+    except Exception:
+        return None
+
+    impf = ImpactFunc()
+    impf.id = int(curve["impf_id"])
+    impf.haz_type = str(curve.get("haz_type") or LANDSLIDE_HAZ_TYPE)
+    impf.name = str(curve.get("name") or f"LS Impact Function {impf.id}")
+    impf.intensity = np.asarray(list(curve.get("intensity") or []), dtype=float)
+    impf.mdd = np.clip(np.asarray(list(curve.get("mdd") or []), dtype=float), 0.0, 1.0)
+    impf.paa = np.asarray(list(curve.get("paa") or []), dtype=float)
+    impf.intensity_unit = str(curve.get("intensity_unit") or LANDSLIDE_INTENSITY_UNIT)
+    try:
+        impf.check()
+    except Exception:
+        return None
+    return impf
+
+
+def try_build_climada_landslide_impact_funcs() -> list[Any] | None:
+    catalog = get_landslide_curve_catalog()
+    default_curve = catalog.get(LANDSLIDE_IMPF_ID_HYPOTHESIS)
+    if not default_curve:
+        return None
+    impf = _build_climada_impact_func(default_curve)
+    if impf is None:
+        return None
+    return [impf]
+# END SOURCE: backend/app/risk_engine/impact_functions_landslide.py
+
+# ============================================================================
+# MODULE 13/27
+# Source file: backend/app/risk_engine/landslide_engine.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/landslide_engine.py
+# Original line span: 1-200
+# Source SHA256: 94f123bd40053bf7e81c0b832979c08d0e4a4265dd6ef6ec864f02263843b33e
+# Purpose: Runs landslide hazard assembly and direct-impact computation with CLIMADA Petals.
+# Key Inputs: Exposure bundle, raster probability source, bbox, simulation parameters.
+# Key Outputs: Landslide direct metrics and scenario loss factors.
+# Dependency Notes: climada_petals landslide runtime, scipy sparse, shapely bbox clipping.
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/landslide_engine.py
+# ============================================================================
+from __future__ import annotations
+
+from contextlib import contextmanager
+import hashlib
+from pathlib import Path
+from typing import Any
+
+from shapely.geometry import box
+
+from .climada_engine import HazardImpactResult, _build_exposure_with_impf_column, _compute_component_impact
+from .errors import DependencyMissingError
+from .impact_functions_landslide import (
+    LANDSLIDE_HAZ_TYPE,
+    LANDSLIDE_IMPF_ID_HYPOTHESIS,
+    try_build_climada_landslide_impact_funcs,
+)
+
+
+def _require_runtime() -> dict[str, Any]:
+    try:
+        import numpy as np  # type: ignore
+        from scipy import sparse  # type: ignore
+        from climada.engine import ImpactCalc  # type: ignore
+        from climada.entity.impact_funcs import ImpactFuncSet  # type: ignore
+        from climada.hazard import Centroids  # type: ignore
+        from climada.util import coordinates as u_coord  # type: ignore
+        from climada_petals.hazard.landslide import Landslide, sample_events  # type: ignore
+    except Exception as exc:  # pragma: no cover - runtime dependency
+        raise DependencyMissingError("CLIMADA Petals landslide runtime dependencies are required") from exc
+    return {
+        "np": np,
+        "sparse": sparse,
+        "ImpactCalc": ImpactCalc,
+        "ImpactFuncSet": ImpactFuncSet,
+        "Centroids": Centroids,
+        "u_coord": u_coord,
+        "Landslide": Landslide,
+        "sample_events": sample_events,
+    }
+
+
+@contextmanager
+def _temporary_numpy_seed(np: Any, seed: int):
+    state = np.random.get_state()
+    np.random.seed(int(seed))
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
+
+
+def _stable_seed(*parts: object) -> int:
+    payload = "|".join(str(part) for part in parts).encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "big") % (2**32 - 1)
+
+
+def build_landslide_hazard_from_prob(
+    *,
+    bbox: tuple[float, float, float, float],
+    path_sourcefile: Path,
+    corr_fact: float = 500.0,
+    n_years: int = 200,
+    dist: str = "poisson",
+    random_seed: int | None = None,
+) -> Any:
+    runtime = _require_runtime()
+    np = runtime["np"]
+    sparse = runtime["sparse"]
+    Centroids = runtime["Centroids"]
+    u_coord = runtime["u_coord"]
+    Landslide = runtime["Landslide"]
+    sample_events = runtime["sample_events"]
+
+    path = Path(path_sourcefile).expanduser()
+    if not path.exists():
+        raise FileNotFoundError(f"Landslide raster not found: {path}")
+    if float(corr_fact) <= 0.0:
+        raise ValueError("corr_fact must be positive")
+    if int(n_years) <= 0:
+        raise ValueError("n_years must be positive")
+
+    bbox_tuple = tuple(float(v) for v in bbox)
+    geometry = [box(*bbox_tuple, ccw=True)]
+    meta, prob_matrix = u_coord.read_raster(str(path), geometry=geometry)
+
+    prob_arr = np.asarray(prob_matrix, dtype=float).squeeze()
+    if prob_arr.size == 0:
+        raise ValueError(f"Empty landslide raster after clipping bbox={bbox_tuple}: {path}")
+    prob_arr = np.nan_to_num(prob_arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Raster classes 0/1 represent zero probability. Classes 2..5 are sampled
+    # probabilistically and later used as severity levels in the impact function.
+    class_arr = np.where(prob_arr > 1.0, prob_arr, 0.0)
+    sample_prob_arr = np.clip(class_arr / float(corr_fact), 0.0, 1.0)
+
+    seed = int(random_seed) if random_seed is not None else _stable_seed(
+        path.resolve(strict=False),
+        bbox_tuple,
+        float(corr_fact),
+        int(n_years),
+        str(dist).strip().lower(),
+    )
+    with _temporary_numpy_seed(np, seed):
+        sampled = sample_events(sample_prob_arr, int(n_years), str(dist).strip().lower())
+    sampled = sparse.csr_matrix(sampled)
+
+    # Multiply the binary sampled occurrence by the original class values.
+    class_vector = np.asarray(class_arr, dtype=float).reshape(-1)
+    class_diag = sparse.diags(class_vector, offsets=0, format="csr")
+    intensity = (sampled @ class_diag).tocsr()
+
+    haz = Landslide()
+    haz.centroids = Centroids.from_meta(meta)
+    haz.intensity = intensity
+    haz.fraction = sampled.copy()
+    if getattr(haz.fraction, "nnz", 0) > 0:
+        haz.fraction.data[:] = 1.0
+    haz.frequency = np.ones(int(n_years), dtype=float) / float(n_years)
+    haz.date = np.array([])
+    haz.event_name = np.array(range(int(n_years)))
+    haz.event_id = np.array(range(int(n_years)))
+    haz.check()
+    return haz
+
+
+def _build_landslide_impact_func_set() -> Any:
+    runtime = _require_runtime()
+    ImpactFuncSet = runtime["ImpactFuncSet"]
+    funcs = try_build_climada_landslide_impact_funcs()
+    if funcs is None:
+        raise DependencyMissingError("Unable to instantiate CLIMADA landslide impact functions")
+    return ImpactFuncSet(funcs)
+
+
+def run_landslide_direct_impacts(
+    exposure_bundle: Any,
+    *,
+    bbox: tuple[float, float, float, float],
+    path_sourcefile: Path,
+    corr_fact: float = 500.0,
+    n_years: int = 200,
+    dist: str = "poisson",
+    random_seed: int | None = None,
+    top_n_events: int = 20,
+) -> HazardImpactResult:
+    runtime = _require_runtime()
+    np = runtime["np"]
+    ImpactCalc = runtime["ImpactCalc"]
+
+    point_records = list(getattr(exposure_bundle, "point_records", []) or [])
+    exposure_count = len(point_records)
+    exposure = _build_exposure_with_impf_column(
+        exposure_bundle.exposures,
+        haz_type=LANDSLIDE_HAZ_TYPE,
+        impf_ids=[LANDSLIDE_IMPF_ID_HYPOTHESIS for _ in range(exposure_count)],
+    )
+    impfset = _build_landslide_impact_func_set()
+    hazard = build_landslide_hazard_from_prob(
+        bbox=bbox,
+        path_sourcefile=path_sourcefile,
+        corr_fact=corr_fact,
+        n_years=n_years,
+        dist=dist,
+        random_seed=random_seed,
+    )
+    return _compute_component_impact(
+        np,
+        ImpactCalc,
+        exposures=exposure,
+        impfset=impfset,
+        hazard_obj=hazard,
+        top_n_events=top_n_events,
+    )
+
+
+def scenario_loss_factors(result: HazardImpactResult) -> dict[str, float]:
+    eai = float(max(0.0, result.aai_agg_eur))
+    pml = dict(getattr(result, "pml_eur", {}) or {})
+    max_loss = float(max(0.0, result.max_event_loss_eur))
+    if eai <= 0.0:
+        return {
+            "annual": 0.0,
+            "rp50": 0.0,
+            "rp100": 0.0,
+            "event_max": 0.0,
+            "top10": 0.0,
+            "top5": 0.0,
+        }
+    rp50 = float(pml.get(50, 0.0) or 0.0) / eai
+    rp100 = float(pml.get(100, 0.0) or 0.0) / eai
+    event_max = max_loss / eai
+    return {
+        "annual": 1.0,
+        "rp50": max(0.0, rp50),
+        "rp100": max(0.0, rp100),
+        "event_max": max(0.0, event_max),
+        "top10": max(0.0, rp50),
+        "top5": max(0.0, rp100),
+    }
+# END SOURCE: backend/app/risk_engine/landslide_engine.py
+
+# ============================================================================
+# MODULE 14/27
 # Source file: backend/app/risk_engine/interdependency.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/interdependency.py
-# Original line span: 1-407
-# Source SHA256: 79a26b47736fbcb960a53f28ba639b4596a9f69f7193ccda147502a82b382068
+# Original line span: 1-543
+# Source SHA256: 4c59c985288a76ea12ce489607e2bb64257f38eb116c0b6643dade8464dd5533
 # Purpose: Applies conservative electricity->water dependency post-processing.
 # Key Inputs: Point-level direct EAI/max-loss arrays per hazard.
 # Key Outputs: Adjusted direct/indirect totals, health metrics, dependency diagnostics.
@@ -3457,6 +7933,8 @@ STATE_THRESHOLDS = {
     "S1_to_S2_damage_ratio": 0.15,
     "S2_to_S3_damage_ratio": 0.35,
 }
+HEALTH_WEIGHTS_BY_STATE = {"S1": 0.3, "S2": 0.7, "S3": 1.0}
+DEPENDENCY_STATE_THRESHOLDS = {"S1": 0.75, "S2": 0.55, "S3": 0.35}
 UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
 
 
@@ -3468,6 +7946,7 @@ class InterdependencyAggregationResult:
     component_health: dict[str, dict[str, dict[str, float]]]
     interdependency: dict[str, Any]
     dependency_scaler_by_hazard: dict[str, float]
+    detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = None  # [hazard][territory][infra_classname] -> state
 
 
 def _new_state_bucket() -> dict[str, float]:
@@ -3481,36 +7960,109 @@ def _bucket_add_state(bucket: dict[str, float], *, state: str, weight: float) ->
         bucket[state] += float(weight)
 
 
-def _health_from_bucket(bucket: dict[str, float]) -> float:
+def _coerce_state_thresholds(state_thresholds: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(STATE_THRESHOLDS)
+    for key, value in (state_thresholds or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_health_weights(health_weights_by_state: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(HEALTH_WEIGHTS_BY_STATE)
+    for key, value in (health_weights_by_state or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_dependency_state_thresholds(
+    dependency_state_thresholds: dict[str, float] | None,
+) -> dict[str, float]:
+    merged = dict(DEPENDENCY_STATE_THRESHOLDS)
+    for key, value in (dependency_state_thresholds or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _coerce_uplift_by_state(uplift_by_state: dict[str, float] | None) -> dict[str, float]:
+    merged = dict(UPLIFT_BY_STATE)
+    for key, value in (uplift_by_state or {}).items():
+        if key in merged:
+            merged[key] = float(value)
+    return merged
+
+
+def _health_from_bucket(
+    bucket: dict[str, float],
+    *,
+    health_weights_by_state: dict[str, float] | None = None,
+) -> float:
     total = float(bucket.get("total", 0.0))
     if total <= 0.0:
         return 1.0
+    weights = _coerce_health_weights(health_weights_by_state)
     weighted = (
-        0.3 * float(bucket.get("S1", 0.0))
-        + 0.7 * float(bucket.get("S2", 0.0))
-        + 1.0 * float(bucket.get("S3", 0.0))
+        float(weights["S1"]) * float(bucket.get("S1", 0.0))
+        + float(weights["S2"]) * float(bucket.get("S2", 0.0))
+        + float(weights["S3"]) * float(bucket.get("S3", 0.0))
     )
     return max(0.0, min(1.0, 1.0 - (weighted / total)))
 
 
-def _state_from_damage_ratio(damage_ratio: float) -> str:
-    if damage_ratio >= STATE_THRESHOLDS["S2_to_S3_damage_ratio"]:
+def _state_from_damage_ratio(
+    damage_ratio: float,
+    *,
+    state_thresholds: dict[str, float] | None = None,
+) -> str:
+    thresholds = _coerce_state_thresholds(state_thresholds)
+    if damage_ratio >= thresholds["S2_to_S3_damage_ratio"]:
         return "S3"
-    if damage_ratio >= STATE_THRESHOLDS["S1_to_S2_damage_ratio"]:
+    if damage_ratio >= thresholds["S1_to_S2_damage_ratio"]:
         return "S2"
-    if damage_ratio >= STATE_THRESHOLDS["S0_to_S1_damage_ratio"]:
+    if damage_ratio >= thresholds["S0_to_S1_damage_ratio"]:
         return "S1"
     return "S0"
 
 
-def _dependency_state_from_elec_health(health: float) -> str:
-    if health < 0.35:
+def _dependency_state_from_elec_health(
+    health: float,
+    *,
+    dependency_state_thresholds: dict[str, float] | None = None,
+) -> str:
+    thresholds = _coerce_dependency_state_thresholds(dependency_state_thresholds)
+    if health < thresholds["S3"]:
         return "S3"
-    if health < 0.55:
+    if health < thresholds["S2"]:
         return "S2"
-    if health < 0.75:
+    if health < thresholds["S1"]:
         return "S1"
     return "S0"
+
+
+def _infra_class_to_standardized_name(infra_class: str) -> str:
+    """
+    Map infrastructure class to standardized names for social impact metrics.
+
+    Maps asset types to: "elec", "water_aep", "water_eu", or "other"
+    """
+    infra_class_lower = str(infra_class or "").lower()
+    
+    # Electricity
+    if "elec" in infra_class_lower:
+        return "elec"
+    
+    # Water - requires distinguishing between AEP (potable) and EU (wastewater)
+    if "eau" in infra_class_lower or "water" in infra_class_lower:
+        # Try to distinguish AEP vs EU from asset_type if needed
+        # For now, default based on common patterns
+        if "eu" in infra_class_lower or "used" in infra_class_lower or "waste" in infra_class_lower:
+            return "water_eu"
+        else:
+            return "water_aep"
+    
+    return "other"
 
 
 def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
@@ -3559,6 +8111,8 @@ def _resolve_electric_health(
 
 def _summarize_component_health(
     buckets_by_class: dict[str, dict[str, float]],
+    *,
+    health_weights_by_state: dict[str, float] | None = None,
 ) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for infra_class, bucket in buckets_by_class.items():
@@ -3567,7 +8121,7 @@ def _summarize_component_health(
         s2 = float(bucket.get("S2", 0.0))
         s3 = float(bucket.get("S3", 0.0))
         out[infra_class] = {
-            "health": round(_health_from_bucket(bucket), 4),
+            "health": round(_health_from_bucket(bucket, health_weights_by_state=health_weights_by_state), 4),
             "L_total": round(total, 4),
             "L_S1": round(s1, 4),
             "L_S2": round(s2, 4),
@@ -3582,8 +8136,16 @@ def aggregate_impacts_with_interdependency(
     point_records: list[dict[str, Any]],
     hazard_direct_eai: dict[str, list[float]],
     hazard_max_loss: dict[str, list[float]],
+    state_thresholds: dict[str, float] | None = None,
+    health_weights_by_state: dict[str, float] | None = None,
+    dependency_state_thresholds: dict[str, float] | None = None,
+    uplift_by_state: dict[str, float] | None = None,
 ) -> InterdependencyAggregationResult:
     hazard_keys = tuple(hazard_direct_eai.keys())
+    effective_state_thresholds = _coerce_state_thresholds(state_thresholds)
+    effective_health_weights = _coerce_health_weights(health_weights_by_state)
+    effective_dependency_thresholds = _coerce_dependency_state_thresholds(dependency_state_thresholds)
+    effective_uplift = _coerce_uplift_by_state(uplift_by_state)
     elec_classes = {"elec_aerien", "elec_souterrain"}
     water_classes = {"eau_reseau", "eau_ouvrage"}
 
@@ -3609,15 +8171,21 @@ def aggregate_impacts_with_interdependency(
         for hazard in hazard_keys:
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             ratio = direct_max_loss / max(value, 1.0)
-            state = _state_from_damage_ratio(ratio)
+            state = _state_from_damage_ratio(ratio, state_thresholds=effective_state_thresholds)
             _bucket_add_state(elec_buckets_by_hazard[hazard][territory_id], state=state, weight=value)
             _bucket_add_state(elec_global_bucket[hazard], state=state, weight=value)
 
     elec_health_by_territory: dict[str, dict[str, float]] = {
-        hazard: {territory_id: _health_from_bucket(bucket) for territory_id, bucket in buckets.items()}
+        hazard: {
+            territory_id: _health_from_bucket(bucket, health_weights_by_state=effective_health_weights)
+            for territory_id, bucket in buckets.items()
+        }
         for hazard, buckets in elec_buckets_by_hazard.items()
     }
-    elec_health_global = {hazard: _health_from_bucket(bucket) for hazard, bucket in elec_global_bucket.items()}
+    elec_health_global = {
+        hazard: _health_from_bucket(bucket, health_weights_by_state=effective_health_weights)
+        for hazard, bucket in elec_global_bucket.items()
+    }
     elec_territory_centroids = {
         tid: (loc["lat_sum"] / loc["count"], loc["lon_sum"] / loc["count"])
         for tid, loc in elec_territory_loc_acc.items()
@@ -3633,6 +8201,16 @@ def aggregate_impacts_with_interdependency(
     dependency_impacted_feature_hazard: set[tuple[str, str]] = set()
     health_resolution_by_hazard = {
         hazard: {"local_territory": 0, "nearest_territory": 0, "global": 0}
+        for hazard in hazard_keys
+    }
+    
+    # Track detailed states for social impact metrics: [hazard][territory][infra_standardized_name] = state
+    detailed_states_by_territory: dict[str, dict[str, dict[str, str]]] = {
+        hazard: defaultdict(lambda: {
+            "elec": "S0",
+            "water_aep": "S0",
+            "water_eu": "S0",
+        })
         for hazard in hazard_keys
     }
 
@@ -3675,6 +8253,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": str(rec.get("label") or feature_id),
                 "geometry_type": str(rec.get("geometry_type") or "Unknown"),
                 "asset_type": str(rec.get("asset_type") or ""),
+                "uses_default_value": bool(rec.get("uses_default_value")),
+                "valuation_source": str(rec.get("valuation_source") or ""),
+                "valuation_version": str(rec.get("valuation_version") or ""),
+                "default_value_eur": rec.get("default_value_eur"),
                 "exposure_eur": 0.0,
                 "eai_storm_direct_eur": 0.0,
                 "eai_storm_indirect_eur": 0.0,
@@ -3684,13 +8266,20 @@ def aggregate_impacts_with_interdependency(
                 "eai_cmcc_eur": 0.0,
             },
         )
+        asset_row["uses_default_value"] = bool(asset_row.get("uses_default_value")) or bool(rec.get("uses_default_value"))
+        if not asset_row.get("valuation_source") and rec.get("valuation_source"):
+            asset_row["valuation_source"] = str(rec.get("valuation_source") or "")
+        if not asset_row.get("valuation_version") and rec.get("valuation_version"):
+            asset_row["valuation_version"] = str(rec.get("valuation_version") or "")
+        if asset_row.get("default_value_eur") is None and rec.get("default_value_eur") is not None:
+            asset_row["default_value_eur"] = rec.get("default_value_eur")
         asset_row["exposure_eur"] += value
 
         for hazard in hazard_keys:
             direct_eai = min(value, max(0.0, float(hazard_direct_eai[hazard][idx])))
             direct_max_loss = max(0.0, float(hazard_max_loss[hazard][idx]))
             direct_ratio = direct_max_loss / max(value, 1.0)
-            direct_state = _state_from_damage_ratio(direct_ratio)
+            direct_state = _state_from_damage_ratio(direct_ratio, state_thresholds=effective_state_thresholds)
             final_state = direct_state
             indirect_eai = 0.0
 
@@ -3705,11 +8294,14 @@ def aggregate_impacts_with_interdependency(
                     elec_territory_centroids=elec_territory_centroids,
                 )
                 health_resolution_by_hazard[hazard][source] += 1
-                dependency_state = _dependency_state_from_elec_health(elec_health)
+                dependency_state = _dependency_state_from_elec_health(
+                    elec_health,
+                    dependency_state_thresholds=effective_dependency_thresholds,
+                )
                 if STATE_ORDER[dependency_state] > STATE_ORDER[direct_state]:
                     dependency_impacted_feature_hazard.add((feature_id, hazard))
                     final_state = dependency_state
-                indirect_eai = max(0.0, direct_eai * UPLIFT_BY_STATE[dependency_state])
+                indirect_eai = max(0.0, direct_eai * effective_uplift[dependency_state])
 
             total_eai = min(value, direct_eai + indirect_eai)
             indirect_eai = max(0.0, total_eai - direct_eai)
@@ -3728,6 +8320,14 @@ def aggregate_impacts_with_interdependency(
                 asset_row["eai_cmcc_indirect_eur"] += indirect_eai
                 asset_row["eai_cmcc_eur"] += total_eai
             _bucket_add_state(component_buckets_by_hazard[hazard][infra_class], state=final_state, weight=value)
+            
+            # Update detailed states for social impact metrics
+            # Keep worst state (highest order) seen for each infrastructure type
+            infra_std_name = _infra_class_to_standardized_name(infra_class)
+            if infra_std_name != "other":
+                current_state = detailed_states_by_territory[hazard][territory_id].get(infra_std_name, "S0")
+                if STATE_ORDER.get(final_state, 0) > STATE_ORDER.get(current_state, 0):
+                    detailed_states_by_territory[hazard][territory_id][infra_std_name] = final_state
 
     for _, hazard in dependency_impacted_feature_hazard:
         dependency_impacted_assets_by_hazard[hazard] += 1
@@ -3791,6 +8391,10 @@ def aggregate_impacts_with_interdependency(
                 "asset_label": row["asset_label"],
                 "geometry_type": row["geometry_type"],
                 "asset_type": row["asset_type"],
+                "uses_default_value": bool(row.get("uses_default_value")),
+                "valuation_source": str(row.get("valuation_source") or ""),
+                "valuation_version": str(row.get("valuation_version") or ""),
+                "default_value_eur": row.get("default_value_eur"),
                 "exposure_eur": round(exp_eur, 2),
                 "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
                 "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
@@ -3823,7 +8427,10 @@ def aggregate_impacts_with_interdependency(
         scaler_by_hazard[hazard] = float(eai_total / max(eai_direct, 1.0))
 
     component_health = {
-        hazard: _summarize_component_health(dict(class_buckets))
+        hazard: _summarize_component_health(
+            dict(class_buckets),
+            health_weights_by_state=effective_health_weights,
+        )
         for hazard, class_buckets in component_buckets_by_hazard.items()
     }
 
@@ -3838,8 +8445,10 @@ def aggregate_impacts_with_interdependency(
             hazard: {k: int(v) for k, v in src.items()}
             for hazard, src in health_resolution_by_hazard.items()
         },
-        "state_thresholds": STATE_THRESHOLDS,
-        "uplift_by_state": UPLIFT_BY_STATE,
+        "state_thresholds": effective_state_thresholds,
+        "health_weights_by_state": effective_health_weights,
+        "dependency_state_thresholds": effective_dependency_thresholds,
+        "uplift_by_state": effective_uplift,
     }
 
     return InterdependencyAggregationResult(
@@ -3849,15 +8458,724 @@ def aggregate_impacts_with_interdependency(
         component_health=component_health,
         interdependency=interdependency,
         dependency_scaler_by_hazard=scaler_by_hazard,
+        detailed_states_by_territory={
+            hazard: dict(states_dict) for hazard, states_dict in detailed_states_by_territory.items()
+        },
     )
 # END SOURCE: backend/app/risk_engine/interdependency.py
 
 # ============================================================================
-# MODULE 12/21
+# MODULE 15/27
+# Source file: backend/app/risk_engine/population_loader.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/population_loader.py
+# Original line span: 1-350
+# Source SHA256: a4b4bca617a4e6f8209049c36eb36b24f002f41d57685d85bee01f93fd984661
+# Purpose: Loads WorldPop rasters and aggregates population by SIB territory grid cells.
+# Key Inputs: Population raster directory and territory bounds.
+# Key Outputs: Population counts keyed by grid-cell territory IDs.
+# Dependency Notes: rasterio and numpy (optional runtime dependencies).
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/population_loader.py
+# ============================================================================
+"""
+Population data loading and aggregation module.
+
+Loads WorldPop raster data and aggregates population by territory (0.2° grid cells).
+Supports Guadeloupe and Martinique territories.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from pathlib import Path
+from typing import Optional, Tuple
+import warnings
+
+try:
+    import rasterio
+    from rasterio.windows import from_bounds
+except ImportError:
+    rasterio = None  # type: ignore[assignment]
+
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
+
+# Territory configuration: ISO code -> (population_raster_path, bounds)
+TERRITORY_CONFIG = {
+    "GUA": {
+        "name": "Guadeloupe",
+        "iso_code": "GLP",
+        "raster_filename": "glp_pop_2020_CN_100m_R2025A_v1.tif",
+        "bounds": (-61.82, 15.87, -60.93, 16.45),  # (minlon, minlat, maxlon, maxlat)
+    },
+    "MTQ": {
+        "name": "Martinique",
+        "iso_code": "MTQ",
+        "raster_filename": "mtq_pop_2020_CN_100m_R2025A_v1.tif",
+        "bounds": (-61.24, 14.39, -60.81, 14.88),
+    },
+}
+
+TERRITORY_GRID_DEG = 0.2  # Grid cell size in degrees
+
+
+def _aligned_grid_centers(min_coord: float, max_coord: float, step: float = TERRITORY_GRID_DEG) -> list[float]:
+    start = math.floor(min_coord / step) * step
+    stop = math.ceil(max_coord / step) * step
+    centers: list[float] = []
+    current = start
+    while current <= stop + 1e-9:
+        centers.append(round(current, 2))
+        current += step
+    return centers
+
+
+def _territory_for_coords(lat: float, lon: float) -> Optional[str]:
+    """
+    Determine which territory a coordinate belongs to.
+
+    Args:
+        lat: Latitude
+        lon: Longitude
+
+    Returns:
+        Territory ID ("GUA", "MTQ") or None if not in supported territory
+    """
+    for territory_id, config in TERRITORY_CONFIG.items():
+        minlon, minlat, maxlon, maxlat = config["bounds"]
+        if minlon <= lon <= maxlon and minlat <= lat <= maxlat:
+            return territory_id
+    return None
+
+
+def load_population_raster(
+    raster_path: str | Path,
+) -> Tuple[Optional[np.ndarray], Optional[dict]]:
+    """
+    Load a WorldPop raster file.
+
+    Args:
+        raster_path: Path to the GeoTIFF file
+
+    Returns:
+        Tuple of (raster_array, metadata_dict) or (None, None) if load fails
+    """
+    if rasterio is None or np is None:
+        logger.warning("rasterio or numpy not available; population data unavailable")
+        return None, None
+
+    raster_path = Path(raster_path)
+    if not raster_path.exists():
+        logger.warning(f"Population raster not found: {raster_path}")
+        return None, None
+
+    try:
+        with rasterio.open(raster_path) as src:
+            data = src.read(1)  # Read first (and only) band
+            metadata = {
+                "crs": src.crs.to_string() if src.crs else "EPSG:4326",
+                "transform": src.transform,
+                "bounds": src.bounds,
+                "width": src.width,
+                "height": src.height,
+                "nodata": src.nodata,
+                "dtype": str(data.dtype),
+            }
+            return data, metadata
+    except Exception as e:
+        logger.warning(f"Failed to load population raster {raster_path}: {e}")
+        return None, None
+
+
+def _sample_population_in_cell(
+    raster_data: np.ndarray,
+    metadata: dict,
+    cell_lat: float,
+    cell_lon: float,
+    cell_size_deg: float = TERRITORY_GRID_DEG,
+) -> float:
+    """
+    Sample and sum population in a grid cell from raster.
+
+    Uses rasterio's window-based sampling to extract the region covering
+    the cell bounds and sum the population values.
+
+    Args:
+        raster_data: Numpy array of raster data (already loaded)
+        metadata: Raster metadata (transform, bounds, etc.)
+        cell_lat: Center latitude of cell
+        cell_lon: Center longitude of cell
+        cell_size_deg: Cell size in degrees (default 0.2°)
+
+    Returns:
+        Sum of population in the cell
+    """
+    if raster_data is None or metadata is None:
+        return 0.0
+
+    try:
+        # Cell bounds
+        half_cell = cell_size_deg / 2.0
+        cell_minlat = cell_lat - half_cell
+        cell_maxlat = cell_lat + half_cell
+        cell_minlon = cell_lon - half_cell
+        cell_maxlon = cell_lon + half_cell
+
+        # Use rasterio transform to convert bounds to window
+        transform = metadata.get("transform")
+        if transform is None:
+            return 0.0
+
+        # Rasterio's from_bounds requires (left, bottom, right, top)
+        window = from_bounds(
+            cell_minlon, cell_minlat, cell_maxlon, cell_maxlat, transform
+        )
+
+        # Extract window from raster
+        # Handle edge cases where window extends beyond raster bounds
+        row_start = max(0, int(window.row_off))
+        row_stop = min(raster_data.shape[0], int(window.row_off + window.height))
+        col_start = max(0, int(window.col_off))
+        col_stop = min(raster_data.shape[1], int(window.col_off + window.width))
+
+        if row_start >= row_stop or col_start >= col_stop:
+            return 0.0
+
+        window_data = raster_data[row_start:row_stop, col_start:col_stop]
+
+        # Handle nodata values
+        nodata = metadata.get("nodata")
+        if nodata is not None:
+            window_data = np.where(window_data == nodata, 0, window_data)
+
+        # Sum population, convert to float for safety
+        population = float(np.sum(window_data))
+        return max(0.0, population)
+
+    except Exception as e:
+        logger.debug(f"Error sampling population in cell ({cell_lat}, {cell_lon}): {e}")
+        return 0.0
+
+
+def aggregate_population_by_territory(
+    raster_data: Optional[np.ndarray],
+    metadata: Optional[dict],
+    territories: Optional[dict[str, dict]] = None,
+    bounds: Optional[Tuple[float, float, float, float]] = None,
+    cell_size_deg: float = TERRITORY_GRID_DEG,
+) -> dict[str, float]:
+    """
+    Aggregate population from raster into 0.2° grid cells.
+
+    Scans the raster bounds (or specified bounds) and sums population
+    for each 0.2° grid cell that overlaps the raster.
+
+    Args:
+        raster_data: Raster numpy array
+        metadata: Raster metadata
+        territories: Optional dict mapping territory_id -> config
+        bounds: Optional (minlon, minlat, maxlon, maxlat) to scan;
+                uses raster bounds if not specified
+
+    Returns:
+        Dict mapping cell_id (e.g., "cell-+16.20_-061.40") to population count
+    """
+    if raster_data is None or metadata is None:
+        return {}
+
+    if territories is None:
+        territories = TERRITORY_CONFIG
+
+    try:
+        # Determine scan bounds
+        if bounds:
+            minlon, minlat, maxlon, maxlat = bounds
+        else:
+            raster_bounds = metadata.get("bounds")
+            if raster_bounds is None:
+                return {}
+            minlon, minlat, maxlon, maxlat = raster_bounds
+
+        result = {}
+
+        lat_centers = _aligned_grid_centers(minlat, maxlat, step=cell_size_deg)
+        lon_centers = _aligned_grid_centers(minlon, maxlon, step=cell_size_deg)
+
+        for lat in lat_centers:
+            for lon in lon_centers:
+                # Sample population in this cell
+                population = _sample_population_in_cell(
+                    raster_data, metadata, lat, lon, cell_size_deg
+                )
+
+                if population > 0:
+                    # Format cell ID: "cell-{lat:+05.2f}_{lon:+06.2f}"
+                    cell_id = f"cell-{lat:+05.2f}_{lon:+06.2f}"
+                    result[cell_id] = population
+
+        logger.info(
+            f"Aggregated population for {len(result)} cells "
+            f"(bounds: {minlon:.2f}, {minlat:.2f}, {maxlon:.2f}, {maxlat:.2f})"
+        )
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to aggregate population by territory: {e}")
+        return {}
+
+
+def load_population_data(
+    population_data_dir: str | Path,
+    territories: Optional[list[str]] = None,
+    cell_size_deg: float = TERRITORY_GRID_DEG,
+) -> dict[str, dict[str, float]]:
+    """
+    Load and aggregate population data for specified territories.
+
+    High-level function to load WorldPop rasters for a set of territories
+    and aggregate by grid cell.
+
+    Args:
+        population_data_dir: Directory containing WorldPop TIF files
+        territories: List of territory codes ("GUA", "MTQ"); if None, loads all available
+
+    Returns:
+        Dict mapping territory_id -> {cell_id -> population_count}
+        Example: {"GUA": {"cell-+16.20_-061.40": 5000, ...}}
+    """
+    if territories is None:
+        territories = list(TERRITORY_CONFIG.keys())
+
+    population_data_dir = Path(population_data_dir)
+    result = {}
+
+    for territory_id in territories:
+        if territory_id not in TERRITORY_CONFIG:
+            logger.warning(f"Unknown territory: {territory_id}")
+            continue
+
+        config = TERRITORY_CONFIG[territory_id]
+        raster_path = population_data_dir / config["raster_filename"]
+
+        logger.info(f"Loading population data for {config['name']} ({territory_id})")
+
+        raster_data, metadata = load_population_raster(raster_path)
+        if raster_data is None:
+            logger.warning(f"Skipping {territory_id}: raster not available")
+            result[territory_id] = {}
+            continue
+
+        # Aggregate by grid
+        aggregated = aggregate_population_by_territory(
+            raster_data,
+            metadata,
+            bounds=config["bounds"],
+            cell_size_deg=cell_size_deg,
+        )
+        result[territory_id] = aggregated
+        logger.info(f"Loaded {len(aggregated)} cells for {territory_id}")
+
+    return result
+
+
+def get_population_for_cell(
+    cell_id: str,
+    population_by_territory: dict[str, dict[str, float]],
+) -> float:
+    """
+    Get population for a specific cell from aggregated data.
+
+    Args:
+        cell_id: Cell ID (e.g., "cell-+16.20_-061.40")
+        population_by_territory: Result from load_population_data()
+
+    Returns:
+        Population count, or 0.0 if cell not found
+    """
+    for territory_data in population_by_territory.values():
+        if cell_id in territory_data:
+            return float(territory_data[cell_id])
+    return 0.0
+
+
+def get_territory_id_from_cell_id(cell_id: str) -> Optional[str]:
+    """
+    Determine territory ID from cell ID based on coordinates.
+
+    Parses cell ID to extract coordinates and determines which territory
+    the cell belongs to.
+
+    Args:
+        cell_id: Cell ID (e.g., "cell-+16.20_-061.40")
+
+    Returns:
+        Territory ID ("GUA", "MTQ") or None
+    """
+    try:
+        # Parse cell ID: "cell-{lat:+05.2f}_{lon:+06.2f}"
+        parts = cell_id.replace("cell-", "").split("_")
+        if len(parts) != 2:
+            return None
+        lat = float(parts[0])
+        lon = float(parts[1])
+        return _territory_for_coords(lat, lon)
+    except Exception:
+        return None
+# END SOURCE: backend/app/risk_engine/population_loader.py
+
+# ============================================================================
+# MODULE 16/27
+# Source file: backend/app/risk_engine/social_impact.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/social_impact.py
+# Original line span: 1-170
+# Source SHA256: 0cf3a2dd75df49c28d4762a945e36a781208956614bf4c8843b6e2b4c6fc571b
+# Purpose: Computes social impact metrics from network states and population totals.
+# Key Inputs: Per-hazard detailed territory states and population-by-territory values.
+# Key Outputs: Per-territory social metrics and portfolio-level social summaries.
+# Dependency Notes: risk_engine.types.SocialImpactMetrics and aggregation helpers.
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/social_impact.py
+# ============================================================================
+"""
+Social impact metrics calculation module.
+
+Calculates human impact metrics for each territory/hazard combination based on
+population and infrastructure network states (S0, S1, S2, S3).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from .types import SocialImpactMetrics
+
+logger = logging.getLogger(__name__)
+
+
+def calculate_social_impact_metrics(
+    hazard: str,
+    territory_id: str,
+    population_total: float,
+    infra_states: dict[str, str],
+) -> SocialImpactMetrics:
+    """
+    Calculate social impact metrics for a territory/hazard combination.
+
+    Based on population and final state of each infrastructure type,
+    determines how many people are affected by degraded or failed networks.
+
+    Args:
+        hazard: Hazard identifier ("storm", "storm_cmcc")
+        territory_id: Territory identifier (cell ID like "cell-+16.20_-061.40")
+        population_total: Total population in the territory
+        infra_states: Dict mapping infrastructure type ("elec", "water_aep", "water_eu") to state ("S0"-"S3")
+                     Example: {"elec": "S1", "water_aep": "S2", "water_eu": "S0"}
+
+    Returns:
+        SocialImpactMetrics instance with 7 calculated metrics
+    """
+    metrics = SocialImpactMetrics()
+
+    if population_total <= 0:
+        return metrics
+
+    pop = float(population_total)
+
+    # Parse infrastructure states (default to S0 if not specified)
+    elec_state = str(infra_states.get("elec", "S0")).upper()
+    water_aep_state = str(infra_states.get("water_aep", "S0")).upper()
+    water_eu_state = str(infra_states.get("water_eu", "S0")).upper()
+
+    # Validate states
+    valid_states = {"S0", "S1", "S2", "S3"}
+    if elec_state not in valid_states:
+        elec_state = "S0"
+    if water_aep_state not in valid_states:
+        water_aep_state = "S0"
+    if water_eu_state not in valid_states:
+        water_eu_state = "S0"
+
+    # Population with degraded electricity (S1 or S2)
+    if elec_state in {"S1", "S2"}:
+        metrics.population_with_degraded_elec = pop
+
+    # Population with degraded water AEP (S1 or S2)
+    if water_aep_state in {"S1", "S2"}:
+        metrics.population_with_degraded_water_aep = pop
+
+    # Population with degraded water EU (S1 or S2)
+    if water_eu_state in {"S1", "S2"}:
+        metrics.population_with_degraded_water_eu = pop
+
+    # Population without electricity (S3)
+    if elec_state == "S3":
+        metrics.population_without_elec = pop
+
+    # Population without water AEP (S3)
+    if water_aep_state == "S3":
+        metrics.population_without_water_aep = pop
+
+    # Population without water EU (S3)
+    if water_eu_state == "S3":
+        metrics.population_without_water_eu = pop
+
+    # Total population affected: anyone in a cell where at least one network is not S0
+    if elec_state != "S0" or water_aep_state != "S0" or water_eu_state != "S0":
+        metrics.total_population_affected = pop
+
+    return metrics
+
+
+def aggregate_social_metrics_by_territory(
+    population_by_territory: dict[str, float],
+    detailed_states: dict[str, dict[str, dict[str, str]]],
+) -> dict[str, dict[str, SocialImpactMetrics]]:
+    """
+    Aggregate social impact metrics for all territories and hazards.
+
+    Processes population and infrastructure state data to produce metrics
+    for each hazard/territory combination.
+
+    Args:
+        population_by_territory: Dict mapping territory_id (cell ID) to population count
+        detailed_states: Dict[hazard][territory_id][infra_type] -> state
+                        Example: {"storm": {"cell-+16.20_-061.40": {"elec": "S1", ...}}}
+
+    Returns:
+        Dict[hazard][territory_id] -> SocialImpactMetrics
+    """
+    result: dict[str, dict[str, SocialImpactMetrics]] = {}
+
+    if not detailed_states:
+        return result
+
+    for hazard, states_by_territory in detailed_states.items():
+        result[hazard] = {}
+
+        for territory_id, infra_states in states_by_territory.items():
+            population = population_by_territory.get(territory_id, 0.0)
+            metrics = calculate_social_impact_metrics(
+                hazard=hazard,
+                territory_id=territory_id,
+                population_total=population,
+                infra_states=infra_states,
+            )
+            result[hazard][territory_id] = metrics
+
+    return result
+
+
+def aggregate_social_summary(
+    social_metrics: dict[str, dict[str, SocialImpactMetrics]],
+) -> dict[str, dict[str, float]]:
+    """
+    Aggregate social metrics to portfolio-level summary.
+
+    Sums up human impacts across all territories for each hazard.
+
+    Args:
+        social_metrics: Result from aggregate_social_metrics_by_territory
+
+    Returns:
+        Dict[hazard] -> {metric_name -> total_count}
+        Example: {"storm": {"total_population_affected_any_network": 123456, ...}}
+    """
+    result: dict[str, dict[str, float]] = {}
+
+    for hazard, metrics_by_territory in social_metrics.items():
+        summary = {
+            "total_population_affected_any_network": 0.0,
+            "total_with_degraded_elec": 0.0,
+            "total_with_degraded_water_aep": 0.0,
+            "total_with_degraded_water_eu": 0.0,
+            "total_without_elec": 0.0,
+            "total_without_water_aep": 0.0,
+            "total_without_water_eu": 0.0,
+        }
+
+        for metrics in metrics_by_territory.values():
+            summary["total_population_affected_any_network"] += metrics.total_population_affected
+            summary["total_with_degraded_elec"] += metrics.population_with_degraded_elec
+            summary["total_with_degraded_water_aep"] += metrics.population_with_degraded_water_aep
+            summary["total_with_degraded_water_eu"] += metrics.population_with_degraded_water_eu
+            summary["total_without_elec"] += metrics.population_without_elec
+            summary["total_without_water_aep"] += metrics.population_without_water_aep
+            summary["total_without_water_eu"] += metrics.population_without_water_eu
+
+        result[hazard] = {k: round(v, 0) for k, v in summary.items()}
+
+    return result
+# END SOURCE: backend/app/risk_engine/social_impact.py
+
+# ============================================================================
+# MODULE 17/27
+# Source file: backend/app/risk_engine/sensitivity_scenarios.py
+# Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/sensitivity_scenarios.py
+# Original line span: 1-141
+# Source SHA256: bdafc542b8fc754f5f46e063ac01acb41d3840b2f405bd3b5c855fdbfaa9bef3
+# Purpose: Loads sensitivity scenario packs and applies settings overrides safely.
+# Key Inputs: Scenario pack JSON and selected scenario identifiers.
+# Key Outputs: Validated scenario metadata and effective runtime settings.
+# Dependency Notes: dataclasses, JSON validation, app.config.Settings.
+# ----------------------------------------------------------------------------
+# BEGIN SOURCE: backend/app/risk_engine/sensitivity_scenarios.py
+# ============================================================================
+from __future__ import annotations
+
+import dataclasses
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from ..config import Settings
+
+
+SUPPORTED_SCENARIO_PACK_VERSION = 1
+
+
+@dataclass(frozen=True)
+class SensitivityScenario:
+    scenario_id: str
+    label: str
+    parameter_key: str | None
+    execution_tier: str
+    supported: bool
+    overrides: dict[str, Any]
+    notes: list[str]
+    source_pack_path: Path
+
+
+def load_scenario_pack(pack_path: str | Path) -> dict[str, Any]:
+    path = Path(pack_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Scenario pack must be a JSON object: {path}")
+    version = int(payload.get("version") or 0)
+    if version != SUPPORTED_SCENARIO_PACK_VERSION:
+        raise ValueError(
+            f"Unsupported scenario pack version {version} in {path}; expected {SUPPORTED_SCENARIO_PACK_VERSION}"
+        )
+    scenarios = payload.get("scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise ValueError(f"Scenario pack does not contain any scenarios: {path}")
+    payload["_path"] = str(path)
+    return payload
+
+
+def _scenario_from_payload_item(item: dict[str, Any], *, source_pack_path: Path) -> SensitivityScenario:
+    scenario_id = str(item.get("scenario_id") or "").strip()
+    if not scenario_id:
+        raise ValueError(f"Scenario entry is missing a scenario_id in {source_pack_path}")
+    return SensitivityScenario(
+        scenario_id=scenario_id,
+        label=str(item.get("label") or scenario_id),
+        parameter_key=str(item.get("parameter_key") or "").strip() or None,
+        execution_tier=str(item.get("execution_tier") or "full_rerun"),
+        supported=bool(item.get("supported", True)),
+        overrides=dict(item.get("overrides") or {}),
+        notes=[str(value) for value in list(item.get("notes") or [])],
+        source_pack_path=source_pack_path,
+    )
+
+
+def list_scenarios_from_pack(
+    pack_path: str | Path,
+    *,
+    scenario_ids: list[str] | tuple[str, ...] | None = None,
+) -> list[SensitivityScenario]:
+    payload = load_scenario_pack(pack_path)
+    source_pack_path = Path(str(payload.get("_path") or pack_path))
+    selected_ids = None
+    if scenario_ids:
+        selected_ids = {str(value).strip() for value in scenario_ids if str(value).strip()}
+    scenarios: list[SensitivityScenario] = []
+    for item in payload.get("scenarios") or []:
+        if not isinstance(item, dict):
+            continue
+        scenario = _scenario_from_payload_item(item, source_pack_path=source_pack_path)
+        if selected_ids is not None and scenario.scenario_id not in selected_ids:
+            continue
+        scenarios.append(scenario)
+
+    if selected_ids is not None:
+        found_ids = {scenario.scenario_id for scenario in scenarios}
+        missing_ids = sorted(selected_ids - found_ids)
+        if missing_ids:
+            raise ValueError(
+                f"Scenarios not found in {source_pack_path}: {', '.join(missing_ids)}"
+            )
+    return scenarios
+
+
+def resolve_scenario_from_pack(pack_path: str | Path, scenario_id: str) -> SensitivityScenario:
+    payload = load_scenario_pack(pack_path)
+    requested_id = str(scenario_id or "").strip()
+    if not requested_id:
+        raise ValueError("scenario_id must not be empty")
+
+    for item in payload.get("scenarios") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("scenario_id") or "").strip() != requested_id:
+            continue
+        return _scenario_from_payload_item(
+            item,
+            source_pack_path=Path(str(payload.get("_path") or pack_path)),
+        )
+
+    raise ValueError(f"Scenario '{requested_id}' was not found in {pack_path}")
+
+
+def apply_settings_overrides(settings: Settings, scenario: SensitivityScenario | None) -> Settings:
+    if scenario is None:
+        return settings
+    if not scenario.supported:
+        raise ValueError(
+            f"Scenario '{scenario.scenario_id}' is marked as unsupported for automated execution. "
+            "Define the requested manual profile first or choose another scenario."
+        )
+
+    settings_overrides = dict((scenario.overrides or {}).get("settings") or {})
+    if not settings_overrides:
+        return settings
+
+    settings_dict = dataclasses.asdict(settings)
+    unknown_keys = sorted(set(settings_overrides) - set(settings_dict))
+    if unknown_keys:
+        raise ValueError(
+            f"Scenario '{scenario.scenario_id}' contains unknown Settings override keys: {', '.join(unknown_keys)}"
+        )
+
+    settings_dict.update(settings_overrides)
+    return Settings(**settings_dict)
+
+
+def scenario_manifest_fields(scenario: SensitivityScenario | None) -> dict[str, Any]:
+    if scenario is None:
+        return {}
+    return {
+        "scenario_id": scenario.scenario_id,
+        "scenario_label": scenario.label,
+        "scenario_parameter_key": scenario.parameter_key,
+        "scenario_execution_tier": scenario.execution_tier,
+        "scenario_pack_path": str(scenario.source_pack_path),
+    }
+# END SOURCE: backend/app/risk_engine/sensitivity_scenarios.py
+
+# ============================================================================
+# MODULE 18/27
 # Source file: backend/app/risk_engine/analysis_export.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/analysis_export.py
-# Original line span: 1-176
-# Source SHA256: 4821d6909c94b8577ca1d4bf5bfba8606d488683d709137801d4694dafcb3df1
+# Original line span: 1-294
+# Source SHA256: 21a5b4ef23950384a5e97860111bd0753b6dcb32099053325538ab30bb44ac39
 # Purpose: Final payload and artefact serialization helpers.
 # Key Inputs: Computation result + exposure/disaggregation context.
 # Key Outputs: API JSON payload, territory CSV, event CSV, graph JSON.
@@ -3892,10 +9210,35 @@ def build_result_payload(
     notes.extend(disagg.warnings)
     notes.extend(exposure.warnings)
     category_counts = Counter((f.exposure_category or "habitation") for f in exposure.features)
+    valuation_audit = _build_valuation_audit(exposure)
     input_features_geojson, was_truncated = _build_input_features_geojson(exposure, max_features=5000)
     if was_truncated:
         notes.append("Input geometry preview was truncated to 5000 features for map rendering.")
+    if int(valuation_audit.get("default_value_asset_count") or 0) > 0:
+        notes.append(
+            f"Default valuation assumption applied to {int(valuation_audit['default_value_asset_count'])} input feature(s)."
+        )
+    if int(valuation_audit.get("untracked_asset_count") or 0) > 0:
+        notes.append(
+            f"Valuation provenance metadata is missing for {int(valuation_audit['untracked_asset_count'])} input feature(s)."
+        )
     clean_run_label = str(run_label or "").strip()
+    impact_function_label = "Eberenz_2021_TC"
+    hazard_components = ["wind"]
+    if isinstance(comp.modeling, dict):
+        impact_function_label = str(comp.modeling.get("impact_function_profile") or impact_function_label)
+        comp_by_hazard = comp.modeling.get("multi_hazard_components_by_hazard")
+        if isinstance(comp_by_hazard, dict):
+            seen_components = []
+            for names in comp_by_hazard.values():
+                if not isinstance(names, list):
+                    continue
+                for name in names:
+                    name_txt = str(name or "").strip().lower()
+                    if name_txt and name_txt not in seen_components:
+                        seen_components.append(name_txt)
+            if seen_components:
+                hazard_components = seen_components
 
     payload: dict[str, Any] = {
         "meta": {
@@ -3907,8 +9250,9 @@ def build_result_payload(
             "unit_currency": "EUR",
             "currency_display_unit": "MEUR",
             "sampling_spacing_m": float(disagg.spacing_m),
-            "impact_function": "Eberenz_2021_TC",
+            "impact_function": impact_function_label,
             "hazards": ["STORM", "STORM_CMCC"],
+            "hazard_components": hazard_components,
             "engine": comp.engine,
         },
         "exposure_summary": {
@@ -3920,10 +9264,15 @@ def build_result_payload(
             "geometry_type_counts": disagg.by_geometry_type,
             "exposure_category_counts": dict(category_counts),
             "metric_crs": disagg.metric_crs,
+            "default_value_asset_count": int(valuation_audit.get("default_value_asset_count") or 0),
+            "explicit_value_asset_count": int(valuation_audit.get("explicit_value_asset_count") or 0),
+            "untracked_valuation_asset_count": int(valuation_audit.get("untracked_asset_count") or 0),
         },
+        "valuation_audit": valuation_audit,
         "territory_results": comp.territory_results,
         "asset_results": comp.asset_results,
         "portfolio_results": comp.portfolio_results,
+        "matching_qa": comp.matching_qa,
         "graphs": comp.graphs,
         "artifacts": {
             "plots_png": [],
@@ -3943,10 +9292,43 @@ def build_territory_csv(territory_results: list[dict[str, Any]]) -> bytes:
     if not territory_results:
         output.write("territory_id,territory_label\n")
     else:
-        fieldnames = list(territory_results[0].keys())
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
+        # Flatten social_metrics from nested dict to flat columns
+        flattened_results = []
         for row in territory_results:
+            flat_row = dict(row)
+            
+            # Handle social_metrics if present
+            social_metrics = flat_row.pop("social_metrics", {})
+            if isinstance(social_metrics, dict):
+                for hazard, metrics_dict in social_metrics.items():
+                    if isinstance(metrics_dict, dict):
+                        for metric_name, metric_value in metrics_dict.items():
+                            col_name = f"social_{hazard}_{metric_name}"
+                            flat_row[col_name] = metric_value
+            
+            flattened_results.append(flat_row)
+        
+        # Get all fieldnames from all rows to ensure complete column set
+        all_fieldnames = set()
+        for row in flattened_results:
+            all_fieldnames.update(row.keys())
+        
+        # Sort fieldnames: standard ones first, then social ones
+        standard_fields = [
+            "territory_id", "territory_label", "lat", "lon", 
+            "exposure_eur", "population_total",
+            "eai_storm_direct_eur", "eai_storm_indirect_eur", "eai_storm_eur",
+            "eai_cmcc_direct_eur", "eai_cmcc_indirect_eur", "eai_cmcc_eur",
+            "risk_index_storm", "risk_index_cmcc"
+        ]
+        social_fields = sorted([f for f in all_fieldnames if f.startswith("social_")])
+        other_fields = sorted([f for f in all_fieldnames if f not in standard_fields and not f.startswith("social_")])
+        
+        fieldnames = [f for f in standard_fields if f in all_fieldnames] + other_fields + social_fields
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames, restval="")
+        writer.writeheader()
+        for row in flattened_results:
             writer.writerow(row)
     return output.getvalue().encode("utf-8")
 
@@ -4031,6 +9413,10 @@ def _build_input_features_geojson(
                     "label": str(feat.label),
                     "value_eur": float(feat.value_eur),
                     "asset_type": str((feat.properties or {}).get("asset_type") or ""),
+                    "uses_default_value": bool((feat.properties or {}).get("uses_default_value")),
+                    "valuation_source": str((feat.properties or {}).get("valuation_source") or ""),
+                    "valuation_version": str((feat.properties or {}).get("valuation_version") or ""),
+                    "default_value_eur": (feat.properties or {}).get("default_value_eur"),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "geometry_type": str(feat.geometry_type or ""),
                     "row_index": idx + 1,
@@ -4041,14 +9427,64 @@ def _build_input_features_geojson(
     if not features:
         return None, truncated
     return {"type": "FeatureCollection", "features": features}, truncated
+
+
+def _build_valuation_audit(
+    exposure: NormalizedExposure,
+    *,
+    preview_limit: int = 20,
+) -> dict[str, Any]:
+    valuation_source_counts: Counter[str] = Counter()
+    default_preview: list[dict[str, Any]] = []
+    tracked_asset_count = 0
+    default_value_asset_count = 0
+    default_value_total_eur = 0.0
+
+    for feat in exposure.features:
+        props = feat.properties or {}
+        uses_default_key_present = "uses_default_value" in props
+        valuation_source = str(props.get("valuation_source") or "")
+        if uses_default_key_present or valuation_source:
+            tracked_asset_count += 1
+        if valuation_source:
+            valuation_source_counts[valuation_source] += 1
+        if bool(props.get("uses_default_value")):
+            default_value_asset_count += 1
+            default_value_total_eur += float(feat.value_eur)
+            if len(default_preview) < max(1, int(preview_limit)):
+                default_preview.append(
+                    {
+                        "asset_id": str(feat.feature_id),
+                        "label": str(feat.label),
+                        "geometry_type": str(feat.geometry_type or ""),
+                        "value_eur": round(float(feat.value_eur), 2),
+                        "default_value_eur": props.get("default_value_eur"),
+                        "valuation_source": valuation_source,
+                    }
+                )
+
+    total_assets = exposure.asset_count_original
+    explicit_value_asset_count = max(0, tracked_asset_count - default_value_asset_count)
+    untracked_asset_count = max(0, total_assets - tracked_asset_count)
+
+    return {
+        "tracked_asset_count": int(tracked_asset_count),
+        "untracked_asset_count": int(untracked_asset_count),
+        "default_value_asset_count": int(default_value_asset_count),
+        "explicit_value_asset_count": int(explicit_value_asset_count),
+        "default_value_total_eur": round(default_value_total_eur, 2),
+        "valuation_source_counts": dict(sorted(valuation_source_counts.items())),
+        "default_value_asset_preview": default_preview,
+        "default_value_asset_preview_truncated": bool(default_value_asset_count > len(default_preview)),
+    }
 # END SOURCE: backend/app/risk_engine/analysis_export.py
 
 # ============================================================================
-# MODULE 13/21
+# MODULE 19/27
 # Source file: backend/app/config.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/config.py
-# Original line span: 1-126
-# Source SHA256: df01ed044308d61c711bb047b28108c0d5b8319fd522cd0d19872431093b215a
+# Original line span: 1-332
+# Source SHA256: af820fa2e6490caa315110cffa6258fb2f92a72891ba852331866e8969568ac6
 # Purpose: Runtime settings model and environment-variable loader.
 # Key Inputs: Environment variables and default project paths.
 # Key Outputs: Immutable settings object used across API and engine modules.
@@ -4088,6 +9524,54 @@ def _prefer_existing_path(*candidates: Path) -> Path:
     return candidates[0]
 
 
+_DEFAULT_SURGE_TOPO_ROOT = Path("/home/ubuntu/uploads/DEM_Topo/Topo")
+_DEFAULT_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
+    "martinique": _DEFAULT_SURGE_TOPO_ROOT / "Martinique.tif",
+}
+
+
+def _normalize_territory_key(raw: str | None) -> str | None:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "gua": "guadeloupe",
+        "guadeloupe": "guadeloupe",
+        "mar": "martinique",
+        "martinique": "martinique",
+        "mtq": "martinique",
+    }
+    return aliases.get(key)
+
+
+def resolve_surge_topo_path_for_territory(
+    territory: str | None,
+    *,
+    settings: Settings | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    runtime_env = os.environ if env is None else env
+    territory_key = _normalize_territory_key(territory)
+    fallback_path = Path(
+        getattr(
+            settings,
+            "hazard_surge_topo_path",
+            Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+        )
+    )
+    if territory_key is None:
+        return fallback_path
+
+    env_override = runtime_env.get(f"SIB_RISK_HAZARD_SURGE_TOPO_PATH_{territory_key.upper()}")
+    territory_default = _DEFAULT_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    candidates: list[Path] = []
+    if env_override:
+        candidates.append(Path(env_override))
+    if territory_default is not None:
+        candidates.append(territory_default)
+    candidates.append(fallback_path)
+    return _prefer_existing_path(*candidates)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SIB Cyclone Risk API"
@@ -4100,24 +9584,62 @@ class Settings:
     demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
     storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
+    territory_grid_deg: float = 0.2
     data_root: Path = Path(__file__).resolve().parents[2] / "data"
     hazard_storm_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
     hazard_storm_cmcc_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
     storm_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     storm_cmcc_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     hazard_prefer_dynamic_from_parquet: bool = True
-    hazard_fallback_to_precomputed: bool = True
+    hazard_fallback_to_precomputed: bool = False
     storm_wind_unit_in: str = "m/s"
+    storm_convert_10min_to_1min: bool = True
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
+    hazard_dynamic_max_tracks: int = 1200
+    hazard_track_cache_max_entries: int = 8
+    multi_hazard_enabled: bool = True
+    hazard_rain_model: str = "R-CLIPER"
+    hazard_rain_max_dist_inland_km: float = 2000.0
+    hazard_surge_topo_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    d2_flood_curve_file: Path = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    multi_hazard_rain_base_runoff_coeff: float = 0.25
+    wind_asset_type_to_curve_code: dict[str, str] | None = None
+    flood_asset_type_to_curve_code: dict[str, str] | None = None
+    landslide_precip_current_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif")
+    landslide_precip_ssp585_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif")
+    landslide_earthquake_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif")
+    landslide_corr_fact: float = 500.0
+    landslide_n_years: int = 200
+    landslide_dist: str = "poisson"
+    population_data_dir: Path | None = Path("/home/ubuntu/uploads/Population")
     example_qgis_points_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"
     example_qgis_lines_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"
     example_qgis_polygons_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"
     impact_engine_mode: str = "climada"
     allow_climada_fallback: bool = False
     climada_metric_crs: str = "EPSG:3857"
+    climada_execution_profile: str = "default"
+    climada_memory_budget_gb: float = 0.0
+    climada_max_points_per_shard: int = 0
+    climada_min_points_per_shard: int = 512
+    climada_max_shard_retry_depth: int = 4
+    climada_strict_required_components: bool = True
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
+    interdependency_state_threshold_s0_to_s1: float = 0.05
+    interdependency_state_threshold_s1_to_s2: float = 0.15
+    interdependency_state_threshold_s2_to_s3: float = 0.35
+    interdependency_health_weight_s1: float = 0.3
+    interdependency_health_weight_s2: float = 0.7
+    interdependency_health_weight_s3: float = 1.0
+    interdependency_dependency_state_threshold_s1: float = 0.75
+    interdependency_dependency_state_threshold_s2: float = 0.55
+    interdependency_dependency_state_threshold_s3: float = 0.35
+    interdependency_uplift_s0: float = 0.0
+    interdependency_uplift_s1: float = 0.10
+    interdependency_uplift_s2: float = 0.25
+    interdependency_uplift_s3: float = 0.45
     cors_allowed_origins: tuple[str, ...] = (
         "https://app.sib.elio.dev",
         "https://sib.dev.elio.bottagisio.com",
@@ -4137,12 +9659,96 @@ def load_settings() -> Settings:
 
     default_storm_parquet = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     default_storm_cmcc_parquet = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
-    alt_storm_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds")
-    alt_storm_cmcc_parquet = Path("/home/ubuntu/uploads/STORM/storm_ds_CMCC")
+    # Preferred order for dynamic STORM sources:
+    # 1) explicit env override
+    # 2) local repo default
+    # 3) single-file parquet snapshots (legacy but valid)
+    # 4) extracted dataset directories (txt/parquet datasets)
+    alt_storm_parquet_file = Path("/home/ubuntu/uploads/STORM/storm_ds")
+    alt_storm_cmcc_parquet_file = Path("/home/ubuntu/uploads/STORM/storm_ds_CMCC")
+    alt_storm_parquet_dir = Path("/home/ubuntu/uploads/STORM/STORM_ds")
+    alt_storm_cmcc_parquet_dir = Path("/home/ubuntu/uploads/STORM/STORM_CMCC_ds")
     configured_storm_parquet = Path(env.get("SIB_RISK_STORM_PARQUET_PATH", str(default_storm_parquet)))
     configured_storm_cmcc_parquet = Path(env.get("SIB_RISK_STORM_CMCC_PARQUET_PATH", str(default_storm_cmcc_parquet)))
-    storm_parquet_path = _prefer_existing_path(configured_storm_parquet, default_storm_parquet, alt_storm_parquet)
-    storm_cmcc_parquet_path = _prefer_existing_path(configured_storm_cmcc_parquet, default_storm_cmcc_parquet, alt_storm_cmcc_parquet)
+    storm_parquet_path = _prefer_existing_path(
+        configured_storm_parquet,
+        default_storm_parquet,
+        alt_storm_parquet_file,
+        alt_storm_parquet_dir,
+    )
+    storm_cmcc_parquet_path = _prefer_existing_path(
+        configured_storm_cmcc_parquet,
+        default_storm_cmcc_parquet,
+        alt_storm_cmcc_parquet_file,
+        alt_storm_cmcc_parquet_dir,
+    )
+
+    default_hazard_topo = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    alt_hazard_topo = Path(
+        "/home/ubuntu/uploads/DEM_Topo/MNT_FACADE_ANTS_HOMONIM_PBMA/DONNEES/MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
+    )
+    configured_hazard_topo = Path(env.get("SIB_RISK_HAZARD_SURGE_TOPO_PATH", str(default_hazard_topo)))
+    hazard_surge_topo_path = _prefer_existing_path(
+        configured_hazard_topo,
+        default_hazard_topo,
+        alt_hazard_topo,
+    )
+
+    default_d2_curve = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    alt_d2_curve = Path("/home/ubuntu/uploads/Vulnerability/Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx")
+    configured_d2_curve = Path(env.get("SIB_RISK_D2_FLOOD_CURVE_FILE", str(default_d2_curve)))
+    d2_flood_curve_file = _prefer_existing_path(
+        configured_d2_curve,
+        default_d2_curve,
+        alt_d2_curve,
+    )
+
+    default_landslide_root = Path(__file__).resolve().parents[2] / "data" / "landslide"
+    alt_landslide_root = Path("/home/ubuntu/uploads/Landslide")
+    configured_landslide_root = Path(env.get("SIB_RISK_LANDSLIDE_ROOT", str(default_landslide_root)))
+    landslide_root = _prefer_existing_path(
+        configured_landslide_root,
+        default_landslide_root,
+        alt_landslide_root,
+    )
+    configured_landslide_precip_current = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_PRECIP_CURRENT_PATH",
+            str(landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif"),
+        )
+    )
+    configured_landslide_precip_ssp585 = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_PRECIP_SSP585_PATH",
+            str(landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif"),
+        )
+    )
+    configured_landslide_earthquake = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_EARTHQUAKE_PATH",
+            str(landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif"),
+        )
+    )
+    landslide_precip_current_path = _prefer_existing_path(
+        configured_landslide_precip_current,
+        landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif",
+    )
+    landslide_precip_ssp585_path = _prefer_existing_path(
+        configured_landslide_precip_ssp585,
+        landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitations_ClimatSSP585.tif",
+    )
+    landslide_earthquake_path = _prefer_existing_path(
+        configured_landslide_earthquake,
+        landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif",
+        landslide_root / "LS_GuaMar_Eathquake.tif",
+        landslide_root / "LS_GuaMar_Earthquake.tif",
+        alt_landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif",
+        alt_landslide_root / "LS_GuaMar_Eathquake.tif",
+        alt_landslide_root / "LS_GuaMar_Earthquake.tif",
+    )
 
     return Settings(
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
@@ -4155,24 +9761,60 @@ def load_settings() -> Settings:
         demo_result_path=demo_result_path,
         storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
+        territory_grid_deg=float(env.get("SIB_RISK_TERRITORY_GRID_DEG", "0.2")),
         data_root=Path(env.get("SIB_RISK_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))),
         hazard_storm_path=Path(env.get("SIB_RISK_HAZARD_STORM_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"))),
         hazard_storm_cmcc_path=Path(env.get("SIB_RISK_HAZARD_STORM_CMCC_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"))),
         storm_parquet_path=storm_parquet_path,
         storm_cmcc_parquet_path=storm_cmcc_parquet_path,
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
-        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", True),
+        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
+        storm_convert_10min_to_1min=_env_bool(env, "SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN", True),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
+        hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),
+        hazard_track_cache_max_entries=int(env.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES", "8")),
+        multi_hazard_enabled=_env_bool(env, "SIB_RISK_MULTI_HAZARD_ENABLED", True),
+        hazard_rain_model=str(env.get("SIB_RISK_HAZARD_RAIN_MODEL", "R-CLIPER")).strip(),
+        hazard_rain_max_dist_inland_km=float(env.get("SIB_RISK_HAZARD_RAIN_MAX_DIST_INLAND_KM", "2000.0")),
+        hazard_surge_topo_path=hazard_surge_topo_path,
+        d2_flood_curve_file=d2_flood_curve_file,
+        multi_hazard_rain_base_runoff_coeff=float(env.get("SIB_RISK_MULTI_HAZARD_RAIN_BASE_RUNOFF_COEFF", "0.25")),
+        landslide_precip_current_path=landslide_precip_current_path,
+        landslide_precip_ssp585_path=landslide_precip_ssp585_path,
+        landslide_earthquake_path=landslide_earthquake_path,
+        landslide_corr_fact=float(env.get("SIB_RISK_LANDSLIDE_CORR_FACT", "500.0")),
+        landslide_n_years=int(env.get("SIB_RISK_LANDSLIDE_N_YEARS", "200")),
+        landslide_dist=str(env.get("SIB_RISK_LANDSLIDE_DIST", "poisson")).strip().lower(),
+        population_data_dir=Path(env.get("SIB_RISK_POPULATION_DATA_DIR", "/home/ubuntu/uploads/Population")) if env.get("SIB_RISK_POPULATION_DATA_DIR") else None,
         example_qgis_points_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POINTS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"))),
         example_qgis_lines_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_LINES_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"))),
         example_qgis_polygons_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POLYGONS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"))),
         impact_engine_mode=str(env.get("SIB_RISK_IMPACT_ENGINE_MODE", "climada")).strip().lower(),
         allow_climada_fallback=_env_bool(env, "SIB_RISK_ALLOW_CLIMADA_FALLBACK", False),
         climada_metric_crs=str(env.get("SIB_RISK_CLIMADA_METRIC_CRS", "EPSG:3857")).strip(),
+        climada_execution_profile=str(env.get("SIB_RISK_CLIMADA_EXECUTION_PROFILE", "default")).strip().lower(),
+        climada_memory_budget_gb=float(env.get("SIB_RISK_CLIMADA_MEMORY_BUDGET_GB", "0")),
+        climada_max_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_SHARD", "0")),
+        climada_min_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MIN_POINTS_PER_SHARD", "512")),
+        climada_max_shard_retry_depth=int(env.get("SIB_RISK_CLIMADA_MAX_SHARD_RETRY_DEPTH", "4")),
+        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", True),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
+        interdependency_state_threshold_s0_to_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S0_TO_S1", "0.05")),
+        interdependency_state_threshold_s1_to_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S1_TO_S2", "0.15")),
+        interdependency_state_threshold_s2_to_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S2_TO_S3", "0.35")),
+        interdependency_health_weight_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S1", "0.3")),
+        interdependency_health_weight_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S2", "0.7")),
+        interdependency_health_weight_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S3", "1.0")),
+        interdependency_dependency_state_threshold_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S1", "0.75")),
+        interdependency_dependency_state_threshold_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S2", "0.55")),
+        interdependency_dependency_state_threshold_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S3", "0.35")),
+        interdependency_uplift_s0=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S0", "0.0")),
+        interdependency_uplift_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S1", "0.10")),
+        interdependency_uplift_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S2", "0.25")),
+        interdependency_uplift_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S3", "0.45")),
         cors_allowed_origins=_env_csv(
             env,
             "SIB_RISK_CORS_ALLOWED_ORIGINS",
@@ -4185,7 +9827,7 @@ def load_settings() -> Settings:
 # END SOURCE: backend/app/config.py
 
 # ============================================================================
-# MODULE 14/21
+# MODULE 20/27
 # Source file: backend/app/models.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/models.py
 # Original line span: 1-57
@@ -4257,7 +9899,7 @@ class HealthResponse(BaseModel):
 # END SOURCE: backend/app/models.py
 
 # ============================================================================
-# MODULE 15/21
+# MODULE 21/27
 # Source file: backend/app/job_store.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/job_store.py
 # Original line span: 1-303
@@ -4575,11 +10217,11 @@ class JobStore:
 # END SOURCE: backend/app/job_store.py
 
 # ============================================================================
-# MODULE 16/21
+# MODULE 22/27
 # Source file: backend/app/risk_engine/types.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/types.py
-# Original line span: 1-55
-# Source SHA256: 3f44f8f9704e0502adea6578a249e26eaef404f94640201a518a6998c4e74d52
+# Original line span: 1-80
+# Source SHA256: 38fb0ce61bc706d851b9b5189f3614f65e5905430e478a284dbd86c8adf500ca
 # Purpose: Typed structures shared by ingest, compute, and export modules.
 # Key Inputs: Normalized feature/exposure/computation field definitions.
 # Key Outputs: Consistent strongly-typed payload containers.
@@ -4641,11 +10283,36 @@ class ImpactComputationResult:
     notes: list[str]
     asset_results: list[dict[str, Any]] = field(default_factory=list)
     modeling: dict[str, Any] = field(default_factory=dict)
+    matching_qa: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+
+
+@dataclass
+class SocialImpactMetrics:
+    """Social impact metrics for a territory/hazard combination."""
+    population_with_degraded_elec: float = 0.0
+    population_with_degraded_water_aep: float = 0.0
+    population_with_degraded_water_eu: float = 0.0
+    population_without_elec: float = 0.0
+    population_without_water_aep: float = 0.0
+    population_without_water_eu: float = 0.0
+    total_population_affected: float = 0.0
+
+    def to_dict(self) -> dict[str, float]:
+        """Convert metrics to dictionary for JSON serialization."""
+        return {
+            "population_with_degraded_elec": round(self.population_with_degraded_elec, 0),
+            "population_with_degraded_water_aep": round(self.population_with_degraded_water_aep, 0),
+            "population_with_degraded_water_eu": round(self.population_with_degraded_water_eu, 0),
+            "population_without_elec": round(self.population_without_elec, 0),
+            "population_without_water_aep": round(self.population_without_water_aep, 0),
+            "population_without_water_eu": round(self.population_without_water_eu, 0),
+            "total_population_affected": round(self.total_population_affected, 0),
+        }
 # END SOURCE: backend/app/risk_engine/types.py
 
 # ============================================================================
-# MODULE 17/21
+# MODULE 23/27
 # Source file: backend/app/risk_engine/errors.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/errors.py
 # Original line span: 1-10
@@ -4670,7 +10337,7 @@ class DependencyMissingError(RiskEngineError):
 # END SOURCE: backend/app/risk_engine/errors.py
 
 # ============================================================================
-# MODULE 18/21
+# MODULE 24/27
 # Source file: backend/app/__init__.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/__init__.py
 # Original line span: 1-1
@@ -4686,7 +10353,7 @@ class DependencyMissingError(RiskEngineError):
 # END SOURCE: backend/app/__init__.py
 
 # ============================================================================
-# MODULE 19/21
+# MODULE 25/27
 # Source file: backend/app/risk_engine/__init__.py
 # Provenance path: /home/ubuntu/sib-work/backend/app/risk_engine/__init__.py
 # Original line span: 1-1
@@ -4702,11 +10369,11 @@ class DependencyMissingError(RiskEngineError):
 # END SOURCE: backend/app/risk_engine/__init__.py
 
 # ============================================================================
-# MODULE 20/21
+# MODULE 26/27
 # Source file: backend/scripts/run_backoffice_sample.py
 # Provenance path: /home/ubuntu/sib-work/backend/scripts/run_backoffice_sample.py
-# Original line span: 1-57
-# Source SHA256: 7c0ed5f661a236d368ce2702e35635785e05f6a44006d3e10884928c6f26d4ec
+# Original line span: 1-63
+# Source SHA256: cc30124b99d851b4ea3e6589893c1c773db91175a3ef99645e8d78858f6d27eb
 # Purpose: CLI sample runner to execute one backoffice-like scenario.
 # Key Inputs: Input file path + field mapping arguments.
 # Key Outputs: A full run result payload and optional artefacts for manual checks.
@@ -4730,14 +10397,19 @@ from app.risk_engine.pipeline import run_job_pipeline
 
 
 def main() -> int:
+    default_sample = Path(__file__).resolve().parent / "samples" / "backoffice_sample_assets.csv"
     parser = argparse.ArgumentParser(description='Run a local backoffice sample using the risk-engine pipeline (fallback if CLIMADA stack absent).')
-    parser.add_argument('--file', required=True, help='Path to exposure file (csv/xlsx/geojson/gpkg)')
+    parser.add_argument(
+        '--file',
+        default=str(default_sample),
+        help='Path to exposure file (csv/xlsx/geojson/gpkg). Defaults to the canonical sample dataset.',
+    )
     parser.add_argument('--value-field', default=None, help='Value field (required for most formats)')
     parser.add_argument('--id-field', default=None)
     parser.add_argument('--asset-type-field', default=None)
     parser.add_argument('--crs', default=None)
     parser.add_argument('--spacing-m', type=float, default=100.0)
-    parser.add_argument('--output', default='sample_run_result.json')
+    parser.add_argument('--output', default='/tmp/sib_backoffice_sample_result.json')
     args = parser.parse_args()
 
     settings = load_settings()
@@ -4765,6 +10437,7 @@ def main() -> int:
     store.save_result(job.job_id, result)
     Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Job: {job.job_id}')
+    print(f'Input file: {src}')
     print(f'Result written to: {args.output}')
     return 0
 
@@ -4774,7 +10447,7 @@ if __name__ == '__main__':
 # END SOURCE: backend/scripts/run_backoffice_sample.py
 
 # ============================================================================
-# MODULE 21/21
+# MODULE 27/27
 # Source file: backend/scripts/cleanup_expired_jobs.py
 # Provenance path: /home/ubuntu/sib-work/backend/scripts/cleanup_expired_jobs.py
 # Original line span: 1-24

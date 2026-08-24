@@ -1,63 +1,112 @@
 # SIB Backend Expert Review Guide
 
-## 1) Purpose
-This guide helps an external expert review:
-- backend code architecture and implementation quality,
-- computational methodology consistency,
-- traceability from methodology claims to executable code.
+Last updated: **2026-04-29**
 
-Scope for this audit campaign covers:
+## 1) Purpose
+This guide is the entry point for an external expert review of the current SIB backend and critical run scripts.
+
+Primary audit goals:
+- methodological consistency,
+- implementation traceability,
+- reproducibility of an autonomous rerun (Guadeloupe + Martinique),
+- explicit identification of known technical debt.
+
+## 2) Scope
+In scope:
 - `backend/app`
 - `backend/scripts`
-- root-level `scripts/` that generate or refresh case-study artifacts consumed by the web app.
+- root `scripts/` used to produce complete-analysis and frontend case-study artifacts.
 
 Out of scope:
-- frontend visual implementation details (except backend/script data contract compatibility checks).
+- frontend visual design details (except data-contract compatibility).
 
----
+## 3) Expert Package Contents
+Core audit files:
+- `docs/expert-review/review-guide.md`
+- `docs/expert-review/note-backend-calculatoire.en.md`
+- `docs/expert-review/expert-review-delta-2026-05-05.md`
+- `docs/expert-review/expert-followup-plan-2026-05-05.md`
+- `docs/expert-review/expert-part3-implementation-status-2026-05-20.md`
+- `docs/expert-review/expert-part3-rp-semantics-2026-05-20.md`
+- `docs/expert-review/expert-last-review-focus-2026-05-05.md`
+- `docs/expert-review/climate-signal-check-2026-05-05.md`
+- `docs/expert-review/methodology-code-crosswalk.md`
+- `docs/expert-review/expert-feedback-status-2026-04-29.md`
+- `docs/expert-review/expert-return-package-2026-04-29.md`
+- `docs/expert-review/lot-a-validation-workflow.md`
+- `docs/expert-review/lot-c-risk-index-audit.md`
+- `docs/expert-review/lot-d-rain-audit.md`
+- `docs/expert-review/backend_stitched_review.py`
+- `docs/expert-review/generate_backend_stitched_review.py`
 
-## 2) Delivered Artifacts
-This review kit provides:
-- `backend_stitched_review.py`: review-only, flow-ordered stitched backend source.
-- `note-backend-calculatoire.en.md`: English technical rewrite of the backend methodology note.
-- `methodology-code-crosswalk.md`: explicit section-to-code mapping.
-- `generate_backend_stitched_review.py`: deterministic generator for the stitched artifact.
+Execution kit:
+- `docs/expert-review/expert-data-manifest.md`
+- `docs/expert-review/package/expert-env-template.sh`
+- `docs/expert-review/package/check_expert_inputs.py`
+- `docs/expert-review/package/run_expert_smoke.sh`
 
-Important:
-- Original files remain the source of truth.
-- The stitched file is for linear audit readability and provenance only.
-- For this campaign, stitched regeneration is on-demand (not required after every implementation lot).
+Reproducibility snapshots:
+- `docs/expert-review/environment/environment-snapshot-2026-04-22.md`
+- `docs/expert-review/environment/pip-freeze-2026-04-22.txt`
+- `docs/expert-review/reference-run/README.md`
+- `docs/expert-review/reference-run/20260427_113740/README.md`
+- `docs/expert-review/reference-run/20260427_113740/manifest.json`
+- `docs/expert-review/reference-run/20260427_113740/latest-manifest.json`
+- `docs/expert-review/reference-run/20260427_113740/artifact-index.json`
+- `docs/expert-review/reference-run/20260427_113740/regression-matrix.json`
+- `docs/expert-review/reference-run/20260427_113740/regression-matrix.md`
+- `docs/expert-review/reference-run/20260427_113740/SHA256SUMS`
 
----
+Archived raw run payloads to share alongside the frozen metadata snapshot:
+- `outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-complete-analysis.json`
+- `outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-complete-analysis.json`
 
-## 3) Suggested Review Workflow
-1. Read `note-backend-calculatoire.en.md` sections 1-8 to understand algorithmic intent.
-2. Use `methodology-code-crosswalk.md` to jump to implementation modules/functions.
-3. Inspect `backend_stitched_review.py` for end-to-end flow continuity and consistency.
-4. Validate edge-case behavior in key modules:
-   - ingestion/normalization,
-   - geometry sampling,
-   - hazard loading and frequency normalization,
-   - electricity->water dependency aggregation,
-   - payload/export compatibility.
-5. Run quick static/script smoke checks (`scripts/audit_quick_checks.sh`).
-6. Optionally run a local pipeline smoke scenario via `backend/scripts/run_backoffice_sample.py`.
+## 4) Current Backend Snapshot (2026-04-29)
+Main API endpoints:
+- `GET /api/v1/health`
+- `GET /api/v1/hazard/coverage`
+- `GET /api/v1/vulnerability/curves`
+- `POST /api/v1/runs`
+- `GET /api/v1/runs/search`
+- `GET /api/v1/runs/recent`
+- `GET /api/v1/runs/{job_id}`
+- `GET /api/v1/runs/{job_id}/result`
+- `GET /api/v1/runs/{job_id}/artifacts/{name}`
 
----
+Compute profile:
+- engine default is `climada_with_interdependency_v1`,
+- Lots A to G are now integrated in the live repository state,
+- hazards include `storm` and `storm_cmcc`,
+- multi-hazard components are `wind`, `rain`, `surge` with strict failure behavior,
+- social-impact metrics are produced when population rasters are available,
+- direct per-asset worst-case losses now come from the CLIMADA impact matrix (`save_mat=True` + `imp_mat.max(axis=0)`),
+- aggregated payloads now expose the public event-loss headline as `percentile_99_loss_eur`,
+- scientific fallback engine mode is no longer allowed by the production compute entry point,
+- the shipped web contract still consumes `risk_index_*` and `publication_trace` metadata.
 
-## 4) Local Reproduction Quickstart
-From repository root (`/home/ubuntu/sib-work`):
+## 5) Suggested Review Workflow
+1. Read `note-backend-calculatoire.en.md` first (architecture + formulas + limits).
+2. Use `methodology-code-crosswalk.md` to jump from methodology statements to exact modules.
+3. Inspect `backend_stitched_review.py` for a historical linear flow review, but use live backend source files as the implementation truth when the stitched snapshot differs.
+4. Validate exposure ingestion/disaggregation/sampling logic.
+5. Validate hazard loading and frequency normalization behavior.
+6. Validate interdependency logic and social-impact enrichment.
+7. Run `check_expert_inputs.py` and `run_expert_smoke.sh`.
+8. Run a complete non-deployment rerun command.
+9. Record any methodological inconsistencies and required clarifications.
 
+## 6) Validated Commands
+Repository root: `/home/ubuntu/sib-work`
+
+Backend environment setup:
 ```bash
-cd backend
+cd /home/ubuntu/sib-work/backend
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Optional sample run (separate shell):
-
+Quick backend sample run:
 ```bash
 cd /home/ubuntu/sib-work/backend
 . .venv/bin/activate
@@ -66,66 +115,90 @@ python scripts/run_backoffice_sample.py \
   --output /tmp/sib_sample_result.json
 ```
 
-Optional quick audit checks (root scope: scripts + backend):
-
+Expert package preflight + smoke:
 ```bash
 cd /home/ubuntu/sib-work
-bash scripts/audit_quick_checks.sh
+./docs/expert-review/package/check_expert_inputs.py --mode full
+./docs/expert-review/package/run_expert_smoke.sh --mode minimal
 ```
 
-Optional cleanup utility:
-
+Complete non-deployment rerun (GUA+MQ):
 ```bash
-cd /home/ubuntu/sib-work/backend
-. .venv/bin/activate
-python scripts/cleanup_expired_jobs.py
+cd /home/ubuntu/sib-work
+python3 scripts/run_complete_analysis.py --territories both --no-deploy
 ```
 
----
+## 7) Known Debt and Audit Caveats
+Historical note:
+- `docs/expert-review/session-audit-2026-03-26.md` records the earlier audit state and the pre-Lots A to G cleanup work.
 
-## 5) Runtime Prerequisites and Notes
-- Python 3.12 recommended.
-- CLIMADA stack expected (`climada>=6.1,<7`).
-- GDAL compatibility matters (`gdal==3.8.4` pinned in requirements).
-- Typical system packages: `gdal-bin`, `libgdal-dev`, `libgeos-dev`, `libproj-dev`, build tools.
+Current close-out validation basis:
+- `pytest tests/risk_engine -q` passed during the 2026-04-29 close-out.
+- `pytest tests/scripts -q` passed during the 2026-04-29 close-out.
+- targeted no-deploy runtime validation passed on run `20260429_075050`.
 
-Main environment toggles to inspect during review:
-- `SIB_RISK_IMPACT_ENGINE_MODE` (`climada` or `fallback`)
-- `SIB_RISK_ALLOW_CLIMADA_FALLBACK`
-- `SIB_RISK_CLIMADA_METRIC_CRS`
-- `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE`
-- `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT`
-- hazard source controls (`SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET`, `SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED`)
-- dynamic track cache bound (`SIB_RISK_TRACK_CACHE_MAX_ENTRIES`, default `8`; set `0` to disable cache)
+Implication for external audit:
+- treat the focused pytest suites and frozen reference run as the primary close-out evidence,
+- treat `audit_quick_checks.sh` as a separate engineering-quality probe, not as the authoritative scientific validation gate for this package refresh.
 
----
-
-## 6) What To Verify First (High-Impact Checks)
-- Input validation and category normalization paths are strict and explicit.
-- Hazard frequency normalization occurs exactly once per hazard object.
-- Per-point and per-asset caps enforce `EAI_total <= exposure_eur`.
-- Dependency propagation for water assets uses documented resolution order:
-  local territory -> nearest electric territory -> global fallback.
-- Output contract preserves frontend compatibility while extensions are additive.
-
----
-
-## 7) Known Methodological Limits (Expected)
-- Electricity->water coupling is conservative and spatial (not explicit electrical topology).
-- Indirect loss is currently modeled via uplift multiplier over direct EAI.
-- Sampling cap (`max_points_per_feature`) is a deliberate computational tradeoff.
-
-These are documented constraints, not hidden behavior.
-
----
-
-## 8) Deterministic Stitched Artifact Regeneration
-To regenerate and compare artifact stability:
-
+## 8) Deterministic Stitched Regeneration
 ```bash
 cd /home/ubuntu/sib-work
 python3 docs/expert-review/generate_backend_stitched_review.py
 sha256sum docs/expert-review/backend_stitched_review.py
 ```
 
-Running the same command repeatedly without source edits should yield the same SHA256.
+Expected SHA256 (current stitched snapshot):
+- `edc2a2cb8a2fe2ae5dbdf1610be00ed2232199672f67a75bcdaf40b46a8482cc`
+
+If source files do not change, rerunning should produce the same hash.
+
+## 9) Data Package Reference
+Use `docs/expert-review/expert-data-manifest.md` as the authoritative transfer checklist for data prerequisites and `docs/expert-review/expert-return-package-2026-04-29.md` as the authoritative document/file handoff checklist.
+
+Important practical rule:
+- the docs package is not enough by itself for an autonomous rerun
+- if a required runtime input changed since the previous transfer, that updated input must be re-transferred alongside the docs
+- for the current package state, the active surge DEM inputs are `/home/ubuntu/uploads/DEM_Topo/Topo/Guadeloupe.tif` and `/home/ubuntu/uploads/DEM_Topo/Topo/Martinique.tif`
+
+## 10) Environment Snapshot (Pinned)
+The expert package now includes a pinned environment snapshot:
+- `docs/expert-review/environment/environment-snapshot-2026-04-22.md`
+- `docs/expert-review/environment/pip-freeze-2026-04-22.txt`
+
+This snapshot records:
+- Python runtime version,
+- pip toolchain version,
+- OS GDAL/PROJ versions,
+- Python GDAL/PROJ bindings,
+- complete Python dependency freeze from backend venv.
+
+## 11) Frozen Reference Run (Pinned)
+The latest run at capture time has been frozen for side-by-side expert comparison:
+- run id: `20260427_113740`
+- index: `docs/expert-review/reference-run/README.md`
+- snapshot README: `docs/expert-review/reference-run/20260427_113740/README.md`
+- manifest snapshots:
+  - `docs/expert-review/reference-run/20260427_113740/manifest.json`
+  - `docs/expert-review/reference-run/20260427_113740/latest-manifest.json`
+- frozen audit matrices:
+  - `docs/expert-review/reference-run/20260427_113740/regression-matrix.json`
+  - `docs/expert-review/reference-run/20260427_113740/regression-matrix.md`
+- checksums: `docs/expert-review/reference-run/20260427_113740/SHA256SUMS`
+- archived raw outputs:
+  - `outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-complete-analysis.json`
+  - `outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-complete-analysis.json`
+
+Quick integrity check:
+```bash
+cd /home/ubuntu/sib-work
+cd docs/expert-review/reference-run/20260427_113740
+sha256sum -c SHA256SUMS
+```
+
+## 12) Post-Integration Targeted Validation
+The save-mat / exact max-loss integration was also validated on a fresh targeted runtime check:
+- run id: `20260429_075050`
+- mode: `--territories gua --dynamic-max-tracks 150 --no-deploy`
+- status: `success`
+- primary evidence: `outputs/complete-analysis-runs/20260429_075050/manifest.json`

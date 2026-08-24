@@ -1,0 +1,437 @@
+{
+  "meta": {
+    "registry_version": 1,
+    "purpose": "hazard_only_comparative_analysis_territory_perimeter",
+    "comparison_scope": "hazard_only",
+    "included_territories": [
+      "guadeloupe",
+      "martinique",
+      "saint_barthelemy",
+      "saint_martin",
+      "saint_pierre_et_miquelon",
+      "la_reunion",
+      "mayotte",
+      "nouvelle_caledonie",
+      "guyane"
+    ],
+    "excluded_territories": [
+      "polynesie_francaise",
+      "wallis_et_futuna"
+    ]
+  },
+  "shared_sources": {
+    "admin_boundaries_adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+    "copernicus_topography_dir": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model",
+    "landslide_dir": "/home/ubuntu/uploads/Landslide",
+    "population_dir": "/home/ubuntu/uploads/Population",
+    "raw_track_catalogs": {
+      "storm_dir": "/home/ubuntu/uploads/STORM/STORM_ds",
+      "storm_cmcc_dir": "/home/ubuntu/uploads/STORM/STORM_CMCC_ds",
+      "patterns_by_basin": {
+        "NA": {
+          "storm": "STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt",
+          "storm_cmcc": "STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt"
+        },
+        "SI": {
+          "storm": "STORM_DATA_IBTRACS_SI_1000_YEARS_*.txt",
+          "storm_cmcc": "STORM_DATA_CMCC-CM2-VHR4_SI_1000_YEARS_*_IBTRACSDELTA.txt"
+        },
+        "SP": {
+          "storm": "STORM_DATA_IBTRACS_SP_1000_YEARS_*.txt",
+          "storm_cmcc": "STORM_DATA_CMCC-CM2-VHR4_SP_1000_YEARS_*_IBTRACSDELTA.txt"
+        }
+      }
+    }
+  },
+  "territories": {
+    "guadeloupe": {
+      "label": "Guadeloupe",
+      "include_in_comparison": true,
+      "aliases": [
+        "guadeloupe",
+        "gua",
+        "glp"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -61.809167,
+        "lat_min": 15.8325,
+        "lon_max": -61.001667,
+        "lat_max": 16.514167
+      },
+      "case_study_bbox_reference": {
+        "lon_min": -62.48125,
+        "lat_min": 15.5,
+        "lon_max": -60.66875,
+        "lat_max": 16.95625
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guadeloupe_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guadeloupe_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/glp_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      },
+      "notes": [
+        "Uses the shared GuaMar landslide rasters.",
+        "Current complete-analysis Copernicus runs already resolve to this topo path."
+      ]
+    },
+    "martinique": {
+      "label": "Martinique",
+      "include_in_comparison": true,
+      "aliases": [
+        "martinique",
+        "mar",
+        "mtq",
+        "mq"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -61.229167,
+        "lat_min": 14.388334,
+        "lon_max": -60.81,
+        "lat_max": 14.878334
+      },
+      "case_study_bbox_reference": {
+        "lon_min": -61.4,
+        "lat_min": 14.3,
+        "lon_max": -60.7,
+        "lat_max": 15.1
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Martinique_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Martinique_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Eathquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/mtq_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      },
+      "notes": [
+        "Uses the shared GuaMar landslide rasters.",
+        "Current complete-analysis Copernicus runs already resolve to this topo path."
+      ]
+    },
+    "guyane": {
+      "label": "Guyane",
+      "include_in_comparison": true,
+      "surge_grid_deg_override": 0.05,
+      "aliases": [
+        "guyane",
+        "guy",
+        "guf",
+        "guyana_francaise"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -55.104028,
+        "lat_min": 1.613472,
+        "lon_max": -51.148194,
+        "lat_max": 6.255417
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guyane_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Guyane_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_Guyane_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_Guyane_Precipiation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_Guyane_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/guy_pop_2020_CN_100m_R2025A_v1 (1).tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      },
+      "notes": [
+        "Hazard-only bbox is aligned to the French Guiana topo and landslide rasters used by lots 3 and 4.",
+        "Population file is present with a duplicate-suffix filename and is normalized by this registry.",
+        "The current rainfall raster file name keeps the provider typo 'Precipiation'."
+      ]
+    },
+    "saint_barthelemy": {
+      "label": "Saint-Barthelemy",
+      "include_in_comparison": true,
+      "aliases": [
+        "saint_barthelemy",
+        "saint-barthelemy",
+        "saint_barth",
+        "blm"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -62.9475,
+        "lat_min": 17.8725,
+        "lon_max": -62.789167,
+        "lat_max": 17.974167
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintBarthelemy_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintBarthelemy_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_SaintBarth_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_SaintBarth_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_SaintBarth_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/blm_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      },
+      "notes": [
+        "Population input was added before lot 0 and is frozen here as the Saint-Barthelemy source of truth."
+      ]
+    },
+    "saint_martin": {
+      "label": "Saint-Martin",
+      "include_in_comparison": true,
+      "aliases": [
+        "saint_martin",
+        "saint-martin",
+        "maf"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -63.153334,
+        "lat_min": 18.045834,
+        "lon_max": -62.970834,
+        "lat_max": 18.125
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintMartin_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintMartin_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_SaintMartin_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_SaintMartin_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_SaintMartin_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/maf_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      }
+    },
+    "saint_pierre_et_miquelon": {
+      "label": "Saint-Pierre-et-Miquelon",
+      "include_in_comparison": true,
+      "aliases": [
+        "saint_pierre_et_miquelon",
+        "saint-pierre-et-miquelon",
+        "spm"
+      ],
+      "storm_basin_code": "NA",
+      "comparison_bbox_hint": {
+        "lon_min": -56.405,
+        "lat_min": 46.750833,
+        "lon_max": -56.125834,
+        "lat_max": 47.144167
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintPierre&Miquelon_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/SaintPierre&Miquelon_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_SaintPierre&Miquelon_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_SaintPierre&Miquelon_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_SaintPierre&Miquelon_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/spm_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      }
+    },
+    "la_reunion": {
+      "label": "La Reunion",
+      "include_in_comparison": true,
+      "aliases": [
+        "la_reunion",
+        "reunion",
+        "reu"
+      ],
+      "storm_basin_code": "SI",
+      "comparison_bbox_hint": {
+        "lon_min": 55.216666,
+        "lat_min": -21.389166,
+        "lon_max": 55.836666,
+        "lat_max": -20.871666
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Reunion_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Reunion_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_Reu_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_Reu_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_Reu_Precipitations_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/reu_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      },
+      "notes": [
+        "The SSP585 landslide file name keeps the provider pluralization 'Precipitations'."
+      ]
+    },
+    "mayotte": {
+      "label": "Mayotte",
+      "include_in_comparison": true,
+      "aliases": [
+        "mayotte",
+        "myt"
+      ],
+      "storm_basin_code": "SI",
+      "comparison_bbox_hint": {
+        "lon_min": 45.018332,
+        "lat_min": -13.005,
+        "lon_max": 45.299999,
+        "lat_max": -12.636666
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Mayotte_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/Mayotte_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_Mayotte_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_Mayotte_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_Mayotte_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/myt_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      }
+    },
+    "nouvelle_caledonie": {
+      "label": "Nouvelle-Caledonie",
+      "include_in_comparison": true,
+      "surge_grid_deg_override": 0.1,
+      "aliases": [
+        "nouvelle_caledonie",
+        "nouvelle-caledonie",
+        "ncl",
+        "nc"
+      ],
+      "storm_basin_code": "SP",
+      "comparison_bbox_hint": {
+        "lon_min": 158.249165,
+        "lat_min": -22.881666,
+        "lon_max": 172.089999,
+        "lat_max": -18.036666
+      },
+      "admin_mask": {
+        "adm0_path": "/home/ubuntu/uploads/DEM_Topo/Limites Pays/geoBoundariesCGAZ_ADM0.geojson",
+        "mode": "shared_adm0_plus_bbox_hint"
+      },
+      "topography": {
+        "canonical_copernicus_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/NC_COP30.tif",
+        "copernicus_archive_path": "/home/ubuntu/uploads/DEM_Topo/Topo/Copernicus GLO-30 Digital Elevation Model/NC_rasters_COP30.tar.gz",
+        "lot0_status": "ready",
+        "exists_now": true
+      },
+      "landslide": {
+        "earthquake_path": "/home/ubuntu/uploads/Landslide/LS_NC_Earthquake.tif",
+        "precip_current_path": "/home/ubuntu/uploads/Landslide/LS_NC_Precipitation_ClimatActuel.tif",
+        "precip_ssp585_path": "/home/ubuntu/uploads/Landslide/LS_NC_Precipitation_ClimatSSP585.tif",
+        "exists_now": true
+      },
+      "population": {
+        "path": "/home/ubuntu/uploads/Population/ncl_pop_2020_CN_100m_R2025A_v1.tif",
+        "required_for_hazard_only": false,
+        "exists_now": true
+      }
+    },
+    "polynesie_francaise": {
+      "label": "Polynesie francaise",
+      "include_in_comparison": false,
+      "aliases": [
+        "polynesie_francaise",
+        "polynesie",
+        "pyf"
+      ],
+      "exclusion_reason": "Explicitly excluded from the inter-territory comparison perimeter for this project phase."
+    },
+    "wallis_et_futuna": {
+      "label": "Wallis-et-Futuna",
+      "include_in_comparison": false,
+      "aliases": [
+        "wallis_et_futuna",
+        "wallis-futuna",
+        "wlf"
+      ],
+      "exclusion_reason": "Explicitly excluded from the inter-territory comparison perimeter for this project phase."
+    }
+  }
+}

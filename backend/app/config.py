@@ -30,6 +30,70 @@ def _prefer_existing_path(*candidates: Path) -> Path:
     return candidates[0]
 
 
+_DEFAULT_SURGE_TOPO_ROOT = Path("/home/ubuntu/uploads/DEM_Topo/Topo")
+_DEFAULT_COPERNICUS_SURGE_TOPO_DIR = _DEFAULT_SURGE_TOPO_ROOT / "Copernicus GLO-30 Digital Elevation Model"
+_DEFAULT_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Guadeloupe_COP30.tif",
+    "martinique": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "Martinique_COP30.tif",
+    "saint-barthelemy": _DEFAULT_COPERNICUS_SURGE_TOPO_DIR / "SaintBarthelemy_COP30.tif",
+}
+_LEGACY_SURGE_TOPO_BY_TERRITORY = {
+    "guadeloupe": _DEFAULT_SURGE_TOPO_ROOT / "Guadeloupe.tif",
+    "martinique": _DEFAULT_SURGE_TOPO_ROOT / "Martinique.tif",
+}
+
+
+def _normalize_territory_key(raw: str | None) -> str | None:
+    key = str(raw or "").strip().lower()
+    aliases = {
+        "gua": "guadeloupe",
+        "guadeloupe": "guadeloupe",
+        "mar": "martinique",
+        "martinique": "martinique",
+        "mtq": "martinique",
+        "mq": "martinique",
+        "saint-barthelemy": "saint-barthelemy",
+        "saint_barthelemy": "saint-barthelemy",
+        "saintbarth": "saint-barthelemy",
+        "saint_barth": "saint-barthelemy",
+        "blm": "saint-barthelemy",
+        "stb": "saint-barthelemy",
+    }
+    return aliases.get(key)
+
+
+def resolve_surge_topo_path_for_territory(
+    territory: str | None,
+    *,
+    settings: Settings | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    runtime_env = os.environ if env is None else env
+    territory_key = _normalize_territory_key(territory)
+    fallback_path = Path(
+        getattr(
+            settings,
+            "hazard_surge_topo_path",
+            Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc",
+        )
+    )
+    if territory_key is None:
+        return fallback_path
+
+    env_override = runtime_env.get(f"SIB_RISK_HAZARD_SURGE_TOPO_PATH_{territory_key.upper()}")
+    territory_default = _DEFAULT_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    territory_legacy = _LEGACY_SURGE_TOPO_BY_TERRITORY.get(territory_key)
+    candidates: list[Path] = []
+    if env_override:
+        candidates.append(Path(env_override))
+    if territory_default is not None:
+        candidates.append(territory_default)
+    if territory_legacy is not None:
+        candidates.append(territory_legacy)
+    candidates.append(fallback_path)
+    return _prefer_existing_path(*candidates)
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SIB Cyclone Risk API"
@@ -42,30 +106,64 @@ class Settings:
     demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
     storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
+    territory_grid_deg: float = 0.2
+    surge_grid_deg: float = 0.02
     data_root: Path = Path(__file__).resolve().parents[2] / "data"
     hazard_storm_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"
     hazard_storm_cmcc_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"
     storm_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds"
     storm_cmcc_parquet_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "storm_ds_CMCC"
     hazard_prefer_dynamic_from_parquet: bool = True
-    hazard_fallback_to_precomputed: bool = True
+    hazard_fallback_to_precomputed: bool = False
+    hazard_track_sample_manifest_path: Path | None = None
     storm_wind_unit_in: str = "m/s"
+    storm_convert_10min_to_1min: bool = True
     storm_radius_unit_in: str = "km"
     storm_env_pressure_hpa: float = 1010.0
     hazard_dynamic_max_tracks: int = 1200
     hazard_track_cache_max_entries: int = 8
     multi_hazard_enabled: bool = True
     hazard_rain_model: str = "R-CLIPER"
+    hazard_rain_max_dist_inland_km: float = 2000.0
     hazard_surge_topo_path: Path = Path(__file__).resolve().parents[2] / "data" / "hazards" / "MNT_ANTS100m_HOMONIM_WGS84_PBMA_ZNEG.asc"
     d2_flood_curve_file: Path = Path(__file__).resolve().parents[2] / "data" / "vulnerability" / "Table_D2_Hazard_Fragility_and_Vulnerability_Curves_V1.1.0.xlsx"
+    multi_hazard_rain_base_runoff_coeff: float = 0.25
+    wind_asset_type_to_curve_code: dict[str, str] | None = None
+    flood_asset_type_to_curve_code: dict[str, str] | None = None
+    landslide_precip_current_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatActuel.tif")
+    landslide_precip_ssp585_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_Precipitation_ClimatSSP585.tif")
+    landslide_earthquake_path: Path = Path("/home/ubuntu/uploads/Landslide/LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif")
+    landslide_corr_fact: float = 500.0
+    landslide_n_years: int = 200
+    landslide_dist: str = "poisson"
+    population_data_dir: Path | None = Path("/home/ubuntu/uploads/Population")
     example_qgis_points_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"
     example_qgis_lines_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"
     example_qgis_polygons_path: Path = Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"
     impact_engine_mode: str = "climada"
     allow_climada_fallback: bool = False
     climada_metric_crs: str = "EPSG:3857"
+    climada_execution_profile: str = "default"
+    climada_memory_budget_gb: float = 0.0
+    climada_max_points_per_shard: int = 0
+    climada_min_points_per_shard: int = 512
+    climada_max_shard_retry_depth: int = 4
+    climada_strict_required_components: bool = True
     climada_max_points_per_feature: int = 300
     climada_top_events_count: int = 20
+    interdependency_state_threshold_s0_to_s1: float = 0.05
+    interdependency_state_threshold_s1_to_s2: float = 0.15
+    interdependency_state_threshold_s2_to_s3: float = 0.35
+    interdependency_health_weight_s1: float = 0.3
+    interdependency_health_weight_s2: float = 0.7
+    interdependency_health_weight_s3: float = 1.0
+    interdependency_dependency_state_threshold_s1: float = 0.75
+    interdependency_dependency_state_threshold_s2: float = 0.55
+    interdependency_dependency_state_threshold_s3: float = 0.35
+    interdependency_uplift_s0: float = 0.0
+    interdependency_uplift_s1: float = 0.10
+    interdependency_uplift_s2: float = 0.25
+    interdependency_uplift_s3: float = 0.45
     cors_allowed_origins: tuple[str, ...] = (
         "https://app.sib.elio.dev",
         "https://sib.dev.elio.bottagisio.com",
@@ -129,6 +227,53 @@ def load_settings() -> Settings:
         alt_d2_curve,
     )
 
+    default_landslide_root = Path(__file__).resolve().parents[2] / "data" / "landslide"
+    alt_landslide_root = Path("/home/ubuntu/uploads/Landslide")
+    configured_landslide_root = Path(env.get("SIB_RISK_LANDSLIDE_ROOT", str(default_landslide_root)))
+    landslide_root = _prefer_existing_path(
+        configured_landslide_root,
+        default_landslide_root,
+        alt_landslide_root,
+    )
+    configured_landslide_precip_current = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_PRECIP_CURRENT_PATH",
+            str(landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif"),
+        )
+    )
+    configured_landslide_precip_ssp585 = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_PRECIP_SSP585_PATH",
+            str(landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif"),
+        )
+    )
+    configured_landslide_earthquake = Path(
+        env.get(
+            "SIB_RISK_LANDSLIDE_EARTHQUAKE_PATH",
+            str(landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif"),
+        )
+    )
+    landslide_precip_current_path = _prefer_existing_path(
+        configured_landslide_precip_current,
+        landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitation_ClimatActuel.tif",
+    )
+    landslide_precip_ssp585_path = _prefer_existing_path(
+        configured_landslide_precip_ssp585,
+        landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitation_ClimatSSP585.tif",
+        alt_landslide_root / "LS_GuaMar_Precipitations_ClimatSSP585.tif",
+    )
+    landslide_earthquake_path = _prefer_existing_path(
+        configured_landslide_earthquake,
+        landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif",
+        landslide_root / "LS_GuaMar_Eathquake.tif",
+        landslide_root / "LS_GuaMar_Earthquake.tif",
+        alt_landslide_root / "LS_GuaMar_earthquake_ngi_n1_mosaic_wgs84_opt.tif",
+        alt_landslide_root / "LS_GuaMar_Eathquake.tif",
+        alt_landslide_root / "LS_GuaMar_Earthquake.tif",
+    )
+
     return Settings(
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
         api_prefix=env.get("SIB_RISK_API_PREFIX", "/api/v1"),
@@ -140,30 +285,66 @@ def load_settings() -> Settings:
         demo_result_path=demo_result_path,
         storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
+        territory_grid_deg=float(env.get("SIB_RISK_TERRITORY_GRID_DEG", "0.2")),
+        surge_grid_deg=float(env.get("SIB_RISK_SURGE_GRID_DEG", "0.02")),
         data_root=Path(env.get("SIB_RISK_DATA_ROOT", str(Path(__file__).resolve().parents[2] / "data"))),
         hazard_storm_path=Path(env.get("SIB_RISK_HAZARD_STORM_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe.h5"))),
         hazard_storm_cmcc_path=Path(env.get("SIB_RISK_HAZARD_STORM_CMCC_PATH", str(Path(__file__).resolve().parents[2] / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5"))),
         storm_parquet_path=storm_parquet_path,
         storm_cmcc_parquet_path=storm_cmcc_parquet_path,
         hazard_prefer_dynamic_from_parquet=_env_bool(env, "SIB_RISK_HAZARD_PREFER_DYNAMIC_FROM_PARQUET", True),
-        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", True),
+        hazard_fallback_to_precomputed=_env_bool(env, "SIB_RISK_HAZARD_FALLBACK_TO_PRECOMPUTED", False),
+        hazard_track_sample_manifest_path=(
+            Path(env["SIB_RISK_HAZARD_TRACK_SAMPLE_MANIFEST"])
+            if env.get("SIB_RISK_HAZARD_TRACK_SAMPLE_MANIFEST")
+            else None
+        ),
         storm_wind_unit_in=str(env.get("SIB_RISK_STORM_WIND_UNIT_IN", "m/s")).strip(),
+        storm_convert_10min_to_1min=_env_bool(env, "SIB_RISK_STORM_CONVERT_10MIN_TO_1MIN", True),
         storm_radius_unit_in=str(env.get("SIB_RISK_STORM_RADIUS_UNIT_IN", "km")).strip(),
         storm_env_pressure_hpa=float(env.get("SIB_RISK_STORM_ENV_PRESSURE_HPA", "1010.0")),
         hazard_dynamic_max_tracks=int(env.get("SIB_RISK_HAZARD_DYNAMIC_MAX_TRACKS", "1200")),
         hazard_track_cache_max_entries=int(env.get("SIB_RISK_TRACK_CACHE_MAX_ENTRIES", "8")),
         multi_hazard_enabled=_env_bool(env, "SIB_RISK_MULTI_HAZARD_ENABLED", True),
         hazard_rain_model=str(env.get("SIB_RISK_HAZARD_RAIN_MODEL", "R-CLIPER")).strip(),
+        hazard_rain_max_dist_inland_km=float(env.get("SIB_RISK_HAZARD_RAIN_MAX_DIST_INLAND_KM", "2000.0")),
         hazard_surge_topo_path=hazard_surge_topo_path,
         d2_flood_curve_file=d2_flood_curve_file,
+        multi_hazard_rain_base_runoff_coeff=float(env.get("SIB_RISK_MULTI_HAZARD_RAIN_BASE_RUNOFF_COEFF", "0.25")),
+        landslide_precip_current_path=landslide_precip_current_path,
+        landslide_precip_ssp585_path=landslide_precip_ssp585_path,
+        landslide_earthquake_path=landslide_earthquake_path,
+        landslide_corr_fact=float(env.get("SIB_RISK_LANDSLIDE_CORR_FACT", "500.0")),
+        landslide_n_years=int(env.get("SIB_RISK_LANDSLIDE_N_YEARS", "200")),
+        landslide_dist=str(env.get("SIB_RISK_LANDSLIDE_DIST", "poisson")).strip().lower(),
+        population_data_dir=Path(env.get("SIB_RISK_POPULATION_DATA_DIR", "/home/ubuntu/uploads/Population")) if env.get("SIB_RISK_POPULATION_DATA_DIR") else None,
         example_qgis_points_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POINTS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Points_04_08_25.csv"))),
         example_qgis_lines_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_LINES_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Lignes_04_08_25.csv"))),
         example_qgis_polygons_path=Path(env.get("SIB_RISK_EXAMPLE_QGIS_POLYGONS_PATH", str(Path(__file__).resolve().parents[2] / "data" / "examples" / "QGIS_Polygones_04_08_25.csv"))),
         impact_engine_mode=str(env.get("SIB_RISK_IMPACT_ENGINE_MODE", "climada")).strip().lower(),
         allow_climada_fallback=_env_bool(env, "SIB_RISK_ALLOW_CLIMADA_FALLBACK", False),
         climada_metric_crs=str(env.get("SIB_RISK_CLIMADA_METRIC_CRS", "EPSG:3857")).strip(),
+        climada_execution_profile=str(env.get("SIB_RISK_CLIMADA_EXECUTION_PROFILE", "default")).strip().lower(),
+        climada_memory_budget_gb=float(env.get("SIB_RISK_CLIMADA_MEMORY_BUDGET_GB", "0")),
+        climada_max_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_SHARD", "0")),
+        climada_min_points_per_shard=int(env.get("SIB_RISK_CLIMADA_MIN_POINTS_PER_SHARD", "512")),
+        climada_max_shard_retry_depth=int(env.get("SIB_RISK_CLIMADA_MAX_SHARD_RETRY_DEPTH", "4")),
+        climada_strict_required_components=_env_bool(env, "SIB_RISK_CLIMADA_STRICT_REQUIRED_COMPONENTS", True),
         climada_max_points_per_feature=int(env.get("SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE", "300")),
         climada_top_events_count=int(env.get("SIB_RISK_CLIMADA_TOP_EVENTS_COUNT", "20")),
+        interdependency_state_threshold_s0_to_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S0_TO_S1", "0.05")),
+        interdependency_state_threshold_s1_to_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S1_TO_S2", "0.15")),
+        interdependency_state_threshold_s2_to_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_STATE_THRESHOLD_S2_TO_S3", "0.35")),
+        interdependency_health_weight_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S1", "0.3")),
+        interdependency_health_weight_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S2", "0.7")),
+        interdependency_health_weight_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_HEALTH_WEIGHT_S3", "1.0")),
+        interdependency_dependency_state_threshold_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S1", "0.75")),
+        interdependency_dependency_state_threshold_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S2", "0.55")),
+        interdependency_dependency_state_threshold_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_DEPENDENCY_STATE_THRESHOLD_S3", "0.35")),
+        interdependency_uplift_s0=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S0", "0.0")),
+        interdependency_uplift_s1=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S1", "0.10")),
+        interdependency_uplift_s2=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S2", "0.25")),
+        interdependency_uplift_s3=float(env.get("SIB_RISK_INTERDEPENDENCY_UPLIFT_S3", "0.45")),
         cors_allowed_origins=_env_csv(
             env,
             "SIB_RISK_CORS_ALLOWED_ORIGINS",

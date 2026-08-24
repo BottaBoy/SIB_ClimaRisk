@@ -65,6 +65,34 @@ VALID_ASSET_TYPES = sorted(set(ASSET_TYPE_ALIASES.values()))
 VALID_EXPOSURE_CATEGORIES = sorted(set(EXPOSURE_CATEGORY_ALIASES.values()))
 
 
+def _apply_valuation_metadata(
+    props: dict[str, Any],
+    *,
+    uses_default_value: bool,
+    valuation_source: str,
+    default_value_eur: float | None = None,
+) -> None:
+    props["uses_default_value"] = bool(uses_default_value)
+    props["valuation_source"] = str(valuation_source)
+    if default_value_eur is not None:
+        props["default_value_eur"] = float(default_value_eur)
+
+
+def _append_default_value_summary_warning(warnings: list[str], features: list[NormalizedFeature]) -> None:
+    default_features = [feat for feat in features if bool((feat.properties or {}).get("uses_default_value"))]
+    if not default_features:
+        return
+    first_default = default_features[0]
+    default_value_eur = float((first_default.properties or {}).get("default_value_eur") or 0.0)
+    preview = ", ".join(str(feat.feature_id) for feat in default_features[:10])
+    suffix = ""
+    if len(default_features) > 10:
+        suffix = f", ... +{len(default_features) - 10} more"
+    warnings.append(
+        f"Default valuation assumption of {default_value_eur:.0f} EUR applied to {len(default_features)} feature(s): {preview}{suffix}."
+    )
+
+
 def _to_float(value: Any, field_name: str) -> float:
     try:
         result = float(value)
@@ -190,6 +218,7 @@ def _feature_from_geojson_feature(
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
         extra["asset_type"] = _normalize_asset_type(props[asset_type_field], strict=True)
+    _apply_valuation_metadata(extra, uses_default_value=False, valuation_source=f"input:{value_field}")
     if exposure_category_field and exposure_category_field in props:
         category_raw = props[exposure_category_field]
     else:
@@ -248,12 +277,19 @@ def ingest_drawn_geojson(
         lon = centroid[0] if centroid else None
         lat = centroid[1] if centroid else None
         value_raw = props.get("value_eur", props.get("value"))
-        value_eur = float(default_value_eur) if value_raw in (None, "") else _to_float(value_raw, "value_eur")
+        uses_default_value = value_raw in (None, "")
+        value_eur = float(default_value_eur) if uses_default_value else _to_float(value_raw, "value_eur")
         label = str(props.get("label") or props.get("name") or f"Drawn {gtype} {idx + 1}")
         feature_id = str(props.get("asset_id") or idx + 1)
         extra_props: dict[str, Any] = {}
         if props.get("asset_type") is not None:
             extra_props["asset_type"] = props.get("asset_type")
+        _apply_valuation_metadata(
+            extra_props,
+            uses_default_value=uses_default_value,
+            valuation_source=("drawn_geojson:default_1000000_eur" if uses_default_value else "drawn_geojson:value_eur"),
+            default_value_eur=(float(default_value_eur) if uses_default_value else None),
+        )
         features.append(
             NormalizedFeature(
                 feature_id=feature_id,
@@ -270,6 +306,8 @@ def ingest_drawn_geojson(
                 properties=extra_props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name="drawn_geojson",
@@ -423,6 +461,7 @@ def _ingest_csv(
         except InputValidationError as exc:
             _append_row_error(row_errors, feature_id=feature_id, column=asset_type_field, detail=str(exc))
             continue
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         category_raw = row.get(exposure_category_field) if exposure_category_field else None
         try:
             exposure_category = _normalize_exposure_category(
@@ -457,6 +496,7 @@ def _ingest_csv(
 
     if wkt_key:
         warnings.append("CSV WKT parsing uses Shapely when available; install geospatial dependencies for full fidelity.")
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,
@@ -574,6 +614,8 @@ def _ingest_gpkg(
     for pos, (idx, row) in enumerate(gdf_wgs84.iterrows()):
         geom = row.geometry
         raw_asset_type = row.get(asset_type_field) if asset_type_field and asset_type_field in row else None
+        props = {"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {}
+        _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         features.append(
             NormalizedFeature(
                 feature_id=str(row.get(id_field) if id_field and id_field in row else idx),
@@ -588,9 +630,11 @@ def _ingest_gpkg(
                 lon=float(geom.centroid.x) if geom is not None else None,
                 lat=float(geom.centroid.y) if geom is not None else None,
                 geometry_geojson=(json.loads(gdf_wgs84.iloc[[pos]].to_json())["features"][0]["geometry"] if geom is not None else None),
-                properties={"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {},
+                properties=props,
             )
         )
+
+    _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name=file_path.name,

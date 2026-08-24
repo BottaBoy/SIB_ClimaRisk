@@ -61,7 +61,7 @@ if (!Array.isArray(data.territory_results) || data.territory_results.length === 
 if (!data.portfolio_results || typeof data.portfolio_results !== 'object') fail('portfolio_results is required');
 ['storm', 'storm_cmcc'].forEach((haz) => {
   if (!data.portfolio_results[haz]) return fail(`portfolio_results.${haz} is required`);
-  ['eai_eur', 'aai_agg_eur', 'max_event_loss_eur'].forEach((k) => {
+  ['eai_eur', 'aai_agg_eur', 'percentile_99_loss_eur'].forEach((k) => {
     if (!isFiniteNumber(data.portfolio_results[haz][k])) fail(`portfolio_results.${haz}.${k} must be numeric`);
   });
   ['eai_direct_eur', 'eai_indirect_eur', 'pml_10_eur', 'pml_20_eur', 'pml_50_eur', 'pml_100_eur', 'pml_200_eur', 'tvar_95_eur'].forEach((k) => {

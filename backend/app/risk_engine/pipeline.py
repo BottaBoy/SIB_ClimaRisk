@@ -38,7 +38,12 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
             crs=crs,
         )
 
-    disagg = summarize_disaggregation(exposure, spacing_m=sampling_spacing_m)
+    disagg = summarize_disaggregation(
+        exposure,
+        spacing_m=sampling_spacing_m,
+        metric_crs=settings.climada_metric_crs,
+        max_points_per_feature=int(settings.climada_max_points_per_feature),
+    )
     comp = compute_impacts(exposure, disagg, settings=settings)
 
     result = build_result_payload(

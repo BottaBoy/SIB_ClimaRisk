@@ -13,17 +13,16 @@ from osgeo import gdal
 
 FILE_PATTERN = re.compile(r"^([a-z]{3})_pop_2020_CN_100m_R2025A_v1\.tif$", re.IGNORECASE)
 DEFAULT_PALETTE_HEX = [
-    "#f2f2f2",
-    "#d9d9d9",
-    "#bdbdbd",
-    "#969696",
-    "#737373",
-    "#525252",
-    "#3a3a3a",
-    "#1f1f1f",
-    "#000000",
+    "#ffffff",
+    "#fff7bc",
+    "#fee391",
+    "#fec44f",
+    "#fb923c",
+    "#ef4444",
+    "#b91c1c",
 ]
 TERRITORY_NAMES = {
+    "blm": "Saint-Barthelemy",
     "glp": "Guadeloupe",
     "maf": "Saint-Martin",
     "mtq": "Martinique",

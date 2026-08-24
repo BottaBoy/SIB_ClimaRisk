@@ -128,6 +128,21 @@ def _normalize_asset_type(value: str | None) -> str:
     return str(value or "").strip().lower()
 
 
+def _effective_asset_type_to_curve_code(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if not asset_type_to_curve_code:
+        return dict(ASSET_TYPE_TO_CURVE_CODE)
+    normalized: dict[str, str] = {}
+    for asset_type, code in asset_type_to_curve_code.items():
+        asset_key = _normalize_asset_type(asset_type)
+        code_key = str(code or "").strip()
+        if not asset_key or not code_key:
+            continue
+        normalized[asset_key] = code_key
+    return normalized or dict(ASSET_TYPE_TO_CURVE_CODE)
+
+
 def _load_d2_curves() -> dict[str, Any]:
     if not D2_CURVE_FILE.exists():
         return {}
@@ -198,18 +213,25 @@ def get_tc_curve_catalog() -> dict[int, dict[str, Any]]:
     return _CURVE_CATALOG_CACHE
 
 
-def resolve_tc_impact_func_id(asset_type: str | None) -> int:
+def resolve_tc_impact_func_id(
+    asset_type: str | None,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> int:
     asset = _normalize_asset_type(asset_type)
-    code = ASSET_TYPE_TO_CURVE_CODE.get(asset, "EBERENZ_2021_TC")
+    mapping = _effective_asset_type_to_curve_code(asset_type_to_curve_code)
+    code = mapping.get(asset, "EBERENZ_2021_TC")
     if code == "EBERENZ_2021_TC":
         return DEFAULT_EBERENZ_IMPF_ID
     return int(D2_IMPF_ID_BY_CODE.get(code, DEFAULT_EBERENZ_IMPF_ID))
 
 
-def get_tc_vulnerability_payload() -> dict[str, Any]:
+def get_tc_vulnerability_payload(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, Any]:
     catalog = get_tc_curve_catalog()
+    effective_mapping = _effective_asset_type_to_curve_code(asset_type_to_curve_code)
     asset_types_by_code: dict[str, list[str]] = {}
-    for asset_type, code in ASSET_TYPE_TO_CURVE_CODE.items():
+    for asset_type, code in effective_mapping.items():
         asset_types_by_code.setdefault(str(code), []).append(str(asset_type))
     for code in asset_types_by_code:
         asset_types_by_code[code] = sorted(asset_types_by_code[code])
@@ -221,7 +243,7 @@ def get_tc_vulnerability_payload() -> dict[str, Any]:
         curve_item["sib_asset_types"] = list(asset_types_by_code.get(curve_code, []))
         curves.append(curve_item)
     explicit_mapping = {}
-    for asset_type, code in ASSET_TYPE_TO_CURVE_CODE.items():
+    for asset_type, code in effective_mapping.items():
         if code == "EBERENZ_2021_TC":
             impf_id = DEFAULT_EBERENZ_IMPF_ID
         else:

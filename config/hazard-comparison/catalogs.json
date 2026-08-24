@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "catalog_version": 1,
+    "purpose": "hazard_only_comparison_raw_track_catalogs",
+    "output_root": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs",
+    "notes": [
+      "These catalogs are dedicated to the hazard-only comparison chain and must not overwrite the operational NA-only parquet sources.",
+      "Each catalog preserves Basin ID and source dataset lineage through dataset_id and source_tc_number columns plus a per-catalog manifest."
+    ]
+  },
+  "catalogs": {
+    "NA": {
+      "storm": {
+        "provider": "storm",
+        "provider_label": "STORM",
+        "basin_id": 1,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/na/storm_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/na/storm_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      },
+      "storm_cmcc": {
+        "provider": "storm_cmcc",
+        "provider_label": "STORM_CMCC",
+        "basin_id": 1,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/na/storm_cmcc_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/na/storm_cmcc_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      }
+    },
+    "SI": {
+      "storm": {
+        "provider": "storm",
+        "provider_label": "STORM",
+        "basin_id": 3,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/si/storm_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/si/storm_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      },
+      "storm_cmcc": {
+        "provider": "storm_cmcc",
+        "provider_label": "STORM_CMCC",
+        "basin_id": 3,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/si/storm_cmcc_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/si/storm_cmcc_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      }
+    },
+    "SP": {
+      "storm": {
+        "provider": "storm",
+        "provider_label": "STORM",
+        "basin_id": 4,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/sp/storm_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/sp/storm_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      },
+      "storm_cmcc": {
+        "provider": "storm_cmcc",
+        "provider_label": "STORM_CMCC",
+        "basin_id": 4,
+        "parquet_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/sp/storm_cmcc_tracks.parquet",
+        "manifest_path": "/home/ubuntu/sib-work/outputs/hazard-comparison-inputs/catalogs/sp/storm_cmcc_tracks.manifest.json",
+        "wind_unit_in": "m/s",
+        "radius_unit_in": "km",
+        "timestep_hours": 3
+      }
+    }
+  }
+}

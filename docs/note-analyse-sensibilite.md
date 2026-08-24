@@ -20,6 +20,43 @@ Pour la lecture du tableau:
 - `priorite` indique l'interet a inclure le parametre dans une premiere campagne de sensibilite.
 - `robustesse` indique le niveau de confiance actuel dans l'hypothese ou le reglages (`Bonne`, `Moyenne`, `Faible`).
 
+## Chaine `SIB: Run Sensitivity Analysis Default Pack V2`
+
+La chaine V2 vise a relancer une analyse de sensibilite alignee avec la chaine `complete-analysis` courante, sans modifier retroactivement le run historique `outputs/sensitivity-runs/sensitivity_20260619_073544`.
+
+Le pack V2 est defini dans `config/sensitivity/default-scenario-pack-v2.json`. Il reprend uniquement les scenarios du dernier run ayant montre une influence significative, avec la regle suivante:
+
+- variation absolue `>= 3%` sur les impacts monetaires, ou
+- variation absolue `>= 3 points` sur les etats reseau.
+
+Exception explicite: `territory_grid_deg` est conserve meme si son influence etait faible dans `sensitivity_20260619_073544`, car il reste utile pour verifier la maille spatiale de resolution de la sante electrique.
+
+Scenarios conserves ou ajoutes dans le pack V2:
+
+- baseline `all-default`;
+- courbes de vulnerabilite: `vulnerability_curves_profile-elec-flood-moderate`, `vulnerability_curves_profile-elec-flood-stress`, `vulnerability_curves_profile-elec-wind-underground-exposed`;
+- pluie proxy: `runoff_coeff-0-1`, `runoff_coeff-0-5`;
+- etats directs reseau: `direct_state_thresholds-10-20-40`, `direct_state_thresholds-10-15-50`;
+- nombre de tracks hazard: `hazard_dynamic_max_tracks-50`, `hazard_dynamic_max_tracks-100`, `hazard_dynamic_max_tracks-800`, `hazard_dynamic_max_tracks-5000`;
+- maille electrique: `territory_grid_deg-0-05`, `territory_grid_deg-0-1`.
+
+Scenarios retires du default pack initial: `health_weights-*`, `dependency_state_thresholds-*`, `max_dist_inland_km-*`, `default_sampling_spacing_m-*`, `climada_max_points_per_feature-*`, le placeholder unsupported `vulnerability_curves_profile-manual-profile-required`, ainsi que les valeurs hazard tracks `500` et `1000`.
+
+La baseline V2 et les scenarios non `hazard_dynamic_max_tracks` utilisent l'echantillon V1 exact:
+
+`/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json`
+
+Les scenarios `hazard_dynamic_max_tracks` surchargent aussi `hazard_track_sample_manifest_path` vers le manifest V1 correspondant (`sample_0050`, `sample_0100`, `sample_0800`, `sample_5000`). Cette double surcharge est necessaire: changer seulement `hazard_dynamic_max_tracks` sans changer l'echantillon lu ne testerait pas vraiment le nombre de tracks.
+
+Procedure recommandee:
+
+1. Lancer la tache VS Code `SIB: Run Sensitivity Analysis Default Pack V2`.
+2. Noter le `run_id` cree dans `outputs/sensitivity-runs/<run_id>/manifest.json`.
+3. Lancer `SIB: Babysit Sensitivity Analysis Run` avec ce `run_id` si le run doit etre surveille/repris.
+4. Generer les graphes filtres avec `SIB: Generate Sensitivity V2 Significant Graphs - Choose Run ID`.
+
+La tache de graphes V2 ecrit dans `<run>/graphs-significant` et utilise `--significant-only --impact-significance-threshold-pct 3 --network-significance-threshold-pp 3 --disable-default-exclusions`. Les scenarios non complets sont exclus proprement des graphes et listes dans `sensitivity-graphs-summary.json`.
+
 ## 1. Exposition et desagregation
 
 Les geometries sont echantillonnees en points en CRS metrique, puis reprojetees en WGS84. Le pas de sampling est `sampling_spacing_m` et il y a un cap `max_points_per_feature`. La valeur d'un actif est ensuite repartie uniformement entre les points echantillonnes. Voir `backend/app/risk_engine/exposure_to_climada.py:229`.
@@ -48,9 +85,9 @@ Le vent repose donc sur les tracks synthetiques STORM/STORM_CMCC, les choix d'un
 
 La pluie est construite via `TCRain.from_tracks(..., model="R-CLIPER", ignore_distance_to_coast=True, max_dist_inland_km=2000)`. Voir `backend/app/risk_engine/climada_engine.py:544`.
 
-La pluie est calculee sur les memes centroides que le vent, mais elle n'est pas convertie en un champ explicite de profondeur d'eau. Le dommage pluie passe par une courbe "pluie proxy" derivee des courbes profondeur-dommage. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:213`.
+La pluie est calculee sur les memes centroides que le vent, mais elle n'est pas convertie en un champ explicite de profondeur d'eau. L'intensite `TCRain.intensity` exploitee par le backend correspond a un **cumul evenementiel en mm**. Le dommage pluie passe ensuite par une courbe "pluie proxy" derivee des courbes profondeur-dommage. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py`.
 
-Le coefficient `runoff_coeff` actuellement retenu pour cette conversion est `0.25`, choisi comme coefficient unique lie au terrain et au ruissellement, et non aux infrastructures. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:217`.
+Le coefficient `runoff_coeff` n'est plus un scalaire unique: le backend applique maintenant un **profil par classe d'infrastructure** (`RUNOFF_COEFF_BY_INFRA_CLASS`) mis a l'echelle par le facteur global `multi_hazard_rain_base_runoff_coeff`. A la baseline, ce facteur global vaut `0.25` et restitue le profil expert par classe.
 
 ## 5. Alea submersion cotiere
 
@@ -81,6 +118,8 @@ Le code implemente l'ecriture inverse:
 `rain_mm = depth_m * 1000 / runoff_coeff`
 
 afin de reconstruire des courbes `pluie proxy -> MDD`. Voir `backend/app/risk_engine/impact_functions_multi_hazard.py:213`.
+
+Depuis le lot D, cette reconstruction se fait **par classe d'infrastructure**, et non plus avec un coefficient unique. La sensibilite `runoff_coeff` continue donc d'exister, mais comme facteur global qui dilate ou contracte tout le profil par classe.
 
 Le mapping `asset_type -> flood curve` est defini ici: `backend/app/risk_engine/impact_functions_multi_hazard.py:16`.
 

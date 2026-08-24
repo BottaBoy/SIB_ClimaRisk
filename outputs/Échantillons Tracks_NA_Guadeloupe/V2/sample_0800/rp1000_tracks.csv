@@ -1,0 +1,5 @@
+provider_key,provider_name,track_instance_id,year,track_id,rank,stratum,loss_eur,selection_score,selection_score_kind,sample_weight,frequency_annual,return_period_years_approx,max_wind_mps,category,min_distance_km,closest_lat,closest_lon,quadrant
+storm,STORM,storm|6047|6_6047_4,6047,6_6047_4,5,rank_001_010,0.0,80.22734642773034,intensity_distance_weighted_mps,5.0,0.0005,2000.0,81.70454545454547,5,20.353989753705022,16.2,-61.60000000000002,NW
+storm,STORM,storm|9852|9_9852_4,9852,9_9852_4,10,rank_001_010,0.0,76.22885858009727,intensity_distance_weighted_mps,5.0,0.0005,1000.0,84.43181818181819,5,49.20586117283322,16.5,-61.10000000000002,NE
+storm_cmcc,STORM_CMCC,storm_cmcc|6933|6_6933_4,6933,6_6933_4,3,rank_001_010,0.0,81.76739321414311,intensity_distance_weighted_mps,5.0,0.0005,2000.0,83.63636363636364,5,22.677877083396297,16.0,-61.30000000000001,SE
+storm_cmcc,STORM_CMCC,storm_cmcc|4425|4_4425_11,4425,4_4425_11,8,rank_001_010,0.0,79.4462735139694,intensity_distance_weighted_mps,5.0,0.0005,1000.0,80.90909090909092,5,20.353989753705022,16.2,-61.60000000000002,NW

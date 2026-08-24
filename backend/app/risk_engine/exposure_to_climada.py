@@ -11,6 +11,7 @@ from .types import NormalizedExposure, NormalizedFeature
 TERRITORY_GRID_DEG = 0.2
 DEFAULT_METRIC_CRS = "EPSG:3857"
 DEFAULT_MAX_POINTS_PER_FEATURE = 300
+NON_POINT_GEOMETRY_KEYWORDS = ("line", "polygon")
 
 
 @dataclass
@@ -19,6 +20,24 @@ class ClimadaExposureBundle:
     point_records: list[dict[str, Any]]
     metric_crs: str
     warnings: list[str]
+
+
+def _requires_embedded_geometry(feature: NormalizedFeature) -> bool:
+    gtype = str(feature.geometry_type or "").strip().lower()
+    return any(keyword in gtype for keyword in NON_POINT_GEOMETRY_KEYWORDS)
+
+
+def validate_exposure_geometry_contract(exposure: NormalizedExposure) -> list[str]:
+    issues: list[str] = []
+    for feature in exposure.features:
+        if not _requires_embedded_geometry(feature):
+            continue
+        if isinstance(feature.geometry_geojson, dict):
+            continue
+        issues.append(
+            f"Feature {feature.feature_id} ({feature.geometry_type}) is missing geometry_geojson required for CLIMADA sampling."
+        )
+    return issues
 
 
 def _infer_infra_class(feature: Any) -> str:
@@ -47,11 +66,16 @@ def _infer_infra_class(feature: Any) -> str:
     return "habitation"
 
 
-def _territory_for_coords(lat: float | None, lon: float | None) -> tuple[str, str]:
+def _territory_for_coords(
+    lat: float | None,
+    lon: float | None,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
+) -> tuple[str, str]:
     if lat is None or lon is None:
         return "uploaded-aggregate", "Uploaded Exposure (aggregate)"
-    lat_bin = round(float(lat) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
-    lon_bin = round(float(lon) / TERRITORY_GRID_DEG) * TERRITORY_GRID_DEG
+    grid_deg = max(1e-6, float(territory_grid_deg or TERRITORY_GRID_DEG))
+    lat_bin = round(float(lat) / grid_deg) * grid_deg
+    lon_bin = round(float(lon) / grid_deg) * grid_deg
     return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}", f"Zone ({lat_bin:.2f}, {lon_bin:.2f})"
 
 
@@ -118,6 +142,46 @@ def _sample_multiline_points(geom_metric: Any, spacing_m: float, max_points: int
     return out[:max_points]
 
 
+def _count_line_points(length: float, spacing_m: float, max_points: int) -> int:
+    if length <= 0:
+        return 1
+    n_points = int(math.ceil(length / max(1.0, spacing_m))) + 1
+    return max(2, min(max_points, n_points))
+
+
+def _count_multiline_points(geom_metric: Any, spacing_m: float, max_points: int) -> int:
+    lines = [line for line in getattr(geom_metric, "geoms", []) if float(getattr(line, "length", 0.0) or 0.0) > 0.0]
+    if not lines:
+        return 0
+    total_len = sum(float(line.length) for line in lines)
+    if total_len <= 0:
+        return 1
+
+    target = max(2, min(max_points, int(math.ceil(total_len / max(1.0, spacing_m))) + len(lines)))
+    allocations: list[int] = []
+    remaining = target
+    for idx, line in enumerate(lines):
+        if idx == len(lines) - 1:
+            alloc = max(1, remaining)
+        else:
+            share = float(line.length) / total_len
+            alloc = max(1, int(round(target * share)))
+            alloc = min(alloc, max(1, remaining - (len(lines) - idx - 1)))
+        allocations.append(alloc)
+        remaining -= alloc
+
+    total_count = 0
+    for line, n in zip(lines, allocations):
+        total_count += _count_line_points(
+            float(getattr(line, "length", 0.0) or 0.0),
+            spacing_m,
+            max(2, n),
+        )
+        if total_count >= max_points:
+            return max_points
+    return min(total_count, max_points)
+
+
 def _sample_polygon_points(geom_metric: Any, spacing_m: float, max_points: int, point_factory: Any) -> list[Any]:
     area = float(getattr(geom_metric, "area", 0.0) or 0.0)
     if area <= 0:
@@ -143,6 +207,31 @@ def _sample_polygon_points(geom_metric: Any, spacing_m: float, max_points: int, 
     return points
 
 
+def _count_polygon_points(geom_metric: Any, spacing_m: float, max_points: int, point_factory: Any) -> int:
+    area = float(getattr(geom_metric, "area", 0.0) or 0.0)
+    if area <= 0:
+        return 1
+
+    target = max(1, min(max_points, int(math.ceil(area / (max(1.0, spacing_m) ** 2)))))
+    cell = max(1.0, math.sqrt(area / max(1, target)))
+    minx, miny, maxx, maxy = geom_metric.bounds
+    count = 0
+
+    x = minx + 0.5 * cell
+    while x <= maxx and count < max_points:
+        y = miny + 0.5 * cell
+        while y <= maxy and count < max_points:
+            pt = point_factory(x, y)
+            if geom_metric.contains(pt) or geom_metric.touches(pt):
+                count += 1
+            y += cell
+        x += cell
+
+    if count <= 0:
+        return 1
+    return count
+
+
 def _sample_multipolygon_points(geom_metric: Any, spacing_m: float, max_points: int, point_factory: Any) -> list[Any]:
     polys = [poly for poly in getattr(geom_metric, "geoms", []) if float(getattr(poly, "area", 0.0) or 0.0) > 0.0]
     if not polys:
@@ -163,6 +252,30 @@ def _sample_multipolygon_points(geom_metric: Any, spacing_m: float, max_points: 
         remaining -= alloc
         out.extend(_sample_polygon_points(poly, spacing_m, alloc, point_factory))
     return out[:max_points]
+
+
+def _count_multipolygon_points(geom_metric: Any, spacing_m: float, max_points: int, point_factory: Any) -> int:
+    polys = [poly for poly in getattr(geom_metric, "geoms", []) if float(getattr(poly, "area", 0.0) or 0.0) > 0.0]
+    if not polys:
+        return 0
+    total_area = sum(float(poly.area) for poly in polys)
+    if total_area <= 0:
+        return 1
+
+    total_count = 0
+    remaining = max_points
+    for idx, poly in enumerate(polys):
+        if idx == len(polys) - 1:
+            alloc = max(1, remaining)
+        else:
+            share = float(poly.area) / total_area
+            alloc = max(1, int(round(max_points * share)))
+            alloc = min(alloc, max(1, remaining - (len(polys) - idx - 1)))
+        remaining -= alloc
+        total_count += _count_polygon_points(poly, spacing_m, alloc, point_factory)
+        if total_count >= max_points:
+            return max_points
+    return min(total_count, max_points)
 
 
 def _feature_geometry(feature: NormalizedFeature, deps: dict[str, Any]) -> Any | None:
@@ -226,15 +339,66 @@ def _sample_feature_points(
     return out
 
 
+def count_sampled_feature_points(
+    feature: NormalizedFeature,
+    *,
+    spacing_m: float,
+    metric_crs: str = DEFAULT_METRIC_CRS,
+    max_points: int = DEFAULT_MAX_POINTS_PER_FEATURE,
+) -> int:
+    deps = _require_geo_dependencies()
+    Transformer = deps["Transformer"]
+    Point = deps["Point"]
+    LineString = deps["LineString"]
+    MultiLineString = deps["MultiLineString"]
+    Polygon = deps["Polygon"]
+    MultiPolygon = deps["MultiPolygon"]
+    MultiPoint = deps["MultiPoint"]
+    shapely_transform = deps["shapely_transform"]
+
+    geom_wgs84 = _feature_geometry(feature, deps)
+    if geom_wgs84 is None or getattr(geom_wgs84, "is_empty", False):
+        return 0
+
+    to_metric = Transformer.from_crs("EPSG:4326", metric_crs, always_xy=True)
+    geom_metric = shapely_transform(to_metric.transform, geom_wgs84)
+
+    if isinstance(geom_metric, Point):
+        return 1
+    if isinstance(geom_metric, MultiPoint):
+        geoms = list(getattr(geom_metric, "geoms", []))
+        return min(max_points, len(geoms)) if geoms else 1
+    if isinstance(geom_metric, LineString):
+        return _count_line_points(float(getattr(geom_metric, "length", 0.0) or 0.0), spacing_m, max_points)
+    if isinstance(geom_metric, MultiLineString):
+        return _count_multiline_points(geom_metric, spacing_m, max_points)
+    if isinstance(geom_metric, Polygon):
+        return _count_polygon_points(geom_metric, spacing_m, max_points, Point)
+    if isinstance(geom_metric, MultiPolygon):
+        return _count_multipolygon_points(geom_metric, spacing_m, max_points, Point)
+    return 1
+
+
 def build_climada_exposure(
     exposure: NormalizedExposure,
     *,
     spacing_m: float,
     metric_crs: str = DEFAULT_METRIC_CRS,
     max_points_per_feature: int = DEFAULT_MAX_POINTS_PER_FEATURE,
+    territory_grid_deg: float = TERRITORY_GRID_DEG,
     impact_func_id: int = 2,
     impact_func_id_resolver: Callable[[str | None], int] | None = None,
 ) -> ClimadaExposureBundle:
+    contract_issues = validate_exposure_geometry_contract(exposure)
+    if contract_issues:
+        preview = "; ".join(contract_issues[:5])
+        if len(contract_issues) > 5:
+            preview = f"{preview}; ... ({len(contract_issues)} issues)"
+        raise InputValidationError(
+            "Exposure geometry contract failed before CLIMADA sampling. "
+            f"{preview}"
+        )
+
     deps = _require_geo_dependencies()
     gpd = deps["gpd"]
     Transformer = deps["Transformer"]
@@ -269,6 +433,22 @@ def build_climada_exposure(
         split_value = max(0.0, float(feat.value_eur)) / float(len(sampled))
         infra_class = _infer_infra_class(feat)
         asset_type = str((feat.properties or {}).get("asset_type") or "")
+        uses_default_value = bool((feat.properties or {}).get("uses_default_value"))
+        valuation_source = str((feat.properties or {}).get("valuation_source") or "")
+        valuation_version = str((feat.properties or {}).get("valuation_version") or "")
+        default_value_eur = (feat.properties or {}).get("default_value_eur")
+        extra_point_properties = {
+            str(key): value
+            for key, value in dict(feat.properties or {}).items()
+            if str(key)
+            not in {
+                "asset_type",
+                "uses_default_value",
+                "valuation_source",
+                "valuation_version",
+                "default_value_eur",
+            }
+        }
         point_impact_func_id = int(impact_func_id)
         if impact_func_id_resolver is not None:
             try:
@@ -276,7 +456,11 @@ def build_climada_exposure(
             except Exception:
                 point_impact_func_id = int(impact_func_id)
         for idx, (lon, lat) in enumerate(sampled, start=1):
-            territory_id, territory_label = _territory_for_coords(lat, lon)
+            territory_id, territory_label = _territory_for_coords(
+                lat,
+                lon,
+                territory_grid_deg=float(territory_grid_deg),
+            )
             point_id = f"{feat.feature_id}::p{idx}"
             row = {
                 "value": float(split_value),
@@ -303,12 +487,17 @@ def build_climada_exposure(
                     "value_eur": float(split_value),
                     "infra_class": infra_class,
                     "asset_type": asset_type,
+                    "uses_default_value": uses_default_value,
+                    "valuation_source": valuation_source,
+                    "valuation_version": valuation_version,
+                    "default_value_eur": float(default_value_eur) if default_value_eur is not None else None,
                     "impf_tc": int(point_impact_func_id),
                     "exposure_category": str(feat.exposure_category or "habitation"),
                     "territory_id": territory_id,
                     "territory_label": territory_label,
                     "lon": float(lon),
                     "lat": float(lat),
+                    **extra_point_properties,
                 }
             )
 
@@ -324,4 +513,38 @@ def build_climada_exposure(
         point_records=point_records,
         metric_crs=metric_crs,
         warnings=warnings,
+    )
+
+
+def subset_climada_exposure_bundle(
+    exposure_bundle: ClimadaExposureBundle,
+    *,
+    point_indices: list[int],
+) -> ClimadaExposureBundle:
+    """Return an exact subset of a CLIMADA exposure bundle for point-level sharding."""
+    if not point_indices:
+        raise InputValidationError("CLIMADA exposure shard requires at least one point index.")
+
+    exposures = getattr(exposure_bundle, "exposures", None)
+    gdf = getattr(exposures, "gdf", None)
+    if exposures is None or gdf is None:
+        raise DependencyMissingError("CLIMADA exposure object is required for sharded impact computation.")
+
+    point_records = list(exposure_bundle.point_records or [])
+    valid_indices = [int(idx) for idx in point_indices if 0 <= int(idx) < len(point_records)]
+    if not valid_indices:
+        raise InputValidationError("No valid CLIMADA point indices were provided for the shard.")
+
+    subset_gdf = gdf.iloc[valid_indices].copy()
+    subset_point_records = [point_records[idx] for idx in valid_indices]
+
+    exposures_cls = type(exposures)
+    subset_exposures = exposures_cls(subset_gdf)
+    subset_exposures.check()
+
+    return ClimadaExposureBundle(
+        exposures=subset_exposures,
+        point_records=subset_point_records,
+        metric_crs=str(exposure_bundle.metric_crs),
+        warnings=list(exposure_bundle.warnings or []),
     )

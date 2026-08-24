@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+import json
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -11,8 +12,8 @@ if TYPE_CHECKING:
     from app.risk_engine.exposure_to_climada import ClimadaExposureBundle
 
 
-COMPONENT_ORDER = ("wind", "rain", "surge")
-MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
+COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
+MAP_SCENARIOS = ("annual", "rp10", "rp50", "rp100", "rp1000", "event_max", "top10", "top5")
 
 DAMAGE_BREAKDOWN_LABELS = {
     "eau_aep": "Reseau eau AEP",
@@ -44,6 +45,10 @@ CASE_HAZARD_PATHS = {
     "martinique": (
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
+    ),
+    "saint-barthelemy": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
     ),
 }
 
@@ -97,7 +102,7 @@ def _normalize_component_ratio_map(raw: dict[str, Any] | None) -> dict[str, floa
             out[comp] = 0.0
     total = sum(out.values())
     if total <= 0.0:
-        return {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        return {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {comp: out[comp] / total for comp in COMPONENT_ORDER}
 
 
@@ -117,12 +122,155 @@ def _normalize_breakdown_share_map(raw: dict[str, Any] | None) -> dict[str, floa
     return {class_key: float(value) / total for class_key, value in out.items()}
 
 
+def _coerce_loss_array(raw: Any, *, size: int) -> np.ndarray:
+    arr = np.asarray(raw if raw is not None else [], dtype=float).reshape(-1)
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    arr = np.maximum(arr, 0.0)
+    out = np.zeros(max(0, int(size)), dtype=float)
+    if out.size == 0 or arr.size == 0:
+        return out
+    n = min(out.size, arr.size)
+    out[:n] = arr[:n]
+    return out
+
+
+def _breakdown_shares_from_point_losses(point_losses: np.ndarray, point_records: list[dict[str, Any]]) -> dict[str, float]:
+    raw = {class_key: 0.0 for class_key in DAMAGE_BREAKDOWN_LABELS}
+    losses = np.asarray(point_losses, dtype=float).reshape(-1)
+    for idx, rec in enumerate(point_records):
+        if idx >= losses.size:
+            break
+        class_key = _breakdown_class_from_point(rec)
+        if class_key in raw:
+            raw[class_key] += max(0.0, float(losses[idx]))
+    return _normalize_breakdown_share_map(raw)
+
+
+def _scenario_breakdown_shares_from_component_arrays(
+    point_records: list[dict[str, Any]],
+    component_point_losses: dict[str, Any],
+    component_ratios: dict[str, Any] | None,
+    *,
+    fallback_share_map: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    fallback = _normalize_breakdown_share_map(fallback_share_map)
+    point_count = len(point_records)
+    if point_count <= 0:
+        return dict(fallback)
+
+    ratio_map = _normalize_component_ratio_map(component_ratios if isinstance(component_ratios, dict) else None)
+    blended = np.zeros(point_count, dtype=float)
+    used_weight = 0.0
+    for component in COMPONENT_ORDER:
+        weight = max(0.0, float(ratio_map.get(component, 0.0) or 0.0))
+        if weight <= 0.0:
+            continue
+        arr = _coerce_loss_array(component_point_losses.get(component), size=point_count)
+        total = float(arr.sum())
+        if total <= 0.0:
+            continue
+        blended += (arr / total) * weight
+        used_weight += weight
+
+    if used_weight <= 0.0 or float(blended.sum()) <= 0.0:
+        return dict(fallback)
+
+    shares = _breakdown_shares_from_point_losses(blended, point_records)
+    return shares if shares else dict(fallback)
+
+
+def _isotonic_increasing(values: list[float]) -> list[float]:
+    blocks: list[dict[str, float]] = []
+    for raw_value in values:
+        value = max(0.0, float(raw_value or 0.0))
+        blocks.append({"sum": value, "count": 1.0})
+        while len(blocks) >= 2:
+            left = blocks[-2]
+            right = blocks[-1]
+            if (left["sum"] / left["count"]) <= (right["sum"] / right["count"]) + 1e-12:
+                break
+            left["sum"] += right["sum"]
+            left["count"] += right["count"]
+            blocks.pop()
+
+    out: list[float] = []
+    for block in blocks:
+        mean = float(block["sum"] / max(block["count"], 1.0))
+        out.extend([mean] * int(block["count"]))
+    return out
+
+
+def _normalize_proxy_scenario_loss_totals(raw_losses: dict[str, Any] | None) -> dict[str, float]:
+    source = raw_losses if isinstance(raw_losses, dict) else {}
+    out = {scenario: max(0.0, float(source.get(scenario, 0.0) or 0.0)) for scenario in MAP_SCENARIOS}
+
+    annual, rp10, rp50, rp100, rp1000, event_max = _isotonic_increasing(
+        [out["annual"], out["rp10"], out["rp50"], out["rp100"], out["rp1000"], out["event_max"]]
+    )
+    out["annual"] = annual
+    out["rp10"] = rp10
+    out["rp50"] = rp50
+    out["rp100"] = rp100
+    out["rp1000"] = rp1000
+    out["event_max"] = event_max
+
+    _, top10, top5, ranked_event_max = _isotonic_increasing(
+        [out["annual"], out["top10"], out["top5"], out["event_max"]]
+    )
+    out["top10"] = top10
+    out["top5"] = top5
+    out["event_max"] = max(out["event_max"], ranked_event_max)
+    return out
+
+
 def _default_component_ratios() -> dict[str, dict[str, dict[str, float]]]:
-    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {
         hazard: {scenario: dict(base) for scenario in MAP_SCENARIOS}
         for hazard in ("storm", "storm_cmcc")
     }
+
+
+def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, dict[str, float]]]:
+    out = _default_component_ratios()
+    if path is None or not path.exists():
+        return out
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return out
+
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    if not isinstance(portfolio, dict):
+        return out
+
+    for hazard in ("storm", "storm_cmcc"):
+        hazard_payload = portfolio.get(hazard)
+        if not isinstance(hazard_payload, dict):
+            continue
+
+        annual_raw = hazard_payload.get("components_direct_eai_eur")
+        if isinstance(annual_raw, dict):
+            annual_clean = {k: v for k, v in annual_raw.items() if str(k) != "combined_capped"}
+            annual_ratio = _normalize_component_ratio_map(annual_clean)
+            for scenario in ("annual", "rp10", "rp50", "rp100", "rp1000", "top10", "top5"):
+                out[hazard][scenario] = dict(annual_ratio)
+
+        event_raw = hazard_payload.get("components_direct_percentile_99_loss_eur")
+        if not isinstance(event_raw, dict):
+            event_raw = hazard_payload.get("components_direct_max_event_loss_eur")
+        if isinstance(event_raw, dict):
+            out[hazard]["event_max"] = _normalize_component_ratio_map(event_raw)
+        elif isinstance(annual_raw, dict):
+            annual_clean = {k: v for k, v in annual_raw.items() if str(k) != "combined_capped"}
+            out[hazard]["event_max"] = _normalize_component_ratio_map(annual_clean)
+
+        out[hazard]["rp10"] = dict(out[hazard].get("rp10") or out[hazard].get("annual") or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+        out[hazard]["rp50"] = dict(out[hazard].get("rp50") or out[hazard].get("rp100") or out[hazard].get("annual") or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+        out[hazard]["rp1000"] = dict(out[hazard].get("rp1000") or out[hazard].get("rp100") or out[hazard].get("annual") or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+
+    return out
 
 
 def _default_multi_hazard_proxy(
@@ -153,8 +301,10 @@ def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, 
 
         annual_raw: dict[str, float] = {}
         event_raw: dict[str, float] = {}
+        rp10_raw: dict[str, float] = {}
         rp50_raw: dict[str, float] = {}
         rp100_raw: dict[str, float] = {}
+        rp1000_raw: dict[str, float] = {}
 
         for component in COMPONENT_ORDER:
             comp_result = hazard_components.get(component)
@@ -163,17 +313,25 @@ def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, 
             annual_raw[component] = float(np.asarray(getattr(comp_result, "eai_direct_by_point", []), dtype=float).sum())
             event_raw[component] = float(getattr(comp_result, "max_event_loss_eur", 0.0) or 0.0)
             pml = getattr(comp_result, "pml_eur", {}) or {}
+            rp10_raw[component] = float(pml.get(10, 0.0) or 0.0)
             rp50_raw[component] = float(pml.get(50, 0.0) or 0.0)
             rp100_raw[component] = float(pml.get(100, 0.0) or 0.0)
+            rp1000_raw[component] = float(pml.get(1000, 0.0) or 0.0)
 
         annual_ratio = _normalize_component_ratio_map(annual_raw)
         out[hazard]["annual"] = dict(annual_ratio)
         out[hazard]["top10"] = dict(annual_ratio)
         out[hazard]["top5"] = dict(annual_ratio)
+        rp10_ratio = _normalize_component_ratio_map(rp10_raw)
+        out[hazard]["rp10"] = dict(rp10_ratio if sum(max(0.0, float(v)) for v in rp10_raw.values()) > 0.0 else annual_ratio)
         out[hazard]["rp100"] = _normalize_component_ratio_map(rp100_raw)
         rp50_ratio = _normalize_component_ratio_map(rp50_raw)
         out[hazard]["rp50"] = dict(
-            rp50_ratio if any(float(v) > 0.0 for v in rp50_ratio.values()) else (out[hazard].get("rp100") or annual_ratio)
+            rp50_ratio if sum(max(0.0, float(v)) for v in rp50_raw.values()) > 0.0 else (out[hazard].get("rp100") or annual_ratio)
+        )
+        rp1000_ratio = _normalize_component_ratio_map(rp1000_raw)
+        out[hazard]["rp1000"] = dict(
+            rp1000_ratio if sum(max(0.0, float(v)) for v in rp1000_raw.values()) > 0.0 else (out[hazard].get("rp100") or annual_ratio)
         )
         out[hazard]["event_max"] = _normalize_component_ratio_map(event_raw)
 

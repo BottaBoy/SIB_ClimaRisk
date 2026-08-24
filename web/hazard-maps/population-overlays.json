@@ -1,25 +1,23 @@
 {
   "meta": {
-    "generated_at_utc": "2026-03-11T15:31:46.932350+00:00",
+    "generated_at_utc": "2026-07-31T12:20:53.275121+00:00",
     "source_dir": "/home/ubuntu/uploads/Population",
     "unit": "people_per_pixel",
     "palette_hex": [
-      "#f2f2f2",
-      "#d9d9d9",
-      "#bdbdbd",
-      "#969696",
-      "#737373",
-      "#525252",
-      "#3a3a3a",
-      "#1f1f1f",
-      "#000000"
+      "#ffffff",
+      "#fff7bc",
+      "#fee391",
+      "#fec44f",
+      "#fb923c",
+      "#ef4444",
+      "#b91c1c"
     ],
     "normalization": "sqrt(value / global_scale_max)",
     "scale": {
       "min_people_per_pixel": 0.0,
       "max_people_per_pixel": 244.85705566406
     },
-    "resampled_max_dimension": 2600
+    "resampled_max_dimension": 3000
   },
   "territories": [
     {
@@ -128,13 +126,13 @@
       "raster": {
         "source_width": 16609,
         "source_height": 5814,
-        "render_width": 2600,
-        "render_height": 910
+        "render_width": 3000,
+        "render_height": 1050
       },
       "stats": {
-        "min_people_per_pixel": 2.499999936844688e-05,
-        "max_people_per_pixel": 25.061555862426758,
-        "mean_people_per_pixel": 1.5993826389312744
+        "min_people_per_pixel": 3.7000001611886546e-05,
+        "max_people_per_pixel": 24.788543701171875,
+        "mean_people_per_pixel": 1.6045814752578735
       }
     },
     {
@@ -151,13 +149,36 @@
       "raster": {
         "source_width": 24318,
         "source_height": 24002,
-        "render_width": 2600,
-        "render_height": 2566
+        "render_width": 3000,
+        "render_height": 2961
       },
       "stats": {
-        "min_people_per_pixel": 0.000678999989759177,
-        "max_people_per_pixel": 64.04877471923828,
-        "mean_people_per_pixel": 5.890326976776123
+        "min_people_per_pixel": 0.0018260000506415963,
+        "max_people_per_pixel": 37.714996337890625,
+        "mean_people_per_pixel": 5.889269828796387
+      }
+    },
+    {
+      "code": "blm",
+      "name": "Saint-Barthelemy",
+      "source_tif": "/home/ubuntu/uploads/Population/blm_pop_2020_CN_100m_R2025A_v1.tif",
+      "overlay": "population_overlays/blm_population_overlay.png",
+      "bounds": {
+        "south": 17.872500264509984,
+        "north": 17.974166930769986,
+        "west": -62.94750046821,
+        "east": -62.78916713551
+      },
+      "raster": {
+        "source_width": 190,
+        "source_height": 122,
+        "render_width": 190,
+        "render_height": 122
+      },
+      "stats": {
+        "min_people_per_pixel": 0.009871999733150005,
+        "max_people_per_pixel": 24.362184524536133,
+        "mean_people_per_pixel": 5.534574508666992
       }
     },
     {

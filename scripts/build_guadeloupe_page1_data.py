@@ -4,12 +4,15 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from datetime import datetime, timezone
+import gc
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sys
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Callable
 
 try:
     import geopandas as gpd
@@ -35,8 +38,16 @@ except Exception:  # pragma: no cover - optional at import time for CLI --help
 
 try:
     from shapely.geometry import box
+    from shapely.ops import unary_union
 except Exception:  # pragma: no cover - optional at import time for CLI --help
     box = None  # type: ignore[assignment]
+    unary_union = None  # type: ignore[assignment]
+
+try:
+    from osgeo import gdal, osr
+except Exception:  # pragma: no cover - optional at import time for CLI --help
+    gdal = None  # type: ignore[assignment]
+    osr = None  # type: ignore[assignment]
 
 
 UTC = timezone.utc
@@ -48,30 +59,42 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.config import load_settings  # noqa: E402
 from app.risk_engine.exposure_disaggregation import summarize_disaggregation  # noqa: E402
 from app.risk_engine.exposure_to_climada import ClimadaExposureBundle, build_climada_exposure  # noqa: E402
-from app.risk_engine.hazard_loader import load_storm_hazards  # noqa: E402
+from app.risk_engine.hazard_loader import load_storm_hazard, load_storm_hazards_from_parquet_for_points  # noqa: E402
 from app.risk_engine.impact_functions import (  # noqa: E402
     resolve_tc_impact_func_id,
     try_build_climada_impact_funcs,
 )
+from app.risk_engine.impact_functions_landslide import (  # noqa: E402
+    LANDSLIDE_HYPOTHESIS_CURVE,
+    LANDSLIDE_INTENSITIES,
+)
+from app.risk_engine.landslide_engine import run_landslide_direct_impacts, scenario_loss_factors  # noqa: E402
 from app.risk_engine.types import NormalizedExposure  # noqa: E402
 from build_guadeloupe_complete_analysis import (  # noqa: E402
     WGS84,
     _as_wgs84_and_metric,
     _ensure_crs,
+    _read_vector,
     build_complete_exposure,
 )
-from case_study_sources import get_case_study, normalize_territory, territory_label  # noqa: E402
+from case_study_sources import get_case_study, parse_territory, territory_label  # noqa: E402
 from valuation_ofb import (  # noqa: E402
     SOURCE_LABEL,
     build_valuation_metadata,
-    get_aep_ouvrage_value,
+    get_aep_ouvrage_value_for_territory,
     get_network_values_per_km,
     get_water_values,
 )
+from journal_guamar_run import record_guamar_run  # noqa: E402
 
 
 STATE_ORDER = {"S0": 0, "S1": 1, "S2": 2, "S3": 3}
-UPLIFT_BY_STATE = {"S0": 0.0, "S1": 0.10, "S2": 0.25, "S3": 0.45}
+STATE_DAMAGE_FLOOR = {"S0": 0.0, "S1": 0.05, "S2": 0.15, "S3": 0.35}
+OUTAGE_CAUSES = {"direct_damage", "electric_dependency", "blocking_ouvrage", "none"}
+WATER_BLOCKING_ROLES_BY_SERVICE = {
+    "eau_aep": frozenset({"captage_aep", "upep_aep", "pompage_aep"}),
+    "eau_eu": frozenset({"step", "poste_refoulement"}),
+}
 
 NETWORK_CLASS_LABELS = {
     "eau_aep": "Eau AEP",
@@ -93,6 +116,7 @@ DAMAGE_BREAKDOWN_LABELS = {
     "eau_eu_pr": "Postes de refoulement",
     "eau_eu_step": "STEP",
 }
+HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX = "hydraulic-native"
 
 ASSET_TYPE_TO_NETWORK_CLASS = {
     "eau_aep_cana": "eau_aep",
@@ -113,10 +137,19 @@ NETWORK_LAYER_PREFIX = {
 }
 
 GLOBAL_EVENT_CLASS_KEYS = tuple(DAMAGE_BREAKDOWN_LABELS.keys())
-TABLE_SCENARIOS = ("annual", "rp50", "rp100", "event_max")
-MAP_SCENARIOS = ("annual", "rp50", "rp100", "event_max", "top10", "top5")
-COMPONENT_ORDER = ("wind", "rain", "surge")
+TABLE_SCENARIOS = ("annual", "rp10", "rp50", "rp100", "rp1000", "p99")
+MAP_SCENARIOS = ("annual", "rp10", "rp50", "rp100", "rp1000", "event_max", "top10", "top5")
+PUBLIC_MAP_SCENARIOS = ("annual", "rp10", "rp50", "rp100", "rp1000", "p99", "top10", "top5")
+WEB_NETWORK_STATE_METHODOLOGY_METADATA = {
+    "schema_version": "aggregated_service_state_v1",
+    "aggregation_method": "aggregated_service_state",
+    "electric_state_unit": "fixed_grid_0p1deg",
+    "water_state_unit": "zone_component_key",
+    "methodology_breaks_comparability": True,
+}
+COMPONENT_ORDER = ("wind", "rain", "surge", "landslide")
 WIND_BIN_STEP_MPS = 1.0
+ELECTRIC_NATIVE_GRID_DEG = 0.1
 DEFAULT_COMPONENT_LIGHT_SPACING_M = 800.0
 DEFAULT_COMPONENT_LIGHT_MAX_POINTS_TOTAL = 4000
 DEFAULT_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE = 10
@@ -129,7 +162,21 @@ CASE_HAZARD_PATHS = {
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique.h5",
         REPO_ROOT / "data" / "hazards" / "tc_hazard_martinique_CMCC.h5",
     ),
+    "saint-barthelemy": (
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe.h5",
+        REPO_ROOT / "data" / "hazards" / "tc_hazard_guadeloupe_CMCC.h5",
+    ),
 }
+
+
+def _public_loss_scenario_source(scenario: str) -> str:
+    return "event_max" if str(scenario) == "p99" else str(scenario)
+
+
+def _stable_seed(*parts: object) -> int:
+    payload = "|".join(str(part) for part in parts).encode("utf-8")
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "big") % (2**32 - 1)
 
 
 def _require_runtime_deps() -> None:
@@ -223,7 +270,8 @@ def _case_bbox_polygon(case_cfg: dict[str, Any]):
 def _clip_case_gdf(gdf: gpd.GeoDataFrame, case_cfg: dict[str, Any]) -> gpd.GeoDataFrame:
     gdf_wgs = _ensure_crs(gdf, fallback=WGS84).to_crs(WGS84).copy()
     gdf_wgs["geometry"] = gdf_wgs.geometry.intersection(_case_bbox_polygon(case_cfg))
-    return gdf_wgs[~gdf_wgs.geometry.is_empty & gdf_wgs.geometry.notna()].copy()
+    geometry = gdf_wgs.geometry
+    return gdf_wgs[(~geometry.is_empty) & (~geometry.isna())].copy()
 
 
 def _state_from_ratio(ratio: float) -> str:
@@ -262,6 +310,123 @@ def _health(bucket: dict[str, float]) -> float:
         return 1.0
     weighted = 0.3 * float(bucket["S1"]) + 0.7 * float(bucket["S2"]) + 1.0 * float(bucket["S3"])
     return max(0.0, min(1.0, 1.0 - weighted / total))
+
+
+def _evaluate_network_dependency_scenario(
+    *,
+    direct_loss: np.ndarray,
+    values: np.ndarray,
+    class_keys: list[str | None],
+    territories: list[str],
+    weights_km: np.ndarray,
+    water_service_classes: list[str | None] | None = None,
+    service_feature_ids: list[str | None] | None = None,
+    is_service_network: list[bool] | None = None,
+    is_blocking_asset: list[bool] | None = None,
+) -> dict[str, Any]:
+    direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float), 0.0), values)
+    direct_ratio = np.divide(direct, np.maximum(values, 1.0))
+    direct_state = np.array([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
+
+    item_count = len(class_keys)
+    if water_service_classes is None:
+        water_service_classes = [None] * item_count
+    if service_feature_ids is None:
+        service_feature_ids = [None] * item_count
+    if is_service_network is None:
+        is_service_network = [False] * item_count
+    if is_blocking_asset is None:
+        is_blocking_asset = [False] * item_count
+
+    elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
+    for i, ckey in enumerate(class_keys):
+        if ckey is None or not ckey.startswith("elec_"):
+            continue
+        _add_state(elec_buckets[territories[i]], str(direct_state[i]), float(weights_km[i]))
+    elec_health = {k: _health(v) for k, v in elec_buckets.items()}
+    global_health = _health(_merge_buckets(list(elec_buckets.values())))
+
+    dependency_state: list[str] = []
+    state_after_dependency: list[str] = []
+    for i, ckey in enumerate(class_keys):
+        state_code = str(direct_state[i])
+        dep_state = "S0"
+        water_service_class = water_service_classes[i]
+        if water_service_class in {"eau_aep", "eau_eu"}:
+            dep_state = _dependency_state_from_elec_health(elec_health.get(territories[i], global_health))
+            final_code = dep_state if STATE_ORDER[dep_state] > STATE_ORDER[state_code] else state_code
+            dependency_state.append(dep_state)
+            state_after_dependency.append(final_code)
+            continue
+        dependency_state.append(dep_state)
+        state_after_dependency.append(state_code)
+
+    blocking_state_by_service: dict[str, str] = {}
+    for i, blocking in enumerate(is_blocking_asset):
+        if not blocking:
+            continue
+        service_feature_id = str(service_feature_ids[i] or "").strip()
+        if not service_feature_id:
+            continue
+        blocking_state = str(state_after_dependency[i])
+        current_state = blocking_state_by_service.get(service_feature_id, "S0")
+        if STATE_ORDER[blocking_state] > STATE_ORDER[current_state]:
+            blocking_state_by_service[service_feature_id] = blocking_state
+
+    final_state: list[str] = []
+    blocking_state: list[str] = []
+    dominant_cause: list[str] = []
+    dysfunction_loss = np.zeros_like(direct, dtype=float)
+    blocking_loss = np.zeros_like(direct, dtype=float)
+    total_loss = np.array(direct, dtype=float, copy=True)
+    indirect_s3_flag = np.zeros_like(direct, dtype=bool)
+    for i, state_code in enumerate(state_after_dependency):
+        final_code = str(state_code)
+        blocker_state = "S0"
+        if is_service_network[i]:
+            service_feature_id = str(service_feature_ids[i] or "").strip()
+            blocker_state = blocking_state_by_service.get(service_feature_id)
+            if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[final_code]:
+                final_code = blocker_state
+        blocker_state = str(blocker_state or "S0")
+        blocking_state.append(blocker_state)
+        indirect_s3_flag[i] = final_code == "S3" and str(direct_state[i]) != "S3"
+        final_state.append(final_code)
+
+        direct_code = str(direct_state[i])
+        if STATE_ORDER[final_code] <= 0:
+            cause_code = "none"
+        elif STATE_ORDER[direct_code] >= STATE_ORDER[final_code]:
+            cause_code = "direct_damage"
+        elif STATE_ORDER[blocker_state] >= STATE_ORDER[final_code] and is_service_network[i]:
+            cause_code = "blocking_ouvrage"
+        else:
+            cause_code = "electric_dependency"
+        dominant_cause.append(cause_code)
+
+        if STATE_ORDER[final_code] > STATE_ORDER[direct_code]:
+            proxy_total = max(float(total_loss[i]), float(values[i]) * float(STATE_DAMAGE_FLOOR.get(final_code, 0.0)))
+            proxy_total = min(float(values[i]), proxy_total)
+            extra = max(0.0, proxy_total - float(direct[i]))
+            total_loss[i] = proxy_total
+            if cause_code == "blocking_ouvrage":
+                blocking_loss[i] = extra
+            else:
+                dysfunction_loss[i] = extra
+
+    final_state_arr = np.array(final_state, dtype=object)
+    return {
+        "direct_loss": direct,
+        "dysfunction_loss": dysfunction_loss,
+        "blocking_loss": blocking_loss,
+        "direct_state": direct_state,
+        "dependency_state": np.array(dependency_state, dtype=object),
+        "blocking_state": np.array(blocking_state, dtype=object),
+        "final_state": final_state_arr,
+        "dominant_outage_cause": np.array(dominant_cause, dtype=object),
+        "total_loss": np.minimum(np.maximum(total_loss, 0.0), values),
+        "indirect_s3_flag": indirect_s3_flag,
+    }
 
 
 def _histogram_percent(
@@ -547,7 +712,121 @@ def _finite_series_from_cells(cells: list[dict[str, Any]], value_key: str) -> pd
     return pd.Series(values, dtype=float)
 
 
-def _build_wind_histograms_from_wind_map_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _parse_synthetic_year_from_event_name(event_name: str) -> int | None:
+    value = str(event_name or "").strip()
+    if "|" not in value:
+        return None
+    suffix = value.split("|", 1)[1]
+    parts = suffix.split("_")
+    if len(parts) < 3:
+        return None
+    try:
+        return int(parts[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _event_max_series_from_hazard(hazard_obj) -> pd.Series:
+    intensity = getattr(hazard_obj, "intensity", None)
+    event_names = list(getattr(hazard_obj, "event_name", []) or [])
+    if intensity is None or not event_names:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    intensity = intensity.tocsr()
+    track_values: list[float] = []
+    year_max: dict[int, float] = {}
+    for row_idx, event_name in enumerate(event_names):
+        start = int(intensity.indptr[row_idx])
+        end = int(intensity.indptr[row_idx + 1])
+        if start >= end:
+            continue
+        values = intensity.data[start:end]
+        positives = [float(value) for value in values if np.isfinite(float(value)) and float(value) > 0.0]
+        if not positives:
+            continue
+        event_max = max(positives)
+        track_values.append(event_max)
+        synthetic_year = _parse_synthetic_year_from_event_name(str(event_name))
+        if synthetic_year is None:
+            continue
+        previous = year_max.get(synthetic_year)
+        if previous is None or event_max > previous:
+            year_max[synthetic_year] = event_max
+    return pd.Series(track_values, dtype=float), pd.Series(list(year_max.values()), dtype=float)
+
+
+def _build_wind_histograms_from_dynamic_points(payload: dict[str, Any], settings) -> dict[str, Any] | None:
+    storm_cells = payload.get("storm", {}).get("cells") if isinstance(payload.get("storm"), dict) else None
+    cmcc_cells = payload.get("storm_cmcc", {}).get("cells") if isinstance(payload.get("storm_cmcc"), dict) else None
+    if not isinstance(storm_cells, list) or not isinstance(cmcc_cells, list):
+        return None
+
+    point_coords: list[tuple[float, float]] = []
+    for cell in storm_cells:
+        if not isinstance(cell, dict):
+            continue
+        lat = cell.get("lat")
+        lon = cell.get("lon")
+        if lat is None or lon is None:
+            continue
+        point_coords.append((float(lat), float(lon)))
+    if not point_coords:
+        return None
+
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    storm_block = payload.get("storm") if isinstance(payload.get("storm"), dict) else {}
+    cmcc_block = payload.get("storm_cmcc") if isinstance(payload.get("storm_cmcc"), dict) else {}
+    storm_years = int(storm_block.get("years_covered") or meta.get("storm_years") or settings.storm_years)
+    max_tracks = int(
+        meta.get("native_dynamic_max_tracks")
+        or storm_block.get("native_tracks_used")
+        or storm_block.get("tracks_approx")
+        or cmcc_block.get("native_tracks_used")
+        or cmcc_block.get("tracks_approx")
+        or settings.hazard_dynamic_max_tracks
+    )
+
+    bundle = load_storm_hazards_from_parquet_for_points(
+        storm_parquet_path=Path(settings.storm_parquet_path),
+        cmcc_parquet_path=Path(settings.storm_cmcc_parquet_path),
+        point_coords=point_coords,
+        storm_years=storm_years,
+        max_tracks=max_tracks,
+        track_cache_max_entries=int(settings.hazard_track_cache_max_entries),
+        wind_unit_in=str(settings.storm_wind_unit_in),
+        convert_10min_to_1min=bool(settings.storm_convert_10min_to_1min),
+        radius_unit_in=str(settings.storm_radius_unit_in),
+        env_pressure_hpa=float(settings.storm_env_pressure_hpa),
+    )
+
+    storm_track_series, storm_year_series = _event_max_series_from_hazard(bundle.storm)
+    cmcc_track_series, cmcc_year_series = _event_max_series_from_hazard(bundle.storm_cmcc)
+    if storm_track_series.empty or cmcc_track_series.empty or storm_year_series.empty or cmcc_year_series.empty:
+        return None
+
+    year_edges = _build_common_wind_edges(storm_year_series, cmcc_year_series, step_mps=WIND_BIN_STEP_MPS)
+    track_edges = _build_common_wind_edges(storm_track_series, cmcc_track_series, step_mps=WIND_BIN_STEP_MPS)
+
+    return {
+        "storm": {
+            "track_max_hist": _histogram_percent(storm_track_series, bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "year_max_hist": _histogram_percent(storm_year_series, bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "track_count": int(len(storm_track_series)),
+            "year_count": int(len(storm_year_series)),
+        },
+        "storm_cmcc": {
+            "track_max_hist": _histogram_percent(cmcc_track_series, bins=track_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "year_max_hist": _histogram_percent(cmcc_year_series, bins=year_edges, bin_step_mps=WIND_BIN_STEP_MPS),
+            "track_count": int(len(cmcc_track_series)),
+            "year_count": int(len(cmcc_year_series)),
+        },
+    }
+
+
+def _build_wind_histograms_from_wind_map_payload(payload: dict[str, Any], settings) -> dict[str, Any]:
+    dynamic_hist = _build_wind_histograms_from_dynamic_points(payload, settings)
+    if dynamic_hist is not None:
+        return dynamic_hist
+
     storm_cells = payload.get("storm", {}).get("cells") if isinstance(payload.get("storm"), dict) else None
     cmcc_cells = payload.get("storm_cmcc", {}).get("cells") if isinstance(payload.get("storm_cmcc"), dict) else None
     if not isinstance(storm_cells, list) or not isinstance(cmcc_cells, list):
@@ -555,8 +834,8 @@ def _build_wind_histograms_from_wind_map_payload(payload: dict[str, Any]) -> dic
 
     storm_track_series = _finite_series_from_cells(storm_cells, "event_max_wind_mps")
     cmcc_track_series = _finite_series_from_cells(cmcc_cells, "event_max_wind_mps")
-    storm_year_series = _finite_series_from_cells(storm_cells, "mean_wind_mps")
-    cmcc_year_series = _finite_series_from_cells(cmcc_cells, "mean_wind_mps")
+    storm_year_series = _finite_series_from_cells(storm_cells, "rp100_wind_mps")
+    cmcc_year_series = _finite_series_from_cells(cmcc_cells, "rp100_wind_mps")
 
     year_edges = _build_common_wind_edges(storm_year_series, cmcc_year_series, step_mps=WIND_BIN_STEP_MPS)
     track_edges = _build_common_wind_edges(storm_track_series, cmcc_track_series, step_mps=WIND_BIN_STEP_MPS)
@@ -624,7 +903,7 @@ def _line_length_km(gdf: gpd.GeoDataFrame) -> float:
 def _count_features(paths: list[Path], case_cfg: dict[str, Any]) -> int:
     count = 0
     for path in paths:
-        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+        gdf = _clip_case_gdf(_read_vector(path), case_cfg)
         count += int(len(gdf))
     return count
 
@@ -634,7 +913,7 @@ def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
     for src in case_cfg["aep_ouvrage_sources"]:
         mode = str(src.get("mode", "")).strip().lower()
         for path in src["paths"]:
-            gdf = _ensure_crs(gpd.read_file(path))
+            gdf = _read_vector(path, source_crs=str(src.get("source_crs", "") or "") or None)
             gdf = _clip_case_gdf(gdf, case_cfg)
             if gdf.empty:
                 continue
@@ -650,6 +929,78 @@ def _count_aep_ouvrage_types(case_cfg: dict[str, Any]) -> dict[str, int]:
             else:
                 counts["NA"] += int(len(gdf))
     return counts
+
+
+def _hydraulic_asset_value_code(row: Any) -> str:
+    feature_role = str(getattr(row, "feature_role", "") or "").strip().lower()
+    asset_type_code = str(getattr(row, "asset_type_code", "") or "").strip().upper()
+    if feature_role == "captage_aep":
+        return "CAP"
+    if feature_role == "upep_aep":
+        return "TRAIT"
+    if feature_role == "pompage_aep":
+        return "STPMP"
+    if feature_role == "reservoir_aep":
+        return "CUV"
+    if feature_role == "ouvrage_eau_brute_aep":
+        return "OUVEB"
+    return asset_type_code or "NA"
+
+
+def _build_hydraulic_water_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[str, Any]:
+    lengths_km = {"eau_aep": 0.0, "eau_eu": 0.0}
+    water_lines_total = 0
+    aep_type_counts: dict[str, int] = defaultdict(int)
+    eu_pr_total = 0
+    eu_step_total = 0
+
+    for src in case_cfg.get("hydraulic_zone_sources", []):
+        bundle_path = Path(src["path"])
+        lines_gdf = _clip_case_gdf(_read_vector(bundle_path, layer=str(src["line_layer"])), case_cfg)
+        if not lines_gdf.empty:
+            water_lines_total += int(len(lines_gdf))
+            for network_kind, group in lines_gdf.groupby("network_kind", dropna=False):
+                network_kind_upper = str(network_kind or "").strip().upper()
+                if network_kind_upper == "AEP":
+                    lengths_km["eau_aep"] += _line_length_km(group)
+                elif network_kind_upper == "EU":
+                    lengths_km["eau_eu"] += _line_length_km(group)
+
+        assets_gdf = _clip_case_gdf(_read_vector(bundle_path, layer=str(src["asset_layer"])), case_cfg)
+        if assets_gdf.empty:
+            continue
+        for row in assets_gdf.itertuples(index=False):
+            network_kind_upper = str(getattr(row, "network_kind", "") or "").strip().upper()
+            feature_role = str(getattr(row, "feature_role", "") or "").strip().lower()
+            if network_kind_upper == "EU":
+                if feature_role == "poste_refoulement":
+                    eu_pr_total += 1
+                elif feature_role == "step":
+                    eu_step_total += 1
+            elif network_kind_upper == "AEP":
+                aep_type_counts[_hydraulic_asset_value_code(row)] += 1
+
+    water_values = get_water_values(territory)
+    return {
+        "lengths_km": {k: round(float(v), 3) for k, v in lengths_km.items()},
+        "water_lines_total": int(water_lines_total),
+        "aep_type_counts": {str(k): int(v) for k, v in aep_type_counts.items()},
+        "eu_pr_total": int(eu_pr_total),
+        "eu_step_total": int(eu_step_total),
+        "total_value_network": {
+            "eau_aep": round(float(lengths_km["eau_aep"]) * float(water_values["eau_aep"]), 2),
+            "eau_eu": round(float(lengths_km["eau_eu"]) * float(water_values["eau_eu"]), 2),
+        },
+        "total_value_aep_ouvrages": round(
+            sum(
+                get_aep_ouvrage_value_for_territory(territory, code) * int(count)
+                for code, count in aep_type_counts.items()
+            ),
+            2,
+        ),
+        "total_value_pr": round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2),
+        "total_value_step": round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2),
+    }
 
 
 def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[str, Any]:
@@ -668,37 +1019,31 @@ def _build_exposure_metrics(case_cfg: dict[str, Any], territory: str) -> dict[st
     for src in case_cfg["elec_line_sources"]:
         class_key = str(src["class_key"])
         for path in src["paths"]:
-            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
+            gdf = _clip_case_gdf(
+                _read_vector(path, source_crs=str(src.get("source_crs", "") or "") or None),
+                case_cfg,
+            )
             if gdf.empty:
                 continue
             lengths_km[class_key] += _line_length_km(gdf)
             elec_lines_total += int(len(gdf))
 
-    for src in case_cfg["water_line_sources"]:
-        class_key = str(src["class_key"])
-        for path in src["paths"]:
-            gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg)
-            if gdf.empty:
-                continue
-            lengths_km[class_key] += _line_length_km(gdf)
-            water_lines_total += int(len(gdf))
-
     value_per_km = get_network_values_per_km(territory)
+    hydraulic_water_metrics = _build_hydraulic_water_exposure_metrics(case_cfg, territory)
+    lengths_km["eau_aep"] = float(hydraulic_water_metrics["lengths_km"]["eau_aep"])
+    lengths_km["eau_eu"] = float(hydraulic_water_metrics["lengths_km"]["eau_eu"])
+    water_lines_total = int(hydraulic_water_metrics["water_lines_total"])
+
     total_value_network = {key: round(lengths_km[key] * value_per_km[key], 2) for key in value_per_km.keys()}
-    water_values = get_water_values(territory)
+    total_value_network["eau_aep"] = float(hydraulic_water_metrics["total_value_network"]["eau_aep"])
+    total_value_network["eau_eu"] = float(hydraulic_water_metrics["total_value_network"]["eau_eu"])
 
-    aep_type_counts = _count_aep_ouvrage_types(case_cfg)
-    total_value_aep_ouvr = round(sum(get_aep_ouvrage_value(k) * int(v) for k, v in aep_type_counts.items()), 2)
-
-    eu_pr_total = 0
-    eu_step_total = 0
-    for src in case_cfg["water_point_fixed_sources"]:
-        if str(src["asset_type"]) == "eau_eu_pr":
-            eu_pr_total += _count_features(list(src["paths"]), case_cfg)
-        if str(src["asset_type"]) == "eau_eu_step":
-            eu_step_total += _count_features(list(src["paths"]), case_cfg)
-    total_value_pr = round(float(eu_pr_total) * float(water_values["eau_eu_pr"]), 2)
-    total_value_step = round(float(eu_step_total) * float(water_values["eau_eu_step"]), 2)
+    aep_type_counts = dict(hydraulic_water_metrics["aep_type_counts"])
+    total_value_aep_ouvr = float(hydraulic_water_metrics["total_value_aep_ouvrages"])
+    eu_pr_total = int(hydraulic_water_metrics["eu_pr_total"])
+    eu_step_total = int(hydraulic_water_metrics["eu_step_total"])
+    total_value_pr = float(hydraulic_water_metrics["total_value_pr"])
+    total_value_step = float(hydraulic_water_metrics["total_value_step"])
 
     aep_ouvrages_total = int(sum(int(v) for v in aep_type_counts.values()))
     counts = {
@@ -743,6 +1088,47 @@ def _network_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(str(point_record.get("asset_type") or ""))
 
 
+def _water_service_class_from_point(point_record: dict[str, Any]) -> str | None:
+    asset_type = str(point_record.get("asset_type") or "")
+    if asset_type.startswith("eau_aep"):
+        return "eau_aep"
+    if asset_type.startswith("eau_eu"):
+        return "eau_eu"
+    return None
+
+
+def _water_service_feature_id_from_point(point_record: dict[str, Any]) -> str | None:
+    water_service_class = _water_service_class_from_point(point_record)
+    if water_service_class is None:
+        return None
+    service_feature_id = str(point_record.get("service_feature_id") or point_record.get("zone_component_key") or "").strip()
+    if not service_feature_id:
+        raise ValueError(
+            f"Water dependency record requires service_feature_id/zone_component_key for {point_record.get('feature_id')}"
+        )
+    return service_feature_id
+
+
+def _water_feature_role_from_point(point_record: dict[str, Any]) -> str:
+    return str(point_record.get("feature_role") or "").strip().lower()
+
+
+def _is_water_service_network_point(point_record: dict[str, Any]) -> bool:
+    return _network_class_from_point(point_record) in {"eau_aep", "eau_eu"}
+
+
+def _is_blocking_water_asset_point(point_record: dict[str, Any]) -> bool:
+    water_service_class = _water_service_class_from_point(point_record)
+    if water_service_class is None:
+        return False
+    if str(point_record.get("infra_class") or "").strip().lower() != "eau_ouvrage":
+        return False
+    return _water_feature_role_from_point(point_record) in WATER_BLOCKING_ROLES_BY_SERVICE.get(
+        water_service_class,
+        frozenset(),
+    )
+
+
 def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
     asset_type = str(point_record.get("asset_type") or "")
     if asset_type.startswith("eau_aep_ouvrage_"):
@@ -754,11 +1140,310 @@ def _breakdown_class_from_point(point_record: dict[str, Any]) -> str | None:
     return ASSET_TYPE_TO_NETWORK_CLASS.get(asset_type)
 
 
-def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _public_state_feature_id(point_record: dict[str, Any]) -> str:
+    class_key = _network_class_from_point(point_record)
+    if class_key in {"eau_aep", "eau_eu"}:
+        service_feature_id = str(point_record.get("service_feature_id") or point_record.get("zone_component_key") or "").strip()
+        if not service_feature_id:
+            raise ValueError(
+                f"Water public state feature requires service_feature_id/zone_component_key for {point_record.get('feature_id')}"
+            )
+        return service_feature_id
+    return str(point_record.get("feature_id") or "")
 
-    def append_lines(path: Path, class_key: str, prefix: str, source_idx: int) -> None:
-        gdf = _clip_case_gdf(_ensure_crs(gpd.read_file(path)), case_cfg).to_crs(WGS84)
+
+def _electric_native_unit_id_from_point(point_record: dict[str, Any]) -> str:
+    lat = point_record.get("lat")
+    lon = point_record.get("lon")
+    if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+        lat_bin = round(float(lat) / ELECTRIC_NATIVE_GRID_DEG) * ELECTRIC_NATIVE_GRID_DEG
+        lon_bin = round(float(lon) / ELECTRIC_NATIVE_GRID_DEG) * ELECTRIC_NATIVE_GRID_DEG
+        return f"cell-{lat_bin:+05.2f}_{lon_bin:+06.2f}"
+    return str(point_record.get("territory_id") or point_record.get("feature_id") or "")
+
+
+def _grid_geometry_from_cell_id(cell_id: str):
+    text = str(cell_id or "").strip()
+    if not text.startswith("cell-") or "_" not in text or box is None:
+        return None
+    try:
+        lat_txt, lon_txt = text[5:].split("_", 1)
+        lat = float(lat_txt)
+        lon = float(lon_txt)
+    except ValueError:
+        return None
+    half = ELECTRIC_NATIVE_GRID_DEG / 2.0
+    return box(lon - half, lat - half, lon + half, lat + half)
+
+
+def _aggregate_native_service_states_for_public_map(
+    *,
+    bundle: ClimadaExposureBundle,
+    values: np.ndarray,
+    class_keys: list[str | None],
+    water_service_classes: list[str | None],
+    service_feature_ids: list[str | None],
+    is_blocking_asset: list[bool],
+    weights_km: np.ndarray,
+    hazard_outputs: dict[str, Any],
+) -> tuple[dict[str, dict[str, dict[str, str]]], dict[str, dict[str, dict[str, str]]], set[str]]:
+    native_states_by_hazard: dict[str, dict[str, dict[str, str]]] = {}
+    native_causes_by_hazard: dict[str, dict[str, dict[str, str]]] = {}
+    electric_unit_ids: set[str] = set()
+    point_records = list(bundle.point_records or [])
+    electric_units = [
+        _electric_native_unit_id_from_point(rec) if str(class_keys[idx] or "").startswith("elec_") else ""
+        for idx, rec in enumerate(point_records)
+    ]
+
+    for hazard_key, hazard_payload in hazard_outputs.items():
+        scenario_results = hazard_payload.get("scenario_results") if isinstance(hazard_payload, dict) else None
+        if not isinstance(scenario_results, dict):
+            continue
+        native_states_by_hazard[hazard_key] = {}
+        native_causes_by_hazard[hazard_key] = {}
+        for public_scenario in PUBLIC_MAP_SCENARIOS:
+            scenario_key = _public_loss_scenario_source(public_scenario)
+            scenario_result = scenario_results.get(scenario_key)
+            if not isinstance(scenario_result, dict):
+                raise RuntimeError(f"Missing scenario results for {hazard_key}.{public_scenario}")
+            total_loss = np.asarray(scenario_result.get("total_loss"), dtype=float).reshape(-1)
+            direct_loss = np.asarray(scenario_result.get("direct_loss", total_loss), dtype=float).reshape(-1)
+            if direct_loss.size != total_loss.size:
+                direct_loss = total_loss
+            direct_state = np.asarray(scenario_result.get("direct_state"), dtype=object).reshape(-1)
+            final_state = np.asarray(scenario_result.get("final_state"), dtype=object).reshape(-1)
+
+            elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
+            elec_exposure: dict[str, float] = defaultdict(float)
+            elec_loss: dict[str, float] = defaultdict(float)
+            water_exposure: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_loss: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_lat_sum: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_lon_sum: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            water_count: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+            blocking_state_by_service: dict[str, str] = {}
+            scenario_cause_map: dict[str, str] = {}
+
+            for idx, rec in enumerate(point_records):
+                class_key = class_keys[idx]
+                water_service_class = water_service_classes[idx]
+                if isinstance(class_key, str) and class_key.startswith("elec_"):
+                    unit_id = electric_units[idx]
+                    if not unit_id:
+                        continue
+                    electric_unit_ids.add(unit_id)
+                    _add_state(elec_buckets[unit_id], str(direct_state[idx]), float(weights_km[idx]))
+                    elec_exposure[unit_id] += float(values[idx])
+                    elec_loss[unit_id] += float(direct_loss[idx])
+                    continue
+
+                if water_service_class not in {"eau_aep", "eau_eu"}:
+                    continue
+                service_unit_id = str(service_feature_ids[idx] or "").strip() or str(rec.get("territory_id") or "")
+                if not service_unit_id:
+                    continue
+                water_exposure[water_service_class][service_unit_id] += float(values[idx])
+                water_loss[water_service_class][service_unit_id] += float(direct_loss[idx])
+                lat = rec.get("lat")
+                lon = rec.get("lon")
+                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                    water_lat_sum[water_service_class][service_unit_id] += float(lat)
+                    water_lon_sum[water_service_class][service_unit_id] += float(lon)
+                    water_count[water_service_class][service_unit_id] += 1.0
+                if is_blocking_asset[idx]:
+                    current_state = blocking_state_by_service.get(service_unit_id, "S0")
+                    candidate_state = str(final_state[idx])
+                    if STATE_ORDER.get(candidate_state, 0) > STATE_ORDER.get(current_state, 0):
+                        blocking_state_by_service[service_unit_id] = candidate_state
+
+            elec_health = {unit_id: _health(bucket) for unit_id, bucket in elec_buckets.items()}
+            global_elec_health = _health(_merge_buckets(list(elec_buckets.values())))
+
+            scenario_state_map: dict[str, str] = {}
+            for unit_id, exposure_value in elec_exposure.items():
+                ratio = float(elec_loss[unit_id]) / max(float(exposure_value), 1.0)
+                state_code = _state_from_ratio(ratio)
+                scenario_state_map[unit_id] = state_code
+                scenario_cause_map[unit_id] = "direct_damage" if STATE_ORDER[state_code] > 0 else "none"
+
+            for water_service_class in ("eau_aep", "eau_eu"):
+                for service_unit_id, exposure_value in water_exposure[water_service_class].items():
+                    ratio = float(water_loss[water_service_class][service_unit_id]) / max(float(exposure_value), 1.0)
+                    direct_service_state = _state_from_ratio(ratio)
+                    state_code = direct_service_state
+                    count = float(water_count[water_service_class].get(service_unit_id, 0.0))
+                    elec_unit_id = ""
+                    if count > 0.0:
+                        lat = float(water_lat_sum[water_service_class][service_unit_id]) / count
+                        lon = float(water_lon_sum[water_service_class][service_unit_id]) / count
+                        elec_unit_id = _electric_native_unit_id_from_point({"lat": lat, "lon": lon})
+                    dep_state = _dependency_state_from_elec_health(
+                        elec_health.get(elec_unit_id, global_elec_health)
+                    )
+                    if STATE_ORDER[dep_state] > STATE_ORDER[state_code]:
+                        state_code = dep_state
+                    blocker_state = blocking_state_by_service.get(service_unit_id)
+                    if blocker_state and STATE_ORDER[blocker_state] > STATE_ORDER[state_code]:
+                        state_code = blocker_state
+                    scenario_state_map[service_unit_id] = state_code
+                    if STATE_ORDER[state_code] <= 0:
+                        cause_code = "none"
+                    elif STATE_ORDER[direct_service_state] >= STATE_ORDER[state_code]:
+                        cause_code = "direct_damage"
+                    elif blocker_state and STATE_ORDER[blocker_state] >= STATE_ORDER[state_code]:
+                        cause_code = "blocking_ouvrage"
+                    else:
+                        cause_code = "electric_dependency"
+                    scenario_cause_map[service_unit_id] = cause_code
+
+            native_states_by_hazard[hazard_key][public_scenario] = scenario_state_map
+            native_causes_by_hazard[hazard_key][public_scenario] = scenario_cause_map
+
+    return native_states_by_hazard, native_causes_by_hazard, electric_unit_ids
+
+
+def _hydraulic_zone_class_key(network_kind: str) -> str:
+    network_kind_upper = str(network_kind or "").strip().upper()
+    if network_kind_upper == "AEP":
+        return "eau_aep"
+    if network_kind_upper == "EU":
+        return "eau_eu"
+    raise ValueError(f"Unsupported hydraulic network_kind for public state geometry: {network_kind!r}")
+
+def _hydraulic_asset_class_key(feature_role: str, network_kind: str) -> str:
+    feature_role_text = str(feature_role or "").strip().lower()
+    network_kind_upper = str(network_kind or "").strip().upper()
+    if feature_role_text == "poste_refoulement":
+        return "eau_eu_pr"
+    if feature_role_text == "step":
+        return "eau_eu_step"
+    if network_kind_upper == "AEP":
+        return "eau_aep_ouvrages"
+    raise ValueError(
+        f"Unsupported hydraulic asset for public state geometry: feature_role={feature_role!r} network_kind={network_kind!r}"
+    )
+
+
+def _hydraulic_native_service_feature_id(feature_id: str) -> str:
+    return f"{HYDRAULIC_NATIVE_SERVICE_KEY_PREFIX}:{feature_id}"
+
+
+def _resolve_public_state_hydraulic_service_key(
+    row: Any,
+    *,
+    feature_id: str,
+) -> tuple[str, str]:
+    zone_component_key = str(getattr(row, "zone_component_key", "") or "").strip()
+    if zone_component_key:
+        return zone_component_key, "hydraulic_zone_component"
+
+    zone_uid = str(getattr(row, "zone_uid", "") or "").strip()
+    if zone_uid:
+        return zone_uid, "hydraulic_zone_uid_legacy"
+
+    return _hydraulic_native_service_feature_id(feature_id), "native_feature"
+
+
+def _sorted_non_empty_text_values(series: Any) -> list[str]:
+    values: list[str] = []
+    for raw_value in getattr(series, "tolist", lambda: list(series))():
+        text = str(raw_value or "").strip()
+        if text:
+            values.append(text)
+    return sorted(set(values))
+
+
+def _hydraulic_zone_service_ids_align_with_lines(
+    zone_gdf,
+    lines_gdf,
+    *,
+    network_kind: str,
+) -> bool:
+    zone_ids = set(
+        _sorted_non_empty_text_values(
+            zone_gdf.loc[zone_gdf["network_kind"] == network_kind, "zone_component_key"]
+        )
+    )
+    line_ids = set(
+        _sorted_non_empty_text_values(
+            lines_gdf.loc[lines_gdf["network_kind"] == network_kind, "zone_component_key"]
+        )
+    )
+    if not zone_ids or not line_ids:
+        return True
+    return bool(zone_ids & line_ids)
+
+
+def _build_hydraulic_service_features_from_lines(
+    lines_gdf,
+    *,
+    network_kind: str,
+    class_labels: dict[str, str],
+) -> list[dict[str, Any]]:
+    if unary_union is None:
+        raise RuntimeError("shapely.ops.unary_union is required to build hydraulic service geometries")
+
+    groupable = lines_gdf.loc[
+        (lines_gdf["network_kind"] == network_kind)
+        & lines_gdf["zone_component_key"].notna()
+        & (lines_gdf["zone_component_key"].astype(str).str.strip() != "")
+    ].copy()
+    if groupable.empty:
+        return []
+
+    class_key = _hydraulic_zone_class_key(network_kind)
+    features: list[dict[str, Any]] = []
+    for service_unit_id, group in groupable.groupby("zone_component_key", dropna=False):
+        service_key = str(service_unit_id or "").strip()
+        if not service_key:
+            continue
+        geometries = [geom for geom in group.geometry if geom is not None and not getattr(geom, "is_empty", False)]
+        if not geometries:
+            continue
+        zone_uid_values = _sorted_non_empty_text_values(group["zone_uid"])
+        zone_uid = zone_uid_values[0] if zone_uid_values else service_key
+        merged_geometry = unary_union(geometries)
+        features.append(
+            {
+                "feature_id": service_key,
+                "class_key": class_key,
+                "class_label": class_labels.get(class_key, class_key),
+                "geometry": merged_geometry,
+                "state_geometry_mode": "hydraulic_zoning_v2",
+                "service_unit_kind": "hydraulic_zone_component",
+                "service_feature_id": service_key,
+                "zone_component_key": service_key,
+                "zone_uid": zone_uid,
+                "network_kind": network_kind,
+                "feature_role": "canalisation",
+            }
+        )
+    return features
+
+
+def _build_network_geometry_features(
+    case_cfg: dict[str, Any],
+    *,
+    electric_unit_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    class_labels = {**DAMAGE_BREAKDOWN_LABELS, **NETWORK_CLASS_LABELS}
+    electric_feature_ids = sorted({str(unit_id) for unit_id in (electric_unit_ids or set()) if str(unit_id).strip()})
+
+    def append_geometries(
+        path: Path,
+        class_key: str,
+        prefix: str,
+        source_idx: int,
+        *,
+        layer: str | None = None,
+        source_crs: str | None = None,
+    ) -> None:
+        gdf = _clip_case_gdf(
+            _read_vector(path, layer=layer, source_crs=source_crs),
+            case_cfg,
+        ).to_crs(WGS84)
         if gdf.empty:
             return
         for idx, geom in enumerate(gdf.geometry, start=1):
@@ -768,16 +1453,183 @@ def _build_network_geometry_features(case_cfg: dict[str, Any]) -> list[dict[str,
                 {
                     "feature_id": f"{prefix}-{source_idx}-{idx}",
                     "class_key": class_key,
-                    "class_label": NETWORK_CLASS_LABELS[class_key],
+                    "class_label": class_labels.get(class_key, class_key),
                     "geometry": geom,
+                    "state_geometry_mode": "native_network_geometry",
+                    "service_unit_kind": "native_feature",
+                    "service_feature_id": "",
+                    "zone_component_key": "",
+                    "zone_uid": "",
+                    "network_kind": "",
+                    "feature_role": "",
                 }
             )
 
-    for src in case_cfg["network_geometry_sources"]:
-        class_key = str(src["class_key"])
-        prefix = str(src["prefix"])
-        for source_idx, path in enumerate(src["paths"], start=1):
-            append_lines(path, class_key, prefix, source_idx)
+    if electric_feature_ids:
+        for unit_id in electric_feature_ids:
+            geom = _grid_geometry_from_cell_id(unit_id)
+            if geom is None:
+                continue
+            out.append(
+                {
+                    "feature_id": unit_id,
+                    "class_key": "elec_grid_0p1deg",
+                    "class_label": "Electricite agrégée 0.1°",
+                    "geometry": geom,
+                    "state_geometry_mode": "fixed_grid_0p1deg",
+                    "service_unit_kind": "fixed_grid_0p1deg",
+                    "service_feature_id": "",
+                    "zone_component_key": "",
+                    "zone_uid": "",
+                    "network_kind": "ELEC",
+                    "feature_role": "aggregated_service_grid",
+                }
+            )
+    else:
+        for src in case_cfg["network_geometry_sources"]:
+            class_key = str(src["class_key"])
+            if not class_key.startswith("elec_"):
+                continue
+            prefix = str(src["prefix"])
+            for source_idx, path in enumerate(src["paths"], start=1):
+                append_geometries(
+                    path,
+                    class_key,
+                    prefix,
+                    source_idx,
+                    source_crs=str(src.get("source_crs", "") or "") or None,
+                )
+
+    for src in case_cfg.get("hydraulic_zone_sources", []):
+        gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["zone_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        lines_gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["line_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        fallback_network_kinds: set[str] = set()
+        if not gdf.empty and not lines_gdf.empty:
+            for network_kind in _sorted_non_empty_text_values(gdf["network_kind"]):
+                if not _hydraulic_zone_service_ids_align_with_lines(
+                    gdf,
+                    lines_gdf,
+                    network_kind=network_kind,
+                ):
+                    fallback_network_kinds.add(network_kind)
+
+        if not gdf.empty:
+            for row in gdf.itertuples(index=False):
+                geom = getattr(row, "geometry", None)
+                if geom is None or getattr(geom, "is_empty", False):
+                    continue
+                network_kind = str(getattr(row, "network_kind", "") or "").strip()
+                if network_kind in fallback_network_kinds:
+                    continue
+                feature_id = str(getattr(row, "zone_component_key", "") or "").strip()
+                if not feature_id:
+                    raise ValueError(f"Hydraulic public state geometry requires zone_component_key in {src['path']}")
+                class_key = _hydraulic_zone_class_key(network_kind)
+                out.append(
+                    {
+                        "feature_id": feature_id,
+                        "class_key": class_key,
+                        "class_label": class_labels.get(class_key, class_key),
+                        "geometry": geom,
+                        "state_geometry_mode": "hydraulic_zoning_v2",
+                        "service_unit_kind": "hydraulic_zone_component",
+                        "service_feature_id": feature_id,
+                        "zone_component_key": feature_id,
+                        "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
+                        "network_kind": network_kind,
+                        "feature_role": "canalisation",
+                    }
+                )
+        for network_kind in sorted(fallback_network_kinds):
+            out.extend(
+                _build_hydraulic_service_features_from_lines(
+                    lines_gdf,
+                    network_kind=network_kind,
+                    class_labels=class_labels,
+                )
+            )
+        if not lines_gdf.empty:
+            for idx, row in enumerate(lines_gdf.itertuples(index=False), start=1):
+                geom = getattr(row, "geometry", None)
+                if geom is None or getattr(geom, "is_empty", False):
+                    continue
+                zone_component_key = str(getattr(row, "zone_component_key", "") or "").strip()
+                if zone_component_key:
+                    continue
+                feature_id = str(
+                    getattr(row, "feature_id", "")
+                    or getattr(row, "source_feature_id", "")
+                    or f"hydraulic-line-{idx}"
+                ).strip()
+                zone_uid = str(getattr(row, "zone_uid", "") or "").strip()
+                if zone_uid:
+                    raise ValueError(
+                        f"Hydraulic public state geometry requires zone_component_key for assigned line {feature_id} in {src['path']}"
+                    )
+                network_kind = str(getattr(row, "network_kind", "") or "").strip()
+                class_key = _hydraulic_zone_class_key(network_kind)
+                service_feature_id = _hydraulic_native_service_feature_id(feature_id)
+                out.append(
+                    {
+                        "feature_id": service_feature_id,
+                        "class_key": class_key,
+                        "class_label": class_labels.get(class_key, class_key),
+                        "geometry": geom,
+                        "state_geometry_mode": "native_network_geometry",
+                        "service_unit_kind": "native_feature",
+                        "service_feature_id": service_feature_id,
+                        "zone_component_key": service_feature_id,
+                        "zone_uid": "",
+                        "network_kind": network_kind,
+                        "feature_role": str(getattr(row, "feature_role", "") or "canalisation").strip(),
+                    }
+                )
+        assets_gdf = _clip_case_gdf(
+            _read_vector(Path(src["path"]), layer=str(src["asset_layer"])),
+            case_cfg,
+        ).to_crs(WGS84)
+        if assets_gdf.empty:
+            continue
+        for idx, row in enumerate(assets_gdf.itertuples(index=False), start=1):
+            geom = getattr(row, "geometry", None)
+            if geom is None or getattr(geom, "is_empty", False):
+                continue
+            feature_id = str(
+                getattr(row, "feature_id", "")
+                or getattr(row, "source_feature_id", "")
+                or f"hydraulic-asset-{idx}"
+            ).strip()
+            network_kind = str(getattr(row, "network_kind", "") or "").strip()
+            feature_role = str(getattr(row, "feature_role", "") or "").strip()
+            service_feature_id, service_unit_kind = _resolve_public_state_hydraulic_service_key(
+                row,
+                feature_id=feature_id,
+            )
+            class_key = _hydraulic_asset_class_key(
+                feature_role,
+                network_kind,
+            )
+            out.append(
+                {
+                    "feature_id": feature_id,
+                    "class_key": class_key,
+                    "class_label": class_labels.get(class_key, class_key),
+                    "geometry": geom,
+                    "state_geometry_mode": "native_network_geometry",
+                    "service_unit_kind": service_unit_kind,
+                    "service_feature_id": service_feature_id,
+                    "zone_component_key": service_feature_id,
+                    "zone_uid": str(getattr(row, "zone_uid", "") or "").strip(),
+                    "network_kind": network_kind,
+                    "feature_role": feature_role,
+                }
+            )
     return out
 
 
@@ -795,15 +1647,226 @@ def _normalize_component_ratio_map(raw: dict[str, Any] | None) -> dict[str, floa
             out[comp] = 0.0
     total = sum(out.values())
     if total <= 0.0:
-        return {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        return {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {comp: out[comp] / total for comp in COMPONENT_ORDER}
 
 
 def _default_component_ratios() -> dict[str, dict[str, dict[str, float]]]:
-    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+    base = {"wind": 1.0, "rain": 0.0, "surge": 0.0, "landslide": 0.0}
     return {
         hazard: {scenario: dict(base) for scenario in MAP_SCENARIOS}
         for hazard in ("storm", "storm_cmcc")
+    }
+
+
+def _combine_component_ratios_with_landslide(
+    base_ratios: dict[str, Any] | None,
+    *,
+    non_landslide_total: float,
+    landslide_total: float,
+) -> dict[str, float]:
+    non_landslide_total = max(0.0, float(non_landslide_total))
+    landslide_total = max(0.0, float(landslide_total))
+    normalized = _normalize_component_ratio_map(base_ratios or {})
+
+    raw = {comp: 0.0 for comp in COMPONENT_ORDER}
+    non_landslide_weight = sum(float(normalized.get(comp, 0.0)) for comp in ("wind", "rain", "surge"))
+    if non_landslide_total > 0.0:
+        if non_landslide_weight <= 0.0:
+            non_landslide_shares = {"wind": 1.0, "rain": 0.0, "surge": 0.0}
+        else:
+            non_landslide_shares = {
+                comp: float(normalized.get(comp, 0.0)) / non_landslide_weight
+                for comp in ("wind", "rain", "surge")
+            }
+        for comp in ("wind", "rain", "surge"):
+            raw[comp] = non_landslide_total * float(non_landslide_shares.get(comp, 0.0))
+    raw["landslide"] = landslide_total
+    return _normalize_component_ratio_map(raw)
+
+
+def _extract_complete_analysis_source_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    meta = payload.get("meta") if isinstance(payload, dict) else None
+    meta = meta if isinstance(meta, dict) else {}
+    modeling = meta.get("modeling") if isinstance(meta.get("modeling"), dict) else {}
+    state_methodology = (
+        meta.get("network_state_methodology")
+        if isinstance(meta.get("network_state_methodology"), dict)
+        else modeling.get("state_aggregation_metadata")
+    )
+    if not isinstance(state_methodology, dict):
+        state_methodology = {}
+    checkpoint_dir = str(modeling.get("sharding_checkpoint_dir") or "")
+    match = re.search(r"/complete-analysis-runs/([^/]+)/", checkpoint_dir)
+    run_id = match.group(1) if match else ""
+    dynamic_max_tracks = {
+        "storm": int(_safe_float(modeling.get("hazard_track_count_storm"), 0.0)),
+        "storm_cmcc": int(_safe_float(modeling.get("hazard_track_count_storm_cmcc"), 0.0)),
+    }
+    return {
+        "run_id": run_id or None,
+        "generated_at": str(meta.get("updated_at") or "") or None,
+        "sampling_spacing_m": float(_safe_float(meta.get("sampling_spacing_m"), 0.0)),
+        "dynamic_max_tracks": dynamic_max_tracks,
+        "network_state_methodology": dict(state_methodology),
+        "network_state_methodology_breaks_comparability": bool(
+            meta.get("network_state_methodology_breaks_comparability", bool(state_methodology))
+        ),
+    }
+
+
+def _extract_complete_analysis_native_service_state_overlays(
+    payload: dict[str, Any] | None,
+) -> dict[str, dict[str, str]]:
+    overlays: dict[str, dict[str, str]] = {
+        "storm": {},
+        "storm_cmcc": {},
+    }
+    territory_results = payload.get("territory_results") if isinstance(payload, dict) else None
+    if not isinstance(territory_results, list):
+        return overlays
+
+    for territory_row in territory_results:
+        if not isinstance(territory_row, dict):
+            continue
+        network_states_native = (
+            territory_row.get("network_states_native")
+            if isinstance(territory_row.get("network_states_native"), dict)
+            else {}
+        )
+        for hazard_key in ("storm", "storm_cmcc"):
+            hazard_states = (
+                network_states_native.get(hazard_key)
+                if isinstance(network_states_native.get(hazard_key), dict)
+                else {}
+            )
+            for service_name in ("water_aep", "water_eu"):
+                state_row = hazard_states.get(service_name)
+                if not isinstance(state_row, dict):
+                    continue
+                service_unit_id = str(state_row.get("service_unit_id") or "").strip()
+                state_code = str(state_row.get("state") or "").strip().upper()
+                if not service_unit_id or state_code not in STATE_ORDER:
+                    continue
+                current_state = overlays[hazard_key].get(service_unit_id, "S0")
+                if STATE_ORDER[state_code] > STATE_ORDER.get(current_state, 0):
+                    overlays[hazard_key][service_unit_id] = state_code
+    return overlays
+
+
+def _overlay_complete_analysis_service_states_on_public_map(
+    geometry_features: list[dict[str, Any]],
+    hazard_feature_states: dict[str, dict[str, dict[str, str]]],
+    *,
+    hazard_feature_causes: dict[str, dict[str, dict[str, str]]] | None = None,
+    complete_analysis_payload: dict[str, Any] | None,
+) -> None:
+    overlays = _extract_complete_analysis_native_service_state_overlays(complete_analysis_payload)
+    if not any(overlays[hazard_key] for hazard_key in overlays):
+        return
+
+    scenario_keys = ("p99", "top10", "top5")
+    service_name_for_class = {
+        "eau_aep": "water_aep",
+        "eau_eu": "water_eu",
+    }
+    fallback_state_by_hazard_and_class: dict[str, dict[str, str]] = {
+        "storm": {},
+        "storm_cmcc": {},
+    }
+    for hazard_key in ("storm", "storm_cmcc"):
+        for class_key, service_name in service_name_for_class.items():
+            service_states: dict[str, str] = {}
+            territory_results = (
+                complete_analysis_payload.get("territory_results")
+                if isinstance(complete_analysis_payload, dict)
+                else None
+            )
+            if not isinstance(territory_results, list):
+                continue
+            for territory_row in territory_results:
+                if not isinstance(territory_row, dict):
+                    continue
+                native_by_hazard = (
+                    territory_row.get("network_states_native")
+                    if isinstance(territory_row.get("network_states_native"), dict)
+                    else {}
+                )
+                hazard_states = native_by_hazard.get(hazard_key) if isinstance(native_by_hazard.get(hazard_key), dict) else {}
+                state_row = hazard_states.get(service_name)
+                if not isinstance(state_row, dict):
+                    continue
+                service_unit_id = str(state_row.get("service_unit_id") or "").strip()
+                state_code = str(state_row.get("state") or "").strip().upper()
+                if service_unit_id and state_code in STATE_ORDER:
+                    service_states[service_unit_id] = state_code
+            if len(service_states) == 1:
+                fallback_state_by_hazard_and_class[hazard_key][class_key] = next(iter(service_states.values()))
+
+    for feature in geometry_features:
+        class_key = str(feature.get("class_key") or "").strip()
+        if class_key not in {"eau_aep", "eau_eu"}:
+            continue
+        service_feature_id = str(feature.get("service_feature_id") or feature.get("feature_id") or "").strip()
+        if not service_feature_id:
+            continue
+        for hazard_key in ("storm", "storm_cmcc"):
+            state_code = overlays.get(hazard_key, {}).get(service_feature_id)
+            if state_code not in STATE_ORDER:
+                state_code = fallback_state_by_hazard_and_class.get(hazard_key, {}).get(class_key, "")
+            if state_code not in STATE_ORDER:
+                continue
+            scenario_map = hazard_feature_states.get(hazard_key)
+            if not isinstance(scenario_map, dict):
+                continue
+            for scenario_key in scenario_keys:
+                feature_states = scenario_map.get(scenario_key)
+                if isinstance(feature_states, dict):
+                    feature_states[service_feature_id] = state_code
+                if hazard_feature_causes is not None:
+                    cause_map = (
+                        hazard_feature_causes.get(hazard_key, {}).get(scenario_key)
+                        if isinstance(hazard_feature_causes.get(hazard_key), dict)
+                        else None
+                    )
+                    if isinstance(cause_map, dict):
+                        cause_map[service_feature_id] = "direct_damage" if STATE_ORDER[state_code] > 0 else "none"
+
+
+def _build_publication_trace(
+    *,
+    source_mode: str,
+    fallback_reason: str | None,
+    complete_analysis_source: dict[str, Any] | None,
+    wind_map_meta: dict[str, Any] | None,
+    proxy_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    complete_meta = complete_analysis_source if isinstance(complete_analysis_source, dict) else {}
+    wind_meta = wind_map_meta if isinstance(wind_map_meta, dict) else {}
+    proxy_meta_dict = proxy_meta if isinstance(proxy_meta, dict) else {}
+    proxy_trace = (
+        proxy_meta_dict.get("publication_trace")
+        if isinstance(proxy_meta_dict.get("publication_trace"), dict)
+        else {}
+    )
+    proxy_modeling = proxy_meta_dict.get("modeling") if isinstance(proxy_meta_dict.get("modeling"), dict) else {}
+    return {
+        "artifact_kind": "case_study_page_analysis",
+        "source_mode": str(source_mode),
+        "fallback_active": bool(fallback_reason),
+        "fallback_reason": str(fallback_reason or "") or None,
+        "complete_analysis_run_id": str(complete_meta.get("run_id") or "") or None,
+        "complete_analysis_generated_at": str(complete_meta.get("generated_at") or "") or None,
+        "wind_map_run_id": str(wind_meta.get("case_study_run_id") or "") or None,
+        "wind_map_generated_at": str(wind_meta.get("generated_at") or "") or None,
+        "multi_hazard_proxy_run_id": str(proxy_meta_dict.get("case_study_run_id") or "") or None,
+        "multi_hazard_proxy_fallback_active": bool(
+            proxy_trace.get("fallback_active") if proxy_trace else proxy_modeling.get("fallback")
+        ),
+        "multi_hazard_proxy_source_mode": str(
+            proxy_trace.get("source_mode") if proxy_trace else proxy_modeling.get("source") or ""
+        ) or None,
+        "multi_hazard_proxy_fallback_reason": str(proxy_trace.get("fallback_reason") or "") or None,
     }
 
 
@@ -830,10 +1893,12 @@ def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, di
         if isinstance(annual_raw, dict):
             annual_clean = {k: v for k, v in annual_raw.items() if str(k) != 'combined_capped'}
             annual_ratio = _normalize_component_ratio_map(annual_clean)
-            for scenario in ("annual", "rp50", "rp100", "top10", "top5"):
+            for scenario in ("annual", "rp10", "rp50", "rp100", "rp1000", "top10", "top5"):
                 out[hazard][scenario] = dict(annual_ratio)
 
-        event_raw = hazard_payload.get('components_direct_max_event_loss_eur')
+        event_raw = hazard_payload.get('components_direct_percentile_99_loss_eur')
+        if not isinstance(event_raw, dict):
+            event_raw = hazard_payload.get('components_direct_max_event_loss_eur')
         if isinstance(event_raw, dict):
             event_ratio = _normalize_component_ratio_map(event_raw)
             out[hazard]['event_max'] = dict(event_ratio)
@@ -841,7 +1906,9 @@ def _load_component_ratio_reference(path: Path | None) -> dict[str, dict[str, di
             annual_clean = {k: v for k, v in annual_raw.items() if str(k) != 'combined_capped'}
             out[hazard]['event_max'] = _normalize_component_ratio_map(annual_clean)
 
-        out[hazard]['rp50'] = dict(out[hazard].get('rp100') or out[hazard].get('annual') or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+        out[hazard]['rp10'] = dict(out[hazard].get('rp10') or out[hazard].get('annual') or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+        out[hazard]['rp50'] = dict(out[hazard].get('rp50') or out[hazard].get('rp100') or out[hazard].get('annual') or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
+        out[hazard]['rp1000'] = dict(out[hazard].get('rp1000') or out[hazard].get('rp100') or out[hazard].get('annual') or {"wind": 1.0, "rain": 0.0, "surge": 0.0})
 
     return out
 
@@ -882,34 +1949,66 @@ def _default_multi_hazard_proxy(
 def _load_multi_hazard_proxy(
     path: Path | None,
     component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
+    *,
+    strict: bool = False,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     out = _default_multi_hazard_proxy(component_ratios_by_hazard)
-    if path is None or not path.exists():
+    if path is None:
+        if strict:
+            raise FileNotFoundError("Missing multi-hazard proxy JSON path")
+        return out
+    if not path.exists():
+        if strict:
+            raise FileNotFoundError(f"Missing multi-hazard proxy JSON: {path}")
         return out
 
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as exc:
+        if strict:
+            raise RuntimeError(f"Unable to parse multi-hazard proxy JSON {path}: {exc}") from exc
         return out
 
     hazards = payload.get("hazards") if isinstance(payload, dict) else None
     if not isinstance(hazards, dict):
+        if strict:
+            raise RuntimeError(f"Invalid multi-hazard proxy payload: missing hazards in {path}")
         return out
+
+    if strict:
+        meta = payload.get("meta") if isinstance(payload, dict) else None
+        publication_trace = meta.get("publication_trace") if isinstance(meta, dict) else None
+        if not isinstance(publication_trace, dict):
+            raise RuntimeError(f"Invalid multi-hazard proxy payload: missing meta.publication_trace in {path}")
+        if bool(publication_trace.get("fallback_active")):
+            raise RuntimeError(f"Fallback multi-hazard proxy is forbidden: {path}")
 
     for hazard in ("storm", "storm_cmcc"):
         hazard_payload = hazards.get(hazard)
         if not isinstance(hazard_payload, dict):
+            if strict:
+                raise RuntimeError(f"Invalid multi-hazard proxy payload: missing hazard '{hazard}' in {path}")
             continue
         scenarios = hazard_payload.get("scenarios")
         if not isinstance(scenarios, dict):
+            if strict:
+                raise RuntimeError(f"Invalid multi-hazard proxy payload: missing scenarios for '{hazard}' in {path}")
             continue
         for scenario in MAP_SCENARIOS:
             scenario_payload = scenarios.get(scenario)
             if not isinstance(scenario_payload, dict):
+                if strict:
+                    raise RuntimeError(
+                        f"Invalid multi-hazard proxy payload: missing scenario '{hazard}.{scenario}' in {path}"
+                    )
                 continue
             ratios = scenario_payload.get("component_ratios")
             if isinstance(ratios, dict):
                 out[hazard]["component_ratios"][scenario] = _normalize_component_ratio_map(ratios)
+            elif strict:
+                raise RuntimeError(
+                    f"Invalid multi-hazard proxy payload: missing component_ratios for '{hazard}.{scenario}' in {path}"
+                )
             try:
                 multiplier = float(scenario_payload.get("global_multiplier", 1.0) or 1.0)
             except Exception:
@@ -927,6 +2026,221 @@ def _load_multi_hazard_proxy(
     return out
 
 
+def _build_landslide_proxy_losses(
+    exposure_bundle: ClimadaExposureBundle,
+    point_records: list[dict[str, Any]],
+    *,
+    territory: str,
+    settings: Any,
+    bbox: tuple[float, float, float, float],
+) -> dict[str, dict[str, Any]]:
+    values = np.asarray(
+        [max(0.0, float(rec.get("value_eur") or 0.0)) for rec in point_records],
+        dtype=float,
+    ).reshape(-1)
+    del exposure_bundle, bbox
+    if values.size == 0:
+        return {}
+
+    source_map = {
+        "storm": (
+            ("precipitation", Path(settings.landslide_precip_current_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+        "storm_cmcc": (
+            ("precipitation", Path(settings.landslide_precip_ssp585_path)),
+            ("earthquake", Path(settings.landslide_earthquake_path)),
+        ),
+    }
+
+    out: dict[str, dict[str, Any]] = {}
+    for hazard_key, sources in source_map.items():
+        scenario_arrays = {scenario: np.zeros_like(values, dtype=float) for scenario in MAP_SCENARIOS}
+        source_paths: list[str] = []
+        for source_name, source_path in sources:
+            path = Path(source_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Missing landslide raster for {hazard_key}/{source_name}: {path}")
+            source_paths.append(str(path))
+            class_values = _sample_raster_values_for_point_records(path, point_records)
+            class_values = np.where(np.asarray(class_values, dtype=float).reshape(-1) > 1.0, class_values, 0.0)
+            occurrence_rates = np.clip(class_values / max(float(settings.landslide_corr_fact), 1e-9), 0.0, 1.0)
+            damage_ratios = np.interp(
+                class_values,
+                np.asarray(LANDSLIDE_INTENSITIES, dtype=float),
+                np.asarray(LANDSLIDE_HYPOTHESIS_CURVE, dtype=float),
+                left=0.0,
+                right=float(LANDSLIDE_HYPOTHESIS_CURVE[-1]),
+            )
+            damage_amounts = np.minimum(np.maximum(values * damage_ratios, 0.0), values)
+            annual = np.minimum(np.maximum(damage_amounts * occurrence_rates, 0.0), values)
+            yearly_losses = _simulate_landslide_portfolio_yearly_losses(
+                damage_amounts,
+                occurrence_rates,
+                n_years=int(settings.landslide_n_years),
+                dist=str(settings.landslide_dist),
+                seed=_stable_seed(territory, hazard_key, source_name, path.name),
+            )
+            yearly_freq = np.full(max(1, yearly_losses.size), 1.0 / max(1, yearly_losses.size), dtype=float)
+            factors = scenario_loss_factors(
+                SimpleNamespace(
+                    aai_agg_eur=float(annual.sum()),
+                    pml_eur={
+                        10: _loss_at_return_period(yearly_losses, yearly_freq, 10.0),
+                        50: _loss_at_return_period(yearly_losses, yearly_freq, 50.0),
+                        100: _loss_at_return_period(yearly_losses, yearly_freq, 100.0),
+                        1000: _loss_at_return_period(yearly_losses, yearly_freq, 1000.0),
+                    },
+                    max_event_loss_eur=float(np.max(yearly_losses)) if yearly_losses.size else 0.0,
+                )
+            )
+            annual_total = float(annual.sum())
+            if annual_total > 0.0:
+                factors["rp10"] = max(
+                    0.0,
+                    _loss_at_return_period(yearly_losses, yearly_freq, 10.0) / max(annual_total, 1e-9),
+                )
+                factors["rp1000"] = max(
+                    0.0,
+                    _loss_at_return_period(yearly_losses, yearly_freq, 1000.0) / max(annual_total, 1e-9),
+                )
+            annual = np.nan_to_num(annual, nan=0.0, posinf=0.0, neginf=0.0)
+            annual = np.minimum(np.maximum(annual, 0.0), values)
+            for scenario in MAP_SCENARIOS:
+                factor = 1.0 if scenario == "annual" else float(factors.get(scenario, 0.0) or 0.0)
+                if factor <= 0.0:
+                    continue
+                scenario_arrays[scenario] = np.minimum(
+                    values,
+                    scenario_arrays[scenario] + np.minimum(np.maximum(annual * factor, 0.0), values),
+                )
+
+        out[hazard_key] = {
+            "scenario_arrays": scenario_arrays,
+            "scenario_totals": {scenario: float(arr.sum()) for scenario, arr in scenario_arrays.items()},
+            "source_paths": source_paths,
+        }
+    return out
+
+
+def _sample_raster_values_for_point_records(
+    path_sourcefile: Path,
+    point_records: list[dict[str, Any]],
+) -> np.ndarray:
+    if gdal is None:
+        raise RuntimeError("GDAL runtime is required for lightweight landslide raster sampling")
+
+    dataset = gdal.Open(str(path_sourcefile))
+    if dataset is None:
+        raise FileNotFoundError(f"Unable to open landslide raster: {path_sourcefile}")
+
+    band = dataset.GetRasterBand(1)
+    if band is None:
+        raise RuntimeError(f"Unable to read landslide raster band: {path_sourcefile}")
+    width = int(dataset.RasterXSize)
+    height = int(dataset.RasterYSize)
+    raster_bytes = band.ReadRaster(
+        0,
+        0,
+        width,
+        height,
+        buf_xsize=width,
+        buf_ysize=height,
+        buf_type=gdal.GDT_Float32,
+    )
+    if raster_bytes is None:
+        raise RuntimeError(f"Unable to read landslide raster array: {path_sourcefile}")
+    raster_arr = np.frombuffer(raster_bytes, dtype=np.float32).reshape(height, width).astype(float, copy=False)
+    nodata = band.GetNoDataValue()
+
+    geotransform = dataset.GetGeoTransform()
+    if geotransform is None:
+        raise RuntimeError(f"Missing geotransform for landslide raster: {path_sourcefile}")
+    origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height = geotransform
+    if abs(float(rot_x or 0.0)) > 1e-9 or abs(float(rot_y or 0.0)) > 1e-9:
+        raise RuntimeError(f"Rotated landslide rasters are not supported for lightweight sampling: {path_sourcefile}")
+    if float(pixel_width or 0.0) == 0.0 or float(pixel_height or 0.0) == 0.0:
+        raise RuntimeError(f"Invalid pixel size in landslide raster: {path_sourcefile}")
+
+    transform = None
+    projection = str(dataset.GetProjection() or "").strip()
+    if projection and osr is not None:
+        try:
+            source_srs = osr.SpatialReference()
+            source_srs.ImportFromEPSG(4326)
+            target_srs = osr.SpatialReference()
+            target_srs.ImportFromWkt(projection)
+            if not bool(source_srs.IsSame(target_srs)):
+                transform = osr.CoordinateTransformation(source_srs, target_srs)
+        except Exception:
+            transform = None
+
+    out = np.zeros(len(point_records), dtype=float)
+    rows = int(raster_arr.shape[0])
+    cols = int(raster_arr.shape[1]) if raster_arr.ndim >= 2 else 0
+    for idx, record in enumerate(point_records):
+        try:
+            lon = float(record.get("lon"))
+            lat = float(record.get("lat"))
+        except Exception:
+            continue
+        if not np.isfinite(lon) or not np.isfinite(lat):
+            continue
+
+        x = lon
+        y = lat
+        if transform is not None:
+            try:
+                x_t, y_t, _ = transform.TransformPoint(float(lon), float(lat))
+                x = float(x_t)
+                y = float(y_t)
+            except Exception:
+                continue
+
+        col = int(np.floor((x - float(origin_x)) / float(pixel_width)))
+        row = int(np.floor((y - float(origin_y)) / float(pixel_height)))
+        if row < 0 or row >= rows or col < 0 or col >= cols:
+            continue
+        value = float(raster_arr[row, col])
+        if nodata is not None and abs(value - float(nodata)) <= 1e-9:
+            continue
+        if np.isfinite(value):
+            out[idx] = value
+
+    return np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _simulate_landslide_portfolio_yearly_losses(
+    damage_amounts: np.ndarray,
+    occurrence_rates: np.ndarray,
+    *,
+    n_years: int,
+    dist: str,
+    seed: int,
+) -> np.ndarray:
+    losses = np.asarray(damage_amounts, dtype=float).reshape(-1)
+    rates = np.asarray(occurrence_rates, dtype=float).reshape(-1)
+    if losses.size == 0 or rates.size == 0 or n_years <= 0:
+        return np.zeros(0, dtype=float)
+
+    rng = np.random.default_rng(int(seed))
+    yearly = np.zeros(int(n_years), dtype=float)
+    chunk_size = 2048
+    dist_key = str(dist or "poisson").strip().lower()
+
+    for start in range(0, losses.size, chunk_size):
+        end = min(losses.size, start + chunk_size)
+        chunk_losses = losses[start:end]
+        chunk_rates = np.maximum(rates[start:end], 0.0)
+        if dist_key == "poisson":
+            draws = rng.poisson(chunk_rates.reshape(1, -1), size=(int(n_years), end - start))
+            yearly += draws @ chunk_losses
+        else:
+            draws = rng.random((int(n_years), end - start)) < chunk_rates.reshape(1, -1)
+            yearly += draws.astype(float) @ chunk_losses
+    return yearly
+
+
 def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, dict[str, float]]]:
     out = _default_component_ratios()
     component_hazards = getattr(climada_run, "component_hazards", {}) or {}
@@ -938,8 +2252,10 @@ def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, 
 
         annual_raw: dict[str, float] = {}
         event_raw: dict[str, float] = {}
+        rp10_raw: dict[str, float] = {}
         rp50_raw: dict[str, float] = {}
         rp100_raw: dict[str, float] = {}
+        rp1000_raw: dict[str, float] = {}
 
         for component in COMPONENT_ORDER:
             comp_result = hazard_components.get(component)
@@ -948,16 +2264,22 @@ def _component_ratios_from_climada_run(climada_run: Any) -> dict[str, dict[str, 
             annual_raw[component] = float(np.asarray(getattr(comp_result, "eai_direct_by_point", []), dtype=float).sum())
             event_raw[component] = float(getattr(comp_result, "max_event_loss_eur", 0.0) or 0.0)
             pml = getattr(comp_result, "pml_eur", {}) or {}
+            rp10_raw[component] = float(pml.get(10, 0.0) or 0.0)
             rp50_raw[component] = float(pml.get(50, 0.0) or 0.0)
             rp100_raw[component] = float(pml.get(100, 0.0) or 0.0)
+            rp1000_raw[component] = float(pml.get(1000, 0.0) or 0.0)
 
         annual_ratio = _normalize_component_ratio_map(annual_raw)
         out[hazard]["annual"] = dict(annual_ratio)
         out[hazard]["top10"] = dict(annual_ratio)
         out[hazard]["top5"] = dict(annual_ratio)
+        rp10_ratio = _normalize_component_ratio_map(rp10_raw)
+        out[hazard]["rp10"] = dict(rp10_ratio if sum(max(0.0, float(v)) for v in rp10_raw.values()) > 0.0 else annual_ratio)
         out[hazard]["rp100"] = _normalize_component_ratio_map(rp100_raw)
         rp50_ratio = _normalize_component_ratio_map(rp50_raw)
-        out[hazard]["rp50"] = dict(rp50_ratio if any(float(v) > 0.0 for v in rp50_ratio.values()) else (out[hazard].get("rp100") or annual_ratio))
+        out[hazard]["rp50"] = dict(rp50_ratio if sum(max(0.0, float(v)) for v in rp50_raw.values()) > 0.0 else (out[hazard].get("rp100") or annual_ratio))
+        rp1000_ratio = _normalize_component_ratio_map(rp1000_raw)
+        out[hazard]["rp1000"] = dict(rp1000_ratio if sum(max(0.0, float(v)) for v in rp1000_raw.values()) > 0.0 else (out[hazard].get("rp100") or annual_ratio))
         out[hazard]["event_max"] = _normalize_component_ratio_map(event_raw)
 
     return out
@@ -1110,7 +2432,7 @@ def _allocate_damage_components(total_eur: float, ratios: dict[str, float] | Non
     weights = [max(0.0, float(normalized.get(comp, 0.0))) for comp in COMPONENT_ORDER]
     weight_sum = float(sum(weights))
     if weight_sum <= 0.0:
-        weights = [1.0, 0.0, 0.0]
+        weights = [1.0, 0.0, 0.0, 0.0]
         weight_sum = 1.0
 
     cents_by_component: dict[str, int] = {}
@@ -1166,12 +2488,6 @@ def _apply_multi_hazard_proxy_to_direct_losses(
         if isinstance(shares_by_scenario, dict)
         else None
     )
-    if not proxy_share_map:
-        proxy_share_map = _normalize_breakdown_share_map(
-            shares_by_scenario.get("annual")
-            if isinstance(shares_by_scenario, dict)
-            else None
-        )
     wind_share_map = _breakdown_share_map_from_losses(direct, breakdown_class_keys)
     if not proxy_share_map:
         share_map = dict(wind_share_map)
@@ -1181,8 +2497,6 @@ def _apply_multi_hazard_proxy_to_direct_losses(
             if isinstance(component_ratios, dict)
             else None
         )
-        if ratio_map == {"wind": 1.0, "rain": 0.0, "surge": 0.0} and isinstance(component_ratios, dict):
-            ratio_map = _normalize_component_ratio_map(component_ratios.get("annual"))
         non_wind_weight = max(0.0, min(1.0, 1.0 - float(ratio_map.get("wind", 1.0))))
         if not wind_share_map:
             share_map = dict(proxy_share_map)
@@ -1237,10 +2551,13 @@ def _compute_impact_metrics(
     settings: Any,
     network_value_per_km: dict[str, float],
     exposure_value_by_class: dict[str, float],
+    territory: str,
+    landslide_bbox: tuple[float, float, float, float],
     hazard_storm_path: Path,
     hazard_storm_cmcc_path: Path,
     component_ratios_by_hazard: dict[str, dict[str, dict[str, float]]] | None = None,
     multi_hazard_proxy: dict[str, dict[str, dict[str, Any]]] | None = None,
+    complete_analysis_payload: dict[str, Any] | None = None,
     component_light_spacing_m: float = DEFAULT_COMPONENT_LIGHT_SPACING_M,
     component_light_max_points_total: int = DEFAULT_COMPONENT_LIGHT_MAX_POINTS_TOTAL,
     component_light_max_points_per_feature: int = DEFAULT_COMPONENT_LIGHT_MAX_POINTS_PER_FEATURE,
@@ -1251,7 +2568,12 @@ def _compute_impact_metrics(
         raise RuntimeError("Unable to instantiate CLIMADA impact functions")
     impfset = ImpactFuncSet(impact_funcs)
 
-    disagg = summarize_disaggregation(exposure, spacing_m=spacing_m)
+    disagg = summarize_disaggregation(
+        exposure,
+        spacing_m=spacing_m,
+        metric_crs=settings.climada_metric_crs,
+        max_points_per_feature=int(settings.climada_max_points_per_feature),
+    )
     bundle = build_climada_exposure(
         exposure,
         spacing_m=spacing_m,
@@ -1259,13 +2581,16 @@ def _compute_impact_metrics(
         max_points_per_feature=settings.climada_max_points_per_feature,
         impact_func_id_resolver=resolve_tc_impact_func_id,
     )
-    hazards = load_storm_hazards(hazard_storm_path, hazard_storm_cmcc_path, settings.storm_years)
 
     values = np.array([float(rec["value_eur"]) for rec in bundle.point_records], dtype=float)
     territories = [str(rec["territory_id"]) for rec in bundle.point_records]
-    feature_ids = [str(rec["feature_id"]) for rec in bundle.point_records]
+    feature_ids = [_public_state_feature_id(rec) for rec in bundle.point_records]
     class_keys = [_network_class_from_point(rec) for rec in bundle.point_records]
     breakdown_class_keys = [_breakdown_class_from_point(rec) for rec in bundle.point_records]
+    water_service_classes = [_water_service_class_from_point(rec) for rec in bundle.point_records]
+    service_feature_ids = [_water_service_feature_id_from_point(rec) for rec in bundle.point_records]
+    is_service_network = [_is_water_service_network_point(rec) for rec in bundle.point_records]
+    is_blocking_asset = [_is_blocking_water_asset_point(rec) for rec in bundle.point_records]
     weights_km = np.array(
         [
             (float(rec["value_eur"]) / network_value_per_km[class_key]) if class_key in network_value_per_km else 0.0
@@ -1278,10 +2603,24 @@ def _compute_impact_metrics(
         component_ratios_by_hazard = _default_component_ratios()
     if multi_hazard_proxy is None:
         multi_hazard_proxy = _default_multi_hazard_proxy(component_ratios_by_hazard)
+    landslide_proxy_losses = _build_landslide_proxy_losses(
+        bundle,
+        list(bundle.point_records or []),
+        territory=territory,
+        settings=settings,
+        bbox=landslide_bbox,
+    )
 
     hazard_outputs: dict[str, Any] = {}
-    for hazard_key, hazard_obj in {"storm": hazards.storm, "storm_cmcc": hazards.storm_cmcc}.items():
+    calibration_by_hazard: dict[str, dict[str, dict[str, float]]] = {}
+    hazard_paths = {
+        "storm": hazard_storm_path,
+        "storm_cmcc": hazard_storm_cmcc_path,
+    }
+    for hazard_key, hazard_path in hazard_paths.items():
+        hazard_obj = load_storm_hazard(hazard_path, settings.storm_years)
         impact = ImpactCalc(bundle.exposures, impfset, hazard_obj).impact(save_mat=False, assign_centroids=True)
+        landslide_scenario_arrays = (landslide_proxy_losses.get(hazard_key) or {}).get("scenario_arrays") or {}
         wind_eai_direct = np.asarray(impact.eai_exp, dtype=float).reshape(-1)
         wind_at_event = np.asarray(impact.at_event, dtype=float).reshape(-1)
         eai_direct = np.asarray(wind_eai_direct, dtype=float).reshape(-1)
@@ -1300,8 +2639,10 @@ def _compute_impact_metrics(
         event_id_max = int(event_id_source[event_idx]) if len(event_id_source) else int(event_idx + 1)
         global_scenario_losses = {
             "event_max": float(at_event[event_idx]) if len(at_event) else 0.0,
+            "rp10": _loss_at_return_period(at_event, freq, 10.0),
             "rp50": _loss_at_return_period(at_event, freq, 50.0),
             "rp100": _loss_at_return_period(at_event, freq, 100.0),
+            "rp1000": _loss_at_return_period(at_event, freq, 1000.0),
             "top10": _mean_top_fraction(at_event, 0.10),
             "top5": _mean_top_fraction(at_event, 0.05),
         }
@@ -1312,8 +2653,10 @@ def _compute_impact_metrics(
 
         class_scenario_factors: dict[str, dict[str, float]] = {
             "event_max": {},
+            "rp10": {},
             "rp50": {},
             "rp100": {},
+            "rp1000": {},
             "top10": {},
             "top5": {},
         }
@@ -1337,58 +2680,53 @@ def _compute_impact_metrics(
             class_at_event = np.minimum(np.maximum(class_at_event, 0.0), class_total_value)
             class_scenario_losses = {
                 "event_max": float(class_at_event[event_idx]) if event_idx < len(class_at_event) else 0.0,
+                "rp10": _loss_at_return_period(class_at_event, freq, 10.0),
                 "rp50": _loss_at_return_period(class_at_event, freq, 50.0),
                 "rp100": _loss_at_return_period(class_at_event, freq, 100.0),
+                "rp1000": _loss_at_return_period(class_at_event, freq, 1000.0),
                 "top10": _mean_top_fraction(class_at_event, 0.10),
                 "top5": _mean_top_fraction(class_at_event, 0.05),
             }
             for scenario, scenario_loss in class_scenario_losses.items():
                 class_scenario_factors[scenario][class_key] = max(0.0, float(scenario_loss)) / max(class_eai, 1e-9)
+            del class_impact
+            del subset
+            gc.collect()
 
         direct_losses_by_scenario: dict[str, np.ndarray] = {"annual": np.array(eai_direct, dtype=float)}
-        for scenario in ("event_max", "rp50", "rp100", "top10", "top5"):
+        for scenario in ("event_max", "rp10", "rp50", "rp100", "rp1000", "top10", "top5"):
             scenario_direct = np.zeros_like(eai_direct, dtype=float)
             for i, bclass in enumerate(breakdown_class_keys):
                 factor = class_scenario_factors[scenario].get(str(bclass), global_scenario_factors[scenario])
                 scenario_direct[i] = float(eai_direct[i]) * max(0.0, float(factor))
             direct_losses_by_scenario[scenario] = np.minimum(np.maximum(scenario_direct, 0.0), values)
 
+        for scenario, landslide_values in landslide_scenario_arrays.items():
+            landslide_arr = np.asarray(landslide_values, dtype=float).reshape(-1)
+            if not landslide_arr.size:
+                continue
+            combined = np.array(direct_losses_by_scenario.get(scenario, np.zeros_like(eai_direct, dtype=float)), dtype=float, copy=True)
+            n = min(combined.size, landslide_arr.size, values.size)
+            if n <= 0:
+                continue
+            combined[:n] = np.minimum(
+                np.maximum(combined[:n] + landslide_arr[:n], 0.0),
+                values[:n],
+            )
+            direct_losses_by_scenario[scenario] = combined
+
         def evaluate_scenario(direct_loss: np.ndarray) -> dict[str, Any]:
-            direct = np.minimum(np.maximum(np.asarray(direct_loss, dtype=float), 0.0), values)
-            direct_ratio = np.divide(direct, np.maximum(values, 1.0))
-            direct_state = np.array([_state_from_ratio(float(v)) for v in direct_ratio], dtype=object)
-
-            elec_buckets: dict[str, dict[str, float]] = defaultdict(_new_health_bucket)
-            for i, ckey in enumerate(class_keys):
-                if ckey is None or not ckey.startswith("elec_"):
-                    continue
-                _add_state(elec_buckets[territories[i]], str(direct_state[i]), float(weights_km[i]))
-            elec_health = {k: _health(v) for k, v in elec_buckets.items()}
-            global_health = _health(_merge_buckets(list(elec_buckets.values())))
-
-            total_loss = np.array(direct, dtype=float)
-            final_state: list[str] = []
-            indirect_s3_flag = np.zeros_like(direct, dtype=bool)
-            for i, ckey in enumerate(class_keys):
-                state_code = str(direct_state[i])
-                if ckey in {"eau_aep", "eau_eu"}:
-                    dep_state = _dependency_state_from_elec_health(elec_health.get(territories[i], global_health))
-                    final_code = dep_state if STATE_ORDER[dep_state] > STATE_ORDER[state_code] else state_code
-                    uplift = UPLIFT_BY_STATE[dep_state]
-                    total_with_dep = min(float(values[i]), float(direct[i]) * (1.0 + float(uplift)))
-                    total_loss[i] = max(0.0, total_with_dep)
-                    indirect_s3_flag[i] = final_code == "S3" and state_code != "S3"
-                    final_state.append(final_code)
-                else:
-                    final_state.append(state_code)
-
-            final_state_arr = np.array(final_state, dtype=object)
-            return {
-                "direct_state": direct_state,
-                "final_state": final_state_arr,
-                "total_loss": np.minimum(np.maximum(total_loss, 0.0), values),
-                "indirect_s3_flag": indirect_s3_flag,
-        }
+            return _evaluate_network_dependency_scenario(
+                direct_loss=direct_loss,
+                values=values,
+                class_keys=class_keys,
+                territories=territories,
+                weights_km=weights_km,
+                water_service_classes=water_service_classes,
+                service_feature_ids=service_feature_ids,
+                is_service_network=is_service_network,
+                is_blocking_asset=is_blocking_asset,
+            )
 
         hazard_proxy = (multi_hazard_proxy or {}).get(hazard_key, {}) if isinstance(multi_hazard_proxy, dict) else {}
         scenario_component_ratios = (
@@ -1421,8 +2759,25 @@ def _compute_impact_metrics(
             for scenario in MAP_SCENARIOS
         }
 
+        all_infra_mask = np.array([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
+        applied_calibration = _calibrate_scenario_results_to_complete_analysis(
+            scenario_results,
+            values=values,
+            all_infra_mask=all_infra_mask,
+            target_totals=_extract_complete_analysis_public_loss_targets(complete_analysis_payload, hazard_key),
+        )
+        if applied_calibration:
+            calibration_by_hazard[hazard_key] = applied_calibration
+            _recalculate_calibrated_scenario_states(
+                scenario_results,
+                scenario_keys=tuple(applied_calibration.keys()),
+                values_size=int(values.size),
+                evaluator=evaluate_scenario,
+            )
+
         rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
         for scenario in TABLE_SCENARIOS:
+            source_scenario = _public_loss_scenario_source(scenario)
             rows: list[dict[str, Any]] = []
             for network_class_key, label in NETWORK_CLASS_LABELS.items():
                 mask = np.array([ck == network_class_key for ck in class_keys], dtype=bool)
@@ -1434,18 +2789,34 @@ def _compute_impact_metrics(
                 else:
                     state_pct = {
                         s: round(
-                            float(weights_km[mask & (scenario_results[scenario]["final_state"] == s)].sum())
+                            float(weights_km[mask & (scenario_results[source_scenario]["final_state"] == s)].sum())
                             / total_w
                             * 100.0,
                             3,
                         )
                         for s in ("S0", "S1", "S2", "S3")
                     }
-                    damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
-                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
+                    damage_val = round(float(scenario_results[source_scenario]["total_loss"][mask].sum()), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            scenario_results[source_scenario]["direct_loss"],
+                            scenario_results[source_scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
+                dysfunction_val = round(
+                    float(np.asarray(scenario_results[source_scenario].get("dysfunction_loss", np.zeros_like(values)), dtype=float)[mask].sum()),
+                    2,
+                )
+                blocking_val = round(
+                    float(np.asarray(scenario_results[source_scenario].get("blocking_loss", np.zeros_like(values)), dtype=float)[mask].sum()),
+                    2,
+                )
+                indirect_val = round(max(float(damage_val) - float(direct_val), dysfunction_val + blocking_val, 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
-                    scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
+                    scenario_component_ratios.get(source_scenario) if isinstance(scenario_component_ratios, dict) else None
                 )
                 damage_components = _allocate_damage_components(damage_val, component_ratios)
                 rows.append(
@@ -1456,7 +2827,10 @@ def _compute_impact_metrics(
                         "state_pct": state_pct,
                         "damage_eur": damage_val,
                         "direct_damage_eur": direct_val,
+                        "dysfunction_eur": dysfunction_val,
+                        "blocking_ouvrage_eur": blocking_val,
                         "indirect_damage_eur": indirect_val,
+                        "total_damage_eur": damage_val,
                         "damage_components_eur": damage_components,
                     }
                 )
@@ -1468,8 +2842,24 @@ def _compute_impact_metrics(
             for breakdown_class_key, label in DAMAGE_BREAKDOWN_LABELS.items():
                 mask = np.array([ck == breakdown_class_key for ck in breakdown_class_keys], dtype=bool)
                 damage_val = round(float(scenario_results[scenario]["total_loss"][mask].sum()), 2)
-                direct_val = round(float(direct_losses_by_scenario[scenario][mask].sum()), 2)
-                indirect_val = round(max(float(damage_val) - float(direct_val), 0.0), 2)
+                direct_val = round(
+                    float(
+                        np.minimum(
+                            scenario_results[scenario]["direct_loss"],
+                            scenario_results[scenario]["total_loss"],
+                        )[mask].sum()
+                    ),
+                    2,
+                )
+                dysfunction_val = round(
+                    float(np.asarray(scenario_results[scenario].get("dysfunction_loss", np.zeros_like(values)), dtype=float)[mask].sum()),
+                    2,
+                )
+                blocking_val = round(
+                    float(np.asarray(scenario_results[scenario].get("blocking_loss", np.zeros_like(values)), dtype=float)[mask].sum()),
+                    2,
+                )
+                indirect_val = round(max(float(damage_val) - float(direct_val), dysfunction_val + blocking_val, 0.0), 2)
                 component_ratios = _normalize_component_ratio_map(
                     scenario_component_ratios.get(scenario) if isinstance(scenario_component_ratios, dict) else None
                 )
@@ -1480,13 +2870,15 @@ def _compute_impact_metrics(
                         "exposure_eur": round(float(exposure_value_by_class.get(breakdown_class_key, 0.0)), 2),
                         "damage_eur": damage_val,
                         "direct_damage_eur": direct_val,
+                        "dysfunction_eur": dysfunction_val,
+                        "blocking_ouvrage_eur": blocking_val,
                         "indirect_damage_eur": indirect_val,
+                        "total_damage_eur": damage_val,
                         "damage_components_eur": _allocate_damage_components(damage_val, component_ratios),
                     }
                 )
             breakdown_by_scenario[scenario] = breakdown_rows
 
-        all_infra_mask = np.array([ck in DAMAGE_BREAKDOWN_LABELS for ck in breakdown_class_keys], dtype=bool)
         network_mask = np.array([ck in NETWORK_CLASS_LABELS for ck in class_keys], dtype=bool)
         network_total_w = float(weights_km[network_mask].sum())
 
@@ -1498,24 +2890,33 @@ def _compute_impact_metrics(
         hazard_outputs[hazard_key] = {
             "rows_by_scenario": rows_by_scenario,
             "breakdown_by_scenario": breakdown_by_scenario,
+            "scenario_results": scenario_results,
             "summary": {
                 "direct_hs_pct_annual": round((direct_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "direct_hs_pct_event_max": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "direct_hs_pct_p99": round((direct_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "indirect_hs_pct_annual": round((indirect_s3_annual / max(network_total_w, 1e-9)) * 100.0, 3),
-                "indirect_hs_pct_event_max": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
+                "indirect_hs_pct_p99": round((indirect_s3_event / max(network_total_w, 1e-9)) * 100.0, 3),
                 "eai_total_eur": round(float(scenario_results["annual"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp10_total_loss_eur": round(float(scenario_results["rp10"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp50_total_loss_eur": round(float(scenario_results["rp50"]["total_loss"][all_infra_mask].sum()), 2),
                 "rp100_total_loss_eur": round(float(scenario_results["rp100"]["total_loss"][all_infra_mask].sum()), 2),
-                "event_max_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
+                "rp1000_total_loss_eur": round(float(scenario_results["rp1000"]["total_loss"][all_infra_mask].sum()), 2),
+                "p99_total_loss_eur": round(float(scenario_results["event_max"]["total_loss"][all_infra_mask].sum()), 2),
                 "top10_total_loss_eur": round(float(scenario_results["top10"]["total_loss"][all_infra_mask].sum()), 2),
                 "top5_total_loss_eur": round(float(scenario_results["top5"]["total_loss"][all_infra_mask].sum()), 2),
                 "event_id_max": event_id_max,
             },
             "feature_states": {
-                scenario: _aggregate_feature_states(feature_ids, scenario_results[scenario]["final_state"])
-                for scenario in MAP_SCENARIOS
+                scenario: _aggregate_feature_states(
+                    feature_ids,
+                    scenario_results[_public_loss_scenario_source(scenario)]["final_state"],
+                )
+                for scenario in PUBLIC_MAP_SCENARIOS
             },
         }
+        del impact
+        del hazard_obj
+        gc.collect()
 
     merged_rows = _merge_rows_by_scenario(hazard_outputs)
     summary_text = _build_impact_summary_text(hazard_outputs)
@@ -1532,25 +2933,25 @@ def _compute_impact_metrics(
                 "class_label": NETWORK_CLASS_LABELS[class_key],
                 "storm": {
                     "state_pct_annual": dict(row_storm_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_storm_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_storm_event.get("state_pct", {})),
                     "exposure_eur": float(row_storm_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_storm_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_storm_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_storm_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_storm_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_storm_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_storm_event.get("indirect_damage_eur", 0.0)),
                 },
                 "storm_cmcc": {
                     "state_pct_annual": dict(row_cmcc_annual.get("state_pct", {})),
-                    "state_pct_event_max": dict(row_cmcc_event.get("state_pct", {})),
+                    "state_pct_p99": dict(row_cmcc_event.get("state_pct", {})),
                     "exposure_eur": float(row_cmcc_annual.get("exposure_eur", 0.0)),
                     "eai_eur": float(row_cmcc_annual.get("damage_eur", 0.0)),
-                    "event_max_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
+                    "p99_loss_eur": float(row_cmcc_event.get("damage_eur", 0.0)),
                     "direct_eai_eur": float(row_cmcc_annual.get("direct_damage_eur", 0.0)),
                     "indirect_eai_eur": float(row_cmcc_annual.get("indirect_damage_eur", 0.0)),
-                    "direct_event_max_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
-                    "indirect_event_max_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
+                    "direct_p99_loss_eur": float(row_cmcc_event.get("direct_damage_eur", 0.0)),
+                    "indirect_p99_loss_eur": float(row_cmcc_event.get("indirect_damage_eur", 0.0)),
                 },
             }
         )
@@ -1567,26 +2968,37 @@ def _compute_impact_metrics(
         },
         "damage_breakdown_by_scenario": {
             scenario: {
-                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][scenario],
-                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][scenario],
+                "storm": hazard_outputs["storm"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
+                "storm_cmcc": hazard_outputs["storm_cmcc"]["breakdown_by_scenario"][_public_loss_scenario_source(scenario)],
             }
-            for scenario in MAP_SCENARIOS
-        },
+            for scenario in PUBLIC_MAP_SCENARIOS
+        }
+        ,
         "map_defaults": {
             "hazard": "storm",
-            "scenario": "event_max",
+            "scenario": "p99",
         },
     }
     aux = {
-        "hazard_feature_states": {
-            "storm": hazard_outputs["storm"]["feature_states"],
-            "storm_cmcc": hazard_outputs["storm_cmcc"]["feature_states"],
-        },
         "disaggregation": {
             "sampling_spacing_m": float(disagg.spacing_m),
             "asset_count_points": int(disagg.asset_count_points),
         },
+        "complete_analysis_calibration": calibration_by_hazard,
     }
+    hazard_feature_states, hazard_feature_causes, electric_unit_ids = _aggregate_native_service_states_for_public_map(
+        bundle=bundle,
+        values=values,
+        class_keys=class_keys,
+        water_service_classes=water_service_classes,
+        service_feature_ids=service_feature_ids,
+        is_blocking_asset=is_blocking_asset,
+        weights_km=weights_km,
+        hazard_outputs=hazard_outputs,
+    )
+    aux["hazard_feature_states"] = hazard_feature_states
+    aux["hazard_feature_causes"] = hazard_feature_causes
+    aux["electric_unit_ids"] = sorted(electric_unit_ids)
     return impact_payload, aux
 
 
@@ -1618,7 +3030,9 @@ def _row_for_class(
     scenario: str,
     class_key: str,
 ) -> dict[str, Any]:
-    for row in hazard_outputs[hazard_key]["rows_by_scenario"][scenario]:
+    rows_by_scenario = hazard_outputs[hazard_key]["rows_by_scenario"]
+    public_scenario = "p99" if scenario == "event_max" else scenario
+    for row in rows_by_scenario.get(public_scenario, rows_by_scenario.get(scenario, [])):
         if str(row.get("class_key")) == class_key:
             return row
     return {
@@ -1682,11 +3096,11 @@ def _legacy_breakdown_rows(hazard_outputs: dict[str, Any], hazard_key: str) -> l
                 "class_key": class_key,
                 "class_label": label,
                 "eai_eur": round(float(annual.get(class_key, {}).get("damage_eur", 0.0)), 2),
-                "event_max_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
+                "p99_loss_eur": round(float(event_max.get(class_key, {}).get("damage_eur", 0.0)), 2),
                 "direct_eai_eur": round(float(annual.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
                 "indirect_eai_eur": round(float(annual.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
-                "direct_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
-                "indirect_event_max_loss_eur": round(float(event_max.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
+                "direct_p99_loss_eur": round(float(event_max.get(class_key, {}).get("direct_damage_eur", 0.0)), 2),
+                "indirect_p99_loss_eur": round(float(event_max.get(class_key, {}).get("indirect_damage_eur", 0.0)), 2),
             }
         )
     return rows
@@ -1696,10 +3110,12 @@ def _build_impact_summary_text(hazard_outputs: dict[str, Any]) -> str:
     s = hazard_outputs["storm"]["summary"]
     c = hazard_outputs["storm_cmcc"]["summary"]
     return (
-        f"STORM: EAI {s['eai_total_eur']:.0f} €, RP50 {s['rp50_total_loss_eur']:.0f} €, "
-        f"RP100 {s['rp100_total_loss_eur']:.0f} €, evt max {s['event_max_total_loss_eur']:.0f} €. "
-        f"STORM_CMCC: EAI {c['eai_total_eur']:.0f} €, RP50 {c['rp50_total_loss_eur']:.0f} €, "
-        f"RP100 {c['rp100_total_loss_eur']:.0f} €, evt max {c['event_max_total_loss_eur']:.0f} €."
+        f"STORM: EAI {s['eai_total_eur']:.0f} €, RP10 {s['rp10_total_loss_eur']:.0f} €, "
+        f"RP50 {s['rp50_total_loss_eur']:.0f} €, RP100 {s['rp100_total_loss_eur']:.0f} €, "
+        f"RP1000 {s['rp1000_total_loss_eur']:.0f} €, p99 {s['p99_total_loss_eur']:.0f} €. "
+        f"STORM_CMCC: EAI {c['eai_total_eur']:.0f} €, RP10 {c['rp10_total_loss_eur']:.0f} €, "
+        f"RP50 {c['rp50_total_loss_eur']:.0f} €, RP100 {c['rp100_total_loss_eur']:.0f} €, "
+        f"RP1000 {c['rp1000_total_loss_eur']:.0f} €, p99 {c['p99_total_loss_eur']:.0f} €."
     )
 
 
@@ -1718,13 +3134,241 @@ def _build_conclusion_text(exposure_metrics: dict[str, Any], impact_metrics: dic
         f"Valeur totale du portefeuille d'infrastructures: {m_eur_rounded(total_value)} M€. "
         f"Dommages annuels moyens: STORM {m_eur_rounded(storm['eai_total_eur'])} M€ ({pct_of_portfolio(storm['eai_total_eur'])} %), "
         f"STORM_CMCC {m_eur_rounded(cmcc['eai_total_eur'])} M€ ({pct_of_portfolio(cmcc['eai_total_eur'])} %). "
+        f"Scenario temps de retour 10 ans: STORM {m_eur_rounded(storm['rp10_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp10_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['rp10_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp10_total_loss_eur'])} %). "
         f"Scenario temps de retour 50 ans: STORM {m_eur_rounded(storm['rp50_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp50_total_loss_eur'])} %), "
         f"STORM_CMCC {m_eur_rounded(cmcc['rp50_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp50_total_loss_eur'])} %). "
         f"Scenario temps de retour 100 ans: STORM {m_eur_rounded(storm['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp100_total_loss_eur'])} %), "
         f"STORM_CMCC {m_eur_rounded(cmcc['rp100_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp100_total_loss_eur'])} %). "
-        f"Evenement le plus extreme: STORM {m_eur_rounded(storm['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(storm['event_max_total_loss_eur'])} %), "
-        f"STORM_CMCC {m_eur_rounded(cmcc['event_max_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['event_max_total_loss_eur'])} %)."
+        f"Scenario temps de retour 1000 ans: STORM {m_eur_rounded(storm['rp1000_total_loss_eur'])} M€ ({pct_of_portfolio(storm['rp1000_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['rp1000_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['rp1000_total_loss_eur'])} %). "
+        f"Scenario percentile 99: STORM {m_eur_rounded(storm['p99_total_loss_eur'])} M€ ({pct_of_portfolio(storm['p99_total_loss_eur'])} %), "
+        f"STORM_CMCC {m_eur_rounded(cmcc['p99_total_loss_eur'])} M€ ({pct_of_portfolio(cmcc['p99_total_loss_eur'])} %)."
     )
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return float(default)
+    if not np.isfinite(out):
+        return float(default)
+    return out
+
+
+def _load_complete_analysis_payload(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        raise FileNotFoundError(f"Missing complete-analysis JSON required for page-analysis build: {path}")
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Unable to read complete-analysis JSON: {path}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid complete-analysis payload (expected object): {path}")
+    if not isinstance(payload.get("portfolio_results"), dict):
+        raise ValueError(f"Invalid complete-analysis payload (missing portfolio_results): {path}")
+    if not isinstance(payload.get("asset_results"), list):
+        raise ValueError(f"Invalid complete-analysis payload (missing asset_results): {path}")
+    return payload
+
+
+def _extract_complete_analysis_public_loss_targets(
+    payload: dict[str, Any] | None,
+    hazard_key: str,
+) -> dict[str, float]:
+    portfolio = payload.get("portfolio_results") if isinstance(payload, dict) else None
+    hazard_payload = portfolio.get(hazard_key) if isinstance(portfolio, dict) else None
+    if not isinstance(hazard_payload, dict):
+        return {}
+
+    key_map = {
+        "annual": "eai_eur",
+        "rp10": "pml_10_eur",
+        "rp50": "pml_50_eur",
+        "rp100": "pml_100_eur",
+        "rp1000": "pml_1000_eur",
+        "event_max": "percentile_99_loss_eur",
+    }
+    out: dict[str, float] = {}
+    for scenario, field in key_map.items():
+        value = _safe_float(hazard_payload.get(field), 0.0)
+        if value > 0.0:
+            out[scenario] = value
+    return out
+
+
+def _rescale_loss_array_to_total(
+    losses: np.ndarray,
+    capacities: np.ndarray,
+    target_total: float,
+) -> np.ndarray:
+    loss_arr = np.asarray(losses, dtype=float).reshape(-1)
+    cap_arr = np.maximum(np.asarray(capacities, dtype=float).reshape(-1), 0.0)
+    if loss_arr.size != cap_arr.size:
+        raise ValueError("losses and capacities must share the same shape")
+
+    current = np.minimum(np.maximum(loss_arr, 0.0), cap_arr)
+    target = max(0.0, float(target_total))
+    capacity_total = float(cap_arr.sum())
+    if current.size == 0 or target <= 0.0 or capacity_total <= 0.0:
+        return np.zeros_like(current)
+    if target >= capacity_total:
+        return np.array(cap_arr, dtype=float, copy=True)
+
+    current_total = float(current.sum())
+    if abs(current_total - target) <= 1e-6:
+        return current
+    if current_total <= 0.0:
+        return cap_arr * (target / capacity_total)
+
+    lo = 0.0
+    hi = max(1.0, target / max(current_total, 1e-12))
+    scaled_total = float(np.minimum(current * hi, cap_arr).sum())
+    for _ in range(32):
+        if scaled_total >= target:
+            break
+        hi *= 2.0
+        scaled_total = float(np.minimum(current * hi, cap_arr).sum())
+
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        total = float(np.minimum(current * mid, cap_arr).sum())
+        if total < target:
+            lo = mid
+        else:
+            hi = mid
+
+    scaled = np.minimum(current * hi, cap_arr)
+    residual = target - float(scaled.sum())
+    if residual > 1e-6:
+        remaining = np.maximum(cap_arr - scaled, 0.0)
+        remaining_total = float(remaining.sum())
+        if remaining_total > 0.0:
+            scaled = scaled + (remaining * min(1.0, residual / remaining_total))
+    return np.minimum(np.maximum(scaled, 0.0), cap_arr)
+
+
+def _calibrate_scenario_results_to_complete_analysis(
+    scenario_results: dict[str, dict[str, Any]],
+    *,
+    values: np.ndarray,
+    all_infra_mask: np.ndarray,
+    target_totals: dict[str, float],
+) -> dict[str, dict[str, float]]:
+    if not target_totals:
+        return {}
+
+    infra_capacities = np.asarray(values[all_infra_mask], dtype=float)
+    applied: dict[str, dict[str, float]] = {}
+    for scenario, target_total in target_totals.items():
+        result = scenario_results.get(scenario)
+        if not isinstance(result, dict):
+            continue
+
+        total_loss = np.asarray(result.get("total_loss"), dtype=float).reshape(-1)
+        if total_loss.size != values.size:
+            continue
+        current_total = float(total_loss[all_infra_mask].sum())
+        scaled_total_loss = _rescale_loss_array_to_total(total_loss[all_infra_mask], infra_capacities, target_total)
+
+        updated_total_loss = np.array(total_loss, dtype=float, copy=True)
+        updated_total_loss[all_infra_mask] = scaled_total_loss
+        result["total_loss"] = updated_total_loss
+
+        direct_loss = np.asarray(result.get("direct_loss"), dtype=float).reshape(-1)
+        scaling = np.divide(
+            scaled_total_loss,
+            np.maximum(total_loss[all_infra_mask], 1e-12),
+            out=np.zeros_like(scaled_total_loss),
+            where=total_loss[all_infra_mask] > 0.0,
+        )
+        if direct_loss.size == values.size:
+            current_direct = np.minimum(direct_loss[all_infra_mask], total_loss[all_infra_mask])
+            scaled_direct = np.minimum(current_direct * scaling, scaled_total_loss)
+            zero_support = (total_loss[all_infra_mask] <= 0.0) & (scaled_total_loss > 0.0)
+            if zero_support.any():
+                scaled_direct[zero_support] = scaled_total_loss[zero_support]
+            updated_direct_loss = np.array(direct_loss, dtype=float, copy=True)
+            updated_direct_loss[all_infra_mask] = np.minimum(np.maximum(scaled_direct, 0.0), scaled_total_loss)
+            result["direct_loss"] = updated_direct_loss
+        for loss_key in ("dysfunction_loss", "blocking_loss"):
+            component_loss = np.asarray(result.get(loss_key), dtype=float).reshape(-1)
+            if component_loss.size != values.size:
+                continue
+            updated_component = np.array(component_loss, dtype=float, copy=True)
+            updated_component[all_infra_mask] = np.maximum(component_loss[all_infra_mask] * scaling, 0.0)
+            result[loss_key] = updated_component
+        direct_after = np.asarray(result.get("direct_loss", np.zeros_like(values)), dtype=float).reshape(-1)
+        dysfunction_after = np.asarray(result.get("dysfunction_loss", np.zeros_like(values)), dtype=float).reshape(-1)
+        blocking_after = np.asarray(result.get("blocking_loss", np.zeros_like(values)), dtype=float).reshape(-1)
+        if (
+            direct_after.size == values.size
+            and dysfunction_after.size == values.size
+            and blocking_after.size == values.size
+        ):
+            total_components = direct_after[all_infra_mask] + dysfunction_after[all_infra_mask] + blocking_after[all_infra_mask]
+            overflow = np.maximum(total_components - scaled_total_loss, 0.0)
+            indirect = np.maximum(dysfunction_after[all_infra_mask] + blocking_after[all_infra_mask], 1e-12)
+            if overflow.any():
+                updated_dysfunction = np.array(dysfunction_after, dtype=float, copy=True)
+                updated_blocking = np.array(blocking_after, dtype=float, copy=True)
+                updated_dysfunction[all_infra_mask] = np.maximum(
+                    dysfunction_after[all_infra_mask] - overflow * (dysfunction_after[all_infra_mask] / indirect),
+                    0.0,
+                )
+                updated_blocking[all_infra_mask] = np.maximum(
+                    blocking_after[all_infra_mask] - overflow * (blocking_after[all_infra_mask] / indirect),
+                    0.0,
+                )
+                result["dysfunction_loss"] = updated_dysfunction
+                result["blocking_loss"] = updated_blocking
+
+        applied[scenario] = {
+            "pre_calibration_total_eur": round(current_total, 2),
+            "target_total_eur": round(float(target_total), 2),
+            "post_calibration_total_eur": round(float(updated_total_loss[all_infra_mask].sum()), 2),
+        }
+
+    return applied
+
+
+def _recalculate_calibrated_scenario_states(
+    scenario_results: dict[str, dict[str, Any]],
+    *,
+    scenario_keys: list[str] | tuple[str, ...] | set[str],
+    values_size: int,
+    evaluator: Callable[[np.ndarray], dict[str, Any]],
+) -> None:
+    for scenario in scenario_keys:
+        calibrated_result = scenario_results.get(str(scenario))
+        if not isinstance(calibrated_result, dict):
+            continue
+        calibrated_direct_loss = np.asarray(calibrated_result.get("direct_loss"), dtype=float).reshape(-1)
+        if calibrated_direct_loss.size != int(values_size):
+            continue
+        recalculated_states = evaluator(calibrated_direct_loss)
+        calibrated_result["direct_state"] = recalculated_states["direct_state"]
+        calibrated_result["final_state"] = recalculated_states["final_state"]
+        calibrated_result["indirect_s3_flag"] = recalculated_states["indirect_s3_flag"]
+        for key in ("dependency_state", "blocking_state", "dominant_outage_cause"):
+            if key in recalculated_states:
+                calibrated_result[key] = recalculated_states[key]
+
+
+def _mean_top_event_loss(events: Any, keep: int) -> float:
+    losses: list[float] = []
+    for row in list(events or [])[: max(1, int(keep))]:
+        if not isinstance(row, dict):
+            continue
+        loss = _safe_float(row.get("loss_eur"), 0.0)
+        if loss > 0.0:
+            losses.append(loss)
+    if not losses:
+        return 0.0
+    return float(np.mean(np.asarray(losses, dtype=float)))
 
 
 def _load_zone_wind_comparison_table(doc_path: Path, zone_heading: str) -> list[dict[str, str]]:
@@ -1739,17 +3383,6 @@ def _load_zone_wind_comparison_table(doc_path: Path, zone_heading: str) -> list[
             break
     if start_idx is None:
         return []
-
-    table_lines: list[str] = []
-    for line in lines[start_idx + 1 :]:
-        if line.strip().startswith("## "):
-            break
-        if line.strip().startswith("|"):
-            table_lines.append(line.rstrip())
-    if len(table_lines) < 3:
-        return []
-
-    rows: list[dict[str, str]] = []
     for line in table_lines[2:]:
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) < 4:
@@ -1774,29 +3407,119 @@ def _build_state_geojson(
     geometry_features: list[dict[str, Any]],
     hazard_feature_states: dict[str, Any],
     out_path: Path,
+    hazard_feature_causes: dict[str, Any] | None = None,
 ) -> None:
+    expected_state_ids = [
+        str(feat.get("service_feature_id") or feat.get("feature_id") or "")
+        for feat in geometry_features
+    ]
+    expected_feature_id_set = {state_id for state_id in expected_state_ids if state_id}
+    validated_feature_states: dict[str, dict[str, dict[str, str]]] = {}
+    validated_feature_causes: dict[str, dict[str, dict[str, str]]] = {}
+    for hazard_key in ("storm", "storm_cmcc"):
+        hazard_states = hazard_feature_states.get(hazard_key)
+        if not isinstance(hazard_states, dict):
+            raise RuntimeError(f"Missing feature states for hazard '{hazard_key}'")
+        validated_feature_states[hazard_key] = {}
+        validated_feature_causes[hazard_key] = {}
+        for scenario in PUBLIC_MAP_SCENARIOS:
+            scenario_states = hazard_states.get(scenario)
+            if not isinstance(scenario_states, dict):
+                raise RuntimeError(f"Missing feature states for scenario '{hazard_key}.{scenario}'")
+            scenario_feature_ids = {str(fid) for fid in scenario_states.keys()}
+            missing_feature_ids = sorted(expected_feature_id_set - scenario_feature_ids)
+            if missing_feature_ids:
+                preview = ", ".join(missing_feature_ids[:5])
+                suffix = "..." if len(missing_feature_ids) > 5 else ""
+                raise RuntimeError(
+                    f"Incomplete feature states for {hazard_key}.{scenario}: "
+                    f"missing {len(missing_feature_ids)} expected features ({preview}{suffix})"
+                )
+            unexpected_feature_ids = sorted(scenario_feature_ids - expected_feature_id_set)
+            if unexpected_feature_ids:
+                preview = ", ".join(unexpected_feature_ids[:5])
+                suffix = "..." if len(unexpected_feature_ids) > 5 else ""
+                raise RuntimeError(
+                    f"Unexpected feature states for {hazard_key}.{scenario}: "
+                    f"unknown features ({preview}{suffix})"
+                )
+            invalid_states = sorted(
+                {str(state) for state in scenario_states.values()} - set(STATE_ORDER.keys())
+            )
+            if invalid_states:
+                raise RuntimeError(
+                    f"Invalid feature states for {hazard_key}.{scenario}: {', '.join(invalid_states)}"
+                )
+            validated_feature_states[hazard_key][scenario] = {
+                str(fid): str(state)
+                for fid, state in scenario_states.items()
+            }
+            hazard_causes = (
+                hazard_feature_causes.get(hazard_key)
+                if isinstance(hazard_feature_causes, dict)
+                else None
+            )
+            scenario_causes = hazard_causes.get(scenario) if isinstance(hazard_causes, dict) else None
+            if scenario_causes is not None and not isinstance(scenario_causes, dict):
+                raise RuntimeError(f"Invalid feature causes for scenario '{hazard_key}.{scenario}'")
+            validated_feature_causes[hazard_key][scenario] = {}
+            for feature_id, state_code in validated_feature_states[hazard_key][scenario].items():
+                cause_code = (
+                    str(scenario_causes.get(feature_id))
+                    if isinstance(scenario_causes, dict) and feature_id in scenario_causes
+                    else ("none" if str(state_code) == "S0" else "direct_damage")
+                )
+                if cause_code not in OUTAGE_CAUSES:
+                    raise RuntimeError(
+                        f"Invalid feature cause for {hazard_key}.{scenario}.{feature_id}: {cause_code}"
+                    )
+                validated_feature_causes[hazard_key][scenario][feature_id] = cause_code
+
     rows: list[dict[str, Any]] = []
     geoms: list[Any] = []
     for feat in geometry_features:
         fid = feat["feature_id"]
+        state_lookup_id = str(feat.get("service_feature_id") or fid)
         row = {
             "feature_id": fid,
             "layer_key": feat["class_key"],
             "layer_label": feat["class_label"],
+            "state_geometry_mode": str(feat.get("state_geometry_mode") or "native_network_geometry"),
+            "service_unit_kind": str(feat.get("service_unit_kind") or "native_feature"),
+            "service_feature_id": str(feat.get("service_feature_id") or ""),
+            "zone_component_key": str(feat.get("zone_component_key") or ""),
+            "zone_uid": str(feat.get("zone_uid") or ""),
+            "network_kind": str(feat.get("network_kind") or ""),
+            "feature_role": str(feat.get("feature_role") or ""),
         }
         for hazard_key in ("storm", "storm_cmcc"):
-            for scenario in MAP_SCENARIOS:
-                row[f"state_{scenario}_{hazard_key}"] = hazard_feature_states[hazard_key][scenario].get(fid, "S0")
+            for scenario in PUBLIC_MAP_SCENARIOS:
+                row[f"state_{scenario}_{hazard_key}"] = validated_feature_states[hazard_key][scenario][state_lookup_id]
+                row[f"cause_{scenario}_{hazard_key}"] = validated_feature_causes[hazard_key][scenario][state_lookup_id]
         rows.append(row)
         geoms.append(feat["geometry"])
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs=WGS84)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(gdf.to_json(), encoding="utf-8")
+    geojson = json.loads(gdf.to_json())
+    water_rows = [feat for feat in geometry_features if str(feat.get("class_key") or "") in {"eau_aep", "eau_eu"}]
+    water_state_modes = sorted({str(feat.get("state_geometry_mode") or "native_network_geometry") for feat in water_rows})
+    payload = {
+        **geojson,
+        "metadata": {
+            "state_geometry_mode": "hydraulic_zoning_v2" if "hydraulic_zoning_v2" in water_state_modes else "native_network_geometry",
+            "water_state_geometry_mode": "hydraulic_zoning_v2" if water_rows else "native_network_geometry",
+            "water_service_unit": "zone_component_key" if water_rows else "feature_id",
+            "electric_state_geometry_mode": "fixed_grid_0p1deg",
+            "geometry_semantics": "native_service_geometry",
+            **WEB_NETWORK_STATE_METHODOLOGY_METADATA,
+        },
+    }
+    out_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build all computed data for territory case-study pages (exposition, hazard, impact, conclusion).")
-    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--territory", default="guadeloupe")
     parser.add_argument("--infra-elec-dir", default=None)
     parser.add_argument("--infra-eau-dir", default=None)
     parser.add_argument("--storm-source", default=os.environ.get("SIB_RISK_STORM_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_ds")))
@@ -1832,7 +3555,7 @@ def main() -> None:
     args = parser.parse_args()
     _require_runtime_deps()
 
-    territory = normalize_territory(args.territory)
+    territory = parse_territory(args.territory)
     case_cfg = get_case_study(
         territory,
         infra_elec_dir=Path(args.infra_elec_dir) if args.infra_elec_dir else None,
@@ -1854,7 +3577,9 @@ def main() -> None:
     hazard_storm_path, hazard_storm_cmcc_path = _resolve_hazard_paths_for_case_study(territory, settings)
     default_complete_analysis_json = REPO_ROOT / "web" / "data" / f"{territory}-complete-analysis.json"
     complete_analysis_json = Path(args.complete_analysis_json) if args.complete_analysis_json else default_complete_analysis_json
-    component_ratios_by_hazard = _load_component_ratio_reference(complete_analysis_json)
+    complete_analysis_payload = _load_complete_analysis_payload(complete_analysis_json)
+    complete_analysis_source = _extract_complete_analysis_source_metadata(complete_analysis_payload)
+    component_ratios_by_hazard = None
     default_multi_hazard_proxy_json = REPO_ROOT / "web" / "data" / f"{territory}-multi-hazard-proxy.json"
     multi_hazard_proxy_json = (
         Path(args.multi_hazard_proxy_json)
@@ -1871,6 +3596,7 @@ def main() -> None:
     multi_hazard_proxy = _load_multi_hazard_proxy(
         multi_hazard_proxy_json,
         component_ratios_by_hazard=component_ratios_by_hazard,
+        strict=True,
     )
 
     default_wind_map_json = REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json"
@@ -1932,8 +3658,15 @@ def main() -> None:
     )
 
     exposure_metrics = _build_exposure_metrics(case_cfg, territory)
-    hazard_hist = _build_wind_histograms_from_wind_map_payload(wind_map_payload)
-    exposure: NormalizedExposure = build_complete_exposure(
+    hazard_hist = _build_wind_histograms_from_wind_map_payload(wind_map_payload, settings)
+    bbox_cfg = dict(case_cfg.get("wind_bbox") or {})
+    landslide_bbox = (
+        float(bbox_cfg["lon_min"]),
+        float(bbox_cfg["lat_min"]),
+        float(bbox_cfg["lon_max"]),
+        float(bbox_cfg["lat_max"]),
+    )
+    exposure = build_complete_exposure(
         infra_elec_dir=case_cfg["infra_elec_dir"],
         infra_eau_dir=case_cfg["infra_eau_dir"],
         territory=territory,
@@ -1944,10 +3677,13 @@ def main() -> None:
         settings=settings,
         network_value_per_km=exposure_metrics["value_per_km_eur"],
         exposure_value_by_class=exposure_metrics["total_value_by_type_eur"],
+        territory=territory,
+        landslide_bbox=landslide_bbox,
         hazard_storm_path=hazard_storm_path,
         hazard_storm_cmcc_path=hazard_storm_cmcc_path,
         component_ratios_by_hazard=component_ratios_by_hazard,
         multi_hazard_proxy=multi_hazard_proxy,
+        complete_analysis_payload=complete_analysis_payload,
         component_light_spacing_m=float(args.component_light_spacing_m),
         component_light_max_points_total=int(args.component_light_max_points_total),
         component_light_max_points_per_feature=int(args.component_light_max_points_per_feature),
@@ -1964,8 +3700,29 @@ def main() -> None:
             f"Unable to build wind comparison table from wind map payload: {wind_map_json}"
         )
 
-    geometry_features = _build_network_geometry_features(case_cfg)
-    _build_state_geojson(geometry_features, aux["hazard_feature_states"], out_state_geojson)
+    geometry_features = _build_network_geometry_features(
+        case_cfg,
+        electric_unit_ids=set(aux.get("electric_unit_ids") or []),
+    )
+    _overlay_complete_analysis_service_states_on_public_map(
+        geometry_features,
+        aux["hazard_feature_states"],
+        hazard_feature_causes=aux.get("hazard_feature_causes") if isinstance(aux, dict) else None,
+        complete_analysis_payload=complete_analysis_payload,
+    )
+    _build_state_geojson(
+        geometry_features,
+        aux["hazard_feature_states"],
+        out_state_geojson,
+        aux.get("hazard_feature_causes") if isinstance(aux, dict) else None,
+    )
+
+    complete_analysis_calibration = aux.get("complete_analysis_calibration") if isinstance(aux, dict) else None
+    notes: list[str] = []
+    if isinstance(complete_analysis_calibration, dict) and complete_analysis_calibration:
+        notes.append(
+            "Public annual/RP50/RP100/P99 loss totals are calibrated to complete-analysis portfolio quantiles."
+        )
 
     payload = {
         "meta": {
@@ -1976,7 +3733,7 @@ def main() -> None:
             "case_study_label": territory_label(territory),
             "sampling_spacing_m": float(args.spacing_m),
             "hazards": ["STORM", "STORM_CMCC"],
-            "hazard_components": ["wind", "rain", "surge"],
+            "hazard_components": ["wind", "rain", "surge", "landslide"],
             "storm_years": int(settings.storm_years),
             "component_light_rerun": {
                 "spacing_m": float(args.component_light_spacing_m),
@@ -1993,9 +3750,35 @@ def main() -> None:
             "wind_map_json": str(wind_map_json),
             "wind_map_generated_at": wind_map_meta.get("generated_at") if isinstance(wind_map_meta, dict) else None,
             "wind_map_run_id": wind_map_run_id or None,
+            "complete_analysis_json": str(complete_analysis_json) if complete_analysis_json.exists() else None,
+            "complete_analysis_source": complete_analysis_source if isinstance(complete_analysis_source, dict) else None,
+            "network_state_methodology": (
+                dict(complete_analysis_source.get("network_state_methodology") or {})
+                if isinstance(complete_analysis_source, dict)
+                else {}
+            ),
+            "network_state_methodology_breaks_comparability": bool(
+                complete_analysis_source.get("network_state_methodology_breaks_comparability")
+                if isinstance(complete_analysis_source, dict)
+                else True
+            ),
+            "complete_analysis_calibration": complete_analysis_calibration if isinstance(complete_analysis_calibration, dict) else None,
             "valuation_source": SOURCE_LABEL,
             "valuation_territory": str(valuation_metadata["territory_effective"]),
             "valuation_version": str(valuation_metadata["valuation_version"]),
+            "notes": notes,
+            "modeling": {
+                "source": "case_study_page_analysis",
+                "fallback": False,
+                "fallback_landslide_component_supported": True,
+            },
+            "publication_trace": _build_publication_trace(
+                source_mode="case_study_page_analysis",
+                fallback_reason=None,
+                complete_analysis_source=complete_analysis_source if isinstance(complete_analysis_source, dict) else None,
+                wind_map_meta=wind_map_meta if isinstance(wind_map_meta, dict) else None,
+                proxy_meta=proxy_meta if isinstance(proxy_meta, dict) else None,
+            ),
         },
         "exposition": exposure_metrics,
         "hazard": {
@@ -2019,6 +3802,7 @@ def main() -> None:
 
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    record_guamar_run(territory)
 
     print(f"Wrote {out_json}")
     print(f"Wrote {out_state_geojson}")

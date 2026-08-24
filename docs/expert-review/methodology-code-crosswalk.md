@@ -1,61 +1,69 @@
-# Methodology -> Code Crosswalk (Backend + Case-Study Scripts)
+# Methodology -> Code Crosswalk (Backend + Critical Scripts)
+
+Last updated: **2026-04-29**
 
 ## Mapping Rules
-- Methodology reference: `note-backend-calculatoire.en.md`.
-- Code scope: `backend/app` + `backend/scripts` + case-study root scripts under `scripts/`.
-- Function line numbers below are from current repository state and serve as direct review anchors.
-
----
+- Methodology reference: `docs/expert-review/note-backend-calculatoire.en.md`
+- Code scope: `backend/app`, `backend/scripts`, and critical root scripts in `scripts/`
+- This document is an audit navigation map (implementation truth remains the original source files, not archived stitched snapshots).
 
 ## Section-by-Section Traceability
 
-| Methodology section | Main implementation anchors | What to verify |
+| Methodology topic | Main implementation anchors | What to verify |
 |---|---|---|
-| 1) Objective | `backend/app/risk_engine/impact_runner.py` (`compute_impacts`, `compute_impacts_fallback`) | Engine selection (`climada` vs `fallback`) and fallback gating behavior. |
-| 2) Architecture and flow | `backend/app/main.py`, `backend/app/job_runner.py`, `backend/app/risk_engine/pipeline.py` | API -> queue -> pipeline chain and stage transitions. |
-| 3) Exposure input normalization | `backend/app/risk_engine/exposure_ingest.py` (`ingest_uploaded_exposure`, `_ingest_csv`, `_ingest_geojson`, `_ingest_xlsx`, `_ingest_gpkg`, `ingest_drawn_geojson`) | File-format handling, category aliases, strictness of validation errors. |
-| 4) Exposure -> CLIMADA conversion | `backend/app/risk_engine/exposure_to_climada.py` (`build_climada_exposure`, `_sample_line_points`, `_sample_polygon_points`, `_territory_for_coords`) | CRS transformation chain, point sampling strategy, value splitting, territory assignment. |
-| 5) CLIMADA direct impacts | `backend/app/risk_engine/climada_engine.py` (`run_climada_direct_impacts`, `_compute_pml`, `_compute_tvar_95`, `_extract_top_events`) | Hazard loading integration, annual frequency normalization effects, metric extraction consistency. |
-| 6) States + health formula | `backend/app/risk_engine/interdependency.py` (`_state_from_damage_ratio`, `_health_from_bucket`, `_summarize_component_health`) and fallback logic in `impact_runner.py` | Thresholds (`0.05/0.15/0.35`) and `health` formula implementation details. |
-| 7) Electricity -> water propagation | `backend/app/risk_engine/interdependency.py` (`aggregate_impacts_with_interdependency`, `_resolve_electric_health`, `_dependency_state_from_elec_health`) | Local/nearest/global health resolution, uplift factors, final EAI cap. |
-| 8) Territory + portfolio aggregation | `backend/app/risk_engine/interdependency.py`, `backend/app/risk_engine/impact_runner.py` | `risk_index` computation, direct/indirect split, portfolio metric assembly. |
-| 9) JSON contract and compatibility | `backend/app/risk_engine/analysis_export.py` (`build_result_payload`) | Top-level schema continuity and additive extension policy. |
-| 10) Graph payload (`graphs`) | `backend/app/risk_engine/impact_runner.py` (`_build_climada_graphs`, `_build_fallback_graphs`) | Graph key continuity and metric semantics used by frontend. |
-| 11) Runtime configuration | `backend/app/config.py` (`Settings`, `load_settings`) and `backend/app/main.py` (`/api/v1/health`) | Environment-variable defaults, runtime toggles, exposed health metadata. |
-| 12) OFB conservative valuation | Ingestion/build logic reflected in normalized `value_eur` handling (`exposure_ingest.py`) and downstream impact usage | Verify valuation assumptions are treated as input data policy, not hidden recalculation in impact core. |
-| 13) Guadeloupe preparation scripts | `backend/scripts/run_backoffice_sample.py`, `backend/scripts/cleanup_expired_jobs.py`, root `scripts/build_guadeloupe_*.py`, `scripts/rerun_case_studies_light.py` | Verify reproducibility and consistency between generated web artifacts and latest backend run IDs. |
-| 14) NA visual update note | `scripts/build_na_wind_leaflet_overlays.py`, `scripts/render_na_wind_static_maps.py`, `scripts/build_wind_speed_comparison_doc.py` | Confirm output-only transformations preserve backend hazard metrics and units. |
-| 15) Known limits | `interdependency.py`, `exposure_to_climada.py`, `impact_runner.py` | Limits are explicit and aligned with documented assumptions. |
-| 16) STORM sources | `backend/app/risk_engine/hazard_loader.py`, `backend/app/config.py` | Hazard source selection path (dynamic parquet vs precomputed HDF5) is explicit and traceable. |
-
----
+| 1) Objective and engine policy | `backend/app/risk_engine/impact_runner.py` (`compute_impacts`, `_compute_impacts_climada`, `compute_impacts_fallback`) | Default CLIMADA path, production fallback rejection, fail-closed runtime guards, legacy fallback helper kept only for history/audit context. |
+| 2) API and orchestration flow | `backend/app/main.py`, `backend/app/job_runner.py`, `backend/app/risk_engine/pipeline.py` | Request -> queue -> pipeline ordering and job-state transitions. |
+| 3) Exposure ingestion/normalization | `backend/app/risk_engine/exposure_ingest.py` | Category aliases, strict validation, parsing behavior by format (CSV/XLSX/GeoJSON/GPKG/drawn). |
+| 4) Exposure sampling and conversion | `backend/app/risk_engine/exposure_to_climada.py` | CRS transforms, line/polygon sampling, point caps, value conservation. |
+| 5) Hazard loading and source policy | `backend/app/risk_engine/hazard_loader.py`, `backend/app/config.py`, `backend/app/risk_engine/impact_runner.py` | Dynamic parquet scientific path, legacy HDF5 helper surfaces blocked by `compute_impacts(...)`, source metadata traceability. |
+| 6) Vulnerability curves (wind/rain/surge/landslide) | `backend/app/risk_engine/impact_functions.py`, `backend/app/risk_engine/impact_functions_multi_hazard.py`, `backend/app/risk_engine/impact_functions_landslide.py` | Curve provenance, asset-type mappings, D2 workbook dependencies, profile consistency. |
+| 7) CLIMADA direct impacts and component composition | `backend/app/risk_engine/climada_engine.py` (`run_climada_direct_impacts`) | Frequency normalization, component-level execution (`wind`,`rain`,`surge`), matrix-based per-asset max-loss extraction (`save_mat=True` + `imp_mat.max(axis=0)`), public percentile-99 event-loss headline, strict component failure policy. |
+| 8) Electricity -> water interdependency | `backend/app/risk_engine/interdependency.py` | Health computation, local/nearest/global electrical-health resolution, uplift and caps. |
+| 9) Social impact enrichment | `backend/app/risk_engine/population_loader.py`, `backend/app/risk_engine/social_impact.py`, `backend/app/risk_engine/impact_runner.py` | Population loading robustness, territory-level metrics, payload integration safeguards. |
+| 10) Territory/portfolio aggregation and graphs | `backend/app/risk_engine/impact_runner.py` | `risk_index`, direct/indirect split, component health blocks, graph semantic continuity. |
+| 11) Output contract and artifacts | `backend/app/risk_engine/analysis_export.py` | Payload schema continuity, additive extensions, CSV/JSON artifact generation. |
+| 12) Sensitivity scenario handling | `backend/app/risk_engine/sensitivity_scenarios.py`, `scripts/run_sensitivity_analysis.py`, `scripts/export_sensitivity_matrix.py` | Scenario-pack validation, allowed overrides, manifest fields for reproducibility. |
+| 13) Landslide computation path (specialized) | `backend/app/risk_engine/landslide_engine.py`, `scripts/landslide_poc_guadeloupe.py`, `scripts/build_case_study_landslide_maps.py` | Raster-to-hazard conversion assumptions, event sampling controls, explicit scope limits vs production path. |
+| 14) End-to-end complete run scripts | `scripts/run_complete_analysis.py`, `scripts/build_guadeloupe_complete_analysis.py`, `scripts/rerun_case_studies_light.py` | GUA+MQ execution reproducibility, non-deploy mode, frontend artifact rebuild behavior. |
+| 15) Runtime quality checks and debt | `scripts/audit_quick_checks.sh` | Focused close-out tests passed on 2026-04-29; `audit_quick_checks.sh` remains a separate engineering-quality probe and may still surface repo-wide lint debt. |
 
 ## Critical Function Anchors (Quick Jump)
+- `backend/app/main.py`: `health`, `hazard_coverage`, `vulnerability_curves`, `create_run`
+- `backend/app/job_runner.py`: `JobProcessor._process_one`
+- `backend/app/risk_engine/pipeline.py`: `run_job_pipeline`
+- `backend/app/risk_engine/impact_runner.py`: `compute_impacts`, `_compute_impacts_climada`, `compute_impacts_fallback`
+- `backend/app/risk_engine/climada_engine.py`: `run_climada_direct_impacts`
+- `backend/app/risk_engine/interdependency.py`: `aggregate_impacts_with_interdependency`
+- `backend/app/risk_engine/social_impact.py`: `calculate_social_impact_metrics`, `aggregate_social_summary`
+- `backend/app/risk_engine/sensitivity_scenarios.py`: `resolve_scenario_from_pack`, `apply_settings_overrides`
+- `backend/app/risk_engine/analysis_export.py`: `build_result_payload`
 
-- API entrypoints: `backend/app/main.py` -> `health`, `create_run`, `get_run_result`, `get_run_artifact`.
-- Queue orchestration: `backend/app/job_runner.py` -> `JobProcessor._process_one`.
-- Pipeline orchestration: `backend/app/risk_engine/pipeline.py` -> `run_job_pipeline`.
-- CLIMADA path: `backend/app/risk_engine/impact_runner.py` -> `_compute_impacts_climada`.
-- Fallback path: `backend/app/risk_engine/impact_runner.py` -> `compute_impacts_fallback`.
-- Dependency aggregation: `backend/app/risk_engine/interdependency.py` -> `aggregate_impacts_with_interdependency`.
-- Hazard source path: `backend/app/risk_engine/climada_engine.py` + `backend/app/risk_engine/hazard_loader.py`.
-- Output contract: `backend/app/risk_engine/analysis_export.py` -> `build_result_payload`.
+## Root Script -> Backend/Artifacts Mapping
 
----
-
-## Root Scripts -> Backend/Artifacts Mapping
-
-| Root script | Backend dependencies | Main produced artifacts |
+| Root script | Backend dependencies | Primary outputs |
 |---|---|---|
-| `scripts/rerun_case_studies_light.py` | `backend/app/config.py`, `scripts/build_guadeloupe_wind_maps.py`, `scripts/build_case_study_multi_hazard_proxy.py`, `scripts/build_guadeloupe_page1_data.py` | `web/data/*-wind-maps.json`, `web/data/*-multi-hazard-proxy.json`, `web/data/*-page1-analysis.json`, `web/data/*-page2-analysis.json` |
-| `scripts/build_guadeloupe_wind_maps.py` | `backend/app/risk_engine/hazard_loader.py`, `backend/app/risk_engine/climada_engine.py` helpers | `web/data/{territory}-wind-maps.json` |
-| `scripts/build_case_study_multi_hazard_proxy.py` | `backend/app/risk_engine/climada_engine.py`, `backend/app/risk_engine/hazard_loader.py`, `backend/app/risk_engine/impact_functions_multi_hazard.py` | `web/data/{territory}-multi-hazard-proxy.json` |
-| `scripts/build_guadeloupe_page1_data.py` | `backend/app/risk_engine/exposure_to_climada.py`, `backend/app/risk_engine/hazard_loader.py`, `backend/app/risk_engine/impact_runner.py` outputs | `web/data/{territory}-page1-analysis.json`, `web/data/{territory}-network-states.geojson` |
-| `scripts/build_guadeloupe_complete_analysis.py` | `backend/app/risk_engine/impact_runner.py`, `backend/app/risk_engine/analysis_export.py` | `web/data/{territory}-complete-analysis.json` |
-| `scripts/build_guadeloupe_water_infra_map.py` | case-study sources only (no backend compute) | `web/data/{territory}-water-infra.geojson` |
+| `scripts/run_complete_analysis.py` | `impact_runner.py`, `analysis_export.py`, `sensitivity_scenarios.py` | `outputs/complete-analysis-runs/*`, `web/data/*-complete-analysis.json`, rebuilt frontend artifacts |
+| `scripts/build_guadeloupe_complete_analysis.py` | backend API-compatible compute path | single territory complete-analysis JSON |
+| `scripts/rerun_case_studies_light.py` | multi script orchestration + backend config | `web/data/*-wind-maps.json`, `web/data/*-multi-hazard-proxy.json`, `web/data/*-page1-analysis.json`, `web/data/*-page2-analysis.json` |
+| `scripts/build_case_study_multi_hazard_proxy.py` | `climada_engine.py`, `hazard_loader.py`, `impact_functions_multi_hazard.py` | multi-hazard proxy web dataset |
+| `scripts/build_guadeloupe_page1_data.py` | `impact_runner.py`, exposure conversion/hazard helpers | page1 analysis + network states |
+| `scripts/run_sensitivity_analysis.py` | `sensitivity_scenarios.py` + complete-analysis runner | scenario batch outputs + workbook/matrix exports |
 
----
+## Fast Path Existence Check
+From repository root, to ensure every referenced backend module path exists:
 
-## Review Notes
-- The stitched artifact (`backend_stitched_review.py`) contains all scoped backend files exactly once, in execution-flow order, with SHA256 provenance markers.
-- For implementation truth, always refer back to original source files under `backend/`.
+```bash
+python3 - <<'PY'
+from pathlib import Path
+paths = [
+    "backend/app/risk_engine/impact_functions_multi_hazard.py",
+    "backend/app/risk_engine/impact_functions_landslide.py",
+    "backend/app/risk_engine/landslide_engine.py",
+    "backend/app/risk_engine/population_loader.py",
+    "backend/app/risk_engine/social_impact.py",
+    "backend/app/risk_engine/sensitivity_scenarios.py",
+]
+missing = [p for p in paths if not Path(p).exists()]
+print("OK" if not missing else "MISSING:\n" + "\n".join(missing))
+PY
+```

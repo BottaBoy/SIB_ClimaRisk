@@ -1,0 +1,17 @@
+provider,source,return_period_years,damage_eur,metric
+storm,population,10,48.57983463676747,intensity_distance_weighted_mps
+storm,sample,10,47.90635456378326,intensity_distance_weighted_mps
+storm,population,50,62.9396961619091,intensity_distance_weighted_mps
+storm,sample,50,63.89617421979855,intensity_distance_weighted_mps
+storm,population,100,66.87420729319312,intensity_distance_weighted_mps
+storm,sample,100,66.97747252462612,intensity_distance_weighted_mps
+storm,population,1000,76.22885858009727,intensity_distance_weighted_mps
+storm,sample,1000,68.4450779343084,intensity_distance_weighted_mps
+storm_cmcc,population,10,47.61295776616918,intensity_distance_weighted_mps
+storm_cmcc,sample,10,47.20862165686021,intensity_distance_weighted_mps
+storm_cmcc,population,50,65.2653505619204,intensity_distance_weighted_mps
+storm_cmcc,sample,50,64.95176939075186,intensity_distance_weighted_mps
+storm_cmcc,population,100,70.25788091151514,intensity_distance_weighted_mps
+storm_cmcc,sample,100,69.09378376501017,intensity_distance_weighted_mps
+storm_cmcc,population,1000,79.11501957825593,intensity_distance_weighted_mps
+storm_cmcc,sample,1000,69.09378376501017,intensity_distance_weighted_mps

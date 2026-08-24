@@ -16,6 +16,7 @@ from .job_store import JobStore
 from .models import HealthResponse, JobStatus, RunInputMode
 from .risk_engine.hazard_loader import list_default_basin_coverages
 from .risk_engine.impact_functions import get_tc_vulnerability_payload
+from .risk_engine.impact_functions_landslide import get_landslide_vulnerability_payload
 from .risk_engine.impact_functions_multi_hazard import get_multi_hazard_vulnerability_payload
 
 
@@ -87,9 +88,12 @@ def vulnerability_curves(hazard_component: str = Query("wind")):
             hazard_component=component,
             flood_curve_file=settings.d2_flood_curve_file,
         )
+    if component in {"landslide", "ls"}:
+        settings = get_settings()
+        return get_landslide_vulnerability_payload(d2_curve_file=settings.d2_flood_curve_file)
     raise HTTPException(
         status_code=400,
-        detail="hazard_component must be one of: wind, rain, surge",
+        detail="hazard_component must be one of: wind, rain, surge, landslide",
     )
 
 

@@ -52,7 +52,8 @@ server {
     }
 
     location ^~ /hazard-maps/ {
-        return 404;
+        alias /var/www/sib.shared.elio.dev/hazard-maps/;
+        add_header Cache-Control "public, max-age=300";
     }
 
     location / {

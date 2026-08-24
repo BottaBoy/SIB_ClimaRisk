@@ -1,8 +1,9 @@
 # Diagnostic vents et mailles (auto-genere)
 
-- Genere le: 2026-03-06 09:02 UTC
-- Unite vent normalisee: m/s
+- Genere le: 2026-06-23 14:27 UTC
+- Unite vent normalisee: km/h
 - Regeneration: `python scripts/build_wind_speed_comparison_doc.py` (met a jour automatiquement tableaux et mailles).
+- Verification mailles `complete analysis`: lecture des payloads publies `guadeloupe-complete-analysis.json` et `martinique-complete-analysis.json`.
 
 ## Comparaison vitesses max - Bassin NA complet
 
@@ -10,14 +11,45 @@
 |---|---:|---:|---:|
 | Nombre d annees actives (>=1 passage dans la zone) | 10 000 | 10 000 | 0 |
 | Nombre de cyclones/evenements (max par track) | 107 063 | 123 536 | 16 473 |
-| Moyenne des vitesses max annuelles (m/s) | 59,95 | 62,98 | 3,03 |
-| Moyenne des vitesses max par cyclone/evenement (m/s) | 34,67 | 37,25 | 2,58 |
-| Vitesse max annuelle - temps de retour 100 ans (m/s) | 75,90 | 79,00 | 3,10 |
-| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 70,10 | 72,90 | 2,80 |
-| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 79,00 | 81,10 | 2,10 |
-| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 75,80 | 78,80 | 3,00 |
-| Max des vitesses max annuelles (m/s) | 83,50 | 84,80 | 1,30 |
-| Max des vitesses max par cyclone/evenement (m/s) | 83,50 | 84,80 | 1,30 |
+| Moyenne des vitesses max annuelles (km/h) | 215,81 | 226,73 | 10,93 |
+| Moyenne des vitesses max par cyclone/evenement (km/h) | 124,82 | 134,11 | 9,29 |
+| Vitesse max annuelle - temps de retour 100 ans (km/h) | 273,24 | 284,40 | 11,16 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h) | 252,36 | 262,44 | 10,08 |
+| Vitesse max annuelle - temps de retour 1000 ans (km/h) | 284,40 | 291,96 | 7,56 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h) | 272,88 | 283,68 | 10,80 |
+| Max des vitesses max annuelles (km/h) | 300,61 | 305,28 | 4,67 |
+| Max des vitesses max par cyclone/evenement (km/h) | 300,61 | 305,28 | 4,67 |
+
+## Comparaison vitesses max - Bassin SI complet
+
+| Indicateur | STORM | STORM_CMCC | Delta (CMCC-STORM) |
+|---|---:|---:|---:|
+| Nombre d annees actives (>=1 passage dans la zone) | 7 984 | 10 000 | 2 016 |
+| Nombre de cyclones/evenements (max par track) | 98 114 | 104 080 | 5 966 |
+| Moyenne des vitesses max annuelles (km/h) | 188,74 | 200,87 | 12,14 |
+| Moyenne des vitesses max par cyclone/evenement (km/h) | 121,97 | 136,19 | 14,22 |
+| Vitesse max annuelle - temps de retour 100 ans (km/h) | 252,36 | 269,28 | 16,92 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h) | 218,16 | 234,72 | 16,56 |
+| Vitesse max annuelle - temps de retour 1000 ans (km/h) | 267,49 | 285,48 | 17,99 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h) | 250,52 | 268,56 | 18,04 |
+| Max des vitesses max annuelles (km/h) | 275,76 | 306,72 | 30,96 |
+| Max des vitesses max par cyclone/evenement (km/h) | 275,76 | 306,72 | 30,96 |
+
+## Comparaison vitesses max - Bassin SP complet
+
+| Indicateur | STORM | STORM_CMCC | Delta (CMCC-STORM) |
+|---|---:|---:|---:|
+| Nombre d annees actives (>=1 passage dans la zone) | 10 000 | 9 999 | -1 |
+| Nombre de cyclones/evenements (max par track) | 93 266 | 94 091 | 825 |
+| Moyenne des vitesses max annuelles (km/h) | 180,76 | 206,21 | 25,45 |
+| Moyenne des vitesses max par cyclone/evenement (km/h) | 120,19 | 137,50 | 17,31 |
+| Vitesse max annuelle - temps de retour 100 ans (km/h) | 255,60 | 280,08 | 24,48 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h) | 223,56 | 249,84 | 26,28 |
+| Vitesse max annuelle - temps de retour 1000 ans (km/h) | 277,92 | 300,96 | 23,04 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h) | 256,32 | 280,80 | 24,48 |
+| Max des vitesses max annuelles (km/h) | 315,36 | 354,60 | 39,24 |
+| Max des vitesses max par cyclone/evenement (km/h) | 315,36 | 354,60 | 39,24 |
+
 ## Comparaison vitesses max - Zone Guadeloupe
 - BBox: lat [15.5, 16.95625] ; lon [-62.48125, -60.66875]
 - Note: le nombre d annees correspond aux annees actives avec au moins un passage dans la zone.
@@ -26,14 +58,15 @@
 |---|---:|---:|---:|
 | Nombre d annees actives (>=1 passage dans la zone) | 2 655 | 2 887 | 232 |
 | Nombre de cyclones/evenements (max par track) | 3 126 | 3 401 | 275 |
-| Moyenne des vitesses max annuelles (m/s) | 37,25 | 36,00 | -1,26 |
-| Moyenne des vitesses max par cyclone/evenement (m/s) | 35,91 | 34,86 | -1,05 |
-| Vitesse max annuelle - temps de retour 100 ans (m/s) | 63,75 | 65,21 | 1,47 |
-| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 63,38 | 65,00 | 1,62 |
-| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 67,00 | 67,60 | 0,60 |
-| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 66,99 | 67,52 | 0,53 |
-| Max des vitesses max annuelles (m/s) | 67,80 | 69,60 | 1,80 |
-| Max des vitesses max par cyclone/evenement (m/s) | 67,80 | 69,60 | 1,80 |
+| Moyenne des vitesses max annuelles (km/h) | 134,11 | 129,59 | -4,52 |
+| Moyenne des vitesses max par cyclone/evenement (km/h) | 129,29 | 125,49 | -3,80 |
+| Vitesse max annuelle - temps de retour 100 ans (km/h) | 229,49 | 234,77 | 5,28 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h) | 228,15 | 234,00 | 5,85 |
+| Vitesse max annuelle - temps de retour 1000 ans (km/h) | 241,20 | 243,36 | 2,16 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h) | 241,16 | 243,07 | 1,92 |
+| Max des vitesses max annuelles (km/h) | 244,08 | 250,56 | 6,48 |
+| Max des vitesses max par cyclone/evenement (km/h) | 244,08 | 250,56 | 6,48 |
+
 ## Comparaison vitesses max - Zone Martinique
 - BBox: lat [14.3, 15.1] ; lon [-61.4, -60.7]
 - Note: le nombre d annees correspond aux annees actives avec au moins un passage dans la zone.
@@ -42,86 +75,51 @@
 |---|---:|---:|---:|
 | Nombre d annees actives (>=1 passage dans la zone) | 1 466 | 1 502 | 36 |
 | Nombre de cyclones/evenements (max par track) | 1 596 | 1 639 | 43 |
-| Moyenne des vitesses max annuelles (m/s) | 34,46 | 33,78 | -0,68 |
-| Moyenne des vitesses max par cyclone/evenement (m/s) | 34,00 | 33,15 | -0,84 |
-| Vitesse max annuelle - temps de retour 100 ans (m/s) | 65,13 | 63,10 | -2,04 |
-| Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s) | 64,43 | 62,80 | -1,63 |
-| Vitesse max annuelle - temps de retour 1000 ans (m/s) | 70,85 | 69,55 | -1,30 |
-| Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s) | 70,67 | 69,40 | -1,27 |
-| Max des vitesses max annuelles (m/s) | 73,70 | 71,00 | -2,70 |
-| Max des vitesses max par cyclone/evenement (m/s) | 73,70 | 71,00 | -2,70 |
-
-## Impacts (resume auto)
-
-| Indicateur impact | STORM | STORM_CMCC | Delta (CMCC-STORM) |
-|---|---:|---:|---:|
-| EAI total (€) | 131 380 076,47 | 128 137 990,62 | -3 242 085,85 |
-| Perte evenement max (€) | 4 875 886 816,28 | 5 172 572 047,43 | 296 685 231,15 |
-| HS direct S3 annuel (%) | 0,00 | 0,00 | 0,00 |
-| HS indirect S3 annuel (%) | 0,00 | 0,00 | 0,00 |
-| HS direct S3 evt max (%) | 94,76 | 94,76 | 0,00 |
-| HS indirect S3 evt max (%) | 0,00 | 0,00 | 0,00 |
-
-### Tableau des impacts annuels (moyenne)
-
-| Reseau | STORM S0/S1/S2/S3 (%) | STORM EAI (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC EAI (€) |
-|---|---:|---:|---:|---:|
-| Eau AEP | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 46 979 543,35 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 45 887 934,63 |
-| Eau EU | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 12 362 110,97 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 12 037 573,74 |
-| Elec BT souterrain | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 8 031 266,82 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 7 818 954,57 |
-| Elec BT aerien | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 10 637 862,53 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 10 382 543,02 |
-| Elec HTA souterrain | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 17 501 293,17 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 17 062 187,53 |
-| Elec HTA aerien | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 2 602 562,51 | S0 100,00 / S1 0,00 / S2 0,00 / S3 0,00 | 2 543 720,92 |
-
-### Tableau des impacts causes par les evenements a temps de retour 100 ans
-
-| Reseau | STORM S0/S1/S2/S3 (%) | STORM RP100 (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC RP100 (€) |
-|---|---:|---:|---:|---:|
-| Eau AEP | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 1 228 532 360,82 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 1 273 451 627,58 |
-| Eau EU | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 328 778 747,94 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 338 762 224,56 |
-| Elec BT souterrain | S0 21,61 / S1 0,00 / S2 45,67 / S3 32,73 | 147 616 245,81 | S0 21,61 / S1 0,00 / S2 0,00 / S3 78,39 | 151 873 178,89 |
-| Elec BT aerien | S0 0,94 / S1 0,00 / S2 99,06 / S3 0,00 | 190 725 990,39 | S0 0,94 / S1 0,00 / S2 38,73 / S3 60,34 | 196 736 672,02 |
-| Elec HTA souterrain | S0 9,86 / S1 0,00 / S2 90,14 / S3 0,00 | 314 043 383,85 | S0 9,86 / S1 0,00 / S2 49,63 / S3 40,51 | 322 156 636,51 |
-| Elec HTA aerien | S0 1,21 / S1 0,00 / S2 98,79 / S3 0,00 | 45 981 990,36 | S0 1,21 / S1 0,00 / S2 65,71 / S3 33,08 | 47 456 759,58 |
-
-### Tableau des impacts causes par les evenements a temps de retour 1000 ans
-
-| Reseau | STORM S0/S1/S2/S3 (%) | STORM RP1000 (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC RP1000 (€) |
-|---|---:|---:|---:|---:|
-| Eau AEP | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 1 868 717 196,22 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 1 825 198 561,87 |
-| Eau EU | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 492 592 583,42 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 480 065 236,64 |
-| Elec BT souterrain | S0 21,61 / S1 0,00 / S2 0,00 / S3 78,39 | 220 241 718,16 | S0 21,61 / S1 0,00 / S2 0,00 / S3 78,39 | 215 088 846,02 |
-| Elec BT aerien | S0 0,94 / S1 0,00 / S2 0,00 / S3 99,06 | 286 581 015,93 | S0 0,94 / S1 0,00 / S2 0,00 / S3 99,06 | 283 293 550,57 |
-| Elec HTA souterrain | S0 9,86 / S1 0,00 / S2 0,00 / S3 90,14 | 471 406 568,85 | S0 9,86 / S1 0,00 / S2 0,00 / S3 90,14 | 464 392 744,84 |
-| Elec HTA aerien | S0 1,21 / S1 0,00 / S2 0,00 / S3 98,79 | 69 642 191,73 | S0 1,21 / S1 0,00 / S2 0,00 / S3 98,79 | 69 289 012,99 |
-
-### Tableau des impacts causes par l'evenement le plus fort
-
-| Reseau | STORM S0/S1/S2/S3 (%) | STORM evt max (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC evt max (€) |
-|---|---:|---:|---:|---:|
-| Eau AEP | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 2 091 033 545,10 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 2 221 937 638,99 |
-| Eau EU | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 557 228 108,10 | S0 0,00 / S1 0,00 / S2 0,00 / S3 100,00 | 587 553 716,31 |
-| Elec BT souterrain | S0 21,61 / S1 0,00 / S2 0,00 / S3 78,39 | 248 294 468,19 | S0 21,61 / S1 0,00 / S2 0,00 / S3 78,39 | 263 396 495,95 |
-| Elec BT aerien | S0 0,94 / S1 0,00 / S2 0,00 / S3 99,06 | 323 219 321,83 | S0 0,94 / S1 0,00 / S2 0,00 / S3 99,06 | 347 849 661,63 |
-| Elec HTA souterrain | S0 9,86 / S1 0,00 / S2 0,00 / S3 90,14 | 532 424 260,53 | S0 9,86 / S1 0,00 / S2 0,00 / S3 90,14 | 571 843 235,74 |
-| Elec HTA aerien | S0 1,21 / S1 0,00 / S2 0,00 / S3 98,79 | 78 091 867,26 | S0 1,21 / S1 0,00 / S2 0,00 / S3 98,79 | 84 842 359,81 |
-
-### Tableau legacy (EAI / evenement max)
-
-| Reseau | STORM EAI (€) | STORM evt max (€) | STORM_CMCC EAI (€) | STORM_CMCC evt max (€) |
-|---|---:|---:|---:|---:|
-| Eau AEP | 46 979 543,35 | 2 091 033 545,10 | 45 887 934,63 | 2 221 937 638,99 |
-| Eau EU | 12 362 110,97 | 557 228 108,10 | 12 037 573,74 | 587 553 716,31 |
-| Elec BT souterrain | 8 031 266,82 | 248 294 468,19 | 7 818 954,57 | 263 396 495,95 |
-| Elec BT aerien | 10 637 862,53 | 323 219 321,83 | 10 382 543,02 | 347 849 661,63 |
-| Elec HTA souterrain | 17 501 293,17 | 532 424 260,53 | 17 062 187,53 | 571 843 235,74 |
-| Elec HTA aerien | 2 602 562,51 | 78 091 867,26 | 2 543 720,92 | 84 842 359,81 |
+| Moyenne des vitesses max annuelles (km/h) | 124,07 | 121,62 | -2,46 |
+| Moyenne des vitesses max par cyclone/evenement (km/h) | 122,38 | 119,34 | -3,04 |
+| Vitesse max annuelle - temps de retour 100 ans (km/h) | 234,49 | 227,15 | -7,34 |
+| Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h) | 231,97 | 226,08 | -5,89 |
+| Vitesse max annuelle - temps de retour 1000 ans (km/h) | 255,06 | 250,38 | -4,68 |
+| Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h) | 254,40 | 249,83 | -4,57 |
+| Max des vitesses max annuelles (km/h) | 265,32 | 255,60 | -9,72 |
+| Max des vitesses max par cyclone/evenement (km/h) | 265,32 | 255,60 | -9,72 |
 
 ## Mailles utilisees
 
 | Couche | Valeur |
 |---|---|
-| Maille hazard (impact CLIMADA) | 0,020 deg (lat) x 0,020 deg (lon), 6808 centroids |
-| BBox hazard (impact CLIMADA) | lat [15,500, 16,960], lon [-62,480, -60,660] |
-| Maille carte vents moyenne (web) | 0,020 deg |
-| Maille points d exposition (sampling) | 100 m (pas nominal), max 300 points/feature |
+| Hazard vent dans `complete analysis` | Pas de grille reguliere fixe: chargement dynamique STORM/STORM_CMCC sur points d exposition (`hazard_source=dynamic_parquet`) |
+| Points hazard/exposition dans `complete analysis` | Guadeloupe: 290 545 points ; Martinique: 325 765 points |
+| Maille d agregation territoriale dans `complete analysis` | 0,200 deg (meme valeur dans les payloads Guadeloupe et Martinique) |
+| Maille points d exposition dans `complete analysis` | 100 m (pas nominal), max 300 points/feature |
+| Maille cartes vents web Guadeloupe / Martinique | Guadeloupe: 0,020 deg ; Martinique: 0,020 deg (restitution web, hors `complete analysis`) |
+| Maille aleas pluie web Guadeloupe / Martinique | Guadeloupe: 0,020 deg ; Martinique: 0,020 deg (meme maille de publication que le vent dans les artefacts actuels) |
+| Maille aleas surge web Guadeloupe / Martinique | Guadeloupe: 0,020 deg ; Martinique: 0,020 deg (pas de sous-maille differente publiee actuellement) |
+| Maille aleas landslide web Guadeloupe / Martinique | Guadeloupe: 0,020 deg ; Martinique: 0,020 deg (meme maille de publication que le vent dans les artefacts actuels) |
+| Maille cartes vents bassin NA / SI / SP | 0,050 deg (`scripts/build_basin_wind_maps.py`, restitution web, hors `complete analysis`) |
+| Maille dependance elec -> eau | 0,100 deg (`fixed_grid_0p1deg`, aggregation native des etats elec avant projection sur l eau) |
+
+## Autres mailles ou pas reperes dans le projet
+
+| Element | Valeur |
+|---|---|
+| Grille population / social impacts | 0,200 deg (meme logique que la maille territoriale `complete analysis`) |
+| Petit cas `hazard_loader.py` | 0,010 deg (maille utilitaire de sous-echantillonnage, pas une maille de publication courante) |
+| Fenetre spatiale du loader | 4,000 deg de padding (ce n est pas une maille, mais une fenetre de chargement autour des expositions) |
+
+## Population totale par territoire (WorldPop 2020)
+
+- Source: rasters WorldPop sous `/home/ubuntu/uploads/Population`
+- Methode: somme des valeurs du raster de population par territoire, hors `NoData`
+
+| Territoire | Population totale |
+|---|---:|
+| Guadeloupe | 408 604 |
+| Martinique | 358 164 |
+| Saint-Barthelemy | 10 405 |
+| Saint-Martin | 33 134 |
+| Saint-Pierre-et-Miquelon | 5 851 |
+| La Reunion | 856 724 |
+| Mayotte | 279 657 |
+| Nouvelle-Caledonie | 283 701 |
+| Guyane | 803 199 |

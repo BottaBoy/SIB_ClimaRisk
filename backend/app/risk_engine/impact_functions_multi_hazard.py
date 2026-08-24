@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any
 import re
@@ -11,6 +12,7 @@ from .errors import DependencyMissingError
 SURGE_IMPF_ID_BASE = 4100
 RAIN_IMPF_ID_BASE = 5100
 DEFAULT_FLOOD_CURVE_CODE = "F17.5"
+DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF = 0.25
 
 # Detailed V1 mapping (chosen defaults, documented in methodology note).
 FLOOD_ASSET_TYPE_TO_CURVE_CODE = {
@@ -41,7 +43,7 @@ RUNOFF_COEFF_BY_INFRA_CLASS = {
 }
 
 _FLOOD_CURVE_CACHE: dict[str, dict[str, Any]] = {}
-_MODEL_CACHE: dict[tuple[str, str, str], "MultiHazardImpactModel"] = {}
+_MODEL_CACHE: dict[tuple[str, str, str, str, str], "MultiHazardImpactModel"] = {}
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,21 @@ def _normalize_asset_type(asset_type: str | None) -> str:
     return str(asset_type or "").strip().lower()
 
 
+def _effective_flood_asset_mapping(
+    asset_type_to_curve_code: dict[str, str] | None = None,
+) -> dict[str, str]:
+    if not asset_type_to_curve_code:
+        return dict(FLOOD_ASSET_TYPE_TO_CURVE_CODE)
+    normalized: dict[str, str] = {}
+    for asset_type, code in asset_type_to_curve_code.items():
+        asset_key = _normalize_asset_type(asset_type)
+        code_key = str(code or "").strip()
+        if not asset_key or not code_key:
+            continue
+        normalized[asset_key] = code_key
+    return normalized or dict(FLOOD_ASSET_TYPE_TO_CURVE_CODE)
+
+
 def _infer_infra_class_from_asset_type(asset_type: str | None) -> str:
     asset = _normalize_asset_type(asset_type)
     if asset.startswith("elec_"):
@@ -71,6 +88,23 @@ def _infer_infra_class_from_asset_type(asset_type: str | None) -> str:
             return "eau_reseau"
         return "eau_ouvrage"
     return "habitation"
+
+
+def _effective_runoff_coeff(infra_class: str | None, base_coeff: float) -> float:
+    infra_key = str(infra_class or "").strip().lower()
+    reference = float(DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+    scale = float(base_coeff) / reference if reference > 0.0 else 1.0
+    if scale <= 0.0:
+        scale = 1.0
+    class_coeff = float(RUNOFF_COEFF_BY_INFRA_CLASS.get(infra_key, reference))
+    effective = class_coeff * scale
+    if effective <= 0.0:
+        return reference
+    return effective
+
+
+def _rain_curve_key(code: str, infra_class: str) -> str:
+    return f"{str(code)}::{str(infra_class)}"
 
 
 def _safe_text(value: Any, default: str = "") -> str:
@@ -173,11 +207,19 @@ def build_multi_hazard_impact_model(
     surge_haz_type: str,
     rain_haz_type: str,
     flood_curve_file: Path,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
 ) -> MultiHazardImpactModel:
+    effective_mapping = _effective_flood_asset_mapping(asset_type_to_curve_code)
+    base_coeff = float(rain_proxy_base_runoff_coeff or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+    if base_coeff <= 0.0:
+        base_coeff = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF
     key = (
         str(surge_haz_type or "").strip(),
         str(rain_haz_type or "").strip(),
         str(flood_curve_file.resolve(strict=False)),
+        json.dumps(effective_mapping, sort_keys=True),
+        f"{base_coeff:.6f}",
     )
     cached = _MODEL_CACHE.get(key)
     if cached is not None:
@@ -185,20 +227,20 @@ def build_multi_hazard_impact_model(
 
     curves = _load_flood_depth_curves(flood_curve_file)
     used_codes = sorted(
-        {DEFAULT_FLOOD_CURVE_CODE, *[str(v) for v in FLOOD_ASSET_TYPE_TO_CURVE_CODE.values() if str(v) in curves]}
+        {DEFAULT_FLOOD_CURVE_CODE, *[str(v) for v in effective_mapping.values() if str(v) in curves]}
     )
 
     surge_funcs: list[Any] = []
     rain_funcs: list[Any] = []
     surge_impf_id_by_code: dict[str, int] = {}
-    rain_impf_id_by_code: dict[str, int] = {}
+    rain_impf_id_by_key: dict[str, int] = {}
+    rain_curve_specs: list[dict[str, Any]] = []
+    infra_classes = sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
 
     for idx, code in enumerate(used_codes, start=1):
         curve = curves[code]
         surge_impf_id = SURGE_IMPF_ID_BASE + idx
-        rain_impf_id = RAIN_IMPF_ID_BASE + idx
         surge_impf_id_by_code[code] = surge_impf_id
-        rain_impf_id_by_code[code] = rain_impf_id
 
         surge_funcs.append(
             _build_climada_impact_func(
@@ -211,36 +253,64 @@ def build_multi_hazard_impact_model(
             )
         )
 
-        # Rain proxy curves are derived from depth curves:
-        # equivalent_depth_m = runoff_coeff * rain_mm / 1000
-        # rain_mm = depth_m * 1000 / runoff_coeff
-        # We encode one baseline curve (coeff=0.25) and per-asset scaling via ID resolver below.
-        base_coeff = 0.25
-        rain_intensity_mm = (curve["depth_m"] * 1000.0) / base_coeff
-        rain_funcs.append(
-            _build_climada_impact_func(
-                impf_id=rain_impf_id,
-                haz_type=rain_haz_type,
-                name=f"SIB Rain Proxy Curve {code}",
-                intensity=rain_intensity_mm,
-                mdd=curve["mdd"],
-                intensity_unit="mm_proxy",
+    rain_idx = 0
+    for code in used_codes:
+        curve = curves[code]
+        for infra_class in infra_classes:
+            rain_idx += 1
+            rain_impf_id = RAIN_IMPF_ID_BASE + rain_idx
+            runoff_coeff = _effective_runoff_coeff(infra_class, base_coeff)
+            rain_key = _rain_curve_key(code, infra_class)
+            rain_impf_id_by_key[rain_key] = rain_impf_id
+
+            # Rain proxy curves are derived from depth curves:
+            # equivalent_depth_m = runoff_coeff * rain_mm / 1000
+            # rain_mm = depth_m * 1000 / runoff_coeff
+            rain_intensity_mm = [float(value) * 1000.0 / runoff_coeff for value in list(curve["depth_m"])]
+            rain_funcs.append(
+                _build_climada_impact_func(
+                    impf_id=rain_impf_id,
+                    haz_type=rain_haz_type,
+                    name=f"SIB Rain Proxy Curve {code} ({infra_class})",
+                    intensity=rain_intensity_mm,
+                    mdd=curve["mdd"],
+                    intensity_unit="mm_proxy",
+                )
             )
-        )
+            rain_curve_specs.append(
+                {
+                    "impf_id": int(rain_impf_id),
+                    "code": str(code),
+                    "infra_class": str(infra_class),
+                    "runoff_coeff": float(runoff_coeff),
+                }
+            )
 
     def code_for_asset(asset_type: str | None) -> str:
         asset = _normalize_asset_type(asset_type)
-        code = FLOOD_ASSET_TYPE_TO_CURVE_CODE.get(asset, DEFAULT_FLOOD_CURVE_CODE)
+        code = effective_mapping.get(asset, DEFAULT_FLOOD_CURVE_CODE)
         return code if code in surge_impf_id_by_code else DEFAULT_FLOOD_CURVE_CODE
 
     surge_impf_by_asset_type: dict[str, int] = {}
     rain_impf_by_asset_type: dict[str, int] = {}
-    for asset in {DEFAULT_FLOOD_CURVE_CODE, *FLOOD_ASSET_TYPE_TO_CURVE_CODE.keys()}:
+    for asset in {DEFAULT_FLOOD_CURVE_CODE, *effective_mapping.keys()}:
         if asset == DEFAULT_FLOOD_CURVE_CODE:
             continue
         c = code_for_asset(asset)
+        infra_class = _infer_infra_class_from_asset_type(asset)
+        rain_key = _rain_curve_key(c, infra_class)
         surge_impf_by_asset_type[str(asset)] = int(surge_impf_id_by_code[c])
-        rain_impf_by_asset_type[str(asset)] = int(rain_impf_id_by_code[c])
+        rain_impf_by_asset_type[str(asset)] = int(
+            rain_impf_id_by_key.get(
+                rain_key,
+                rain_impf_id_by_key[_rain_curve_key(DEFAULT_FLOOD_CURVE_CODE, "habitation")],
+            )
+        )
+
+    effective_runoff_coeffs = {
+        infra_class: float(_effective_runoff_coeff(infra_class, base_coeff))
+        for infra_class in infra_classes
+    }
 
     model = MultiHazardImpactModel(
         surge_funcs=surge_funcs,
@@ -253,9 +323,12 @@ def build_multi_hazard_impact_model(
         mapping_info={
             "default_curve_code": DEFAULT_FLOOD_CURVE_CODE,
             "curve_codes_used": used_codes,
-            "asset_type_to_curve_code": dict(FLOOD_ASSET_TYPE_TO_CURVE_CODE),
+            "asset_type_to_curve_code": dict(effective_mapping),
             "runoff_coeff_by_infra_class": dict(RUNOFF_COEFF_BY_INFRA_CLASS),
-            "base_rain_coeff_for_curve_construction": 0.25,
+            "effective_runoff_coeff_by_infra_class": effective_runoff_coeffs,
+            "base_rain_coeff_for_curve_construction": base_coeff,
+            "rain_impf_id_by_curve_and_infra_class": dict(rain_impf_id_by_key),
+            "rain_curve_specs": rain_curve_specs,
         },
     )
     _MODEL_CACHE[key] = model
@@ -280,6 +353,13 @@ def resolve_rain_impf_id(asset_type: str | None, model: MultiHazardImpactModel) 
     asset = _normalize_asset_type(asset_type)
     if asset in model.rain_impf_by_asset_type:
         return int(model.rain_impf_by_asset_type[asset])
+    mapping_info = dict(model.mapping_info or {})
+    default_code = str(mapping_info.get("default_curve_code") or DEFAULT_FLOOD_CURVE_CODE)
+    infra_class = _infer_infra_class_from_asset_type(asset)
+    rain_impf_id_by_key = dict(mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {})
+    fallback_id = rain_impf_id_by_key.get(_rain_curve_key(default_code, infra_class))
+    if fallback_id is not None:
+        return int(fallback_id)
     return int(_default_impf_id(model.rain_funcs))
 
 
@@ -287,6 +367,8 @@ def get_multi_hazard_vulnerability_payload(
     *,
     hazard_component: str,
     flood_curve_file: Path,
+    asset_type_to_curve_code: dict[str, str] | None = None,
+    rain_proxy_base_runoff_coeff: float = DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
 ) -> dict[str, Any]:
     component = str(hazard_component or "").strip().lower()
     if component not in {"rain", "surge"}:
@@ -296,13 +378,17 @@ def get_multi_hazard_vulnerability_payload(
         surge_haz_type="TCSurgeBathtub",
         rain_haz_type="TR",
         flood_curve_file=Path(flood_curve_file),
+        asset_type_to_curve_code=asset_type_to_curve_code,
+        rain_proxy_base_runoff_coeff=rain_proxy_base_runoff_coeff,
     )
     curves_raw = _load_flood_depth_curves(Path(flood_curve_file))
-    used_codes = [str(code) for code in list(model.mapping_info.get("curve_codes_used") or [])]
-    if not used_codes:
-        used_codes = [DEFAULT_FLOOD_CURVE_CODE]
-
-    base_coeff = float(model.mapping_info.get("base_rain_coeff_for_curve_construction", 0.25) or 0.25)
+    base_coeff = float(
+        model.mapping_info.get(
+            "base_rain_coeff_for_curve_construction",
+            DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF,
+        )
+        or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF
+    )
     if base_coeff <= 0.0:
         base_coeff = 0.25
 
@@ -315,44 +401,83 @@ def get_multi_hazard_vulnerability_payload(
         profile = "sib_tc_rain_proxy_multicurve_v1"
         haz_type = str(model.rain_haz_type)
         intensity_unit = "mm_proxy"
-        impf_base = RAIN_IMPF_ID_BASE
 
-    impf_id_by_code: dict[str, int] = {}
     curves: list[dict[str, Any]] = []
-    for idx, code in enumerate(used_codes, start=1):
-        curve = dict(curves_raw.get(code) or {})
-        depth_raw = curve.get("depth_m")
-        mdd_raw = curve.get("mdd")
-        depth = [float(v) for v in list(depth_raw) if v is not None]
-        mdd = [float(v) for v in list(mdd_raw) if v is not None]
-        if not depth or not mdd:
-            continue
-        if component == "surge":
+    if component == "surge":
+        used_codes = [str(code) for code in list(model.mapping_info.get("curve_codes_used") or [])]
+        if not used_codes:
+            used_codes = [DEFAULT_FLOOD_CURVE_CODE]
+        impf_id_by_code: dict[str, int] = {}
+        for idx, code in enumerate(used_codes, start=1):
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
             intensity = [float(v) for v in depth]
-        else:
-            intensity = [float(v) * 1000.0 / base_coeff for v in depth]
-        impf_id = int(impf_base + idx)
-        impf_id_by_code[code] = impf_id
-        curves.append(
-            {
-                "impf_id": impf_id,
-                "code": code,
-                "name": f"SIB {'Surge depth' if component == 'surge' else 'Rain proxy'} curve {code}",
-                "source": "D2 flood vulnerability table (F_Vuln_Depth)",
-                "geography": "Global / transferability assumptions",
-                "haz_type": haz_type,
-                "intensity_unit": intensity_unit,
-                "intensity": intensity,
-                "mdd": [float(v) for v in mdd],
-                "paa": [1.0 for _ in intensity],
-                "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
-                "modeled_infrastructure_characteristics": str(
-                    curve.get("modeled_infrastructure_characteristics") or "N/A"
-                ),
-                "uncertainty_lower": None,
-                "uncertainty_upper": None,
-            }
-        )
+            impf_id = int(impf_base + idx)
+            impf_id_by_code[code] = impf_id
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "name": f"SIB Surge depth curve {code}",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
+    else:
+        rain_curve_specs = list(model.mapping_info.get("rain_curve_specs") or [])
+        impf_id_by_code: dict[str, int] = {}
+        for spec in rain_curve_specs:
+            code = str(spec.get("code") or DEFAULT_FLOOD_CURVE_CODE)
+            infra_class = str(spec.get("infra_class") or "habitation")
+            runoff_coeff = float(spec.get("runoff_coeff") or base_coeff or DEFAULT_RAIN_PROXY_BASE_RUNOFF_COEFF)
+            curve = dict(curves_raw.get(code) or {})
+            depth_raw = curve.get("depth_m")
+            mdd_raw = curve.get("mdd")
+            depth = [float(v) for v in list(depth_raw) if v is not None]
+            mdd = [float(v) for v in list(mdd_raw) if v is not None]
+            if not depth or not mdd:
+                continue
+            intensity = [float(v) * 1000.0 / runoff_coeff for v in depth]
+            impf_id = int(spec.get("impf_id") or 0)
+            impf_id_by_code.setdefault(code, impf_id)
+            curves.append(
+                {
+                    "impf_id": impf_id,
+                    "code": code,
+                    "infra_class": infra_class,
+                    "runoff_coeff": runoff_coeff,
+                    "name": f"SIB Rain proxy curve {code} ({infra_class})",
+                    "source": "D2 flood vulnerability table (F_Vuln_Depth)",
+                    "geography": "Global / transferability assumptions",
+                    "haz_type": haz_type,
+                    "intensity_unit": intensity_unit,
+                    "intensity": intensity,
+                    "mdd": [float(v) for v in mdd],
+                    "paa": [1.0 for _ in intensity],
+                    "modeled_infrastructure_type": str(curve.get("modeled_infrastructure_type") or "Unknown"),
+                    "modeled_infrastructure_characteristics": str(
+                        curve.get("modeled_infrastructure_characteristics") or "N/A"
+                    ),
+                    "uncertainty_lower": None,
+                    "uncertainty_upper": None,
+                }
+            )
 
     if not curves:
         raise ValueError("No usable curves were found for multi-hazard vulnerability payload")
@@ -362,20 +487,53 @@ def get_multi_hazard_vulnerability_payload(
 
     asset_type_to_code = dict(model.mapping_info.get("asset_type_to_curve_code") or FLOOD_ASSET_TYPE_TO_CURVE_CODE)
     explicit_mapping: dict[str, dict[str, Any]] = {}
-    by_code_assets: dict[str, list[str]] = {}
+    by_curve_assets: dict[str, list[str]] = {}
     for asset_type, code in asset_type_to_code.items():
         resolved_code = str(code if code in impf_id_by_code else default_code)
-        explicit_mapping[str(asset_type)] = {
-            "code": resolved_code,
-            "impf_id": int(impf_id_by_code.get(resolved_code, default_impf_id)),
-        }
-        by_code_assets.setdefault(resolved_code, []).append(str(asset_type))
+        if component == "surge":
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": int(impf_id_by_code.get(resolved_code, default_impf_id)),
+            }
+            by_curve_assets.setdefault(resolved_code, []).append(str(asset_type))
+        else:
+            infra_class = _infer_infra_class_from_asset_type(asset_type)
+            curve_key = _rain_curve_key(resolved_code, infra_class)
+            matching_curve = next(
+                (
+                    curve_entry
+                    for curve_entry in curves
+                    if _rain_curve_key(str(curve_entry.get("code") or ""), str(curve_entry.get("infra_class") or ""))
+                    == curve_key
+                ),
+                None,
+            )
+            impf_id = int(matching_curve.get("impf_id")) if isinstance(matching_curve, dict) else default_impf_id
+            runoff_coeff = (
+                float(matching_curve.get("runoff_coeff"))
+                if isinstance(matching_curve, dict) and matching_curve.get("runoff_coeff") is not None
+                else _effective_runoff_coeff(infra_class, base_coeff)
+            )
+            explicit_mapping[str(asset_type)] = {
+                "code": resolved_code,
+                "impf_id": impf_id,
+                "infra_class": infra_class,
+                "runoff_coeff": runoff_coeff,
+            }
+            by_curve_assets.setdefault(curve_key, []).append(str(asset_type))
 
     for curve in curves:
-        code = str(curve.get("code") or "")
-        curve["sib_asset_types"] = sorted(by_code_assets.get(code, []))
+        if component == "surge":
+            code = str(curve.get("code") or "")
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(code, []))
+        else:
+            curve_key = _rain_curve_key(
+                str(curve.get("code") or ""),
+                str(curve.get("infra_class") or "habitation"),
+            )
+            curve["sib_asset_types"] = sorted(by_curve_assets.get(curve_key, []))
 
-    return {
+    payload = {
         "profile": profile,
         "haz_type": haz_type,
         "hazard_component": component,
@@ -384,3 +542,17 @@ def get_multi_hazard_vulnerability_payload(
         "default_curve": {"code": default_code, "impf_id": default_impf_id},
         "curves": curves,
     }
+    if component == "rain":
+        payload["default_curve_by_infra_class"] = {
+            infra_class: {
+                "code": default_code,
+                "impf_id": int(
+                    (
+                        model.mapping_info.get("rain_impf_id_by_curve_and_infra_class") or {}
+                    ).get(_rain_curve_key(default_code, infra_class), default_impf_id)
+                ),
+                "runoff_coeff": float(_effective_runoff_coeff(infra_class, base_coeff)),
+            }
+            for infra_class in sorted(str(key) for key in RUNOFF_COEFF_BY_INFRA_CLASS.keys())
+        }
+    return payload

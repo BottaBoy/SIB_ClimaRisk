@@ -1,0 +1,263 @@
+{
+  "generated_at": "2026-06-15T13:25:53.976809+00:00",
+  "source_workbook": "/home/ubuntu/uploads/Sensibility analysis/Analyses sensibilité_2.xlsx",
+  "source_sheet": "Variable to modify for sensibil",
+  "variables": [
+    {
+      "category": "Vulnerabilite",
+      "parameter_key": "vulnerability_curves_profile",
+      "parameter_label": "vulnérability curves",
+      "current_value": "all vulnerability curves",
+      "role": "selection de la courbe vent/pluie/submersion/mouvemnt de terrain par type d'actif",
+      "priority": "Tres haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py:16",
+      "recommended_action": "revue expert rapide des affectations",
+      "test_values_raw": "Run de sensibilité à part",
+      "test_values": [
+        "manual_profile_required"
+      ],
+      "default_pack_test_values": [
+        "manual_profile_required"
+      ],
+      "run_count": null,
+      "default_pack_run_count": 1,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Vulnerabilite",
+      "parameter_key": "runoff_coeff",
+      "parameter_label": "runoff_coeff",
+      "current_value": "0.25 unique",
+      "role": "Pluie : convertit la profondeur D2 en courbe pluie proxy en mm_proxy",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/impact_functions_multi_hazard.py:217",
+      "recommended_action": "sensibilite prioritaire et calage terrain",
+      "test_values_raw": "0,1-0,5",
+      "test_values": [
+        "0,1",
+        "0,5"
+      ],
+      "default_pack_test_values": [
+        "0,1",
+        "0,5"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "direct_state_thresholds",
+      "parameter_label": "seuils d'etat directs",
+      "current_value": "5% / 15% / 35%",
+      "role": "convertit le ratio de dommage en S0-S3",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:10",
+      "recommended_action": "expertiser rapidement",
+      "test_values_raw": "10%/20%/40%-10%/15%/50%",
+      "test_values": [
+        "10%/20%/40%",
+        "10%/15%/50%"
+      ],
+      "default_pack_test_values": [
+        "10%/20%/40%",
+        "10%/15%/50%"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "health_weights",
+      "parameter_label": "poids de sante health",
+      "current_value": "0.3 / 0.7 / 1.0",
+      "role": "convertit les masses en etat de sante systeme",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:43",
+      "recommended_action": "tester des ponderations alternatives",
+      "test_values_raw": "0.3/ 1 / 1.0-0.3 / 0.5 / 5",
+      "test_values": [
+        "0.3/ 1 / 1.0",
+        "0.3 / 0.5 / 5"
+      ],
+      "default_pack_test_values": [
+        "0.3/ 1 / 1.0",
+        "0.3 / 0.5 / 5"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "dependency_state_thresholds",
+      "parameter_label": "seuils health -> dependency_state",
+      "current_value": "0.75 / 0.55 / 0.35",
+      "role": "convertit la sante elec en etat de dependance",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:61",
+      "recommended_action": "expertiser rapidement",
+      "test_values_raw": "0.5 / 0.30 / 0.15-0.90 / 0.75 / 0.55",
+      "test_values": [
+        "0.5 / 0.30 / 0.15",
+        "0.90 / 0.75 / 0.55"
+      ],
+      "default_pack_test_values": [
+        "0.5 / 0.30 / 0.15",
+        "0.90 / 0.75 / 0.55"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "uplift_by_state",
+      "parameter_label": "uplift_by_state",
+      "current_value": "0% / 10% / 25% / 45%",
+      "role": "calcule l'EAI indirect eau a partir de l'etat de dependance",
+      "priority": "Tres haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/interdependency.py:15; backend/app/risk_engine/interdependency.py:267",
+      "recommended_action": "priorite revue expert",
+      "test_values_raw": "0% / 20% / 50% / 100%-0% / 5% / 10% / 15%",
+      "test_values": [
+        "0% / 20% / 50% / 100%",
+        "0% / 5% / 10% / 15%"
+      ],
+      "default_pack_test_values": [],
+      "run_count": 2,
+      "default_pack_run_count": 0,
+      "execution_tier": "postprocess_rerun"
+    },
+    {
+      "category": "Physique alea",
+      "parameter_key": "max_dist_inland_km",
+      "parameter_label": "max_dist_inland_km",
+      "current_value": "2000 km",
+      "role": "extension inland du champ pluie",
+      "priority": "Moyenne",
+      "robustness": "Moyenne",
+      "source": "backend/app/risk_engine/climada_engine.py:549",
+      "recommended_action": "tester 200/500/1000/2000",
+      "test_values_raw": "200-1000-2000",
+      "test_values": [
+        "200",
+        "1000",
+        "2000"
+      ],
+      "default_pack_test_values": [
+        "200",
+        "1000"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "parameter_label": "hazard_dynamic_max_tracks",
+      "current_value": "1200",
+      "role": "cap numerique sur le nombre de tracks dynamiques",
+      "priority": "Moyenne",
+      "robustness": "Bonne",
+      "source": "backend/app/config.py:55; backend/app/risk_engine/hazard_loader.py:406",
+      "recommended_action": "traiter comme reglage numerique et non comme hypothese scientifique",
+      "test_values_raw": "100-500-800-1000",
+      "test_values": [
+        "100",
+        "500",
+        "800",
+        "1000"
+      ],
+      "default_pack_test_values": [
+        "100",
+        "500",
+        "800",
+        "1000"
+      ],
+      "run_count": 4,
+      "default_pack_run_count": 4,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Systeme / interdependency",
+      "parameter_key": "territory_grid_deg",
+      "parameter_label": "maille territoriale electrique",
+      "current_value": "0.2 deg",
+      "role": "support spatial local pour resoudre la sante elec",
+      "priority": "Haute",
+      "robustness": "Faible",
+      "source": "backend/app/risk_engine/exposure_to_climada.py:11; backend/app/risk_engine/exposure_to_climada.py:50",
+      "recommended_action": "tester 0.05/0.1/0.2",
+      "test_values_raw": "0.05-0.1-0.2",
+      "test_values": [
+        "0.05",
+        "0.1",
+        "0.2"
+      ],
+      "default_pack_test_values": [
+        "0.05",
+        "0.1"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "default_sampling_spacing_m",
+      "parameter_label": "sampling_spacing_m backend",
+      "current_value": "100 m",
+      "role": "discretisation geometrique des expositions",
+      "priority": "Haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/config.py:44; backend/app/risk_engine/exposure_to_climada.py:232",
+      "recommended_action": "tester 50/100/250",
+      "test_values_raw": "50-250",
+      "test_values": [
+        "50",
+        "250"
+      ],
+      "default_pack_test_values": [
+        "50",
+        "250"
+      ],
+      "run_count": 2,
+      "default_pack_run_count": 2,
+      "execution_tier": "full_rerun"
+    },
+    {
+      "category": "Numerique / proxy / publication",
+      "parameter_key": "climada_max_points_per_feature",
+      "parameter_label": "climada_max_points_per_feature",
+      "current_value": "300",
+      "role": "cap de sampling par actif",
+      "priority": "Haute",
+      "robustness": "Moyenne",
+      "source": "backend/app/config.py:67; backend/app/risk_engine/exposure_to_climada.py:234",
+      "recommended_action": "tester 100/300/1000",
+      "test_values_raw": "100-500-1000",
+      "test_values": [
+        "100",
+        "500",
+        "1000"
+      ],
+      "default_pack_test_values": [
+        "100",
+        "500",
+        "1000"
+      ],
+      "run_count": 3,
+      "default_pack_run_count": 3,
+      "execution_tier": "full_rerun"
+    }
+  ]
+}

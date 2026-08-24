@@ -49,10 +49,10 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import load_settings  # noqa: E402
+from app.config import load_settings, resolve_surge_topo_path_for_territory  # noqa: E402
 from app.risk_engine.climada_engine import _prepare_topo_raster_with_crs  # noqa: E402
-from app.risk_engine.hazard_loader import load_storm_hazards_from_parquet_for_points  # noqa: E402
-from case_study_sources import CASE_STUDY_BBOX, normalize_territory  # noqa: E402
+from app.risk_engine.hazard_loader import _normalize_frequency_safe, load_storm_hazards_from_parquet_for_points  # noqa: E402
+from case_study_sources import CASE_STUDY_BBOX, parse_territory  # noqa: E402
 from journal_guamar_run import encode_track_ids  # noqa: E402
 
 COLUMNS = [
@@ -110,6 +110,7 @@ DEFAULT_ANTILLES_TOPO_PATH = Path(
 TERRITORY_ADMIN_GROUP = {
     "guadeloupe": "FRA",
     "martinique": "FRA",
+    "saint-barthelemy": "FRA",
 }
 
 
@@ -595,6 +596,54 @@ def _summarize_hazard_by_coord(hazard_obj) -> dict[tuple[float, float], dict[str
     return out
 
 
+def _validate_rain_metric_relationships(
+    rain_stats: dict[tuple[float, float], dict[str, float]],
+    *,
+    hazard_key: str,
+    tol: float = 1e-9,
+) -> None:
+    degenerate_cells: list[tuple[tuple[float, float], float]] = []
+    for coord, stats in rain_stats.items():
+        sample_count = int(stats.get("sample_count") or 0)
+        rp50 = float(stats.get("rp50") or 0.0)
+        rp100 = float(stats.get("rp100") or 0.0)
+        event_max = float(stats.get("event_max") or 0.0)
+        if sample_count < 3 or event_max <= 0.0:
+            continue
+        if abs(rp50 - rp100) <= tol and abs(rp100 - event_max) <= tol:
+            degenerate_cells.append((coord, event_max))
+            if len(degenerate_cells) >= 3:
+                break
+    if degenerate_cells:
+        preview = ", ".join(
+            f"({lat:.4f},{lon:.4f})={value:.4f}"
+            for (lat, lon), value in degenerate_cells
+        )
+        raise ValueError(
+            f"{hazard_key} rain return-period metrics collapsed to the event maximum on sampled cells: {preview}. "
+            "This usually indicates that rain-event frequencies are not normalized or that the catalogue sampling is inconsistent with return-level extraction."
+        )
+
+
+def _rain_metric_payload(stats: dict[str, float]) -> dict[str, float]:
+    mean_rain = round(float(stats.get("mean") or 0.0), 4)
+    rp50_rain = round(float(stats.get("rp50") or 0.0), 4)
+    rp100_rain = round(float(stats.get("rp100") or 0.0), 4)
+    event_max_rain = round(float(stats.get("event_max") or 0.0), 4)
+    return {
+        "mean_rain_mm": mean_rain,
+        "rp50_rain_mm": rp50_rain,
+        "rp100_rain_mm": rp100_rain,
+        "event_max_rain_mm": event_max_rain,
+        # Legacy aliases kept until all consumers switch to the corrected unit suffix.
+        "mean_rain_mmph": mean_rain,
+        "rp50_rain_mmph": rp50_rain,
+        "rp100_rain_mmph": rp100_rain,
+        "event_max_rain_mmph": event_max_rain,
+        "sample_count": int(stats.get("sample_count") or 0),
+    }
+
+
 def _build_native_wind_cells(
     *,
     target_cells: dict[tuple[int, int], dict[str, float | int]],
@@ -729,15 +778,12 @@ def _build_native_wind_and_rain_maps(
             ignore_distance_to_coast=True,
             max_dist_inland_km=2000,
         )
+        rain_hazard = _normalize_frequency_safe(rain_hazard, int(settings.storm_years))
         _progress(f"{hazard_key}: summarizing rain fields")
         rain_stats = _summarize_hazard_by_coord(rain_hazard)
+        _validate_rain_metric_relationships(rain_stats, hazard_key=hazard_key)
         rain_out[hazard_key] = {
-            key: {
-                "mean_rain_mmph": round(float(stats["mean"]), 4),
-                "rp50_rain_mmph": round(float(stats["rp50"]), 4),
-                "rp100_rain_mmph": round(float(stats["rp100"]), 4),
-                "event_max_rain_mmph": round(float(stats["event_max"]), 4),
-            }
+            key: _rain_metric_payload(stats)
             for key, stats in rain_stats.items()
         }
 
@@ -813,15 +859,12 @@ def _build_native_rain_maps(
             ignore_distance_to_coast=True,
             max_dist_inland_km=2000,
         )
+        rain_hazard = _normalize_frequency_safe(rain_hazard, int(settings.storm_years))
         _progress(f"{hazard_key}: summarizing rain fields")
         rain_stats = _summarize_hazard_by_coord(rain_hazard)
+        _validate_rain_metric_relationships(rain_stats, hazard_key=hazard_key)
         out[hazard_key] = {
-            key: {
-                "mean_rain_mmph": round(float(stats["mean"]), 4),
-                "rp50_rain_mmph": round(float(stats["rp50"]), 4),
-                "rp100_rain_mmph": round(float(stats["rp100"]), 4),
-                "event_max_rain_mmph": round(float(stats["event_max"]), 4),
-            }
+            key: _rain_metric_payload(stats)
             for key, stats in rain_stats.items()
         }
 
@@ -977,6 +1020,10 @@ def _merge_component_metrics(
             rain_component_map.get(
                 key,
                 {
+                    "mean_rain_mm": 0.0,
+                    "rp50_rain_mm": 0.0,
+                    "rp100_rain_mm": 0.0,
+                    "event_max_rain_mm": 0.0,
                     "mean_rain_mmph": 0.0,
                     "rp50_rain_mmph": 0.0,
                     "rp100_rain_mmph": 0.0,
@@ -998,24 +1045,24 @@ def _merge_component_metrics(
         merged.pop("grid_lat", None)
         merged.pop("grid_lon", None)
         cells.append(merged)
-        mean_rain_values.append(float(merged["mean_rain_mmph"]))
-        rp50_rain_values.append(float(merged["rp50_rain_mmph"]))
-        rp100_rain_values.append(float(merged["rp100_rain_mmph"]))
-        event_max_rain_values.append(float(merged["event_max_rain_mmph"]))
+        mean_rain_values.append(float(merged["mean_rain_mm"]))
+        rp50_rain_values.append(float(merged["rp50_rain_mm"]))
+        rp100_rain_values.append(float(merged["rp100_rain_mm"]))
+        event_max_rain_values.append(float(merged["event_max_rain_mm"]))
         mean_surge_values.append(float(merged["mean_surge_m"]))
         rp50_surge_values.append(float(merged["rp50_surge_m"]))
         rp100_surge_values.append(float(merged["rp100_surge_m"]))
         event_max_surge_values.append(float(merged["event_max_surge_m"]))
 
     ranges = {
-        "mean_rain_min_mmph": min(mean_rain_values) if mean_rain_values else 0.0,
-        "mean_rain_max_mmph": max(mean_rain_values) if mean_rain_values else 0.0,
-        "rp50_rain_min_mmph": min(rp50_rain_values) if rp50_rain_values else 0.0,
-        "rp50_rain_max_mmph": max(rp50_rain_values) if rp50_rain_values else 0.0,
-        "rp100_rain_min_mmph": min(rp100_rain_values) if rp100_rain_values else 0.0,
-        "rp100_rain_max_mmph": max(rp100_rain_values) if rp100_rain_values else 0.0,
-        "event_max_rain_min_mmph": min(event_max_rain_values) if event_max_rain_values else 0.0,
-        "event_max_rain_max_mmph": max(event_max_rain_values) if event_max_rain_values else 0.0,
+        "mean_rain_min_mm": min(mean_rain_values) if mean_rain_values else 0.0,
+        "mean_rain_max_mm": max(mean_rain_values) if mean_rain_values else 0.0,
+        "rp50_rain_min_mm": min(rp50_rain_values) if rp50_rain_values else 0.0,
+        "rp50_rain_max_mm": max(rp50_rain_values) if rp50_rain_values else 0.0,
+        "rp100_rain_min_mm": min(rp100_rain_values) if rp100_rain_values else 0.0,
+        "rp100_rain_max_mm": max(rp100_rain_values) if rp100_rain_values else 0.0,
+        "event_max_rain_min_mm": min(event_max_rain_values) if event_max_rain_values else 0.0,
+        "event_max_rain_max_mm": max(event_max_rain_values) if event_max_rain_values else 0.0,
         "mean_surge_min_m": min(mean_surge_values) if mean_surge_values else 0.0,
         "mean_surge_max_m": max(mean_surge_values) if mean_surge_values else 0.0,
         "rp50_surge_min_m": min(rp50_surge_values) if rp50_surge_values else 0.0,
@@ -1025,12 +1072,24 @@ def _merge_component_metrics(
         "event_max_surge_min_m": min(event_max_surge_values) if event_max_surge_values else 0.0,
         "event_max_surge_max_m": max(event_max_surge_values) if event_max_surge_values else 0.0,
     }
+    ranges.update(
+        {
+            "mean_rain_min_mmph": ranges["mean_rain_min_mm"],
+            "mean_rain_max_mmph": ranges["mean_rain_max_mm"],
+            "rp50_rain_min_mmph": ranges["rp50_rain_min_mm"],
+            "rp50_rain_max_mmph": ranges["rp50_rain_max_mm"],
+            "rp100_rain_min_mmph": ranges["rp100_rain_min_mm"],
+            "rp100_rain_max_mmph": ranges["rp100_rain_max_mm"],
+            "event_max_rain_min_mmph": ranges["event_max_rain_min_mm"],
+            "event_max_rain_max_mmph": ranges["event_max_rain_max_mm"],
+        }
+    )
     return cells, ranges
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build territory hazard map layers from STORM using native CLIMADA rain/surge generation.")
-    parser.add_argument("--territory", choices=["guadeloupe", "martinique"], default="guadeloupe")
+    parser.add_argument("--territory", default="guadeloupe")
     parser.add_argument(
         "--storm-dir",
         default=None,
@@ -1067,7 +1126,7 @@ def main() -> None:
     parser.add_argument(
         "--surge-native-cell-deg",
         type=float,
-        default=0.01,
+        default=float(load_settings().surge_grid_deg),
         help="Regular grid spacing in degrees used internally for the native TCSurgeBathtub computation before clipping back to the output cells.",
     )
     parser.add_argument(
@@ -1084,7 +1143,8 @@ def main() -> None:
     _require_map_deps()
 
     settings = load_settings()
-    territory = normalize_territory(args.territory)
+    territory = parse_territory(args.territory)
+    topo_arg_explicit = any(arg == "--topo-path" or arg.startswith("--topo-path=") for arg in sys.argv[1:])
     case_study_run_id = str(args.case_study_run_id or "").strip()
     if not case_study_run_id:
         case_study_run_id = datetime.now(UTC).strftime(f"{territory}_case_%Y%m%dT%H%M%SZ")
@@ -1099,6 +1159,8 @@ def main() -> None:
     storm_parquet_path = Path(args.storm_dir) if args.storm_dir else Path(settings.storm_parquet_path)
     cmcc_parquet_path = Path(args.cmcc_dir) if args.cmcc_dir else Path(settings.storm_cmcc_parquet_path)
     topo_path = Path(args.topo_path)
+    if not topo_arg_explicit and os.environ.get("SIB_RISK_HAZARD_SURGE_TOPO_PATH") is None:
+        topo_path = resolve_surge_topo_path_for_territory(territory, settings=settings)
     admin_path = Path(args.admin_boundaries_path)
     out = Path(args.out) if args.out else (REPO_ROOT / "web" / "data" / f"{territory}-wind-maps.json")
 
@@ -1201,14 +1263,19 @@ def main() -> None:
             "hazard_components": list(COMPONENT_ORDER),
             "component_units": {
                 "wind": "m/s",
-                "rain": "mm/h",
+                "rain": "mm",
                 "surge": "m",
             },
             "surge_topo_path": str(topo_path) if topo_path.exists() else None,
             "surge_topo_path_prepared": native_surge_meta.get("topo_path_prepared"),
             "wind_generation": "Native CLIMADA chain: STORM -> tracks -> TropCyclone.from_tracks",
+            "wind_metric_mean_semantics": "Per retained cell, mean mode stores the frequency-weighted mean over positive STORM event intensities; no territorial median is used.",
+            "wind_metric_return_level_semantics": "Per retained cell, rp50/rp100 modes store return levels extracted from the exceedance-frequency curve over positive STORM event intensities; no territorial median is used.",
+            "wind_metric_event_max_semantics": "Per retained cell, event_max mode stores the maximum positive STORM event intensity.",
+            "wind_display_range_semantics": "Legend min/max values are computed across retained territory cells for the selected metric.",
             "surge_generation": "Native CLIMADA chain: STORM -> TropCyclone -> TCSurgeBathtub.from_tc_winds",
-            "rain_generation": "Native CLIMADA chain: STORM -> tracks -> TCRain.from_tracks",
+            "rain_generation": "Native CLIMADA chain: STORM -> tracks -> TCRain.from_tracks (event-total intensity in mm)",
+            "rain_intensity_semantics": "event_total_mm",
             "territory_mask_path": str(admin_path) if admin_path.exists() else None,
             "territory_mask_source": mask_source,
             "territory_mask_shape_group": TERRITORY_ADMIN_GROUP.get(territory),
@@ -1249,14 +1316,14 @@ def main() -> None:
         "STORM "
         f"cells={len(storm_cells)} years={payload['storm']['years_covered']} tracks~={payload['storm']['tracks_approx']} native_tracks={payload['storm']['native_tracks_used']} "
         f"mean_wind=[{payload['storm']['mean_wind_min_mps']:.3f},{payload['storm']['mean_wind_max_mps']:.3f}] "
-        f"mean_rain=[{payload['storm']['mean_rain_min_mmph']:.3f},{payload['storm']['mean_rain_max_mmph']:.3f}] "
+        f"mean_rain=[{payload['storm']['mean_rain_min_mm']:.3f},{payload['storm']['mean_rain_max_mm']:.3f}] "
         f"mean_surge=[{payload['storm']['mean_surge_min_m']:.3f},{payload['storm']['mean_surge_max_m']:.3f}]"
     )
     _progress(
         "STORM_CMCC "
         f"cells={len(cmcc_cells)} years={payload['storm_cmcc']['years_covered']} tracks~={payload['storm_cmcc']['tracks_approx']} native_tracks={payload['storm_cmcc']['native_tracks_used']} "
         f"mean_wind=[{payload['storm_cmcc']['mean_wind_min_mps']:.3f},{payload['storm_cmcc']['mean_wind_max_mps']:.3f}] "
-        f"mean_rain=[{payload['storm_cmcc']['mean_rain_min_mmph']:.3f},{payload['storm_cmcc']['mean_rain_max_mmph']:.3f}] "
+        f"mean_rain=[{payload['storm_cmcc']['mean_rain_min_mm']:.3f},{payload['storm_cmcc']['mean_rain_max_mm']:.3f}] "
         f"mean_surge=[{payload['storm_cmcc']['mean_surge_min_m']:.3f},{payload['storm_cmcc']['mean_surge_max_m']:.3f}]"
     )
 

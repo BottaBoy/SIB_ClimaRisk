@@ -1,0 +1,37 @@
+{
+  "haiyan-2013": {
+    "source": "ibtracs",
+    "storm_id": "2013306N07162",
+    "name": "HAIYAN",
+    "season": 2013,
+    "basin": "WP"
+  },
+  "idai-2019": {
+    "source": "ibtracs",
+    "storm_id": "2019063S18038",
+    "name": "IDAI",
+    "season": 2019,
+    "basin": "SI"
+  },
+  "irma-2017": {
+    "source": "ibtracs",
+    "storm_id": "2017242N16333",
+    "name": "IRMA",
+    "season": 2017,
+    "basin": "NA"
+  },
+  "katrina-2005": {
+    "source": "ibtracs",
+    "storm_id": "2005236N23285",
+    "name": "KATRINA",
+    "season": 2005,
+    "basin": "NA"
+  },
+  "maria-2017": {
+    "source": "ibtracs",
+    "storm_id": "2017260N12310",
+    "name": "MARIA",
+    "season": 2017,
+    "basin": "NA"
+  }
+}

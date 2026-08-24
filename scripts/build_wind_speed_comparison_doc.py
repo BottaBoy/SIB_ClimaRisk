@@ -4,11 +4,10 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 import json
 import os
+from pathlib import Path
 import re
-import sys
 from typing import Any
 
 try:
@@ -21,13 +20,14 @@ try:
 except Exception:  # pragma: no cover - optional at import time for CLI --help
     pd = None  # type: ignore[assignment]
 
-try:
-    from climada.hazard import Hazard
-except Exception:  # pragma: no cover - optional at import time for CLI --help
-    Hazard = None  # type: ignore[assignment]
+from case_study_sources import CASE_STUDY_BBOX
 
 
 UTC = timezone.utc
+KMH_PER_MPS = 3.6
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ELECTRIC_DEPENDENCY_GRID_DEG = 0.1
+SMALL_SAMPLE_GRID_STEP_DEG = 0.01
 
 COLUMNS = [
     "Year",
@@ -47,28 +47,6 @@ COLUMNS = [
 
 USECOLS = ["Year", "Basin ID", "Latitude", "Longitude", "Maximum wind speed", "TC number"]
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-BACKEND_ROOT = REPO_ROOT / "backend"
-if str(BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(BACKEND_ROOT))
-from app.config import load_settings  # noqa: E402
-
-
-def _require_runtime_deps() -> None:
-    missing: list[str] = []
-    if np is None:
-        missing.append("numpy")
-    if pd is None:
-        missing.append("pandas")
-    if Hazard is None:
-        missing.append("climada")
-    if missing:
-        raise RuntimeError(
-            "Missing dependencies for build_wind_speed_comparison_doc.py: "
-            + ", ".join(sorted(set(missing)))
-            + ". Install backend requirements and retry."
-        )
-
 
 @dataclass(frozen=True)
 class RegionSpec:
@@ -80,11 +58,34 @@ class RegionSpec:
     lon_max: float | None = None
 
 
+@dataclass(frozen=True)
+class BasinSpec:
+    key: str
+    label: str
+    basin_id: int
+    storm_pattern: str
+    cmcc_pattern: str
+
+
+def _require_runtime_deps() -> None:
+    missing: list[str] = []
+    if np is None:
+        missing.append("numpy")
+    if pd is None:
+        missing.append("pandas")
+    if missing:
+        raise RuntimeError(
+            "Missing dependencies for build_wind_speed_comparison_doc.py: "
+            + ", ".join(sorted(set(missing)))
+            + ". Install script requirements and retry."
+        )
+
+
 def _parse_block(path: Path) -> int:
-    m = re.search(r"_1000_YEARS_(\d+)", path.name)
-    if not m:
+    match = re.search(r"_1000_YEARS_(\d+)", path.name)
+    if not match:
         return 0
-    return int(m.group(1))
+    return int(match.group(1))
 
 
 def _normalize_wind_unit(raw: str) -> str:
@@ -116,7 +117,7 @@ def _wind_to_mps(series: pd.Series, unit_in: str) -> pd.Series:
         return wind
     if unit == "kn":
         return wind * 0.514444
-    return wind / 3.6  # km/h -> m/s
+    return wind / 3.6
 
 
 def _iter_files(root: Path, pattern: str) -> list[Path]:
@@ -126,15 +127,40 @@ def _iter_files(root: Path, pattern: str) -> list[Path]:
     return files
 
 
-def _compute_stats(
+def _finalize_stats(
+    *,
+    year_max: dict[int, float],
+    track_max: dict[tuple[int, int], float],
+) -> dict[str, Any]:
+    year_vals = np.array(list(year_max.values()), dtype=float)
+    track_vals = np.array(list(track_max.values()), dtype=float)
+    year_q_rp100 = float(np.quantile(year_vals, 0.99)) if year_vals.size else 0.0
+    year_q_rp1000 = float(np.quantile(year_vals, 0.999)) if year_vals.size else 0.0
+    track_q_rp100 = float(np.quantile(track_vals, 0.99)) if track_vals.size else 0.0
+    track_q_rp1000 = float(np.quantile(track_vals, 0.999)) if track_vals.size else 0.0
+    return {
+        "years": int(year_vals.size),
+        "tracks": int(track_vals.size),
+        "year_max_mean_mps": float(year_vals.mean()) if year_vals.size else 0.0,
+        "track_max_mean_mps": float(track_vals.mean()) if track_vals.size else 0.0,
+        "year_max_rp100_mps": year_q_rp100,
+        "track_max_rp100_mps": track_q_rp100,
+        "year_max_rp1000_mps": year_q_rp1000,
+        "track_max_rp1000_mps": track_q_rp1000,
+        "year_max_max_mps": float(year_vals.max()) if year_vals.size else 0.0,
+        "track_max_max_mps": float(track_vals.max()) if track_vals.size else 0.0,
+    }
+
+
+def _compute_stats_by_region(
     files: list[Path],
     *,
     basin_id: int,
     wind_unit_in: str,
-    region: RegionSpec,
-) -> dict[str, Any]:
-    year_max: dict[int, float] = {}
-    track_max: dict[tuple[int, int], float] = {}
+    regions: list[RegionSpec],
+) -> dict[str, dict[str, Any]]:
+    region_year_max: dict[str, dict[int, float]] = {region.key: {} for region in regions}
+    region_track_max: dict[str, dict[tuple[int, int], float]] = {region.key: {} for region in regions}
 
     for txt in files:
         block = _parse_block(txt)
@@ -174,71 +200,44 @@ def _compute_stats(
             if chunk.empty:
                 continue
 
-            if region.lat_min is not None:
-                chunk = chunk[
-                    (chunk["lat"] >= float(region.lat_min))
-                    & (chunk["lat"] <= float(region.lat_max))
-                    & (chunk["lon"] >= float(region.lon_min))
-                    & (chunk["lon"] <= float(region.lon_max))
-                ]
-            if chunk.empty:
-                continue
-
             chunk["year_global"] = chunk["year"].astype(int) + (1000 * int(block))
 
-            g_year = chunk.groupby("year_global", as_index=False)["wind_max"].max()
-            for row in g_year.itertuples(index=False):
-                key = int(row.year_global)
-                val = float(row.wind_max)
-                prev = year_max.get(key)
-                if prev is None or val > prev:
-                    year_max[key] = val
+            for region in regions:
+                region_chunk = chunk
+                if region.lat_min is not None:
+                    region_chunk = chunk[
+                        (chunk["lat"] >= float(region.lat_min))
+                        & (chunk["lat"] <= float(region.lat_max))
+                        & (chunk["lon"] >= float(region.lon_min))
+                        & (chunk["lon"] <= float(region.lon_max))
+                    ]
+                if region_chunk.empty:
+                    continue
 
-            g_track = chunk.groupby(["year_global", "tc_number"], as_index=False)["wind_max"].max()
-            for row in g_track.itertuples(index=False):
-                key = (int(row.year_global), int(row.tc_number))
-                val = float(row.wind_max)
-                prev = track_max.get(key)
-                if prev is None or val > prev:
-                    track_max[key] = val
+                g_year = region_chunk.groupby("year_global", as_index=False)["wind_max"].max()
+                year_max = region_year_max[region.key]
+                for row in g_year.itertuples(index=False):
+                    key = int(row.year_global)
+                    val = float(row.wind_max)
+                    prev = year_max.get(key)
+                    if prev is None or val > prev:
+                        year_max[key] = val
 
-    year_vals = np.array(list(year_max.values()), dtype=float)
-    track_vals = np.array(list(track_max.values()), dtype=float)
-    year_q_rp100 = float(np.quantile(year_vals, 0.99)) if year_vals.size else 0.0
-    year_q_rp1000 = float(np.quantile(year_vals, 0.999)) if year_vals.size else 0.0
-    track_q_rp100 = float(np.quantile(track_vals, 0.99)) if track_vals.size else 0.0
-    track_q_rp1000 = float(np.quantile(track_vals, 0.999)) if track_vals.size else 0.0
+                g_track = region_chunk.groupby(["year_global", "tc_number"], as_index=False)["wind_max"].max()
+                track_max = region_track_max[region.key]
+                for row in g_track.itertuples(index=False):
+                    key = (int(row.year_global), int(row.tc_number))
+                    val = float(row.wind_max)
+                    prev = track_max.get(key)
+                    if prev is None or val > prev:
+                        track_max[key] = val
 
     return {
-        "years": int(year_vals.size),
-        "tracks": int(track_vals.size),
-        "year_max_mean_mps": float(year_vals.mean()) if year_vals.size else 0.0,
-        "track_max_mean_mps": float(track_vals.mean()) if track_vals.size else 0.0,
-        "year_max_rp100_mps": year_q_rp100,
-        "track_max_rp100_mps": track_q_rp100,
-        "year_max_rp1000_mps": year_q_rp1000,
-        "track_max_rp1000_mps": track_q_rp1000,
-        "year_max_max_mps": float(year_vals.max()) if year_vals.size else 0.0,
-        "track_max_max_mps": float(track_vals.max()) if track_vals.size else 0.0,
-    }
-
-
-def _infer_hazard_grid(hazard_path: Path) -> dict[str, Any]:
-    hz = Hazard.from_hdf5(str(hazard_path))
-    lat = np.unique(np.round(np.asarray(hz.centroids.lat, dtype=float), 8))
-    lon = np.unique(np.round(np.asarray(hz.centroids.lon, dtype=float), 8))
-    dlat = np.diff(np.sort(lat))
-    dlon = np.diff(np.sort(lon))
-    dlat = dlat[dlat > 1e-9]
-    dlon = dlon[dlon > 1e-9]
-    return {
-        "centroids": int(hz.centroids.size),
-        "step_lat_deg_median": float(np.median(dlat)) if dlat.size else None,
-        "step_lon_deg_median": float(np.median(dlon)) if dlon.size else None,
-        "lat_min": float(lat.min()) if lat.size else None,
-        "lat_max": float(lat.max()) if lat.size else None,
-        "lon_min": float(lon.min()) if lon.size else None,
-        "lon_max": float(lon.max()) if lon.size else None,
+        region.key: _finalize_stats(
+            year_max=region_year_max[region.key],
+            track_max=region_track_max[region.key],
+        )
+        for region in regions
     }
 
 
@@ -246,10 +245,17 @@ def _fmt(v: float, nd: int = 2) -> str:
     return f"{v:,.{nd}f}".replace(",", " ").replace(".", ",")
 
 
+def _mps_to_kmh(value: float) -> float:
+    return float(value) * KMH_PER_MPS
+
+
 def _table_region(storm: dict[str, Any], cmcc: dict[str, Any]) -> str:
-    def row(label: str, key: str, nd: int = 2) -> str:
+    def row(label: str, key: str, nd: int = 2, *, wind_metric: bool = False) -> str:
         s = float(storm.get(key, 0.0))
         c = float(cmcc.get(key, 0.0))
+        if wind_metric:
+            s = _mps_to_kmh(s)
+            c = _mps_to_kmh(c)
         d = c - s
         return f"| {label} | {_fmt(s, nd)} | {_fmt(c, nd)} | {_fmt(d, nd)} |"
 
@@ -258,190 +264,164 @@ def _table_region(storm: dict[str, Any], cmcc: dict[str, Any]) -> str:
         "|---|---:|---:|---:|",
         row("Nombre d annees actives (>=1 passage dans la zone)", "years", 0),
         row("Nombre de cyclones/evenements (max par track)", "tracks", 0),
-        row("Moyenne des vitesses max annuelles (m/s)", "year_max_mean_mps", 2),
-        row("Moyenne des vitesses max par cyclone/evenement (m/s)", "track_max_mean_mps", 2),
-        row("Vitesse max annuelle - temps de retour 100 ans (m/s)", "year_max_rp100_mps", 2),
-        row("Vitesse max par cyclone/evenement - temps de retour 100 ans (m/s)", "track_max_rp100_mps", 2),
-        row("Vitesse max annuelle - temps de retour 1000 ans (m/s)", "year_max_rp1000_mps", 2),
-        row("Vitesse max par cyclone/evenement - temps de retour 1000 ans (m/s)", "track_max_rp1000_mps", 2),
-        row("Max des vitesses max annuelles (m/s)", "year_max_max_mps", 2),
-        row("Max des vitesses max par cyclone/evenement (m/s)", "track_max_max_mps", 2),
+        row("Moyenne des vitesses max annuelles (km/h)", "year_max_mean_mps", 2, wind_metric=True),
+        row("Moyenne des vitesses max par cyclone/evenement (km/h)", "track_max_mean_mps", 2, wind_metric=True),
+        row("Vitesse max annuelle - temps de retour 100 ans (km/h)", "year_max_rp100_mps", 2, wind_metric=True),
+        row("Vitesse max par cyclone/evenement - temps de retour 100 ans (km/h)", "track_max_rp100_mps", 2, wind_metric=True),
+        row("Vitesse max annuelle - temps de retour 1000 ans (km/h)", "year_max_rp1000_mps", 2, wind_metric=True),
+        row("Vitesse max par cyclone/evenement - temps de retour 1000 ans (km/h)", "track_max_rp1000_mps", 2, wind_metric=True),
+        row("Max des vitesses max annuelles (km/h)", "year_max_max_mps", 2, wind_metric=True),
+        row("Max des vitesses max par cyclone/evenement (km/h)", "track_max_max_mps", 2, wind_metric=True),
     ]
     return "\n".join(lines)
 
 
-def _safe_num(value: Any) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return 0.0
+def _default_storm_txt_dir() -> Path:
+    env_value = str(os.environ.get("SIB_RISK_STORM_TXT_DIR", "")).strip()
+    candidates = []
+    if env_value:
+        candidates.append(Path(env_value))
+    candidates.extend(
+        [
+            REPO_ROOT / "data" / "hazards" / "STORM_ds",
+            Path("/home/ubuntu/uploads/STORM/STORM_ds"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[-1]
 
 
-def _table_impact_summary(impact: dict[str, Any]) -> str:
-    summary = impact.get("summary_metrics", {})
-    storm = summary.get("storm", {})
-    cmcc = summary.get("storm_cmcc", {})
-    lines = [
-        "| Indicateur impact | STORM | STORM_CMCC | Delta (CMCC-STORM) |",
-        "|---|---:|---:|---:|",
-    ]
-    rows = [
-        ("EAI total (€)", "eai_total_eur"),
-        ("Perte evenement max (€)", "event_max_total_loss_eur"),
-        ("HS direct S3 annuel (%)", "direct_hs_pct_annual"),
-        ("HS indirect S3 annuel (%)", "indirect_hs_pct_annual"),
-        ("HS direct S3 evt max (%)", "direct_hs_pct_event_max"),
-        ("HS indirect S3 evt max (%)", "indirect_hs_pct_event_max"),
-    ]
-    for label, key in rows:
-        s = _safe_num(storm.get(key, 0.0))
-        c = _safe_num(cmcc.get(key, 0.0))
-        lines.append(f"| {label} | {_fmt(s, 2)} | {_fmt(c, 2)} | {_fmt(c - s, 2)} |")
-    return "\n".join(lines)
+def _default_cmcc_txt_dir() -> Path:
+    env_value = str(os.environ.get("SIB_RISK_STORM_CMCC_TXT_DIR", "")).strip()
+    candidates = []
+    if env_value:
+        candidates.append(Path(env_value))
+    candidates.extend(
+        [
+            REPO_ROOT / "data" / "hazards" / "STORM_CMCC_ds",
+            Path("/home/ubuntu/uploads/STORM/STORM_CMCC_ds"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[-1]
 
 
-def _table_impact_by_network(impact: dict[str, Any]) -> str:
-    rows = impact.get("state_damage_table", [])
-    lines = [
-        "| Reseau | STORM EAI (€) | STORM evt max (€) | STORM_CMCC EAI (€) | STORM_CMCC evt max (€) |",
-        "|---|---:|---:|---:|---:|",
-    ]
-    for row in rows:
-        label = str(row.get("class_label") or row.get("class_key") or "Reseau")
-        storm = row.get("storm", {})
-        cmcc = row.get("storm_cmcc", {})
-        lines.append(
-            "| "
-            f"{label} | "
-            f"{_fmt(_safe_num(storm.get('eai_eur', 0.0)), 2)} | "
-            f"{_fmt(_safe_num(storm.get('event_max_loss_eur', 0.0)), 2)} | "
-            f"{_fmt(_safe_num(cmcc.get('eai_eur', 0.0)), 2)} | "
-            f"{_fmt(_safe_num(cmcc.get('event_max_loss_eur', 0.0)), 2)} |"
-        )
-    return "\n".join(lines)
-
-
-def _table_impact_by_scenario(impact: dict[str, Any], scenario: str, damage_label: str) -> str:
-    tables = impact.get("state_damage_tables", {})
-    rows = tables.get(scenario, [])
-    lines = [
-        "| Reseau | STORM S0/S1/S2/S3 (%) | STORM "
-        + damage_label
-        + " (€) | STORM_CMCC S0/S1/S2/S3 (%) | STORM_CMCC "
-        + damage_label
-        + " (€) |",
-        "|---|---:|---:|---:|---:|",
-    ]
-    for row in rows:
-        label = str(row.get("class_label") or row.get("class_key") or "Reseau")
-        storm = row.get("storm", {})
-        cmcc = row.get("storm_cmcc", {})
-        s_state = storm.get("state_pct", {})
-        c_state = cmcc.get("state_pct", {})
-        s_tuple = (
-            f"S0 {_fmt(_safe_num(s_state.get('S0', 0.0)), 2)} / "
-            f"S1 {_fmt(_safe_num(s_state.get('S1', 0.0)), 2)} / "
-            f"S2 {_fmt(_safe_num(s_state.get('S2', 0.0)), 2)} / "
-            f"S3 {_fmt(_safe_num(s_state.get('S3', 0.0)), 2)}"
-        )
-        c_tuple = (
-            f"S0 {_fmt(_safe_num(c_state.get('S0', 0.0)), 2)} / "
-            f"S1 {_fmt(_safe_num(c_state.get('S1', 0.0)), 2)} / "
-            f"S2 {_fmt(_safe_num(c_state.get('S2', 0.0)), 2)} / "
-            f"S3 {_fmt(_safe_num(c_state.get('S3', 0.0)), 2)}"
-        )
-        lines.append(
-            "| "
-            f"{label} | "
-            f"{s_tuple} | "
-            f"{_fmt(_safe_num(storm.get('damage_eur', 0.0)), 2)} | "
-            f"{c_tuple} | "
-            f"{_fmt(_safe_num(cmcc.get('damage_eur', 0.0)), 2)} |"
-        )
-    return "\n".join(lines)
+def _load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build markdown note comparing STORM and STORM_CMCC wind-speed maxima.")
-    parser.add_argument(
-        "--storm-dir",
-        default=os.environ.get("SIB_RISK_STORM_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_ds")),
-    )
-    parser.add_argument(
-        "--cmcc-dir",
-        default=os.environ.get("SIB_RISK_STORM_CMCC_TXT_DIR", str(REPO_ROOT / "data" / "hazards" / "STORM_CMCC_ds")),
-    )
-    parser.add_argument("--storm-pattern", default="STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt")
-    parser.add_argument("--cmcc-pattern", default="STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt")
+    parser.add_argument("--storm-dir", default=str(_default_storm_txt_dir()))
+    parser.add_argument("--cmcc-dir", default=str(_default_cmcc_txt_dir()))
     parser.add_argument("--wind-unit-in", default="m/s")
-    parser.add_argument("--basin-id", type=int, default=1)
-    parser.add_argument("--wind-map-json", default=str(REPO_ROOT / "web" / "data" / "guadeloupe-wind-maps.json"))
-    parser.add_argument(
-        "--page1-analysis-json",
-        default=str(REPO_ROOT / "web" / "data" / "guadeloupe-page1-analysis.json"),
-    )
+    parser.add_argument("--web-data-dir", default=str(REPO_ROOT / "web" / "data"))
+    parser.add_argument("--basin-map-grid-cell-deg", type=float, default=0.05)
     parser.add_argument("--out-md", default=str(REPO_ROOT / "docs" / "diagnostic-vents-et-mailles.md"))
     args = parser.parse_args()
     _require_runtime_deps()
 
-    storm_files = _iter_files(Path(args.storm_dir), args.storm_pattern)
-    cmcc_files = _iter_files(Path(args.cmcc_dir), args.cmcc_pattern)
-
-    regions = [
-        RegionSpec(key="na", label="Bassin NA complet"),
-        RegionSpec(
-            key="guadeloupe",
-            label="Zone Guadeloupe",
-            lat_min=15.5,
-            lat_max=16.95625,
-            lon_min=-62.48125,
-            lon_max=-60.66875,
+    basin_specs = [
+        BasinSpec(
+            key="na",
+            label="Bassin NA complet",
+            basin_id=1,
+            storm_pattern="STORM_DATA_IBTRACS_NA_1000_YEARS_*.txt",
+            cmcc_pattern="STORM_DATA_CMCC-CM2-VHR4_NA_1000_YEARS_*_IBTRACSDELTA.txt",
         ),
-        RegionSpec(
-            key="martinique",
-            label="Zone Martinique",
-            lat_min=14.3,
-            lat_max=15.1,
-            lon_min=-61.4,
-            lon_max=-60.7,
+        BasinSpec(
+            key="si",
+            label="Bassin SI complet",
+            basin_id=3,
+            storm_pattern="STORM_DATA_IBTRACS_SI_1000_YEARS_*.txt",
+            cmcc_pattern="STORM_DATA_CMCC-CM2-VHR4_SI_1000_YEARS_*_IBTRACSDELTA.txt",
+        ),
+        BasinSpec(
+            key="sp",
+            label="Bassin SP complet",
+            basin_id=4,
+            storm_pattern="STORM_DATA_IBTRACS_SP_1000_YEARS_*.txt",
+            cmcc_pattern="STORM_DATA_CMCC-CM2-VHR4_SP_1000_YEARS_*_IBTRACSDELTA.txt",
         ),
     ]
+    basin_regions = {
+        "na": [
+            RegionSpec(key="na", label="Bassin NA complet"),
+            RegionSpec(key="guadeloupe", label="Zone Guadeloupe", **CASE_STUDY_BBOX["guadeloupe"]),
+            RegionSpec(key="martinique", label="Zone Martinique", **CASE_STUDY_BBOX["martinique"]),
+        ],
+        "si": [RegionSpec(key="si", label="Bassin SI complet")],
+        "sp": [RegionSpec(key="sp", label="Bassin SP complet")],
+    }
 
     stats: dict[str, dict[str, dict[str, Any]]] = {}
-    for region in regions:
-        stats[region.key] = {
-            "storm": _compute_stats(
-                storm_files,
-                basin_id=int(args.basin_id),
-                wind_unit_in=args.wind_unit_in,
-                region=region,
-            ),
-            "cmcc": _compute_stats(
-                cmcc_files,
-                basin_id=int(args.basin_id),
-                wind_unit_in=args.wind_unit_in,
-                region=region,
-            ),
-        }
+    for basin in basin_specs:
+        storm_files = _iter_files(Path(args.storm_dir), basin.storm_pattern)
+        cmcc_files = _iter_files(Path(args.cmcc_dir), basin.cmcc_pattern)
+        regions = basin_regions[basin.key]
+        storm_stats = _compute_stats_by_region(
+            storm_files,
+            basin_id=basin.basin_id,
+            wind_unit_in=args.wind_unit_in,
+            regions=regions,
+        )
+        cmcc_stats = _compute_stats_by_region(
+            cmcc_files,
+            basin_id=basin.basin_id,
+            wind_unit_in=args.wind_unit_in,
+            regions=regions,
+        )
+        for region in regions:
+            stats[region.key] = {
+                "storm": storm_stats[region.key],
+                "cmcc": cmcc_stats[region.key],
+            }
 
-    settings = load_settings()
-    hazard_grid = _infer_hazard_grid(settings.hazard_storm_path)
-    wind_map_meta = json.loads(Path(args.wind_map_json).read_text(encoding="utf-8")).get("meta", {})
-    page1_payload = json.loads(Path(args.page1_analysis_json).read_text(encoding="utf-8"))
-    impact_payload = page1_payload.get("impact", {})
+    web_data_dir = Path(args.web_data_dir)
+    guadeloupe_wind_map = _load_json(web_data_dir / "guadeloupe-wind-maps.json")
+    martinique_wind_map = _load_json(web_data_dir / "martinique-wind-maps.json")
+    guadeloupe_landslide_map = _load_json(web_data_dir / "guadeloupe-landslide-maps.json")
+    martinique_landslide_map = _load_json(web_data_dir / "martinique-landslide-maps.json")
+    guadeloupe_complete = _load_json(web_data_dir / "guadeloupe-complete-analysis.json")
+    martinique_complete = _load_json(web_data_dir / "martinique-complete-analysis.json")
+
+    guadeloupe_wind_meta = guadeloupe_wind_map.get("meta", {})
+    martinique_wind_meta = martinique_wind_map.get("meta", {})
+    guadeloupe_landslide_meta = guadeloupe_landslide_map.get("meta", {})
+    martinique_landslide_meta = martinique_landslide_map.get("meta", {})
+    guadeloupe_modeling = (guadeloupe_complete.get("meta", {}) or {}).get("modeling", {})
+    martinique_modeling = (martinique_complete.get("meta", {}) or {}).get("modeling", {})
+    guadeloupe_matching_qa = guadeloupe_modeling.get("hazard_exposure_matching_qa", {})
+    martinique_matching_qa = martinique_modeling.get("hazard_exposure_matching_qa", {})
+
+    output_regions = [
+        RegionSpec(key="na", label="Bassin NA complet"),
+        RegionSpec(key="si", label="Bassin SI complet"),
+        RegionSpec(key="sp", label="Bassin SP complet"),
+        RegionSpec(key="guadeloupe", label="Zone Guadeloupe", **CASE_STUDY_BBOX["guadeloupe"]),
+        RegionSpec(key="martinique", label="Zone Martinique", **CASE_STUDY_BBOX["martinique"]),
+    ]
 
     lines: list[str] = []
     lines.append("# Diagnostic vents et mailles (auto-genere)")
     lines.append("")
     lines.append(f"- Genere le: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
-    lines.append("- Unite vent normalisee: m/s")
+    lines.append("- Unite vent normalisee: km/h")
     lines.append(
         "- Regeneration: `python scripts/build_wind_speed_comparison_doc.py` "
         "(met a jour automatiquement tableaux et mailles)."
     )
+    lines.append(
+        "- Verification mailles `complete analysis`: lecture des payloads publies "
+        "`guadeloupe-complete-analysis.json` et `martinique-complete-analysis.json`."
+    )
     lines.append("")
 
-    for region in regions:
+    for region in output_regions:
         lines.append(f"## Comparaison vitesses max - {region.label}")
         if region.lat_min is not None:
             lines.append(
@@ -450,56 +430,84 @@ def main() -> None:
             lines.append("- Note: le nombre d annees correspond aux annees actives avec au moins un passage dans la zone.")
         lines.append("")
         lines.append(_table_region(stats[region.key]["storm"], stats[region.key]["cmcc"]))
-    lines.append("")
-
-    lines.append("## Impacts (resume auto)")
-    lines.append("")
-    lines.append(_table_impact_summary(impact_payload))
-    lines.append("")
-    lines.append("### Tableau des impacts annuels (moyenne)")
-    lines.append("")
-    lines.append(_table_impact_by_scenario(impact_payload, "annual", "EAI"))
-    lines.append("")
-    lines.append("### Tableau des impacts causes par les evenements a temps de retour 100 ans")
-    lines.append("")
-    lines.append(_table_impact_by_scenario(impact_payload, "rp100", "RP100"))
-    lines.append("")
-    lines.append("### Tableau des impacts causes par les evenements a temps de retour 1000 ans")
-    lines.append("")
-    lines.append(_table_impact_by_scenario(impact_payload, "rp1000", "RP1000"))
-    lines.append("")
-    lines.append("### Tableau des impacts causes par l'evenement le plus fort")
-    lines.append("")
-    lines.append(_table_impact_by_scenario(impact_payload, "event_max", "evt max"))
-    lines.append("")
-    lines.append("### Tableau legacy (EAI / evenement max)")
-    lines.append("")
-    lines.append(_table_impact_by_network(impact_payload))
-    lines.append("")
+        lines.append("")
 
     lines.append("## Mailles utilisees")
     lines.append("")
     lines.append("| Couche | Valeur |")
     lines.append("|---|---|")
     lines.append(
-        "| Maille hazard (impact CLIMADA) | "
-        f"{_fmt(float(hazard_grid['step_lat_deg_median'] or 0.0), 3)} deg (lat) x "
-        f"{_fmt(float(hazard_grid['step_lon_deg_median'] or 0.0), 3)} deg (lon), "
-        f"{hazard_grid['centroids']} centroids |"
+        "| Hazard vent dans `complete analysis` | "
+        "Pas de grille reguliere fixe: chargement dynamique STORM/STORM_CMCC sur points d exposition "
+        "(`hazard_source=dynamic_parquet`) |"
     )
     lines.append(
-        "| BBox hazard (impact CLIMADA) | "
-        f"lat [{_fmt(float(hazard_grid['lat_min'] or 0.0), 3)}, {_fmt(float(hazard_grid['lat_max'] or 0.0), 3)}], "
-        f"lon [{_fmt(float(hazard_grid['lon_min'] or 0.0), 3)}, {_fmt(float(hazard_grid['lon_max'] or 0.0), 3)}] |"
+        "| Points hazard/exposition dans `complete analysis` | "
+        f"Guadeloupe: {int(guadeloupe_matching_qa.get('point_count', 0)):,} points ; "
+        f"Martinique: {int(martinique_matching_qa.get('point_count', 0)):,} points |".replace(",", " ")
     )
     lines.append(
-        "| Maille carte vents moyenne (web) | "
-        f"{_fmt(float(wind_map_meta.get('grid_cell_deg', 0.0)), 3)} deg |"
+        "| Maille d agregation territoriale dans `complete analysis` | "
+        f"{_fmt(float(guadeloupe_modeling.get('territory_grid_deg', 0.0)), 3)} deg "
+        "(meme valeur dans les payloads Guadeloupe et Martinique) |"
     )
     lines.append(
-        "| Maille points d exposition (sampling) | "
-        f"{_fmt(float(settings.default_sampling_spacing_m), 0)} m (pas nominal), "
-        f"max {int(settings.climada_max_points_per_feature)} points/feature |"
+        "| Maille points d exposition dans `complete analysis` | "
+        f"{_fmt(float(guadeloupe_modeling.get('sampling_spacing_m', 0.0)), 0)} m (pas nominal), "
+        f"max {int(guadeloupe_modeling.get('max_points_per_feature', 0))} points/feature |"
+    )
+    lines.append(
+        "| Maille cartes vents web Guadeloupe / Martinique | "
+        f"Guadeloupe: {_fmt(float(guadeloupe_wind_meta.get('grid_cell_deg', 0.0)), 3)} deg ; "
+        f"Martinique: {_fmt(float(martinique_wind_meta.get('grid_cell_deg', 0.0)), 3)} deg "
+        "(restitution web, hors `complete analysis`) |"
+    )
+    lines.append(
+        "| Maille aleas pluie web Guadeloupe / Martinique | "
+        f"Guadeloupe: {_fmt(float(guadeloupe_wind_meta.get('grid_cell_deg', 0.0)), 3)} deg ; "
+        f"Martinique: {_fmt(float(martinique_wind_meta.get('grid_cell_deg', 0.0)), 3)} deg "
+        "(meme maille de publication que le vent dans les artefacts actuels) |"
+    )
+    lines.append(
+        "| Maille aleas surge web Guadeloupe / Martinique | "
+        f"Guadeloupe: {_fmt(float(guadeloupe_wind_meta.get('surge_native_cell_deg', guadeloupe_wind_meta.get('grid_cell_deg', 0.0))), 3)} deg ; "
+        f"Martinique: {_fmt(float(martinique_wind_meta.get('surge_native_cell_deg', martinique_wind_meta.get('grid_cell_deg', 0.0))), 3)} deg "
+        "(pas de sous-maille differente publiee actuellement) |"
+    )
+    lines.append(
+        "| Maille aleas landslide web Guadeloupe / Martinique | "
+        f"Guadeloupe: {_fmt(float(guadeloupe_landslide_meta.get('grid_cell_deg', 0.0)), 3)} deg ; "
+        f"Martinique: {_fmt(float(martinique_landslide_meta.get('grid_cell_deg', 0.0)), 3)} deg "
+        "(meme maille de publication que le vent dans les artefacts actuels) |"
+    )
+    lines.append(
+        "| Maille cartes vents bassin NA / SI / SP | "
+        f"{_fmt(float(args.basin_map_grid_cell_deg), 3)} deg "
+        "(`scripts/build_basin_wind_maps.py`, restitution web, hors `complete analysis`) |"
+    )
+    lines.append(
+        "| Maille dependance elec -> eau | "
+        f"{_fmt(float(ELECTRIC_DEPENDENCY_GRID_DEG), 3)} deg "
+        "(`fixed_grid_0p1deg`, aggregation native des etats elec avant projection sur l eau) |"
+    )
+    lines.append("")
+    lines.append("## Autres mailles ou pas reperes dans le projet")
+    lines.append("")
+    lines.append("| Element | Valeur |")
+    lines.append("|---|---|")
+    lines.append(
+        "| Grille population / social impacts | "
+        f"{_fmt(float(guadeloupe_modeling.get('territory_grid_deg', 0.0)), 3)} deg "
+        "(meme logique que la maille territoriale `complete analysis`) |"
+    )
+    lines.append(
+        "| Petit cas `hazard_loader.py` | "
+        f"{_fmt(float(SMALL_SAMPLE_GRID_STEP_DEG), 3)} deg "
+        "(maille utilitaire de sous-echantillonnage, pas une maille de publication courante) |"
+    )
+    lines.append(
+        "| Fenetre spatiale du loader | 4,000 deg de padding "
+        "(ce n est pas une maille, mais une fenetre de chargement autour des expositions) |"
     )
     lines.append("")
 

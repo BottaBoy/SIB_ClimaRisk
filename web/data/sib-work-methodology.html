@@ -1,0 +1,230 @@
+<div class="methodology-doc">
+  <div class="methodology-source-note">Document source : Methode Projet Sib Work.md · généré le 2026-08-24T13:10:56Z</div>
+<h1 id="méthodologie-sib-work">Méthodologie SIB Work</h1>
+<p><img src="/assets/methodology/sib-work-summary.png" alt="Résumé de la chaîne de calcul SIB Work" /> <em>Figure 1 : résumé de la chaîne de calcul SIB Work</em></p>
+<p>Le détail des données utilisées et du traitement de celles-ci est décrit dans la partie méthodologie ci-dessous.</p>
+<h2 id="climada--calculs-dimpacts">CLIMADA : calculs d’impacts</h2>
+<h3 id="description-climada-et-utilisation-de-climada">Description CLIMADA et utilisation de CLIMADA</h3>
+<p>Les analyses et modélisations de cette étude sont principalement basées sur la méthodologie CLIMADA (CLIMate ADAptation). CLIMADA est un logiciel open source, basé sur le langage python et développé par le département <em>Weather and risks</em> de l’université ETH Zurich (Aznar-Siguan &amp; Bresch, 2019). Son développement continue par la communauté de développeurs qui y est associée facilite la mise en place d’analyse de risques environnementaux tout en donnant la flexibilité du langage python aux utilisateurs (Bresch &amp; Aznar-Siguan, 2021).</p>
+<p>CLIMADA est l’un des seuls outils qui permet de modéliser des expositions, des vulnérabilités et des aléas de manière consistante sous toutes les géographiques, mais aussi de travailler sur des projections de scénarios climatiques et de tester l’impact coût bénéfice de mesures d’adaptations.</p>
+<h3 id="données-sur-la-vulnérabilité">Données sur la vulnérabilité</h3>
+<p>Un aspect essentiel de la modélisation d’impact d'aléas sur les infrastructures est la vulnérabilité des dites infrastructures. Dans une modélisation CLIMADA, l’impact est calculé à partir de courbes de vulnérabilité, parfois appelées courbes de dommages. Ces courbes associent un pourcentage de dommage à une intensité d’aléas donnée. Les dommages monétaires estimés sont ensuite calculés à partir de la valeur totale de l'infrastructure multiplié par le pourcentage de dommages subis.</p>
+<p><img src="/assets/methodology/methode-sib-work-image-2.png" alt="Courbes de vulnérabilité utilisées dans le modèle" /></p>
+<p><em>Figure 2 : Courbes de vulnérabilité utilisée dans le modèle. Les courbes peu visibles sont à 0 ou proche de 0 (insensibilité ou faible sensibilité de l’exposition à l’aléas) ou superposées. Les courbes à 0 modélisent un infrastructure peu sensible à l’aléa testé.</em></p>
+<p>Les courbes de vulnérabilités sont généralement construites à partir d'études de résistance menées dans des cadres spécifiques, ou bien à partir de retour d'expérience post événement (Eberenz et al., 2021; Nirandjan et al., 2024). Si les données peuvent être disponibles pour des bâtiments de type habitations, elles sont beaucoup plus rares voire inexistantes sur d’autres types de bâtis comme les réseaux d’électricité et encore moins disponibles sur les réseaux d’eau. Dans notre étude, nous avons utilisé les courbes de vulnérabilité mis à disposition par Nirandjan et al., 2024. Les courbes de vulnérabilité exactes utilisées dans SIB Risques sont explicitées dans l’annexe 1.</p>
+<p>Données cartographiques</p>
+<p>Les données cartographiques des réseaux d’eau ont été fournies par les partenaires de l’OFB. Dans le cas d’étude sur la Guadeloupe, les données ont été fournies par le SMGEAG. Ces données ne sont pas transmises car considérées comme sensibles dans le cadre des accords avec les partenaires de cette étude. Ces données contiennent l’emplacement des réseaux d’eau ainsi que les ouvrages principaux de ceux-ci (UPEP, STEP, captage…).</p>
+<p>Les données cartographiques des réseaux électriques sont disponibles sur le portail open data d’EDF (<a href="https://opendata.edf.fr/"><span>https://opendata.edf.fr/</span></a>). Contrairement au réseau d’eau, ces couches réseaux ne comprennent pas de positionnement d’ouvrages critiques liés au réseau électrique. Les réseaux électriques ne présentent donc pas de dépendances à des ouvrages critiques, contrairement au réseau d'eau et comme explicité plus tard dans le rapport.</p>
+<p>Les données de population proviennent du projet World POP (Bondarenko et al., 2025). Les données de 2020 ont été utilisées car elle représente l’année la plus récente pour laquelle les projections du projet World Pop ont été vérifiées face aux recensements officiels par pays et par région. Les années suivantes (2021-2030), sont des projections statistiques basées sur ces données (Stevens et al., 2015), les données de 2020 ont donc été privilégiées. L’utilisation des données de population permet de traduire les dommages potentiels aux réseaux en exposition humaine. Même si le modèle ne permet pas d’estimer précisément la durée d’interruption du service, il permet d’identifier les secteurs où une dégradation du réseau pourrait concerner le plus grand nombre d’habitants et donc constituer un enjeu prioritaire de continuité de service.</p>
+<p>Les données topographiques et bathymétriques, utilisées principalement dans la modélisation de l’aléa inondation côtière, sont issues de la base de données Copernicus GLO-90 (OpenTopography, 2021).</p>
+<h2 id="donnée-monétaires">Donnée monétaires</h2>
+<p>Les données monétaires représentent la valeur en euros des infrastructures (réseaux et ouvrages) qui sont utilisés dans l’étude. Les valeurs monétaires des réseaux électriques sont basées sur la littérature et sur des dires d'experts EDF. Les valeurs des réseaux et ouvrages d’eau sont basées sur l’outil de comparateur des prix de l’OFB (données internes) qui est lui-même largement basé sur les projets de subvention soumis à la SIB. Ces valeurs représentent le coût de remplacement à neuf des infrastructures. Ces données peuvent être limitées en termes d’échantillon de données en vue de la grande variabilité des cas existants (variation de modèle d'infrastructure, de contexte géographique, d’isolement des communes ayant bénéficié du projet…).</p>
+<p>Les valeurs des expositions testés dans l’analyse sont les suivantes :</p>
+<p><em>Tableau 1: Sources et valeurs des expositions (source : données interne SMGEAG et SIB)</em></p>
+<div class="methodology-table-wrap">
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: center;">Type d'actif</th>
+<th style="text-align: center;">Unité valorisation</th>
+<th style="text-align: center;">Valeur</th>
+<th style="text-align: center;">Source</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;">AEP canalisations</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">776 386 EUR/km</td>
+<td style="text-align: center;">Comparateur de prix OFB</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">EU canalisations</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">957 143 EUR/km</td>
+<td style="text-align: center;">SMGEAG</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">EU postes de refoulement (PR)</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">397 636 EUR</td>
+<td style="text-align: center;">SMGEAG</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">EU stations d'épuration (STEP)</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">8 785 714 EUR</td>
+<td style="text-align: center;">SMGEAG</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">Usine de traitement AEP</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">5 250 000 EUR</td>
+<td style="text-align: center;">Comparateur de prix OFB</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">Station de pompage</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">1 200 000 EUR</td>
+<td style="text-align: center;">Comparateur de prix OFB</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">Reservoire AEP</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">800 000 EUR</td>
+<td style="text-align: center;">Comparateur de prix OFB</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">Captage</td>
+<td style="text-align: center;">Valeur fixe</td>
+<td style="text-align: center;">1 000 000 EUR</td>
+<td style="text-align: center;">Comparateur de prix OFB</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">Elec BT aerien</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">167 060 EUR/km</td>
+<td style="text-align: center;">(Nirandjan et al., 2024)</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">Elec BT souterrain</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">1 336 480 EUR/km</td>
+<td style="text-align: center;">(Nirandjan et al., 2024)</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">Elec HTA aerien</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">249 299 EUR/km</td>
+<td style="text-align: center;">(Nirandjan et al., 2024)</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">Elec HTA souterrain</td>
+<td style="text-align: center;">EUR par km</td>
+<td style="text-align: center;">1 994 390 EUR/km</td>
+<td style="text-align: center;">(Nirandjan et al., 2024)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="données-aléas">Données aléas</h2>
+<p>L’étude REOM du CEREMA (Feray, 2021), présente 5 aléas naturels comme les principaux affectants les outre-mer : la sécheresse, et les pluies intenses, les cyclones, les submersions marines, et les mouvements de terrains. L’étude actuelle intègre les principales composantes des aléas cycloniques (vent, pluie, inondations côtières) ainsi que les aléas de mouvement de terrain (déclenchés par les précipitations et par les séismes). Ces aléas sont parmi les plus dommageables sur les infrastructures étudiées en outre-mer (CCR, 2024). De plus, le choix des cyclones combiné aux mouvements de terrain permet d’avoir un impact à la fois sur les infrastructures aériennes et souterraines.</p>
+<p>En revanche, les aléas de sécheresse, de risques volcaniques, de retrait gonflement des argiles ou encore des aspects important de le gestion future de la ressource en eau (évolution de la ressource, de la qualité de l’eau, l’élévation moyenne du niveau marin, les pollutions et certains risques anthropiques) ne sont pas modélisés. Cela amène à une vulnérabilité du service d’eau qui sera nécessairement sous évaluée dans cette étude comparée à la réalité.</p>
+<h3 id="aléas-vents--storm-et-storm-cmcc">Aléas vents : STORM et STORM CMCC</h3>
+<p>Les aléas cycloniques sont modélisés à partir de la base du modèle <em>Synthetic tropical cyclOne geneRation Model</em> (STORM) de Bloemendaal et al., 2020. Le modèle STORM a ensuite été appliqué aux 38 ans de données de la base de données IBTrACS pour générer, de manière probabiliste, 10 000 années d’activité cyclonique à climat actuel. Les cyclones générés par STORM sont générés à une certaine position, et contiennent une vitesse de vents maximum durant leurs mouvements. Le modèle utilise un pas de temps de 3 heures et une résolution de 0.1°. Le schéma détaillé du fonctionnement de STORM peut être retrouvé dans l’annexe 2.</p>
+<p>En plus du jeu de données STORM, a été utilisée la base de données de Bloemendaal et al., 2022, qui applique un facteur de changement climatique correspondant au scénario SSP 585 du GIEC et basé sur l’ensemble multimodal CMIP6 HighresMIP (Roberts et al., 2020). Parmi les projections disponibles, nous avons opté pour la projection basée sur le modèle CMCC, car celui-ci est présenté comme ayant un meilleurs corrélation avec le jeu de données de base IBTRACS. Le jeu de données STORM changement climatique sera référé en temps que STORM CMCC dans la suite du document. STORM-CMCC utilise donc la même méthodologie de génération d’années de régime cyclonique que STORM, mais pour une période climatique de 2015-2050 suivant le scénario SSP585. Le scénario SSP 585 a été utilisé dans la création du catalogue STORM CMCC car sur la période 2015-2050 il y a peu de variation entre ce scénario et les autres scénarios de forçage radiatif du GIEC (Bloemendaal et al., 2022)</p>
+<p>Les données STORM et STORM-CMCC ont été intégrées dans la chaîne de calcul CLIMADA en tant qu' aléas vent. Ces bases de données ne représentent pas un set d'événement observé, mais bien une probabilité par localisation et à l'échelle de 0.1°, d’observer des forces de vents données. Ces données peuvent ensuite être moyennées par année synthétique, par événement, et des temps de retour (RP50, RP100…) d’intensité peuvent être calculées.</p>
+<h3 id="aléa-pluie--tcrain">Aléa pluie : TCRain</h3>
+<p>En plus de l’aléa vent, les cyclones transportent des précipitations intenses qui peuvent impacter les infrastructures et les activités humaines. Il est donc essentiel, pour représenter un aléa cyclonique complet d’y ajouter les pluies cyclonique ainsi que les inondations côtières (décrit dans la sous-section suivante). Afin de garder au maximum une chaîne de calcul native CLIMADA, nous avons représenté les pluies cyclonique à partir de la fonction TCRain de CLIMADA (Marks &amp; DeMaria, 2003; Tuleya et al., 2007), qui permet de simuler les pluies à partir des trajectoires et des forces de vents des cyclones. La fonction TCRain fonctionne à partir du modèle R-CLIPER, décrit en annexe 3.</p>
+<p>La pluie produite par TCRain reste un proxy de précipitation et non une modélisation hydrologique de l’inondation terrestre.</p>
+<h3 id="aléa-inondation-côtière--tcsurge-bathtub">Aléa inondation côtière : TCSurge Bathtub</h3>
+<p>En complément de l’aléa vent et pluie, les cyclones comprennent une composante inondation côtière (Desarthe et al., 2020; Martín et al., 2023). De nombreux modèles et bases de données ont été créés pour représenter ces phénomènes (Needham et al., 2015). CLIMADA propose la fonction TCSurge pour modéliser l’impact des inondations côtières à partir des cyclones.</p>
+<p>Deux modèles peuvent être utilisé dans la fonction TCSurge : le modèle bathtub (Xu, 2010), plus simpliste et le modèle Geoclaw (Berger et al., 2011; Mandli &amp; Dawson, 2014; Vogt et al., 2024) plus coûteux en capacité de calcul. Si ce dernier pourrait donner des estimations plus précises des inondations côtières, les besoins en capacité de calcul de GeoClaw couplé à la taille des zones étudiées n’ont pas permis son utilisation dans cette étude.</p>
+<p>Le modèle bathtub utilisé ici permet de calculer l’aléa inondation côtière tout le long d’une ligne de côte en utilisant une relation linéaire entre le dépression cyclonique et la hauteur de l’eau. En effet, le modèle SLOSH sous-jacent au modèle bathtub prend comme paramètres d’entrée la position des cyclones, le déficit de pression centrale et le rayon des vents maximum par rapport au centre. Le profil de vent côtier produit par le modèle SLOSH est ensuite utilisé par le modèle bathtub, en fonction de la position du cyclone, pour connaître l'élévation du niveau de la mer à une position donnée.</p>
+<h3 id="aléa-mouvement-de-terrain">Aléa mouvement de terrain</h3>
+<p>Les aléas mouvement de terrain sont les seuls aléas intégrés à l’étude qui ne dépendent pas directement des cyclones.</p>
+<p>Pour modéliser les mouvements de terrain, l’étude utilise trois jeux de données probabilistes de Nadim et al., 2006:</p>
+<ul>
+<li>Les mouvements de terrains déclenchés par les précipitations (précipitation climat actuel et précipitation selon un climat suivant le scénario SSP 585).</li>
+<li>Le jeu de données de mouvements de terrains déclenché par les régimes de précipitation de 2050, suivant le scénario SSP 585. Ce scénario est intégré aux scénarios d’impact sous changement climatique, c'est-à-dire qu’il est couplé avec les scénarios STORM CMCC de vent et de pluie.</li>
+<li>Les mouvements de terrains déclenchés par les tremblements de terre. C’est ce jeu de données qui représente l’impact des séismes sur les infrastructures dans cette étude.</li>
+</ul>
+<p>Ces jeux de données ont été créés lors d’une collaboration entre le Norwegian Geotechnical Institute (NGI) et le Global Resource Information Database (GRID-Europe). Nous avons privilégié ce jeu de données, au détriment de jeux de données plus précis (notamment certains produits par le BRGM) car celui-ci a l’avantage d’être comparable de manière homogène sur tous les territoires d’outre-mer et donc d’intérêt pour la SIB. De plus, son approche probabiliste du risque est cohérente avec le reste de l’approche utilisée dans l’outil SIB Risques.</p>
+<p>La base de donnée présente des classes de probabilité de mouvements de terrain, allant de 1 (probabilité de mouvement de terrain nulle) à 5 (fort risque de mouvement de terrain). Elles ne représentent donc pas directement des intensité de mouvement de terrain, mais des classes de risques, compatibles avec l’approche probabiliste de CLIMADA.</p>
+<p>Pour modéliser la vulnérabilité des infrastructures au mouvement de terrain la règle suivante à été appliqué :</p>
+<p>Valeur courbe vulnérabilité mouvement de terrain = Classe de probabilité de risques * 20%<br />
+Cette équation se traduit donc par un dégât de 20% pour une classe de risque 1, et un dégât de 100% pour une classe de risque 5. Ces échelles sont les mêmes pour les jeux de données déclenchés par les précipitations et ceux déclenchés par les tremblements de terre. La description détaillée du modèle est disponible dans l’annexe 4.</p>
+<p>La combinaisons des différents aléa ainsi que la chaîne de calcul d’impact est décrite dans plus de détails dans la section suivante.</p>
+<h2 id="description-modèle-calcul-en-détail">Description modèle calcul en détail</h2>
+<h3 id="calcul-dimpact-initial">Calcul d’impact initial</h3>
+<p>Le moteur d’impact CLIMADA fonctionne uniquement sur des géométrie de type point. Pour le calcul d’impact, chaque exposition est désagrégé en points, avec un espacement de 100 mètres. La valeur de l’infrastructure correspondante est répartie sur chacun des points. L’impact monétaire est donc calculé au niveau des points, puis reagrégée dans les géométries mères (polygones, lignes). Cela permet de calculer la première étape de l’impact : l’impact direct monétaire de l’aléa.</p>
+<p>Le calcul est fait à partir de l'intensité des événements sélectionnés pour les différents temps de retour (RP10, RP50, RP100 et RP1000) dans le catalogue d'événements STORM et STORM CMCC. Les impacts correspondant aux différents temps de retour sont estimés à partir des pertes probables maximums.</p>
+<p>Chaque aléa ou événements présents dans les bases de données STORM et STORM CMCC contient une perte portefeuille par classe d’exposition et une fréquence. Le modèle construit une courbe qui allie impacts monétaires et fréquences, ce qui permet ainsi de calculer les temps de retour des différents impacts monétaires. Par exemple, un dégât de 1 millions d’euro sur le portefeuille tester pourra subvenir dans 1% d'évènements testés (1% des événements de la base de données atteint et surpasse ces pertes, 99% sont inférieurs). C’est à partir de cette courbe que sont définies les intensités d'événements correspondant à des temps de retour (RP10, RP50, RP100, RP1000). En d’autres termes :</p>
+<p>Frequence de d'excédance (L) =somme des fréquences des événements dont la perte est &gt;= L</p>
+<p>RP(L) = 1 / fréquence d’excédance(L)</p>
+<p>Les dégâts monétaire RP100 correspondent donc au niveau de perte dont la fréquence annuelle d'excédence vaut environ 1 / 100 = 1 %.</p>
+<p>Les dégâts sont calculés pour chaque point d’exposition, puis agrégés dans la courbe de dépassement de fréquence permettant de construire les pertes probables maximums par temps de retour (Probable Maximum Loss x ou PMLx). A partir de la courbe de dépassement de fréquence avant d’être redistribué sur chacun des points constituant les expositions en fonction de leurs impact annuels attendus (Expected annual impact, EAI), qui représente la perte total attendu annualisée en fonction des catalogues d’aléas et des expositions étudiées :</p>
+<p>EAI = i=1NImpacti,j* fi</p>
+<p>Impacti,j= dommage causé à l'exposition j par l'événement i<br />
+fi = fréquence annuelle de l'événement i<br />
+N= nombre total d'événements du catalogue.</p>
+<p>Sur le total des événements disponible dans les catalogues STORM et STORM CMCC, une présélection des événements à été appliquée en sélectionnant uniquement les événements qui passaient près de la Guadeloupe (Voir annexe 5). Après cette présélection géographique, la Guadeloupe compte 21 846 événements cycloniques pour STORM et 22 832 pour STORM CMCC (Contre 107 063 et 123 536 sur tout le bassin NA respectivement). Le détail du nombre d'événements cycloniques sur les bassins étudiés est disponible dans l’annexe 6 et les détails de l’aléa vent sont disponibles dans l’annexe 7.</p>
+<h3 id="etats-des-réseaux">Etats des réseaux</h3>
+<p>L’étude souhaite informer sur la capacité des réseaux à assurer leurs services essentiels, mais aussi étudier les défaillances en cascade pouvant survenir suivant les dommages des aléas testés. L’outil SIB Risques a donc comme sortie de modèle la proportion des réseaux étant dans différents états de fonctionnement.</p>
+<p>Dans l’outil SIB Risques, les réseaux (Eau et électriques) peuvent être dans 4 états distincts (S0 dommage faible ou nul, S1 dommage modéré, S2 dommage élevé, S3 dommage très élevé / indisponibilité potentielle) selon leurs niveaux de dommages. L’état d’un réseau est initialement calculé à partir d’un ratio de dommages DR :</p>
+<p>DR = max_event_loss_asset / value_asset</p>
+<p>Les seuils de dommages monétaires à partir duquel le réseau passe d’un état à un autre sont explicité dans le tableau ci dessous :</p>
+<p><em>Tableau 2: Valeur et seuils hypothétiques utilisés pour le calcul de l’état des réseaux</em></p>
+<div class="methodology-table-wrap">
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: center;">Etat réseau</th>
+<th style="text-align: center;">Seuil de dommage maximum (DR_Max) reseau</th>
+<th style="text-align: center;">Poid dans la formule Health</th>
+<th style="text-align: center;">Etat minimum selon la valeur Health</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;">S0</td>
+<td style="text-align: center;">&lt;0.05</td>
+<td style="text-align: center;">0</td>
+<td style="text-align: center;">&gt;0.75</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">S1</td>
+<td style="text-align: center;">0.05 &lt;= DR_max &lt; 0.15</td>
+<td style="text-align: center;">0.3</td>
+<td style="text-align: center;">&lt;0.75</td>
+</tr>
+<tr class="odd">
+<td style="text-align: center;">S2</td>
+<td style="text-align: center;">0.15 &lt;= DR_max &lt; 0.35</td>
+<td style="text-align: center;">0.7</td>
+<td style="text-align: center;">&lt;0.55</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;">S3</td>
+<td style="text-align: center;">DR_max &gt;= 0.35</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: center;">&lt;0.35</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 id="transmission-de-la-défaillance-électrique-vers-le-réseau-deau">Transmission de la défaillance électrique vers le réseau d’eau</h3>
+<p>Cette partie décrit la modélisation de la propagation des défaillances du réseau électrique vers le réseau d’eau. La dépendance du service d’eau à l’alimentation électrique illustre le caractère systémique des risques en contexte insulaire. Une défaillance électrique peut produire des effets indirects sur l’eau potable et l’assainissement, même lorsque les ouvrages hydrauliques ne sont pas directement endommagés. Cette interdépendance est centrale pour la gestion de crise et pour la priorisation des investissements d’adaptation.</p>
+<p>Le réseau d’eau a deux types de dépendances : une dépendance aux ouvrages critiques sur son réseau et une dépendance du réseau d’eau au réseau électrique. En hypothèse, il est considéré que tout le réseau d’eau est dépendant du réseau électrique. En réalité, une partie du réseau d’eau étant gravitaire, il ne dépend pas de l’alimentation en électricité. Ces deux types de dépendances se basent sur des zonages visualisables sur les cartes ci-dessous. La dépendance “réseau d’eau/ ouvrages d’eau” se fait à l'intérieur des zones hydrographiques, alors que la dépendance réseau d’eau réseaux élec se fait via des mailles territoriales de 0.2.</p>
+<p><img src="/assets/methodology/methode-sib-work-image-3.png" alt="Carte de zonage des réseaux de la Guadeloupe" /></p>
+<p><em>Figure 3: Carte zonage des réseaux de la Guadeloupe. Chaque zone colorée correspond à une zone hydraulique, avec un point source (point de captage) et dépendance commune du réseau d’eau. Le zoom sur les zonages est volontairement réduit pour des raisons de protection des données et montré à titre indicatif.</em></p>
+<p>Le zonage a été extrapolé à partir des données de secteur du SMGEAG géographiquement non explicite, et on ensuite été extrapolée à partir de ces données. Il est important de noter que l’organisation du service d’eau en outre-mer fait qu’une grande partie de la population n’est pas abonnée aux services d’eau, même si ceux-ci se trouvent dans une zone qui peut être desservie par un réseau. Le zonage hydraulique de Guadeloupe a été construit à partir des couches SIG décrivant les réseaux d’eau potable et d’assainissement, transmisent par le SMGEAG. Pour le réseau AEP, les tronçons ont été affectés directement à une zone hydraulique. Pour le réseau EU, en l’absence d’un zonage hydraulique équivalent, une approximation d’un secteur hydraulique local a été utilisée. Une inspection visuelle à été réalisée pour vérifier la cohérence des tronçons. La Guadeloupe compte 147 zones hydrauliques distinctes et 40 zones électriques distinctes.</p>
+<p>Les ouvrages ponctuels, notamment les captages, réservoirs, postes de refoulement et STEP, ont ensuite été rattachés aux zones sur lesquelles ils se trouvent.</p>
+<p>Le premier type d'interdépendance réseau d’eau/ouvrages s’active lorsqu’un ouvrage critique (AEP : Captage UPEP, Station de pompage &amp; EU : STEP, Poste de refoulement) est en état S3. Cette première interdépendance force simplement un état S3 sur le réseau du zonage hydraulique correspondant. en d’autre terme, si un ouvrage critique d’une zone a subi plus de 35% de sa valeur en dommages (seuil S3), le réseau qui y est rattaché passe lui aussi en état S3, par interdépendance.</p>
+<p>Le deuxième type d'interdépendance, du réseau électrique vers le réseau d’eau s’active lorsque le réseau électrique d’une zone du zonage électrique est en état S3 et applique cet état au réseau d’eau de sa zone. Chaque zonage hydraulique est associé à une cellule elec, selon le nombre de points que chaque zone hydraulique a dans la zone élec. La zone hydraulique est attachée à la zone élec dans laquelle elle à le plus de points. Les différentes causes de l'état S3 d’un réseau d’eau sont différenciées (dommages directes, ouvrages défaillants, réseau électrique défaillant).</p>
+<p>En plus de ces deux dépendances, un formule transmettant les dégâts partiels du réseaux électrique vers le réseau d’eau, la formule health, est calculée. Pour un aléa donné (STORM ou STORM CMCC), on calcule d'abord les états directs des points elec (S0..S3). On calcule ensuite health_elec par maille territoriale avec la formule health. Chaque point eau prend ensuite la santé elec de sa maille. Cette santé elec va ensuite majorée par la santé du réseau élec selon la formule suivante :</p>
+<p>health = 1 - (0.3*L_S1 + 0.7*L_S2 + 1.0*L_S3) / L_total</p>
+<p>avec :<br />
+L_total = poids total (ici somme des valeurs des actifs/points du composant)<br />
+L_S1, L_S2, L_S3 = valeur monétaire dans chaque état Sx.</p>
+<p>Une défaillance potentielle des réseaux électriques est ensuite transmise aux réseaux d’eau. L'état final des réseaux ainsi que des ouvrages d’eau est minorée selon le niveau de santé du réseau électrique de la même maille :</p>
+<ul>
+<li>health &lt; 0.75 -&gt; au moins S1</li>
+<li>health &lt; 0.55 -&gt; au moins S2</li>
+<li>health &lt; 0.35 -&gt; S3</li>
+</ul>
+<p>Cela signifie qu’une infrastructure, réseau ou ouvrage ayant un facteur health inférieur à 35% sera forcément hors service. Cette fonction sert à modéliser le fait qu’un réseau est défaillant même s’il n’a pas subi un taux de dégât de 100%.</p>
+<p>Dans le cas où le réseau d’eau n’a aucun réseau électrique sur sa maille, la maille la plus proche est sélectionnée.</p>
+<p>L’état final des points du réseau d’eau sont calculés selon la formule suivante :</p>
+<p>etat final reseau eau = max(etat_direct_eau,etat, etat_dependance_ouvrage, etat_dependance_elec)</p>
+<p>L’état du réseau d’eau ne peut donc être meilleur que celui du réseau électrique, mais il peut être en plus mauvais état. L’état final d’un réseau (AEP, EU, elec) est calculé à l'échelle de sa zone, hydraulique ou électrique.</p>
+<h3 id="impacts-des-défaillances-réseaux-sur-la-population">Impacts des défaillances réseaux sur la population</h3>
+<p>Les résultats d’impacts de la défaillance des réseaux, causé par les aléas naturels testé dans l’outil SIB Risques sont traduits par une proportion de la population dépendant d’un réseau dans un état donné (S0…S3).</p>
+<p>Comme expliqué dans la section précédente, chaque zonage (AEP, EU, elec) reçoit un état (S0..S3). Pour chaque personne de la couche de population de la Guadeloupe, celle-ci se verra attribuer un état de réseau correspondant à la ou elle se trouve, ou bien un état uncovered si la personne ne se situe pas dans une zone de zonage hydraulique ou électrique. Chaque personne a donc un état attribué par type de réseau.</p>
+<p>L’impact sur les populations est l’indicateur qui permet de passer d’une modélisation technique à une lecture sociétale du risque. L’utilisation des données de population permet de traduire les dommages potentiels aux réseaux en exposition humaine. Même si le modèle ne permet pas d’estimer précisément la durée d’interruption du service, il permet d’identifier les secteurs où une dégradation du réseau pourrait concerner le plus grand nombre d’habitants et donc constituer un enjeu prioritaire de continuité de service, en combinant l’importance des réseaux en terme de population desservie ainsi que les dommages et défaillance des réseaux selon les différents scénarios testés (STORM et STORM CMCC, avec temps de retour RP10, RP50, RP100 et RP1000).</p>
+<h2 id="analyse-de-sensibilité">Analyse de sensibilité</h2>
+<p>L’analyse de sensibilité a été réalisée afin d’évaluer l’influence des paramètres principaux du modèle sur les résultats obtenus (dégâts monétaires, part des réseaux en état S0, S1, S2, S3, proportion de la population affectée par des défaillances). Elle repose sur une approche dite un facteur à la fois, consistant à faire varier chaque paramètre individuellement, tandis que les autres paramètres sont maintenus constants. Cette méthode permet d’identifier les paramètres auxquels le modèle est le plus sensible et de mieux comprendre leur contribution aux résultats du modèle.</p>
+<p>Par défaut, chaque scénario d’analyse de sensibilité est évalué à partir de simulations comprenant 1500 tracks. Ce nombre a été retenu afin d’obtenir des résultats suffisamment robustes, tout en conservant un temps de calcul compatible avec l’exploration de plusieurs configurations du modèle. Les résultats de chaque scénario sont ensuite comparés à ceux du scénario de référence, afin de mesurer l’effet relatif de la variation du paramètre étudié.</p>
+<p>Au total, 25 scénarios ont été testés dans le cadre de cette analyse (voir annexe 8 pour la liste complète des scénarios et annexe 9 pour la visualisation des courbes de vulnérabilité modifiées des trois premiers scénarios de vulnérabilité). Cette analyse permet de mettre en perspective les résultats du modèle, d’identifier ses principales zones de sensibilité et de mieux caractériser ses limites. Elle constitue également un outil d’aide à l’interprétation des résultats actuels et permet d’orienter les développements futurs du modèle, notamment en ciblant les paramètres nécessitant une calibration plus fine ou une meilleure justification expérimentale.</p>
+
+</div>

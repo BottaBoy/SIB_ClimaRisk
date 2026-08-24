@@ -1,0 +1,151 @@
+{
+  "run_id": "20260427_113740",
+  "snapshot_dir": "/home/ubuntu/sib-work/docs/expert-review/reference-run/20260427_113740",
+  "copied_files": [
+    {
+      "label": "manifest.json",
+      "path": "/home/ubuntu/sib-work/docs/expert-review/reference-run/20260427_113740/manifest.json",
+      "required": true,
+      "exists": true,
+      "size_bytes": 63700,
+      "sha256": "b1bd86658fa90f1a367246948f009946403d20f7512d0141f5401729d08511f4"
+    },
+    {
+      "label": "latest-manifest.json",
+      "path": "/home/ubuntu/sib-work/docs/expert-review/reference-run/20260427_113740/latest-manifest.json",
+      "required": true,
+      "exists": true,
+      "size_bytes": 63700,
+      "sha256": "b1bd86658fa90f1a367246948f009946403d20f7512d0141f5401729d08511f4"
+    },
+    {
+      "label": "Journalisation_Run_CompleteAnalysis.md",
+      "path": "/home/ubuntu/sib-work/docs/expert-review/reference-run/20260427_113740/Journalisation_Run_CompleteAnalysis.md",
+      "required": true,
+      "exists": true,
+      "size_bytes": 348,
+      "sha256": "8719644dd0b6a6d90edbff931b136b4f4d3a624c795e057483fa5d78424648bc"
+    },
+    {
+      "label": "Journalisation_Run_CompleteAnalysis.jsonl",
+      "path": "/home/ubuntu/sib-work/docs/expert-review/reference-run/20260427_113740/Journalisation_Run_CompleteAnalysis.jsonl",
+      "required": true,
+      "exists": true,
+      "size_bytes": 13854,
+      "sha256": "6d87a821405ace36a673047f5307fdbaa5364bb194355333a117f473e37883c6"
+    }
+  ],
+  "territories": {
+    "guadeloupe": {
+      "archived_complete_analysis": {
+        "label": "complete-analysis",
+        "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-complete-analysis.json",
+        "required": true,
+        "exists": true,
+        "size_bytes": 54396748,
+        "sha256": "86bd5a6847a8d04c25c644e4f95b5026f3b09e97aff4a4b8888a1bcb81ea22a2"
+      },
+      "archived_web_artifacts": [
+        {
+          "label": "wind-maps",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-wind-maps.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 497163,
+          "sha256": "796d9d8fc700ab985c73be84f99d81433e2174a2f8234b3386c81e8e1b04526a"
+        },
+        {
+          "label": "multi-hazard-proxy",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-multi-hazard-proxy.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 5338,
+          "sha256": "f34be9e2f123c3bc864e1af146ba991a04952f496c99710cf951bc253a069d62"
+        },
+        {
+          "label": "page-analysis",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-page1-analysis.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 103564,
+          "sha256": "839e6bfa54e67f957918f03e868fda7d475f88dabe7e5302539c95b96c41392a"
+        },
+        {
+          "label": "network-states",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-network-states.geojson",
+          "required": true,
+          "exists": true,
+          "size_bytes": 83207267,
+          "sha256": "44869548d74f20c1d97c6388481250f4d8e832b1de779b84f3f5b5aa3f568a87"
+        },
+        {
+          "label": "landslide-maps",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/guadeloupe/web/data/guadeloupe-landslide-maps.json",
+          "required": false,
+          "exists": true,
+          "size_bytes": 152779,
+          "sha256": "6aa203e996f21aa325c0b2d33674d97d7be0051fbb89eea54fbcc497d59f626c"
+        }
+      ],
+      "csv_exports": []
+    },
+    "martinique": {
+      "archived_complete_analysis": {
+        "label": "complete-analysis",
+        "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-complete-analysis.json",
+        "required": true,
+        "exists": true,
+        "size_bytes": 65427232,
+        "sha256": "72be452b42675c4e4ded6385dde4688904129f07d98ae87656a637cb792d652a"
+      },
+      "archived_web_artifacts": [
+        {
+          "label": "wind-maps",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-wind-maps.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 337393,
+          "sha256": "2e4993968c458635130fcc2dfd3af6471457e61b5719c7ec0ec67648ae620e90"
+        },
+        {
+          "label": "multi-hazard-proxy",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-multi-hazard-proxy.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 5344,
+          "sha256": "d5162f1d055b184e998e155667ae6f179e096568487e865fbb022351a48bcfc5"
+        },
+        {
+          "label": "page-analysis",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-page2-analysis.json",
+          "required": true,
+          "exists": true,
+          "size_bytes": 103432,
+          "sha256": "92630d8964bd04be0a46d844641b250d054fb3e2f47b675a2a584099e306bef6"
+        },
+        {
+          "label": "network-states",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-network-states.geojson",
+          "required": true,
+          "exists": true,
+          "size_bytes": 101686881,
+          "sha256": "9cce45dd0546626e382b1eeed3f0a35c307bb578e8f549b111c686c93788b88c"
+        },
+        {
+          "label": "landslide-maps",
+          "path": "/home/ubuntu/sib-work/outputs/complete-analysis-runs/20260427_113740/territories/martinique/web/data/martinique-landslide-maps.json",
+          "required": false,
+          "exists": true,
+          "size_bytes": 102701,
+          "sha256": "6a9208a9a604a1dcc3974fd3bba6451da734cf2a72b00ba7dd19f2a6fb4ee3b9"
+        }
+      ],
+      "csv_exports": []
+    }
+  },
+  "notes": [
+    "Run-scoped web artefacts remain archived under outputs/complete-analysis-runs/<run_id>/territories/<territory>/web/.",
+    "CSV exports are not archived by the current complete-analysis run workflow; this baseline records that gap explicitly.",
+    "Journalisation_Run_CompleteAnalysis.* files are filtered extracts for the selected run_id, generated from the global run journal."
+  ]
+}

@@ -4,6 +4,7 @@ from collections import Counter
 import math
 from typing import Any
 
+from .exposure_to_climada import DEFAULT_MAX_POINTS_PER_FEATURE, count_sampled_feature_points
 from .types import DisaggregationSummary, NormalizedExposure
 
 try:
@@ -65,17 +66,33 @@ def summarize_disaggregation(
     *,
     spacing_m: float,
     metric_crs: str = DEFAULT_METRIC_CRS,
+    max_points_per_feature: int = DEFAULT_MAX_POINTS_PER_FEATURE,
 ) -> DisaggregationSummary:
     by_geom = Counter()
     total_points = 0
     warnings = list(exposure.warnings)
+    exact_count_warning_added = False
 
     if metric_crs != DEFAULT_METRIC_CRS:
         warnings.append(f"Using custom metric CRS {metric_crs} for spacing-based sampling.")
 
     for feat in exposure.features:
         by_geom[feat.geometry_type] += 1
-        total_points += _estimate_points_for_feature(feat, spacing_m, metric_crs)
+        try:
+            total_points += count_sampled_feature_points(
+                feat,
+                spacing_m=spacing_m,
+                metric_crs=metric_crs,
+                max_points=max(1, int(max_points_per_feature)),
+            )
+        except Exception:
+            total_points += _estimate_points_for_feature(feat, spacing_m, metric_crs)
+            if not exact_count_warning_added:
+                warnings.append(
+                    "Fell back to approximate disaggregation counting for one or more features; "
+                    "exact CLIMADA-aligned counting dependencies were unavailable."
+                )
+                exact_count_warning_added = True
 
     warnings.append(
         "Production CLIMADA path should sample geometries in a metric CRS before reprojecting points back to EPSG:4326."

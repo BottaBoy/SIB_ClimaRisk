@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "generated_at": "2026-07-23T00:00:00+00:00",
+  "scenario_pack_id": "guadeloupe-sensitivity-default-v2",
+  "territories": [
+    "guadeloupe"
+  ],
+  "source_run": "/home/ubuntu/sib-work/outputs/sensitivity-runs/sensitivity_20260619_073544",
+  "selection_rule": "Keep scenarios with >= 3% monetary impact variation or >= 3 percentage points network-state variation in sensitivity_20260619_073544; keep territory_grid_deg by explicit decision; add vulnerability-curve scenarios.",
+  "default_track_sample_manifest": "/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_1500/manifest.json",
+  "scenarios": [
+    {
+      "scenario_id": "all-default",
+      "label": "All default",
+      "parameter_key": null,
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "overrides": {
+        "settings": {}
+      },
+      "notes": [
+        "Reference scenario with current default parameters and the V1 sample_1500 track manifest supplied by the runner task."
+      ]
+    },
+    {
+      "scenario_id": "vulnerability_curves_profile-elec-flood-moderate",
+      "label": "vulnerability curves = electric flood moderate",
+      "parameter_key": "vulnerability_curves_profile",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "elec_flood_moderate",
+      "overrides": {
+        "settings": {
+          "flood_asset_type_to_curve_code": {
+            "elec_bt_aerien": "F14.4",
+            "elec_hta_aerien": "F14.4",
+            "elec_bt_souterrain": "F14.4",
+            "elec_hta_souterrain": "F14.4",
+            "eau_aep_cana": "F19.3",
+            "eau_eu_cana": "F19.3",
+            "eau_eu_pr": "F20.3",
+            "eau_eu_step": "F18.4",
+            "eau_aep_ouvrage_trait": "F14.4",
+            "eau_aep_ouvrage_stpmp": "F17.4",
+            "eau_aep_ouvrage_cap": "F15.1",
+            "eau_aep_ouvrage_cuv": "F13.1",
+            "eau_aep_ouvrage_ouveb": "F13.1",
+            "eau_aep_ouvrage_na": "F14.4"
+          }
+        }
+      },
+      "notes": [
+        "Tests a non-zero moderate depth-damage response for electric networks.",
+        "Only the flood/rain/surge curve mapping changes; wind curves remain at default."
+      ]
+    },
+    {
+      "scenario_id": "vulnerability_curves_profile-elec-flood-stress",
+      "label": "vulnerability curves = electric flood stress",
+      "parameter_key": "vulnerability_curves_profile",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "elec_flood_stress",
+      "overrides": {
+        "settings": {
+          "flood_asset_type_to_curve_code": {
+            "elec_bt_aerien": "F17.5",
+            "elec_hta_aerien": "F17.5",
+            "elec_bt_souterrain": "F17.5",
+            "elec_hta_souterrain": "F17.5",
+            "eau_aep_cana": "F19.3",
+            "eau_eu_cana": "F19.3",
+            "eau_eu_pr": "F20.3",
+            "eau_eu_step": "F18.4",
+            "eau_aep_ouvrage_trait": "F14.4",
+            "eau_aep_ouvrage_stpmp": "F17.4",
+            "eau_aep_ouvrage_cap": "F15.1",
+            "eau_aep_ouvrage_cuv": "F13.1",
+            "eau_aep_ouvrage_ouveb": "F13.1",
+            "eau_aep_ouvrage_na": "F14.4"
+          }
+        }
+      },
+      "notes": [
+        "Upper-bound stress test for electric-network flood sensitivity.",
+        "Useful to distinguish curve under-sensitivity from low flood-hazard exposure."
+      ]
+    },
+    {
+      "scenario_id": "vulnerability_curves_profile-elec-wind-underground-exposed",
+      "label": "vulnerability curves = electric underground wind exposed",
+      "parameter_key": "vulnerability_curves_profile",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "elec_wind_underground_exposed",
+      "overrides": {
+        "settings": {
+          "wind_asset_type_to_curve_code": {
+            "elec_bt_aerien": "W3.10",
+            "elec_hta_aerien": "W3.14",
+            "elec_bt_souterrain": "W3.10",
+            "elec_hta_souterrain": "W3.14",
+            "eau_aep_cana": "W16.1",
+            "eau_eu_cana": "W19.1",
+            "eau_eu_pr": "EBERENZ_2021_TC",
+            "eau_eu_step": "W21.2",
+            "eau_aep_ouvrage_trait": "W21.2",
+            "eau_aep_ouvrage_stpmp": "W21.4",
+            "eau_aep_ouvrage_cap": "W21.10",
+            "eau_aep_ouvrage_cuv": "W21.5",
+            "eau_aep_ouvrage_ouveb": "W21.5",
+            "eau_aep_ouvrage_na": "W21.5"
+          }
+        }
+      },
+      "notes": [
+        "Tests whether electric-network inertia is driven by the zero-damage wind curves on underground line assets.",
+        "This is an exposure/proxy stress test, not a claim that underground cables have the same wind fragility as overhead assets."
+      ]
+    },
+    {
+      "scenario_id": "runoff_coeff-0-1",
+      "label": "runoff_coeff = 0,1",
+      "parameter_key": "runoff_coeff",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0,1",
+      "overrides": {
+        "settings": {
+          "multi_hazard_rain_base_runoff_coeff": 0.1
+        }
+      },
+      "notes": [
+        "Retained from sensitivity_20260619_073544 because it exceeded the 3% significance threshold."
+      ]
+    },
+    {
+      "scenario_id": "runoff_coeff-0-5",
+      "label": "runoff_coeff = 0,5",
+      "parameter_key": "runoff_coeff",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0,5",
+      "overrides": {
+        "settings": {
+          "multi_hazard_rain_base_runoff_coeff": 0.5
+        }
+      },
+      "notes": [
+        "Retained from sensitivity_20260619_073544 because it exceeded the 3% significance threshold."
+      ]
+    },
+    {
+      "scenario_id": "direct_state_thresholds-10-20-40",
+      "label": "seuils d'etat directs = 10%/20%/40%",
+      "parameter_key": "direct_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "10%/20%/40%",
+      "overrides": {
+        "settings": {
+          "interdependency_state_threshold_s0_to_s1": 0.1,
+          "interdependency_state_threshold_s1_to_s2": 0.2,
+          "interdependency_state_threshold_s2_to_s3": 0.4
+        }
+      },
+      "notes": [
+        "Retained because network-state variation exceeded 3 percentage points in sensitivity_20260619_073544."
+      ]
+    },
+    {
+      "scenario_id": "direct_state_thresholds-10-15-50",
+      "label": "seuils d'etat directs = 10%/15%/50%",
+      "parameter_key": "direct_state_thresholds",
+      "execution_tier": "postprocess_rerun",
+      "supported": true,
+      "candidate_value": "10%/15%/50%",
+      "overrides": {
+        "settings": {
+          "interdependency_state_threshold_s0_to_s1": 0.1,
+          "interdependency_state_threshold_s1_to_s2": 0.15,
+          "interdependency_state_threshold_s2_to_s3": 0.5
+        }
+      },
+      "notes": [
+        "Retained because network-state variation exceeded 3 percentage points in sensitivity_20260619_073544."
+      ]
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-50",
+      "label": "hazard_dynamic_max_tracks = 50",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "50",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 50,
+          "hazard_track_sample_manifest_path": "/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0050/manifest.json"
+        }
+      },
+      "notes": [
+        "V2 hazard-track grid value. Uses the matching V1 track-sample manifest."
+      ]
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-100",
+      "label": "hazard_dynamic_max_tracks = 100",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "100",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 100,
+          "hazard_track_sample_manifest_path": "/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0100/manifest.json"
+        }
+      },
+      "notes": [
+        "Retained from the previous default pack and bound to the matching V1 track-sample manifest."
+      ]
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-800",
+      "label": "hazard_dynamic_max_tracks = 800",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "800",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 800,
+          "hazard_track_sample_manifest_path": "/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_0800/manifest.json"
+        }
+      },
+      "notes": [
+        "Retained from the previous default pack and bound to the matching V1 track-sample manifest."
+      ]
+    },
+    {
+      "scenario_id": "hazard_dynamic_max_tracks-5000",
+      "label": "hazard_dynamic_max_tracks = 5000",
+      "parameter_key": "hazard_dynamic_max_tracks",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "5000",
+      "overrides": {
+        "settings": {
+          "hazard_dynamic_max_tracks": 5000,
+          "hazard_track_sample_manifest_path": "/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe/sample_5000/manifest.json"
+        }
+      },
+      "notes": [
+        "V2 hazard-track grid value. Uses the matching V1 track-sample manifest."
+      ]
+    },
+    {
+      "scenario_id": "territory_grid_deg-0-05",
+      "label": "maille territoriale electrique = 0.05",
+      "parameter_key": "territory_grid_deg",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0.05",
+      "overrides": {
+        "settings": {
+          "territory_grid_deg": 0.05
+        }
+      },
+      "notes": [
+        "Kept by explicit decision even though sensitivity_20260619_073544 showed low influence."
+      ]
+    },
+    {
+      "scenario_id": "territory_grid_deg-0-1",
+      "label": "maille territoriale electrique = 0.1",
+      "parameter_key": "territory_grid_deg",
+      "execution_tier": "full_rerun",
+      "supported": true,
+      "candidate_value": "0.1",
+      "overrides": {
+        "settings": {
+          "territory_grid_deg": 0.1
+        }
+      },
+      "notes": [
+        "Kept by explicit decision even though sensitivity_20260619_073544 showed low influence."
+      ]
+    }
+  ],
+  "scenario_count": 14
+}

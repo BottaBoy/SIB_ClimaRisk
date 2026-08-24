@@ -10,7 +10,7 @@
     />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
-    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260824-152740" />
   </head>
   <body>
     <div class="page-shell">
@@ -18,36 +18,273 @@
         <a class="top-menu-brand" href="#page1" aria-label="Accueil OFB">
           <img src="assets/Logo_OFB.png" alt="Logo OFB" />
         </a>
-        <button id="nav-page-1" class="page-tab active" type="button">Etude de cas Guadeloupe</button>
-        <button id="nav-page-2" class="page-tab" type="button">Etude de cas Martinique</button>
-        <button id="nav-page-3" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
-        <button id="nav-page-4" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
-        <button id="nav-page-5" class="page-tab page-tab-admin" type="button">Admin visu</button>
+        <button id="nav-page-1" class="page-tab active" type="button">Introduction - analyse de risques OFB</button>
+        <button id="nav-page-2" class="page-tab" type="button">Etude de cas Guadeloupe</button>
+        <button id="nav-page-3" class="page-tab" type="button">Etude de cas Martinique</button>
+        <button id="nav-page-7" class="page-tab" type="button">Etude de cas Saint-Barthélemy</button>
+        <button id="nav-page-4" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
+        <button id="nav-page-5" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
+        <button id="nav-page-6" class="page-tab page-tab-admin" type="button">Admin visu</button>
       </nav>
 
       <section id="runtime-access-note" class="panel runtime-note" hidden></section>
 
-      <header class="hero panel page-block page1 page2">
+      <section class="panel page-block page1 intro-panel intro-hero-panel" aria-labelledby="intro-page-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Introduction</p>
+            <h1 id="intro-page-title">Introduction - analyse de risques OFB</h1>
+          </div>
+        </div>
+        <div class="intro-copy intro-copy-lead">
+          <p>
+            Les risques liés aux aléas naturels augmentent, impactant aussi bien les infrastructures que les populations qui en dépendent.
+          </p>
+          <p>
+            Cette page, développée par l'<a href="https://ofb.gouv.fr/" target="_blank" rel="noreferrer">OFB</a> dans le cadre de la
+            <a href="https://ofb.gouv.fr/la-solidarite-interbassins" target="_blank" rel="noreferrer">Solidarité Interbassin (SIB)</a>,
+            présente un exercice de démonstration d'une analyse de risques climatiques qui menacent les réseaux d'eau et d'électricité en outre-mer.
+            L’objectif de cette page est de donner une première visualisation des événements extrêmes qui peuvent impacter les outre-mer.
+          </p>
+          <p>
+            Trois études de cas sont disponibles (Guadeloupe, Martinique et Saint-Barthélemy), présentant les dégâts humains (population affectée par les dégradations voire défaillances des réseaux),
+            matériels (quelles zones, réseaux et ouvrages sont impactés) et financiers (quels sont les coûts de remplacement des ouvrages endommagés).
+          </p>
+          <p>
+            Cette étude peut être utilisée en première approximation, et doit donner lieu à des études plus locales et plus précises permettant de faire les choix qui structurent les infrastructures et réseaux résilients de demain.
+          </p>
+          <p>
+            Cette page est construite en 3 blocs principaux :
+          </p>
+          <p>
+            <strong>L’exposition :</strong> c’est tout ce qui a de la valeur et que l’on peut souhaiter protéger (population, bâtiments, infrastructures, milieux naturels...).
+            Dans cette étude, il s’agit principalement des réseaux d’eau, d'électricité ainsi que les ouvrages qui y sont liés et les populations qui en dépendent.
+            L’exposition intègre aussi une composante de vulnérabilité, c'est-à-dire à quel point une exposition donnée est sensible à un aléa.
+          </p>
+          <p>
+            <strong>Les aléas :</strong> ce sont les événements qui peuvent causer des dommages à l’exposition. Dans cette étude, il s’agit principalement des vents et des pluies cycloniques,
+            ainsi que des inondations côtières qui y sont associées, et des mouvements de terrain qui peuvent être déclenchés par des précipitations et/ou des séismes.
+            Les aléas sont présentés selon un scénario de climat actuel, et un scénario de changement climatique (SSP 585).
+          </p>
+          <p>
+            <strong>Les impacts :</strong> ils sont la combinaison de l’exposition, de sa vulnérabilité et des aléas. Les impacts nous informent sur les dégâts que peuvent subir l’exposition,
+            en termes humain, matériel et financier.
+          </p>
+          <p>
+            Sur ce site vous pourrez découvrir les résultats d’impacts des principaux aléas sur les réseaux d’eau et d’électricité en Guadeloupe, en Martinique et à Saint-Barthélemy.
+            La page “Données utilisateurs” vous permettra aussi de tester l’impact des aléas sur vos propres infrastructures.
+          </p>
+        </div>
+      </section>
+
+      <section id="intro-key-messages-section" class="panel page-block page1 intro-panel" aria-labelledby="intro-key-messages-title">
+        <div class="section-head">
+          <div>
+            <h2 id="intro-key-messages-title">3 messages-clés à retenir pour le territoire</h2>
+          </div>
+        </div>
+        <div class="intro-territory-grid">
+          <article class="subpanel intro-territory-card">
+            <div class="intro-territory-copy">
+              <h3>Guadeloupe</h3>
+              <p>
+                Pour la Guadeloupe, les dégâts peuvent s’élever à <strong id="intro-gua-water-rp1000-eur">—</strong>
+                (<strong id="intro-gua-water-rp1000-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
+                L’aléa le plus dommageable est <strong id="intro-gua-dominant-hazard">—</strong> avec des dommages de
+                <strong id="intro-gua-dominant-hazard-loss-eur">—</strong> (<strong id="intro-gua-dominant-hazard-loss-pct">—</strong> du portefeuille total d'infrastructures du territoire)
+                pour un temps de retour de 100 ans. Sur un temps de retour de 50 ans,
+                <strong id="intro-gua-electricity-s2s3-population">—</strong> personnes
+                (<strong id="intro-gua-electricity-s2s3-share">—</strong> de la population totale de l'île) risquent de se retrouver sans électricité
+                et <strong id="intro-gua-water-s2s3-population">—</strong> personnes
+                (<strong id="intro-gua-water-s2s3-share">—</strong> de la population totale de l'île) risquent de se retrouver sans eau.
+              </p>
+            </div>
+            <div class="map-card intro-map-card">
+              <h3 id="intro-gua-network-map-title">Etat des réseaux eau AEP - RP100</h3>
+              <p class="muted small" id="intro-gua-network-map-caption">La carte apparaitra lorsque ce bloc sera visible.</p>
+              <div id="intro-gua-network-map" class="map intro-map"></div>
+            </div>
+          </article>
+          <article class="subpanel intro-territory-card">
+            <div class="intro-territory-copy">
+              <h3>Martinique</h3>
+              <p>
+                Pour la Martinique, les dégâts peuvent s’élever à <strong id="intro-mq-water-rp1000-eur">—</strong>
+                (<strong id="intro-mq-water-rp1000-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
+                L’aléa le plus dommageable est <strong id="intro-mq-dominant-hazard">—</strong> avec des dommages de
+                <strong id="intro-mq-dominant-hazard-loss-eur">—</strong> (<strong id="intro-mq-dominant-hazard-loss-pct">—</strong> du portefeuille total d'infrastructures du territoire)
+                pour un temps de retour de 100 ans. Sur un temps de retour de 50 ans,
+                <strong id="intro-mq-electricity-s2s3-population">—</strong> personnes
+                (<strong id="intro-mq-electricity-s2s3-share">—</strong> de la population totale de l'île) risquent de se retrouver sans électricité
+                et <strong id="intro-mq-water-s2s3-population">—</strong> personnes
+                (<strong id="intro-mq-water-s2s3-share">—</strong> de la population totale de l'île) risquent de se retrouver sans eau.
+              </p>
+            </div>
+            <div class="map-card intro-map-card">
+              <h3 id="intro-mq-network-map-title">Etat des réseaux eau AEP - RP100</h3>
+              <p class="muted small" id="intro-mq-network-map-caption">La carte apparaitra lorsque ce bloc sera visible.</p>
+              <div id="intro-mq-network-map" class="map intro-map"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel page-block page1 intro-panel" aria-labelledby="intro-exposition-title">
+        <div class="section-head">
+          <div>
+            <h2 id="intro-exposition-title">Exposition</h2>
+            <p class="muted">
+              Cette étude se concentre sur les réseaux d’eau potable (AEP), d’eau usées (EU) ainsi que les réseaux électriques
+              (basse tension aérien, basse tension souterrain, haute tension aérien, haute tension souterrain), ainsi que les ouvrages qui sont liés à ces réseaux
+              (station d’épuration, usine de potabilisation, postes de refoulements). La population est aussi prise en compte de façon localisée et les impacts sur celle-ci sont pris en compte
+              (<strong id="intro-population-gua">—</strong> personnes pour la Guadeloupe et <strong id="intro-population-mq">—</strong> pour la Martinique).
+            </p>
+          </div>
+        </div>
+        <div class="intro-example-grid">
+          <article class="subpanel">
+            <h3>Valorisation monétaire des réseaux - Guadeloupe</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type de réseau</th>
+                    <th class="num">Longueur (km)</th>
+                    <th class="num">Valeur/km (€)</th>
+                    <th class="num">Valeur totale (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="intro-exposition-network-table-body"></tbody>
+              </table>
+            </div>
+            <p class="muted small" id="intro-exposition-total-networks">Valeur totale des réseaux: —</p>
+          </article>
+          <article class="subpanel">
+            <h3>Valorisation monétaire des ouvrages - Guadeloupe</h3>
+            <div class="table-wrap compact">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type d'ouvrage</th>
+                    <th class="num">Nombre (unités)</th>
+                    <th class="num">Valeur/unité (€)</th>
+                    <th class="num">Valeur totale (€)</th>
+                  </tr>
+                </thead>
+                <tbody id="intro-exposition-ouvrage-table-body"></tbody>
+              </table>
+            </div>
+            <p class="muted small" id="intro-exposition-total-ouvrages">Valeur totale des ouvrages: —</p>
+          </article>
+        </div>
+        <p class="muted small" id="intro-exposition-total-value">Valeur totale du portefeuille d'infrastructures: —</p>
+      </section>
+
+      <section class="panel page-block page1 intro-panel" aria-labelledby="intro-hazards-title">
+        <div class="section-head">
+          <div>
+            <h2 id="intro-hazards-title">Aléas</h2>
+          </div>
+        </div>
+        <article class="subpanel admin-visu-card intro-hazard-card">
+          <div class="admin-visu-card-head">
+            <h3>Moyenne des forces de vents cycloniques sur le bassin nord atlantique</h3>
+            <div class="admin-visu-selects">
+              <select id="intro-hazard-select" aria-label="Climat de la carte d'aléas introductive">
+                <option value="storm">Climat actuel</option>
+                <option value="storm_cmcc">Climat 2050</option>
+              </select>
+              <select id="intro-hazard-scenario-select" aria-label="Scenario de la carte d'aléas introductive">
+                <option value="mean">Aléas moyen</option>
+                <option value="rp100">Temps de retour 100 ans</option>
+              </select>
+            </div>
+          </div>
+          <div id="intro-hazard-map" class="map admin-visu-map"></div>
+          <p class="muted small" id="intro-hazard-map-caption">Chargement...</p>
+        </article>
+      </section>
+
+      <section class="panel page-block page1 intro-panel" aria-labelledby="intro-impacts-title">
+        <div class="section-head">
+          <div>
+            <h2 id="intro-impacts-title">Impacts</h2>
+          </div>
+        </div>
+        <div class="chart-grid intro-chart-grid">
+          <div class="chart-card">
+            <h3>Dégâts eau par scénario (climat actuel vs Climat 2050)</h3>
+            <div id="intro-impact-water-chart" class="chart wide"></div>
+          </div>
+          <div class="chart-card">
+            <h3>Dégâts électricité par scénario (climat actuel vs Climat 2050)</h3>
+            <div id="intro-impact-electricity-chart" class="chart wide"></div>
+          </div>
+        </div>
+        <p class="muted intro-copy">
+          Cette étude s’appuie sur de nombreuses hypothèses et incertitudes. Les chiffres présentés comportent des incertitudes.
+          Pour plus de détails sur comment a été réalisée cette étude afin de savoir comment utiliser les chiffres présentés,
+          voir la page “Méthodologie détaillée”.
+        </p>
+      </section>
+
+      <section class="panel page-block page1 intro-panel" aria-labelledby="intro-actions-title">
+        <div class="section-head">
+          <div>
+            <h2 id="intro-actions-title">Que peut faire une collectivité de cette information ?</h2>
+          </div>
+        </div>
+        <div class="intro-copy">
+          <p>
+            Cette étude présente un travail en cours, mené en collaboration avec les collectivités et gestionnaires concernés, qui vise à être amélioré.
+            A partir de cette étude, on peut observer que les aléas naturels peuvent causer des dégâts importants, mettant ainsi les réseaux hors service et impactant les populations qui en dépendent.
+          </p>
+          <p>
+            Les résultats présentés dans cette étude calculent les probabilités d’impact, et ne représentent donc pas une certitude d’impact.
+            Il est donc important de garder à l’esprit que même si un territoire a été relativement épargné par les aléas naturels ces dernières années,
+            il est toujours possible qu’un événement puissant survienne et impacte fortement l’intégrité des réseaux essentiels d’outre-mer.
+          </p>
+          <p>
+            La <a href="https://ofb.gouv.fr/la-solidarite-interbassins" target="_blank" rel="noreferrer">Solidarité Interbassin (SIB)</a>,
+            en tant que partenaire des collectivités et gestionnaires des services d’eau, travaille à la résilience de l’outre-mer.
+          </p>
+        </div>
+        <div class="artifact-links intro-links">
+          <a href="#page2">Voir l'étude de cas Guadeloupe</a>
+          <a href="#page3">Voir l'étude de cas Martinique</a>
+          <a href="#page7">Voir l'étude de cas Saint-Barthélemy</a>
+          <a href="#page4">Tester vos propres infrastructures</a>
+        </div>
+      </section>
+
+      <section class="panel disclaimer page-block page1" aria-label="Clause de non responsabilite">
+        <p>
+          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
+          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
+          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
+          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
+      </section>
+
+      <header class="hero panel page-block page2 page3 page7">
         <div>
           <p class="eyebrow">Analyse de reference</p>
           <h1 id="case-study-title">Impact des risques physiques sur les infrastructures : etude de cas Guadeloupe</h1>
           <p id="case-study-subtitle" class="subtitle">
-            Cette page présente un exercice de demonstration d'une analyse complete des risques cycloniques. Cette étude de cas prend en compte
-            les reseaux d'eau et d'electricite. Les aleas cycloniques sont modélisés à partir de la base de donnée STORM (Bloemdaal et al. 2020) et STORM_CMCC (Bloemdaal et al., 2022). 
-            Les données cartographiques des réseaux d'eau ont été fournis par le SMGEAG, quand à celle des reseaux électriques, elles sont disponible sur le site de EDF Guadeloupe.
-            Cette analyse, réalisée dans le cadre du mémoire de master 2 "Eau et société" de Elio Bottagisio, a pour but d'informer les parties prenantes sur les risques physiques pouvant affecter les infrastructures en Guadeloupe 
-            et de démontrer la faisabilité d'une telle analyse dans le cadre des missions de la Solidarité InterBassin (SIB, département de l'OFB). Les méthodologies et résultats présentés sont à considérer comme des prototypes à valider et affiner dans les itérations futures du projet.
-            Une méthodologie détaillée de calcul est disponible dans la section dédiée.
+            Cette page présente un exercice de démonstration d'une analyse complète des risques cycloniques sur les réseaux d'eau et d'électricité en Guadeloupe. Les aléas cycloniques sont modélisés à partir des bases STORM (Bloemdaal et al., 2020), qui représente les risques de cyclones au climat actuel, et STORM_CMCC (Bloemdaal et al., 2022) qui représente les risques de cyclones à partir d’un climat de 2050, selon le scénario SSP 585 du GIEC. Les résultats sont proposés comme prototype méthodologique à valider et affiner. Ils peuvent servir de première approximation des risques qui pèsent sur les réseaux d’eau et d'électricité sur le territoire de Guadeloupe.
+
+            Ce travail s’inscrit dans le cadre du mémoire de master d’Elio Bottagisio.
           </p>
         </div>
         <div class="hero-badges">
           <span class="badge" id="badge-source">Source: chargement…</span>
           <span class="badge" id="badge-updated">Mis a jour: —</span>
           <span class="badge" id="badge-engine">Moteur: —</span>
+          <span class="badge" id="badge-trace" data-trace-state="unavailable">Trace: chargement...</span>
         </div>
       </header>
 
-      <section class="panel exposition-panel page-block page1 page2" aria-labelledby="expo-title">
+      <section class="panel exposition-panel page-block page2 page3 page7" aria-labelledby="expo-title">
         <div class="section-head">
           <div>
             <h2 id="expo-title">Exposition</h2>
@@ -101,6 +338,9 @@
         <div class="subpanel water-map-card">
           <h3 id="water-map-title">Carte des infrastructures d'eau et d'electricite de Guadeloupe</h3>
           <p class="muted small" id="water-map-caption">Chargement…</p>
+          <div class="inline-row tight water-map-toolbar">
+            <button id="water-population-toggle" type="button">Afficher la population</button>
+          </div>
           <div id="water-layer-controls" class="layer-controls" aria-label="Water infrastructure layers"></div>
           <div id="water-infra-map" class="map water-map"></div>
         </div>
@@ -109,7 +349,7 @@
             <div>
               <h3>Exemple de courbes de vulnérabilité</h3>
               <p class="muted" id="case-study-vulnerability-intro">
-                La vulnérabilité de l’exposition (c'est-à-dire les infrastructures qui peuvent être impactées par les aléas) est représentée par des courbes de vulnérabilité, qui associent un pourcentage de dommages à une intensité d’aléa donnée. Ci-dessous sont présentées en exemple les courbes de vulnérabilité des postes de refoulement (PR) ainsi que celles du réseau électrique basse tension aérien. Les courbes de vulnérabilité sont issues de Nirandjan et al., 2024. Elles associent des vitesses de vent en kilomètres par heure (km/h) et des profondeurs d’inondations en mètres (m) à un pourcentage de dommages sur l'infrastructure.
+                La vulnérabilité de l’exposition (c'est-à-dire les infrastructures qui peuvent être impactées par les aléas) est représentée par des courbes de vulnérabilité, qui associent un pourcentage de dommages à une intensité d’aléa donnée. Ci-dessous sont présentées en exemple les courbes de vulnérabilité des postes de refoulement (PR), du réseau électrique basse tension aérien et une courbe de mouvements de terrain probabilistes. Les courbes de vulnérabilité vent, pluie et submersion sont issues de Nirandjan et al., 2024. La courbe mouvements de terrain est une hypothèse SIB sur une échelle de risque allant de 0 à 5, affichée en marron.
               </p>
             </div>
           </div>
@@ -118,7 +358,7 @@
         </article>
       </section>
 
-      <section class="panel wind-panel page-block page1 page2" aria-labelledby="wind-panel-title">
+      <section class="panel wind-panel page-block page2 page3 page7" aria-labelledby="wind-panel-title">
         <div class="section-head">
           <div>
             <h2 id="wind-panel-title">Analyse des aléas</h2>
@@ -126,6 +366,7 @@
               Cette section décrit les aléas qui sont utilisés comme sources de dommages sur l’exposition (les infrastructures d’eau et d'électricité).
               Le catalogue STORM est une base de données simulant 10 000 ans de cyclones tropicaux synthétiques.
               Le catalogue STORM CMCC représente la même base de données auquel un facteur de changement climatique, le scénario RCP 8.5 du GIEC a été appliqué.
+              Les mouvements de terrain sont affichés séparément sous forme de score de risque probabiliste sans unité, calculé à partir des cartes NGI.
               <br /><br />
               Les graphiques ci-dessous décrivent la vitesse moyenne des vents maximums par année des bases de données STORM et STORM_CMCC.
               En d’autres termes cela représente la probabilité moyenne des vents sur la zone d’étude d’après les bases de données utilisées.
@@ -139,9 +380,9 @@
               <thead>
                 <tr>
                   <th>Indicateur</th>
-                  <th class="num">STORM</th>
-                  <th class="num">STORM_CMCC</th>
-                  <th class="num">Delta (CMCC-STORM)</th>
+                  <th class="num">Climat actuel</th>
+                  <th class="num">Climat 2050</th>
+                  <th class="num">Différence Climat actuel VS Climat 2050</th>
                 </tr>
               </thead>
               <tbody id="hazard-guadeloupe-compare-body"></tbody>
@@ -150,7 +391,7 @@
         </article>
         <div class="wind-controls-row">
           <div class="wind-opacity-box">
-            <label for="wind-opacity-slider">Transparence couche vent (STORM + STORM_CMCC)</label>
+            <label for="wind-opacity-slider">Transparence couche vent (Climat actuel + Climat 2050)</label>
             <div class="wind-opacity-row">
               <input id="wind-opacity-slider" type="range" min="0" max="100" step="1" value="82" />
               <span id="wind-opacity-value" class="wind-opacity-value">82%</span>
@@ -162,15 +403,23 @@
               <option value="mean">Aléas moyen</option>
               <option value="rp50">Temps de retour 50 ans</option>
               <option value="rp100">Temps de retour 100 ans</option>
-              <option value="event_max">Evenement le plus fort</option>
+              <option value="event_max">Maximum catalogue</option>
             </select>
           </div>
           <div class="wind-mode-box">
             <label>Cartes des aléas</label>
             <div id="hazard-layer-controls" class="layer-controls" aria-label="Hazard layer controls">
-              <label><input type="radio" name="hazard-layer" id="hazard-layer-wind" checked /> Storm (vent)</label>
-              <label><input type="radio" name="hazard-layer" id="hazard-layer-rain" /> Pluie</label>
-              <label><input type="radio" name="hazard-layer" id="hazard-layer-surge" /> Inondations côtières</label>
+              <label class="layer-item"><input type="radio" name="hazard-layer" id="hazard-layer-wind" checked /><span class="layer-dot" style="background:#0083CB"></span><span>Storm (vent)</span></label>
+              <label class="layer-item"><input type="radio" name="hazard-layer" id="hazard-layer-rain" /><span class="layer-dot" style="background:#5BC5F2"></span><span>Pluie</span></label>
+              <label class="layer-item"><input type="radio" name="hazard-layer" id="hazard-layer-surge" /><span class="layer-dot" style="background:#003A76"></span><span>Inondations côtières</span></label>
+              <label class="layer-item"><input type="radio" name="hazard-layer" id="hazard-layer-landslide" /><span class="layer-dot" style="background:#8C5A3C"></span><span>Mouvements de terrain</span></label>
+            </div>
+          </div>
+          <div class="wind-mode-box wind-grid-toggle-box">
+            <label for="wind-grid-toggle">Visualisation de la maille des cartes des aléas</label>
+            <div class="wind-toggle-stack">
+              <label class="layer-item wind-grid-toggle-row"><input id="wind-grid-toggle" type="checkbox" /><span>Afficher le quadrillage des cartes</span></label>
+              <label class="layer-item wind-grid-toggle-row"><input id="hazard-population-toggle" type="checkbox" /><span>Afficher la population sur les deux cartes</span></label>
             </div>
           </div>
         </div>
@@ -186,23 +435,23 @@
             <div id="wind-map-cmcc" class="map wind-map"></div>
           </article>
         </div>
-        <div class="chart-grid hazard-compare-grid">
-          <div class="chart-card">
-            <h3 id="hazard-chart-year-title">Vitesse max du vent par annee (STORM vs STORM_CMCC)</h3>
-            <div id="page1-chart-year-compare" class="chart"></div>
-          </div>
-          <div class="chart-card">
-            <h3 id="hazard-chart-event-title">Vitesse max du vent par evenement cyclonique (STORM vs STORM_CMCC)</h3>
-            <div id="page1-chart-track-compare" class="chart"></div>
-          </div>
-        </div>
+            <div id="hazard-compare-grid" class="chart-grid hazard-compare-grid">
+              <div id="hazard-chart-year-card" class="chart-card hazard-chart-primary">
+                <h3 id="hazard-chart-year-title">Vitesse max du vent par annee (Climat actuel vs Climat 2050)</h3>
+                <div id="page1-chart-year-compare" class="chart"></div>
+              </div>
+              <div id="hazard-chart-event-card" class="chart-card hazard-chart-secondary">
+                <h3 id="hazard-chart-event-title">Vitesse max du vent par evenement cyclonique (Climat actuel vs Climat 2050)</h3>
+                <div id="page1-chart-track-compare" class="chart"></div>
+              </div>
+            </div>
         <article class="subpanel admin-visu-card case-study-hazard-preview-card">
           <div class="admin-visu-card-head">
             <h3>Visualisation aléa - bassin NA</h3>
             <div class="admin-visu-selects">
               <select id="case-study-visu-hazard-select" aria-label="Hazard de la carte d'aléas">
-                <option value="storm">STORM</option>
-                <option value="storm_cmcc">STORM_CMCC</option>
+                <option value="storm">Climat actuel</option>
+                <option value="storm_cmcc">Climat 2050</option>
               </select>
               <select id="case-study-visu-scenario-select" aria-label="Scenario de la carte d'aléas">
                 <option value="mean">Aléas moyen</option>
@@ -215,7 +464,7 @@
         </article>
       </section>
 
-      <section class="panel impact-panel page-block page1 page2" aria-labelledby="impact-title">
+      <section class="panel impact-panel page-block page2 page3 page7" aria-labelledby="impact-title">
         <div class="section-head">
           <div>
             <h2 id="impact-title">Impact</h2>
@@ -233,42 +482,59 @@
         <div class="impact-tables-grid">
           <article class="subpanel">
             <div class="section-head">
-              <h3 id="impact-table-title">Tableau des impacts annuels (moyenne)</h3>
+              <h3 id="impact-table-title">Tableau des impacts causés par les évènements à temps de retour 10 ans</h3>
               <div class="inline-row tight">
-                <div class="impact-table-mode-buttons" id="impact-table-mode-buttons" role="group" aria-label="Mode d'affichage des impacts">
-                  <button type="button" data-impact-table-mode="money" aria-pressed="true">Montant (€)</button>
-                  <button type="button" data-impact-table-mode="percent" aria-pressed="false">% infra</button>
-                </div>
                 <select id="impact-table-scenario-select" aria-label="Scenario du tableau d impacts">
-                  <option value="annual">Moyenne annuelle</option>
+                  <option value="rp10">Temps de retour 10 ans</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="rp1000">Temps de retour 1000 ans</option>
                 </select>
+              </div>
+            </div>
+            <p class="muted small">En haut: part totale des réseaux en état supérieur à S0. En bas: zoom sur les états S1, S2 et S3 pour rendre visibles les faibles proportions.</p>
+            <div class="chart-grid case-study-pie-grid" id="impact-state-pie-grid">
+              <div class="chart-card">
+                <h4>Répartition des états des réseaux AEP</h4>
+                <div id="impact-state-pie-aep" class="chart pie-chart state-focus-chart"></div>
+              </div>
+              <div class="chart-card">
+                <h4>Répartition des états des réseaux EU</h4>
+                <div id="impact-state-pie-eu" class="chart pie-chart state-focus-chart"></div>
+              </div>
+              <div class="chart-card">
+                <h4>Répartition des états des réseaux élec</h4>
+                <div id="impact-state-pie-elec" class="chart pie-chart state-focus-chart"></div>
+              </div>
+            </div>
+            <div class="impact-table-mode-row">
+              <div class="impact-table-mode-buttons" id="impact-table-mode-buttons" role="group" aria-label="Mode d'affichage des impacts">
+                <button type="button" data-impact-table-mode="money" aria-pressed="true">Montant (€)</button>
+                <button type="button" data-impact-table-mode="percent" aria-pressed="false">% infra</button>
               </div>
             </div>
             <div class="impact-table-duo">
               <article class="impact-table-card">
-                <h4>STORM</h4>
+                <h4>Climat actuel</h4>
                 <div class="table-wrap compact impact-table-wrap">
                   <table>
                     <colgroup>
                       <col class="impact-col-name" />
-                      <col class="impact-col-state" />
                       <col class="impact-col-metric" />
                       <col class="impact-col-metric" />
                       <col class="impact-col-surge" />
-                      <col class="impact-col-metric" />
-                      <col class="impact-col-metric" />
+                      <col class="impact-col-landslide" />
+                      <col class="impact-col-direct" />
+                      <col class="impact-col-indirect" />
                       <col class="impact-col-total" />
                     </colgroup>
                     <thead>
                       <tr>
                         <th>Reseau</th>
-                      <th class="num">S0/S1/S2/S3 (%)</th>
                       <th class="num">Vent</th>
                       <th class="num">Pluie</th>
                       <th class="num">Inond. côtière</th>
+                      <th class="num">Mouv. terrain</th>
                       <th class="num">Direct</th>
                       <th class="num">Indirect</th>
                       <th class="num">Total</th>
@@ -279,26 +545,26 @@
               </div>
               </article>
               <article class="impact-table-card">
-                <h4>STORM_CMCC</h4>
+                <h4>Climat 2050</h4>
                 <div class="table-wrap compact impact-table-wrap">
                   <table>
                     <colgroup>
                       <col class="impact-col-name" />
-                      <col class="impact-col-state" />
                       <col class="impact-col-metric" />
                       <col class="impact-col-metric" />
                       <col class="impact-col-surge" />
-                      <col class="impact-col-metric" />
-                      <col class="impact-col-metric" />
+                      <col class="impact-col-landslide" />
+                      <col class="impact-col-direct" />
+                      <col class="impact-col-indirect" />
                       <col class="impact-col-total" />
                     </colgroup>
                     <thead>
                       <tr>
                         <th>Reseau</th>
-                      <th class="num">S0/S1/S2/S3 (%)</th>
                       <th class="num">Vent</th>
                       <th class="num">Pluie</th>
                       <th class="num">Inond. côtière</th>
+                      <th class="num">Mouv. terrain</th>
                       <th class="num">Direct</th>
                       <th class="num">Indirect</th>
                       <th class="num">Total</th>
@@ -310,28 +576,65 @@
               </article>
             </div>
           </article>
+          <article class="impact-table-card">
+            <h4>Impacts sociodémographiques (Population affectée)</h4>
+            <p class="muted small">Camembert de gauche : climat actuel. Camembert de droite : climat 2050. Les segments indiquent combien de personnes sont affectées par un état S1, S2 ou S3.</p>
+            <div class="chart-grid case-study-pie-grid" id="impact-social-pie-grid">
+              <div class="chart-card">
+                <h4>Population affectée par les réseaux AEP</h4>
+                <div id="impact-social-pie-aep" class="chart pie-chart"></div>
+              </div>
+              <div class="chart-card">
+                <h4>Population affectée par les réseaux EU</h4>
+                <div id="impact-social-pie-eu" class="chart pie-chart"></div>
+              </div>
+              <div class="chart-card">
+                <h4>Population affectée par les réseaux élec</h4>
+                <div id="impact-social-pie-elec" class="chart pie-chart"></div>
+              </div>
+            </div>
+            <div class="table-wrap compact impact-table-wrap">
+              <table>
+                <colgroup>
+                  <col class="impact-col-name" />
+                  <col class="impact-col-metric" />
+                  <col class="impact-col-metric" />
+                  <col class="impact-col-metric" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Indicateur</th>
+                    <th class="num">Climat actuel</th>
+                    <th class="num">Climat 2050</th>
+                    <th class="num">Différence Climat actuel VS Climat 2050</th>
+                  </tr>
+                </thead>
+                <tbody id="impact-social-table-body"></tbody>
+              </table>
+            </div>
+          </article>
         </div>
         <div class="subpanel">
           <div class="section-head">
             <div>
-              <h3>Carte d'etat des reseaux</h3>
-              <p class="muted small">S0 Operationnel, S1 Degrade, S2 Critique, S3 Hors service</p>
+              <h3>Carte de criticité économique des réseaux</h3>
+              <p class="muted small">Criticité économique par réseau et temps de retour</p>
             </div>
-            <div class="inline-row tight">
+            <div class="inline-row tight network-map-toolbar">
               <select id="impact-map-hazard-select">
-                <option value="storm">STORM</option>
-                <option value="storm_cmcc">STORM_CMCC</option>
+                <option value="storm">Climat actuel</option>
+                <option value="storm_cmcc">Climat 2050</option>
               </select>
               <select id="impact-map-scenario-select">
-                <option value="annual">Moyenne annuelle</option>
-                <option value="rp50">Temps de retour 50 ans</option>
                 <option value="rp100">Temps de retour 100 ans</option>
-                <option value="event_max">Evenement le plus fort</option>
+                <option value="rp1000">Temps de retour 1000 ans</option>
               </select>
+              <label class="layer-item"><input id="network-population-toggle" type="checkbox" /><span>Afficher la population</span></label>
+              <label class="layer-item"><input id="network-grid-toggle" type="checkbox" /><span>Afficher la maille météo de référence</span></label>
             </div>
           </div>
           <div id="network-layer-controls" class="layer-controls" aria-label="Network state layers"></div>
-          <div class="state-legend">
+          <div class="state-legend" id="network-state-legend">
             <span><i style="background:#6AB96F"></i>S0 Operationnel</span>
             <span><i style="background:#f2b66f"></i>S1 Degrade</span>
             <span><i style="background:#d94832"></i>S2 Critique</span>
@@ -341,29 +644,62 @@
           <p class="muted small" id="network-state-caption">Chargement...</p>
           <div class="chart-grid impact-breakdown-grid">
             <div class="chart-card">
-              <h3>Dégâts eau par scénario (STORM vs STORM_CMCC)</h3>
+              <h3>Dégâts monétaires (€) eau par scénario</h3>
               <div id="impact-overview-water-chart" class="chart"></div>
             </div>
             <div class="chart-card">
-              <h3>Dégâts electricite par scénario (STORM vs STORM_CMCC)</h3>
+              <h3>Dégâts monétaires (€) elec par scénario</h3>
               <div id="impact-overview-elec-chart" class="chart"></div>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="panel conclusion-panel page-block page1 page2" aria-labelledby="conclusion-title">
+      <section class="panel conclusion-panel page-block page2 page3 page7" aria-labelledby="conclusion-title">
         <div class="section-head">
           <div>
             <h2 id="conclusion-title">Conclusion</h2>
-            <p class="muted" id="conclusion-text">
-              Chargement de la conclusion...
-            </p>
           </div>
         </div>
+        <div class="inline-row tight">
+          <div class="impact-table-mode-buttons" id="conclusion-mode-buttons" role="group" aria-label="Mode d'affichage de la conclusion">
+            <button type="button" data-conclusion-mode="money" aria-pressed="true">Valeur monétaire (€)</button>
+            <button type="button" data-conclusion-mode="percent" aria-pressed="false">% exposition</button>
+          </div>
+        </div>
+        <div class="table-wrap compact conclusion-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scénario</th>
+                <th class="num">Climat actuel</th>
+                <th class="num">Climat 2050</th>
+                <th class="num">Différence Climat actuel VS Climat 2050</th>
+              </tr>
+            </thead>
+            <tbody id="conclusion-table-body"></tbody>
+          </table>
+        </div>
+        <div class="table-wrap compact conclusion-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Scénario</th>
+                <th class="num">Sans électricité Climat actuel</th>
+                <th class="num">Sans électricité Climat 2050</th>
+                <th class="num">Sans eau Climat actuel</th>
+                <th class="num">Sans eau Climat 2050</th>
+              </tr>
+            </thead>
+            <tbody id="conclusion-population-table-body"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="conclusion-text">
+          Chargement de la conclusion...
+        </p>
       </section>
 
-      <section class="panel disclaimer page-block page1 page2" aria-label="Clause de non responsabilite">
+      <section class="panel disclaimer page-block page2 page3 page7" aria-label="Clause de non responsabilite">
         <p>
           Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
           Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
@@ -372,16 +708,17 @@
         </p>
       </section>
 
-      <section class="panel disclaimer page-block page1 page2 references-block" aria-label="Références">
+      <section class="panel disclaimer page-block page2 page3 page7 references-block" aria-label="Références">
         <p>
           <strong>Références</strong><br /><br />
           Bloemendaal, N., Haigh, I. D., de Moel, H., Muis, S., Haarsma, R. J., &amp; Aerts, J. C. (2020). Generation of a global synthetic tropical cyclone hazard dataset using STORM. Scientific Data, 7(1), 40.<br /><br />
           Bloemendaal, N., de Moel, H., Martinez, A. B., Muis, S., Haigh, I. D., van der Wiel, K., ... &amp; Aerts, J. C. (2022). A globally consistent local-scale assessment of future tropical cyclone risk. Science Advances, 8(17), eabm8438.<br /><br />
-          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.
+          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.<br /><br />
+          Nadim, F., Kjekstad, O., Peduzzi, P., Herold, C., &amp; Jaedicke, C. (2006). Global landslide and avalanche hotspots. Landslides, 3(2), 159-173.
         </p>
       </section>
 
-      <section class="panel user-data-intro page-block page3" aria-labelledby="user-data-intro-title">
+      <section class="panel user-data-intro page-block page4" aria-labelledby="user-data-intro-title">
         <h2 id="user-data-intro-title">Donnees utilisateurs</h2>
         <p class="subtitle compact">
           Sur cette page, vous pouvez ajouter vos propres infrastructures ou habitations pour tester leur exposition aux risques.
@@ -389,7 +726,7 @@
         </p>
       </section>
 
-      <section class="panel run-lab page-block page3" aria-labelledby="run-lab-title">
+      <section class="panel run-lab page-block page4" aria-labelledby="run-lab-title">
         <div class="run-lab-head">
           <div>
             <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
@@ -521,7 +858,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         </div>
       </section>
 
-      <section class="panel run-memory-panel page-block page3" aria-label="Runs en memoire utilisateur">
+      <section class="panel run-memory-panel page-block page4" aria-label="Runs en memoire utilisateur">
         <div class="run-memory-box" id="run-memory-box">
           <details class="run-memory-details" id="run-memory-details">
             <summary>Runs en memoire (max 10)</summary>
@@ -532,7 +869,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         </div>
       </section>
 
-      <section class="panel controls-grid page-block page3" aria-label="Parametres de resultats d'impacts">
+      <section class="panel controls-grid page-block page4" aria-label="Parametres de resultats d'impacts">
         <div class="controls-heading">
           <h2>Resultats d'impacts</h2>
           <div id="impact-outside-warning" class="zone-warning danger" hidden></div>
@@ -562,7 +899,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         </div>
       </section>
 
-      <section class="panel results-table-panel page-block page3">
+      <section class="panel results-table-panel page-block page4">
         <div class="table-card">
           <div class="section-head">
             <div>
@@ -593,9 +930,9 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         </div>
       </section>
 
-      <section class="kpi-grid page-block page3" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
+      <section class="kpi-grid page-block page4" id="kpi-grid" aria-label="Indicateurs portefeuille"></section>
 
-      <section class="panel page-block page3 user-impact-panel" aria-labelledby="user-impact-title">
+      <section class="panel page-block page4 user-impact-panel" aria-labelledby="user-impact-title">
         <div class="section-head">
           <div>
             <h2 id="user-impact-title">Impact (resultat utilisateur)</h2>
@@ -611,143 +948,18 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
           </div>
           <div class="chart-card">
             <h3>Dommages - temps de retour 50 ans</h3>
-            <div id="user-impact-rp100-chart" class="chart"></div>
+            <div id="user-impact-rp50-chart" class="chart"></div>
           </div>
           <div class="chart-card">
             <h3>Dommages - temps de retour 100 ans</h3>
-            <div id="user-impact-rp1000-chart" class="chart"></div>
+            <div id="user-impact-rp100-chart" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Dommages - evenement maximum</h3>
-            <div id="user-impact-eventmax-chart" class="chart"></div>
+            <h3>Dommages - temps de retour 1000 ans</h3>
+            <div id="user-impact-rp1000-chart" class="chart"></div>
           </div>
         </div>
         <p class="muted" id="user-conclusion-text">Conclusion utilisateur en cours de chargement...</p>
-      </section>
-
-      <section class="panel disclaimer page-block page3" aria-label="Clause de non responsabilite">
-        <p>
-          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
-          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
-          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
-          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
-        </p>
-      </section>
-
-      <section class="panel methodology page-block page4">
-        <div class="section-head">
-          <div>
-            <h2>Methodologie detaillee de calcul</h2>
-            <p class="muted">
-              Cette page presente le contexte de l'etude des risques physiques sur les infrastructures essentielles en outre-mer
-              et decrit la logique complete des calculs utilises: preparation des expositions, construction des aleas, calcul des dommages directs,
-              propagation des dependances entre reseaux electriques et reseaux d'eau, puis agregation des indicateurs de risque
-              (EAI, pertes a temps de retour, evenement maximum, courbes de depassement).
-            </p>
-          </div>
-        </div>
-        <article class="subpanel">
-          <h3>Architecture des fichiers</h3>
-          <pre class="method-pre">
-web/assets/app.js
-  -> /api/v1/runs (backend/app/main.py)
-  -> pipeline.py
-      -> exposure_ingest.py
-      -> exposure_disaggregation.py
-      -> impact_runner.py
-      -> analysis_export.py
-
-scripts/build_guadeloupe_complete_analysis.py
-  -> cree web/data/guadeloupe-complete-analysis.json
-  -> cree web/data/martinique-complete-analysis.json
-scripts/build_guadeloupe_page1_data.py --territory <guadeloupe|martinique>
-  -> cree web/data/guadeloupe-page1-analysis.json
-  -> cree web/data/martinique-page2-analysis.json
-scripts/build_guadeloupe_wind_maps.py
-  -> cree web/data/guadeloupe-wind-maps.json
-  -> cree web/data/martinique-wind-maps.json
-scripts/build_guadeloupe_water_infra_map.py
-  -> cree web/data/guadeloupe-water-infra.geojson
-  -> cree web/data/martinique-water-infra.geojson
-          </pre>
-        </article>
-        <div class="method-grid">
-          <article class="subpanel">
-            <h3>Aleas</h3>
-            <ul>
-              <li>Aleas cycloniques tropicaux STORM et STORM_CMCC (jeux de donnees de Nadia Bloemendaal).</li>
-              <li>Les cartes de vent utilisent le catalogue complet 10 000 ans (bassin NA) disponible sur le serveur.</li>
-              <li>Cadre probabiliste pour estimer le risque cyclonique sur les infrastructures exposees.</li>
-              <li>La normalisation de frequence est geree de facon idempotente dans le backend.</li>
-            </ul>
-          </article>
-          <article class="subpanel">
-            <h3>Exposition</h3>
-            <ul>
-              <li>Les pages de reference utilisent les jeux complets d'infrastructures eau et electricite de Guadeloupe et de Martinique.</li>
-              <li>L'exposition represente l'ensemble des enjeux (infrastructures, habitations, etc.).</li>
-              <li>Imports utilisateur acceptes: CSV/XLSX et formats SIG (GeoJSON/GPKG).</li>
-              <li>Les lignes et polygones sont desagreges en points avant calcul, puis reagreges.</li>
-            </ul>
-          </article>
-          <article class="subpanel">
-            <h3>Impact et dependances</h3>
-            <p>
-              L'etape d'impact transforme l'aléa vent en pertes economiques sur chaque actif, puis en indicateurs synthetiques a l'echelle du territoire.
-              Le calcul est realise en deux couches: dommages directs (actif versus aléa), puis dommages indirects (effet des dependances de service).
-            </p>
-            <ol>
-              <li>
-                <strong>Projection exposition/aléa:</strong> chaque actif (point natif ou point echantillonne depuis ligne/polygone) est associe au champ d'aléa
-                le plus proche pour STORM et STORM_CMCC.
-              </li>
-              <li>
-                <strong>Dommage direct:</strong> la fonction d'impact cyclonique Eberenz 2021 convertit l'intensite de vent en taux de dommage,
-                puis en perte monetaire (valeur d'actif x taux de dommage) pour chaque evenement.
-              </li>
-              <li>
-                <strong>Annualisation:</strong> les frequences d'evenements sont normalisees sur la longueur du catalogue synthétique
-                afin de produire des indicateurs annuels comparables (EAI/AAI agg).
-              </li>
-              <li>
-                <strong>Etats de service S0 a S3:</strong> les taux de dommage sont traduits en classes d'etat
-                (S0 operationnel, S1 degrade, S2 fortement degrade, S3 hors service) pour faciliter l'analyse metier.
-              </li>
-              <li>
-                <strong>Dependances inter-reseaux:</strong> une propagation prudente electricite -> eau est appliquee en post-traitement.
-                Une baisse de sante du reseau electrique peut augmenter les pertes du reseau d'eau.
-              </li>
-              <li>
-                <strong>Re-aggregation:</strong> les pertes sont recomposees par actif, puis par territoire,
-                en conservant les details STORM et STORM_CMCC pour comparaison.
-              </li>
-              <li>
-                <strong>Indicateurs de sortie:</strong> EAI, pertes RP50/RP100, perte evenement maximum,
-                courbes de depassement (FEC), TVaR95 et liste des evenements dominants.
-              </li>
-            </ol>
-            <p>
-              Ce schema permet d'obtenir des resultats a la fois techniques (sensibles au signal aléa) et operationnels
-              (lisibles pour la priorisation des actifs, la planification de travaux et les analyses de resilience).
-            </p>
-          </article>
-        </div>
-        <article class="subpanel">
-          <h3>Hypotheses de valorisation OFB</h3>
-          <div id="method-valuation-ofb">
-            <p class="muted small">Chargement des hypotheses OFB...</p>
-          </div>
-        </article>
-        <article class="subpanel">
-          <h3>Branchement CLIMADA en production</h3>
-          <ul>
-            <li>Le calcul principal est maintenant branche sur CLIMADA dans `compute_impacts()` avec le moteur `climada_with_interdependency_v1`.</li>
-            <li>Les sorties web/API restent compatibles et sont enrichies (direct/indirect, PML, TVaR, top evenements).</li>
-            <li>La propagation metier electricite -> eau est appliquee en post-traitement prudent apres dommages directs CLIMADA.</li>
-            <li>Le fallback deterministic existe toujours, mais uniquement en mode explicitement active pour debug/continuites d'exploitation.</li>
-          </ul>
-        </article>
-        <div class="notes-box" id="notes-box"></div>
       </section>
 
       <section class="panel disclaimer page-block page4" aria-label="Clause de non responsabilite">
@@ -759,22 +971,49 @@ scripts/build_guadeloupe_water_infra_map.py
         </p>
       </section>
 
-      <section class="panel disclaimer page-block page4 references-block" aria-label="Références">
+      <section class="panel methodology page-block page5">
+        <div class="section-head">
+          <div>
+            <h2>Méthodologie détaillée SIB Work</h2>
+            <p class="muted">
+              Cette page reprend le document méthodologique du projet SIB Work et détaille la chaîne de calcul utilisée :
+              données d’exposition, aléas, vulnérabilités, calculs CLIMADA, états des réseaux, propagation des dépendances
+              et impacts sur la population.
+            </p>
+          </div>
+        </div>
+        <article class="subpanel methodology-loader-card" id="methodology-content" aria-live="polite">
+          <p class="muted small">Chargement de la méthodologie SIB Work...</p>
+        </article>
+        <div class="notes-box" id="notes-box"></div>
+      </section>
+
+      <section class="panel disclaimer page-block page5" aria-label="Clause de non responsabilite">
+        <p>
+          Les informations publiées sur ce site sont issues d’un travail académique fondé sur des modélisations et des projections scientifiques.
+          Par nature, ces méthodes comportent des incertitudes et peuvent donner lieu à des erreurs, approximations ou évolutions dans le temps.
+          Les contenus sont fournis à titre strictement informatif et ne doivent pas être interprétés comme une garantie d’exactitude ni comme une base unique pour la prise de décision.
+          L’adaptation au changement climatique nécessitant des analyses spécifiques à chaque contexte, il est recommandé de consulter des experts qualifiés et d’utiliser des outils et études dédiés avant toute utilisation opérationnelle des informations présentées.
+        </p>
+      </section>
+
+      <section class="panel disclaimer page-block page5 references-block" aria-label="Références">
         <p>
           <strong>Références</strong><br /><br />
           Bloemendaal, N., Haigh, I. D., de Moel, H., Muis, S., Haarsma, R. J., &amp; Aerts, J. C. (2020). Generation of a global synthetic tropical cyclone hazard dataset using STORM. Scientific Data, 7(1), 40.<br /><br />
           Bloemendaal, N., de Moel, H., Martinez, A. B., Muis, S., Haigh, I. D., van der Wiel, K., ... &amp; Aerts, J. C. (2022). A globally consistent local-scale assessment of future tropical cyclone risk. Science Advances, 8(17), eabm8438.<br /><br />
-          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.
+          Nirandjan, S., Koks, E. E., Ye, M., Pant, R., Van Ginkel, K. C., Aerts, J. C., &amp; Ward, P. J. (2024). Physical vulnerability database for critical infrastructure hazard risk assessments–a systematic review and data collection. Natural Hazards and Earth System Sciences, 24(12), 4341-4368.<br /><br />
+          Nadim, F., Kjekstad, O., Peduzzi, P., Herold, C., &amp; Jaedicke, C. (2006). Global landslide and avalanche hotspots. Landslides, 3(2), 159-173.
         </p>
       </section>
 
-      <section class="panel admin-visu-panel page-block page5" aria-labelledby="admin-visu-title">
+      <section class="panel admin-visu-panel page-block page6" aria-labelledby="admin-visu-title">
         <div class="section-head">
           <div>
             <h2 id="admin-visu-title">Admin visu</h2>
             <p class="muted">
               Comparateur de 4 cartes d'alea cyclonique vent (STORM et STORM_CMCC) sur les bassins NA et SI.
-              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, evenement le plus fort) pour chaque bloc.
+              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, maximum catalogue) pour chaque bloc.
             </p>
           </div>
         </div>
@@ -804,7 +1043,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -828,7 +1067,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean" selected>Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -852,7 +1091,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50" selected>Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -876,7 +1115,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100" selected>Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -942,6 +1181,17 @@ scripts/build_guadeloupe_water_infra_map.py
           </div>
           <div id="admin-vulnerability-grid" class="admin-vulnerability-grid admin-vulnerability-grid-overview"></div>
         </article>
+
+        <article class="subpanel admin-vulnerability-card admin-landslide-vulnerability-card">
+          <div class="admin-vulnerability-head">
+            <h3>Courbes de mouvements de terrain</h3>
+            <p class="muted small">
+              Référentiel probabiliste SIB: ces rasters ne décrivent pas des événements observés. La référence de travail affiche l'hypothèse 5 paliers et la proxy D2.
+            </p>
+            <p class="muted small" id="admin-landslide-vulnerability-caption">Chargement des courbes de mouvements de terrain...</p>
+          </div>
+          <div id="admin-landslide-vulnerability-grid" class="admin-vulnerability-grid"></div>
+        </article>
       </section>
 
       <div id="error-banner" class="error-banner" hidden></div>
@@ -950,6 +1200,6 @@ scripts/build_guadeloupe_water_infra_map.py
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
-    <script type="module" src="assets/app.js"></script>
+    <script type="module" src="assets/app.js?v=20260824-152740"></script>
   </body>
 </html>
