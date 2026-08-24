@@ -10,7 +10,7 @@
     />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
-    <link rel="stylesheet" href="assets/styles.css?v=20260414-2" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260824-152740" />
   </head>
   <body>
     <div class="page-shell">
@@ -88,8 +88,8 @@
             <div class="intro-territory-copy">
               <h3>Guadeloupe</h3>
               <p>
-                Pour la Guadeloupe, les dégâts peuvent s’élever à <strong id="intro-gua-water-p99-eur">—</strong>
-                (<strong id="intro-gua-water-p99-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
+                Pour la Guadeloupe, les dégâts peuvent s’élever à <strong id="intro-gua-water-rp1000-eur">—</strong>
+                (<strong id="intro-gua-water-rp1000-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
                 L’aléa le plus dommageable est <strong id="intro-gua-dominant-hazard">—</strong> avec des dommages de
                 <strong id="intro-gua-dominant-hazard-loss-eur">—</strong> (<strong id="intro-gua-dominant-hazard-loss-pct">—</strong> du portefeuille total d'infrastructures du territoire)
                 pour un temps de retour de 100 ans. Sur un temps de retour de 50 ans,
@@ -109,8 +109,8 @@
             <div class="intro-territory-copy">
               <h3>Martinique</h3>
               <p>
-                Pour la Martinique, les dégâts peuvent s’élever à <strong id="intro-mq-water-p99-eur">—</strong>
-                (<strong id="intro-mq-water-p99-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
+                Pour la Martinique, les dégâts peuvent s’élever à <strong id="intro-mq-water-rp1000-eur">—</strong>
+                (<strong id="intro-mq-water-rp1000-pct">—</strong> de la valeur totale des réseaux) sur les réseaux d'eau.
                 L’aléa le plus dommageable est <strong id="intro-mq-dominant-hazard">—</strong> avec des dommages de
                 <strong id="intro-mq-dominant-hazard-loss-eur">—</strong> (<strong id="intro-mq-dominant-hazard-loss-pct">—</strong> du portefeuille total d'infrastructures du territoire)
                 pour un temps de retour de 100 ans. Sur un temps de retour de 50 ans,
@@ -403,7 +403,7 @@
               <option value="mean">Aléas moyen</option>
               <option value="rp50">Temps de retour 50 ans</option>
               <option value="rp100">Temps de retour 100 ans</option>
-              <option value="event_max">Evenement le plus fort</option>
+              <option value="event_max">Maximum catalogue</option>
             </select>
           </div>
           <div class="wind-mode-box">
@@ -482,17 +482,13 @@
         <div class="impact-tables-grid">
           <article class="subpanel">
             <div class="section-head">
-              <h3 id="impact-table-title">Tableau des impacts annuels (moyenne)</h3>
+              <h3 id="impact-table-title">Tableau des impacts causés par les évènements à temps de retour 10 ans</h3>
               <div class="inline-row tight">
-                <div class="impact-table-mode-buttons" id="impact-table-mode-buttons" role="group" aria-label="Mode d'affichage des impacts">
-                  <button type="button" data-impact-table-mode="money" aria-pressed="true">Montant (€)</button>
-                  <button type="button" data-impact-table-mode="percent" aria-pressed="false">% infra</button>
-                </div>
                 <select id="impact-table-scenario-select" aria-label="Scenario du tableau d impacts">
-                  <option value="annual">Moyenne annuelle</option>
+                  <option value="rp10">Temps de retour 10 ans</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="p99">Percentile 99</option>
+                  <option value="rp1000">Temps de retour 1000 ans</option>
                 </select>
               </div>
             </div>
@@ -509,6 +505,12 @@
               <div class="chart-card">
                 <h4>Répartition des états des réseaux élec</h4>
                 <div id="impact-state-pie-elec" class="chart pie-chart state-focus-chart"></div>
+              </div>
+            </div>
+            <div class="impact-table-mode-row">
+              <div class="impact-table-mode-buttons" id="impact-table-mode-buttons" role="group" aria-label="Mode d'affichage des impacts">
+                <button type="button" data-impact-table-mode="money" aria-pressed="true">Montant (€)</button>
+                <button type="button" data-impact-table-mode="percent" aria-pressed="false">% infra</button>
               </div>
             </div>
             <div class="impact-table-duo">
@@ -615,8 +617,8 @@
         <div class="subpanel">
           <div class="section-head">
             <div>
-              <h3>Carte d'etat des reseaux</h3>
-              <p class="muted small">S0 Operationnel, S1 Degrade, S2 Critique, S3 Hors service</p>
+              <h3>Carte de criticité économique des réseaux</h3>
+              <p class="muted small">Criticité économique par réseau et temps de retour</p>
             </div>
             <div class="inline-row tight network-map-toolbar">
               <select id="impact-map-hazard-select">
@@ -624,17 +626,15 @@
                 <option value="storm_cmcc">Climat 2050</option>
               </select>
               <select id="impact-map-scenario-select">
-                <option value="annual">Moyenne annuelle</option>
-                <option value="rp50">Temps de retour 50 ans</option>
                 <option value="rp100">Temps de retour 100 ans</option>
-                <option value="p99">Percentile 99</option>
+                <option value="rp1000">Temps de retour 1000 ans</option>
               </select>
               <label class="layer-item"><input id="network-population-toggle" type="checkbox" /><span>Afficher la population</span></label>
               <label class="layer-item"><input id="network-grid-toggle" type="checkbox" /><span>Afficher la maille météo de référence</span></label>
             </div>
           </div>
           <div id="network-layer-controls" class="layer-controls" aria-label="Network state layers"></div>
-          <div class="state-legend">
+          <div class="state-legend" id="network-state-legend">
             <span><i style="background:#6AB96F"></i>S0 Operationnel</span>
             <span><i style="background:#f2b66f"></i>S1 Degrade</span>
             <span><i style="background:#d94832"></i>S2 Critique</span>
@@ -948,15 +948,15 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
           </div>
           <div class="chart-card">
             <h3>Dommages - temps de retour 50 ans</h3>
-            <div id="user-impact-rp100-chart" class="chart"></div>
+            <div id="user-impact-rp50-chart" class="chart"></div>
           </div>
           <div class="chart-card">
             <h3>Dommages - temps de retour 100 ans</h3>
-            <div id="user-impact-rp1000-chart" class="chart"></div>
+            <div id="user-impact-rp100-chart" class="chart"></div>
           </div>
           <div class="chart-card">
-            <h3>Dommages - percentile 99</h3>
-            <div id="user-impact-eventmax-chart" class="chart"></div>
+            <h3>Dommages - temps de retour 1000 ans</h3>
+            <div id="user-impact-rp1000-chart" class="chart"></div>
           </div>
         </div>
         <p class="muted" id="user-conclusion-text">Conclusion utilisateur en cours de chargement...</p>
@@ -974,119 +974,16 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
       <section class="panel methodology page-block page5">
         <div class="section-head">
           <div>
-            <h2>Methodologie detaillee de calcul</h2>
+            <h2>Méthodologie détaillée SIB Work</h2>
             <p class="muted">
-              Cette page presente le contexte de l'etude des risques physiques sur les infrastructures essentielles en outre-mer
-              et decrit la logique complete des calculs utilises: preparation des expositions, construction des aleas, calcul des dommages directs,
-              propagation des dependances entre reseaux electriques et reseaux d'eau, puis agregation des indicateurs de risque
-              (EAI, pertes a temps de retour, evenement maximum, courbes de depassement).
+              Cette page reprend le document méthodologique du projet SIB Work et détaille la chaîne de calcul utilisée :
+              données d’exposition, aléas, vulnérabilités, calculs CLIMADA, états des réseaux, propagation des dépendances
+              et impacts sur la population.
             </p>
           </div>
         </div>
-        <article class="subpanel">
-          <h3>Architecture des fichiers</h3>
-          <pre class="method-pre">
-web/assets/app.js
-  -> /api/v1/runs (backend/app/main.py)
-  -> pipeline.py
-      -> exposure_ingest.py
-      -> exposure_disaggregation.py
-      -> impact_runner.py
-      -> analysis_export.py
-
-scripts/build_guadeloupe_complete_analysis.py
-  -> cree web/data/guadeloupe-complete-analysis.json
-  -> cree web/data/martinique-complete-analysis.json
-  -> cree web/data/saint-barthelemy-complete-analysis.json
-scripts/build_guadeloupe_page1_data.py --territory <guadeloupe|martinique|saint-barthelemy>
-  -> cree web/data/guadeloupe-page1-analysis.json
-  -> cree web/data/martinique-page2-analysis.json
-  -> cree web/data/saint-barthelemy-page7-analysis.json
-scripts/build_guadeloupe_wind_maps.py
-  -> cree web/data/guadeloupe-wind-maps.json
-  -> cree web/data/martinique-wind-maps.json
-  -> cree web/data/saint-barthelemy-wind-maps.json
-scripts/build_guadeloupe_water_infra_map.py
-  -> cree web/data/guadeloupe-water-infra.geojson
-  -> cree web/data/martinique-water-infra.geojson
-  -> cree web/data/saint-barthelemy-water-infra.geojson
-          </pre>
-        </article>
-        <div class="method-grid">
-          <article class="subpanel">
-            <h3>Aleas</h3>
-            <ul>
-              <li>Aleas cycloniques tropicaux STORM et STORM_CMCC (jeux de donnees de Nadia Bloemendaal).</li>
-              <li>Les cartes de vent utilisent le catalogue complet 10 000 ans (bassin NA) disponible sur le serveur.</li>
-              <li>Cadre probabiliste pour estimer le risque cyclonique sur les infrastructures exposees.</li>
-              <li>La normalisation de frequence est geree de facon idempotente dans le backend.</li>
-            </ul>
-          </article>
-          <article class="subpanel">
-            <h3>Exposition</h3>
-            <ul>
-              <li>Les pages de reference utilisent les jeux complets d'infrastructures eau et electricite de Guadeloupe et de Martinique.</li>
-              <li>L'exposition represente l'ensemble des enjeux (infrastructures, habitations, etc.).</li>
-              <li>Imports utilisateur acceptes: CSV/XLSX et formats SIG (GeoJSON/GPKG).</li>
-              <li>Les lignes et polygones sont desagreges en points avant calcul, puis reagreges.</li>
-            </ul>
-          </article>
-          <article class="subpanel">
-            <h3>Impact et dependances</h3>
-            <p>
-              L'etape d'impact transforme l'aléa vent en pertes economiques sur chaque actif, puis en indicateurs synthetiques a l'echelle du territoire.
-              Le calcul est realise en deux couches: dommages directs (actif versus aléa), puis dommages indirects (effet des dependances de service).
-            </p>
-            <ol>
-              <li>
-                <strong>Projection exposition/aléa:</strong> chaque actif (point natif ou point echantillonne depuis ligne/polygone) est associe au champ d'aléa
-                le plus proche pour STORM et STORM_CMCC.
-              </li>
-              <li>
-                <strong>Dommage direct:</strong> la fonction d'impact cyclonique Eberenz 2021 convertit l'intensite de vent en taux de dommage,
-                puis en perte monetaire (valeur d'actif x taux de dommage) pour chaque evenement.
-              </li>
-              <li>
-                <strong>Annualisation:</strong> les frequences d'evenements sont normalisees sur la longueur du catalogue synthétique
-                afin de produire des indicateurs annuels comparables (EAI/AAI agg).
-              </li>
-              <li>
-                <strong>Etats de service S0 a S3:</strong> les taux de dommage sont traduits en classes d'etat
-                (S0 operationnel, S1 degrade, S2 fortement degrade, S3 hors service) pour faciliter l'analyse metier.
-              </li>
-              <li>
-                <strong>Dependances inter-reseaux:</strong> une propagation prudente electricite -> eau est appliquee en post-traitement.
-                Une baisse de sante du reseau electrique peut augmenter les pertes du reseau d'eau.
-              </li>
-              <li>
-                <strong>Re-aggregation:</strong> les pertes sont recomposees par actif, puis par territoire,
-                en conservant les details STORM et STORM_CMCC pour comparaison.
-              </li>
-              <li>
-                <strong>Indicateurs de sortie:</strong> EAI, pertes RP50/RP100, perte percentile 99,
-                courbes de depassement (FEC), TVaR95 et liste des evenements dominants.
-              </li>
-            </ol>
-            <p>
-              Ce schema permet d'obtenir des resultats a la fois techniques (sensibles au signal aléa) et operationnels
-              (lisibles pour la priorisation des actifs, la planification de travaux et les analyses de resilience).
-            </p>
-          </article>
-        </div>
-        <article class="subpanel">
-          <h3>Hypotheses de valorisation OFB</h3>
-          <div id="method-valuation-ofb">
-            <p class="muted small">Chargement des hypotheses OFB...</p>
-          </div>
-        </article>
-        <article class="subpanel">
-          <h3>Branchement CLIMADA en production</h3>
-          <ul>
-            <li>Le calcul principal est maintenant branche sur CLIMADA dans `compute_impacts()` avec le moteur `climada_with_interdependency_v1`.</li>
-            <li>Les sorties web/API restent compatibles et sont enrichies (direct/indirect, PML, TVaR, top evenements).</li>
-            <li>La propagation metier electricite -> eau est appliquee en post-traitement prudent apres dommages directs CLIMADA.</li>
-            <li>Le fallback deterministic existe toujours, mais uniquement en mode explicitement active pour debug/continuites d'exploitation.</li>
-          </ul>
+        <article class="subpanel methodology-loader-card" id="methodology-content" aria-live="polite">
+          <p class="muted small">Chargement de la méthodologie SIB Work...</p>
         </article>
         <div class="notes-box" id="notes-box"></div>
       </section>
@@ -1116,7 +1013,7 @@ scripts/build_guadeloupe_water_infra_map.py
             <h2 id="admin-visu-title">Admin visu</h2>
             <p class="muted">
               Comparateur de 4 cartes d'alea cyclonique vent (STORM et STORM_CMCC) sur les bassins NA et SI.
-              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, evenement le plus fort) pour chaque bloc.
+              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, maximum catalogue) pour chaque bloc.
             </p>
           </div>
         </div>
@@ -1146,7 +1043,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -1170,7 +1067,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean" selected>Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -1194,7 +1091,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50" selected>Temps de retour 50 ans</option>
                   <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -1218,7 +1115,7 @@ scripts/build_guadeloupe_water_infra_map.py
                   <option value="mean">Vents moyens</option>
                   <option value="rp50">Temps de retour 50 ans</option>
                   <option value="rp100" selected>Temps de retour 100 ans</option>
-                  <option value="event_max">Evenement le plus fort</option>
+                  <option value="event_max">Maximum catalogue</option>
                 </select>
               </div>
             </div>
@@ -1303,6 +1200,6 @@ scripts/build_guadeloupe_water_infra_map.py
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
-    <script type="module" src="assets/app.js?v=20260616-3"></script>
+    <script type="module" src="assets/app.js?v=20260824-152740"></script>
   </body>
 </html>

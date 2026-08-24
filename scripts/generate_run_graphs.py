@@ -277,6 +277,38 @@ DAMAGE_ZONE_FAMILY_CLASS_KEYS = {
     ),
 }
 DAMAGE_ZONE_MAP_COLORS = ["#fff7bc", "#fee391", "#fec44f", "#fb923c", "#ef4444", "#b91c1c"]
+ECONOMIC_CRITICALITY_SCENARIOS = (
+    ("rp100", "RP100", "100"),
+    ("rp1000", "RP1000", "1000"),
+)
+ECONOMIC_CRITICALITY_FAMILY_SPECS = {
+    "aep": {
+        "label": "AEP",
+        "infra_types": ("aep_cana",),
+        "class_keys": ("eau_aep",),
+        "join_column": "zone_component_key",
+        "spatial_unit": "zone hydraulique",
+    },
+    "eu": {
+        "label": "EU",
+        "infra_types": ("eu_cana",),
+        "class_keys": ("eau_eu",),
+        "join_column": "zone_component_key",
+        "spatial_unit": "zone hydraulique",
+    },
+    "elec": {
+        "label": "Elec",
+        "infra_types": LEGACY_ELECTRIC_STATE_LAYER_KEYS,
+        "class_keys": (
+            "elec_bt_souterrain",
+            "elec_bt_aerien",
+            "elec_hta_souterrain",
+            "elec_hta_aerien",
+        ),
+        "join_column": "feature_id",
+        "spatial_unit": "troncon",
+    },
+}
 POPULATION_DECISION_PERIODS = ("RP50", "RP100", "RP1000")
 POPULATION_DECISION_SERVICES = ("eau_aep", "eau_eu", "elec")
 POPULATION_DECISION_SERVICE_LABELS = {
@@ -7614,6 +7646,114 @@ def _render_geojson_map_png(
     plt.close(fig)
 
 
+def _state_color_for_map(state: str) -> str:
+    if state == "S0":
+        return STATE_COLORS["S0"]
+    if state == "S1":
+        return HAZARD_COLORS["s1"]
+    if state == "S2":
+        return HAZARD_COLORS["s2"]
+    if state == "S3":
+        return HAZARD_COLORS["s3"]
+    return "#94a3b8"
+
+
+def _scaled_line_widths(values: Any, *, min_width: float = 0.45, max_width: float = 4.2) -> list[float]:
+    numeric = [max(_safe_float(value), 0.0) for value in list(values)]
+    positives = sorted(value for value in numeric if value > 0.0)
+    if not positives:
+        return [min_width for _value in numeric]
+    q_index = min(len(positives) - 1, max(0, int(round((len(positives) - 1) * 0.92))))
+    scale_max = max(float(positives[q_index]), 1.0)
+    widths: list[float] = []
+    for value in numeric:
+        if value <= 0.0:
+            widths.append(min_width)
+            continue
+        ratio = min(value, scale_max) / scale_max
+        widths.append(min_width + (math.sqrt(ratio) * (max_width - min_width)))
+    return widths
+
+
+def _render_categorical_geodataframe_map_png(
+    plt: Any,
+    payload: dict[str, Any],
+    output_path: Path,
+) -> None:
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    gdf = payload.get("gdf")
+    category_column = str(payload.get("category_column") or "").strip()
+    if gdf is None or not category_column:
+        raise RuntimeError("gdf and category_column are required for categorical map rendering")
+    if getattr(gdf, "empty", True):
+        raise RuntimeError("No geometries available for categorical map rendering")
+    if category_column not in gdf.columns:
+        raise RuntimeError(f"Missing category column for categorical map: {category_column}")
+    if gdf.crs is None:
+        gdf = gdf.set_crs(epsg=4326)
+    gdf = gdf.to_crs(epsg=3857).copy()
+    gdf[category_column] = gdf[category_column].fillna("S0").map(lambda value: str(value).upper())
+
+    width_column = str(payload.get("width_column") or "").strip()
+    if width_column and width_column in gdf.columns:
+        gdf["_plot_width"] = _scaled_line_widths(gdf[width_column])
+    else:
+        gdf["_plot_width"] = _adaptive_geo_linewidth(gdf, base_width=1.4)
+
+    fig, ax = plt.subplots(figsize=(8.5, 7.5))
+    _apply_map_extent(ax, gdf)
+    _add_light_basemap(ax)
+
+    geom_types = {str(value) for value in getattr(gdf, "geom_type", [])}
+    is_surface = bool(geom_types) and geom_types.issubset({"Polygon", "MultiPolygon"})
+    edgecolor = str(payload.get("edgecolor") or "#0f172a")
+    for state in STATE_SEQUENCE:
+        subset = gdf[gdf[category_column] == state].copy()
+        if subset.empty:
+            continue
+        color = _state_color_for_map(state)
+        if is_surface:
+            subset.plot(ax=ax, color=color, edgecolor="#ffffff", linewidth=0.25, alpha=0.9, zorder=3)
+        else:
+            subset.plot(
+                ax=ax,
+                color=color,
+                linewidth=list(subset["_plot_width"]),
+                alpha=0.92,
+                zorder=3 + STATE_SEQUENCE.index(state),
+            )
+            point_like = subset.geom_type.isin(["Point", "MultiPoint"])
+            if bool(point_like.any()):
+                subset[point_like].plot(
+                    ax=ax,
+                    color=color,
+                    marker="o",
+                    markersize=18,
+                    edgecolor=edgecolor,
+                    linewidth=0.2,
+                    alpha=0.92,
+                    zorder=7,
+                )
+
+    if is_surface:
+        handles = [
+            Patch(facecolor=_state_color_for_map(state), edgecolor=_state_color_for_map(state), label=_state_label(state))
+            for state in STATE_SEQUENCE
+        ]
+    else:
+        handles = [
+            Line2D([0], [0], color=_state_color_for_map(state), lw=3.2, label=_state_label(state))
+            for state in STATE_SEQUENCE
+        ]
+    ax.legend(handles=handles, title=str(payload.get("legend_title") or "Criticite economique"), loc="upper right")
+    ax.set_title(payload.get("title") or "")
+    ax.set_axis_off()
+    _save_figure(fig, output_path, payload.get("note"))
+    plt.close(fig)
+
+
 def _render_raster_overlay_map_png(
     plt: Any,
     payload: dict[str, Any],
@@ -8278,6 +8418,369 @@ def _complete_asset_results(artifacts: AuxiliaryArtifacts) -> list[dict[str, Any
     return [item for item in asset_results if isinstance(item, dict)] if isinstance(asset_results, list) else []
 
 
+def _economic_criticality_asset_records(artifacts: AuxiliaryArtifacts) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in _complete_asset_results(artifacts):
+        record = dict(row)
+        asset_type = str(record.get("asset_type") or "").strip().lower()
+        if asset_type.startswith("eau_aep_ouvrage_") or asset_type in {"eau_eu_pr", "eau_eu_step"}:
+            record["infra_class"] = "eau_ouvrage"
+        records.append(record)
+    return records
+
+
+def _economic_criticality_electric_feature_id(row: dict[str, Any]) -> str:
+    asset_type = str(row.get("asset_type") or "").strip().lower()
+    if asset_type not in LEGACY_ELECTRIC_STATE_LAYER_KEYS:
+        return ""
+    label = str(row.get("asset_label") or row.get("label") or "").strip()
+    suffix = label.rsplit(" ", 1)[-1].strip() if label else ""
+    if suffix.isdigit():
+        return f"{asset_type}-{suffix}"
+    asset_id = str(row.get("asset_id") or "").strip()
+    suffix = asset_id.rsplit("-", 1)[-1].strip() if asset_id else ""
+    return f"{asset_type}-{suffix}" if suffix.isdigit() else ""
+
+
+def _economic_criticality_join_id(row: dict[str, Any], family_key: str) -> str:
+    if family_key == "elec":
+        return _economic_criticality_electric_feature_id(row)
+    for key in ("zone_component_key", "service_feature_id", "zone_uid"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _economic_criticality_family_for_class(class_key: str | None) -> str | None:
+    if class_key == "eau_aep":
+        return "aep"
+    if class_key == "eau_eu":
+        return "eu"
+    if isinstance(class_key, str) and class_key.startswith("elec_"):
+        return "elec"
+    return None
+
+
+def _dominant_economic_state(state_exposure: dict[str, float]) -> str:
+    total = sum(max(_safe_float(state_exposure.get(state)), 0.0) for state in STATE_SEQUENCE)
+    if total <= 0.0:
+        return "S0"
+    return max(
+        STATE_SEQUENCE,
+        key=lambda state: (
+            max(_safe_float(state_exposure.get(state)), 0.0),
+            STATE_SEQUENCE.index(state),
+        ),
+    )
+
+
+def _format_state_pct_inline(values: dict[str, float]) -> str:
+    return ", ".join(f"{state} {_safe_float(values.get(state)):.1f}%" for state in STATE_SEQUENCE)
+
+
+def _state_exposure_percentages(state_exposure: dict[str, float]) -> dict[str, float]:
+    total = sum(max(_safe_float(state_exposure.get(state)), 0.0) for state in STATE_SEQUENCE)
+    if total <= 0.0:
+        return {state: 0.0 for state in STATE_SEQUENCE}
+    return {
+        state: round((max(_safe_float(state_exposure.get(state)), 0.0) / total) * 100.0, 3)
+        for state in STATE_SEQUENCE
+    }
+
+
+def _compute_economic_criticality_asset_states(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    hazard: str,
+) -> dict[str, list[dict[str, Any]]] | None:
+    try:
+        from app.risk_engine import impact_runner as pml_runner
+    except Exception as exc:  # pragma: no cover - depends on backend environment
+        raise RuntimeError(f"Unable to import PML network state engine: {exc}") from exc
+
+    records = _economic_criticality_asset_records(artifacts)
+    if not records:
+        return None
+
+    import numpy as np
+
+    values = np.asarray([max(0.0, _safe_float(record.get("exposure_eur"))) for record in records], dtype=float)
+    network_class_keys = [pml_runner._pml_network_class_from_point(record) for record in records]
+    breakdown_class_keys = [pml_runner._pml_breakdown_class_from_point(record) for record in records]
+    weights = np.asarray([max(0.0, _safe_float(record.get("exposure_eur"))) for record in records], dtype=float)
+    portfolio = artifacts.complete_analysis.payload.get("portfolio_results")
+    hazard_payload = portfolio.get(hazard) if isinstance(portfolio, dict) and isinstance(portfolio.get(hazard), dict) else {}
+    eai_total = max(0.0, _safe_float(hazard_payload.get("eai_eur") or hazard_payload.get("aai_agg_eur")))
+    eai_direct_total = max(0.0, _safe_float(hazard_payload.get("eai_direct_eur")))
+    direct_share = 1.0 if eai_total <= 0.0 else max(0.0, min(1.0, eai_direct_total / max(eai_total, 1e-9)))
+    prior_field = "eai_cmcc_direct_eur" if hazard == "storm_cmcc" else "eai_storm_direct_eur"
+    direct_prior = np.asarray([max(0.0, _safe_float(record.get(prior_field))) for record in records], dtype=float)
+
+    field_by_scenario = {
+        "rp100": "pml_100_eur",
+        "rp1000": "pml_1000_eur",
+    }
+    rows_by_scenario: dict[str, list[dict[str, Any]]] = {}
+    for scenario_key, _scenario_label, _period_label in ECONOMIC_CRITICALITY_SCENARIOS:
+        target_total = max(0.0, _safe_float(hazard_payload.get(field_by_scenario[scenario_key])))
+        direct_loss = pml_runner._pml_allocate_direct_loss_by_class(
+            np,
+            prior_direct=direct_prior,
+            values=values,
+            breakdown_class_keys=breakdown_class_keys,
+            target_total=target_total * direct_share,
+        )
+        scenario_result = pml_runner._pml_evaluate_network_scenario(
+            np,
+            direct_loss=direct_loss,
+            values=values,
+            point_records=records,
+            network_class_keys=network_class_keys,
+            breakdown_class_keys=breakdown_class_keys,
+            weights_km=weights,
+        )
+        pml_runner._pml_calibrate_network_scenario(
+            np,
+            scenario_result,
+            values=values,
+            target_total=target_total,
+        )
+        final_states = np.asarray(scenario_result.get("final_state"), dtype=object).reshape(-1)
+        total_loss = np.asarray(scenario_result.get("total_loss"), dtype=float).reshape(-1)
+        direct_component = np.asarray(scenario_result.get("direct_loss"), dtype=float).reshape(-1)
+        dysfunction_component = np.asarray(scenario_result.get("dysfunction_loss"), dtype=float).reshape(-1)
+        blocking_component = np.asarray(scenario_result.get("blocking_loss"), dtype=float).reshape(-1)
+        scenario_rows: list[dict[str, Any]] = []
+        for idx, record in enumerate(records):
+            network_class = network_class_keys[idx]
+            family_key = _economic_criticality_family_for_class(network_class)
+            if family_key is None:
+                continue
+            join_id = _economic_criticality_join_id(record, family_key)
+            if not join_id:
+                continue
+            scenario_rows.append(
+                {
+                    "family_key": family_key,
+                    "join_id": join_id,
+                    "network_class": network_class,
+                    "state": str(final_states[idx] if idx < final_states.size else "S0"),
+                    "exposure_eur": float(values[idx]),
+                    "damage_eur": float(total_loss[idx]) if idx < total_loss.size else 0.0,
+                    "direct_damage_eur": float(direct_component[idx]) if idx < direct_component.size else 0.0,
+                    "dysfunction_eur": float(dysfunction_component[idx]) if idx < dysfunction_component.size else 0.0,
+                    "blocking_ouvrage_eur": float(blocking_component[idx]) if idx < blocking_component.size else 0.0,
+                }
+            )
+        rows_by_scenario[scenario_key] = scenario_rows
+    return rows_by_scenario
+
+
+def _aggregate_economic_criticality_units(
+    rows: list[dict[str, Any]],
+    *,
+    family_key: str,
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if str(row.get("family_key") or "") != family_key:
+            continue
+        join_id = str(row.get("join_id") or "").strip()
+        if not join_id:
+            continue
+        bucket = out.setdefault(
+            join_id,
+            {
+                "exposure_eur": 0.0,
+                "damage_eur": 0.0,
+                "direct_damage_eur": 0.0,
+                "indirect_damage_eur": 0.0,
+                "asset_count": 0,
+                "state_exposure": {state: 0.0 for state in STATE_SEQUENCE},
+            },
+        )
+        state = str(row.get("state") or "S0").upper()
+        if state not in STATE_SEQUENCE:
+            state = "S0"
+        exposure = max(_safe_float(row.get("exposure_eur")), 0.0)
+        damage = max(_safe_float(row.get("damage_eur")), 0.0)
+        direct = max(_safe_float(row.get("direct_damage_eur")), 0.0)
+        indirect = max(_safe_float(row.get("dysfunction_eur")), 0.0) + max(_safe_float(row.get("blocking_ouvrage_eur")), 0.0)
+        bucket["exposure_eur"] += exposure
+        bucket["damage_eur"] += damage
+        bucket["direct_damage_eur"] += direct
+        bucket["indirect_damage_eur"] += indirect
+        bucket["asset_count"] += 1
+        bucket["state_exposure"][state] += exposure
+
+    for bucket in out.values():
+        state_exposure = bucket["state_exposure"] if isinstance(bucket.get("state_exposure"), dict) else {}
+        bucket["economic_state"] = _dominant_economic_state(state_exposure)
+        bucket["state_pct"] = _state_exposure_percentages(state_exposure)
+        exposure = max(_safe_float(bucket.get("exposure_eur")), 0.0)
+        bucket["damage_ratio_pct"] = round((_safe_float(bucket.get("damage_eur")) / exposure) * 100.0, 4) if exposure > 0.0 else 0.0
+    return out
+
+
+def _economic_criticality_reference_pct(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    scenario_key: str,
+    hazard: str,
+    class_keys: tuple[str, ...],
+) -> dict[str, float]:
+    graph_inputs = _scientific_graph_inputs(artifacts, graph_name=f"economic_criticality_reference_{scenario_key}_{hazard}")
+    state_tables = graph_inputs.get("state_damage_tables") if isinstance(graph_inputs.get("state_damage_tables"), dict) else {}
+    rows = state_tables.get(scenario_key) if isinstance(state_tables, dict) else None
+    if not isinstance(rows, list):
+        return {state: 0.0 for state in STATE_SEQUENCE}
+    return _aggregate_state_distribution_rows(rows, hazard=hazard, class_keys=class_keys, length_weights={})
+
+
+def _build_economic_criticality_map_payload(
+    artifacts: AuxiliaryArtifacts,
+    *,
+    territory: str,
+    family_key: str,
+    scenario_key: str,
+    scenario_label: str,
+    period_label: str,
+    hazard: str,
+    asset_state_rows: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    family_spec = ECONOMIC_CRITICALITY_FAMILY_SPECS.get(family_key)
+    if not isinstance(family_spec, dict):
+        return None
+    rows = asset_state_rows.get(scenario_key)
+    if not isinstance(rows, list) or not rows:
+        return None
+    unit_metrics = _aggregate_economic_criticality_units(rows, family_key=family_key)
+    if not unit_metrics:
+        return None
+
+    geometry_basis = "geometries de reseau"
+    if family_key in {"aep", "eu"} and artifacts.network_states_path:
+        gdf = _load_geodataframe_cached(artifacts.network_states_path)
+        if gdf.empty or "layer_key" not in gdf.columns or "feature_id" not in gdf.columns:
+            return None
+        layer_key = "eau_aep" if family_key == "aep" else "eau_eu"
+        gdf = gdf[gdf["layer_key"].fillna("").astype(str) == layer_key].copy()
+        join_column = "feature_id"
+        geometry_basis = "geometries d'unites de service hydraulique"
+    else:
+        if not artifacts.water_infra_path:
+            return None
+        gdf = _load_geodataframe_cached(artifacts.water_infra_path)
+        if gdf.empty or "infra_type" not in gdf.columns or "feature_id" not in gdf.columns:
+            return None
+        infra_types = tuple(str(value) for value in family_spec.get("infra_types") or ())
+        gdf = gdf[gdf["infra_type"].fillna("").astype(str).isin(infra_types)].copy()
+        join_column = str(family_spec.get("join_column") or "feature_id")
+        if join_column not in gdf.columns:
+            join_column = "feature_id"
+    if gdf.empty:
+        return None
+    source_feature_count = int(len(gdf))
+    gdf["economic_unit_id"] = gdf[join_column].fillna("").astype(str)
+    matched = gdf["economic_unit_id"].map(lambda unit_id: unit_id in unit_metrics)
+    matched_count = int(matched.sum())
+    gdf = gdf[matched].copy()
+    if gdf.empty:
+        return None
+
+    for state in STATE_SEQUENCE:
+        gdf[f"exposure_{state.lower()}_eur"] = gdf["economic_unit_id"].map(
+            lambda unit_id, state=state: _safe_float(
+                (unit_metrics.get(str(unit_id)) or {}).get("state_exposure", {}).get(state)
+            )
+        )
+        gdf[f"state_{state.lower()}_pct"] = gdf["economic_unit_id"].map(
+            lambda unit_id, state=state: _safe_float(
+                (unit_metrics.get(str(unit_id)) or {}).get("state_pct", {}).get(state)
+            )
+        )
+    gdf["economic_state"] = gdf["economic_unit_id"].map(
+        lambda unit_id: str((unit_metrics.get(str(unit_id)) or {}).get("economic_state") or "S0")
+    )
+    gdf["economic_exposure_eur"] = gdf["economic_unit_id"].map(
+        lambda unit_id: _safe_float((unit_metrics.get(str(unit_id)) or {}).get("exposure_eur"))
+    )
+    gdf["economic_damage_eur"] = gdf["economic_unit_id"].map(
+        lambda unit_id: _safe_float((unit_metrics.get(str(unit_id)) or {}).get("damage_eur"))
+    )
+    gdf["economic_damage_ratio_pct"] = gdf["economic_unit_id"].map(
+        lambda unit_id: _safe_float((unit_metrics.get(str(unit_id)) or {}).get("damage_ratio_pct"))
+    )
+    gdf["economic_asset_count"] = gdf["economic_unit_id"].map(
+        lambda unit_id: int((unit_metrics.get(str(unit_id)) or {}).get("asset_count") or 0)
+    )
+
+    map_state_exposure = {state: float(gdf[f"exposure_{state.lower()}_eur"].sum()) for state in STATE_SEQUENCE}
+    map_pct = _state_exposure_percentages(map_state_exposure)
+    class_keys = tuple(str(value) for value in family_spec.get("class_keys") or ())
+    reference_pct = _economic_criticality_reference_pct(
+        artifacts,
+        scenario_key=scenario_key,
+        hazard=hazard,
+        class_keys=class_keys,
+    )
+    family_label = str(family_spec.get("label") or family_key.upper())
+    note = (
+        "Criticite economique reconstruite avec le moteur PML/interdependances utilise par state_damage_tables. "
+        f"Couleur: etat economique dominant par valeur exposee dans chaque {family_spec.get('spatial_unit')}. "
+        f"Geometrie: {geometry_basis}. Epaisseur: valeur exposee pour les troncons lineaires. "
+        f"Controle carte: {_format_state_pct_inline(map_pct)}; controle matrice: {_format_state_pct_inline(reference_pct)}. "
+        f"Unites cartographiees: {matched_count}/{source_feature_count} geometries, {len(unit_metrics)} unites economiques."
+    )
+    return {
+        "type": "categorical_geodataframe_map",
+        "title": f"{territory_label(territory)} - Criticite economique {family_label} retour {period_label} ans",
+        "gdf": gdf,
+        "category_column": "economic_state",
+        "width_column": "economic_exposure_eur",
+        "legend_title": "Criticite economique",
+        "note": note,
+        "matrix_reference_pct": reference_pct,
+        "map_reference_pct": map_pct,
+        "scenario": scenario_key,
+        "hazard": hazard,
+        "family": family_key,
+    }
+
+
+def _build_economic_criticality_map_specs(
+    artifacts: AuxiliaryArtifacts,
+    territory: str,
+    *,
+    hazard: str = DAMAGE_ZONE_HAZARD,
+) -> list[tuple[Path, dict[str, Any] | None]]:
+    asset_state_rows = _compute_economic_criticality_asset_states(artifacts, hazard=hazard)
+    specs: list[tuple[Path, dict[str, Any] | None]] = []
+    for scenario_key, scenario_label, period_label in ECONOMIC_CRITICALITY_SCENARIOS:
+        for family_key in ("aep", "eu", "elec"):
+            family_label = str(ECONOMIC_CRITICALITY_FAMILY_SPECS[family_key]["label"]).lower()
+            payload = (
+                _build_economic_criticality_map_payload(
+                    artifacts,
+                    territory=territory,
+                    family_key=family_key,
+                    scenario_key=scenario_key,
+                    scenario_label=scenario_label,
+                    period_label=period_label,
+                    hazard=hazard,
+                    asset_state_rows=asset_state_rows,
+                )
+                if asset_state_rows is not None
+                else None
+            )
+            specs.append((
+                Path(f"{territory}_criticite_economique_reseaux_{family_label}_retour_{period_label}_ans.png"),
+                payload,
+            ))
+    return specs
+
+
 def _wind_map_block(artifacts: AuxiliaryArtifacts, hazard: str) -> dict[str, Any] | None:
     if artifacts.wind_maps is None:
         return None
@@ -8414,6 +8917,8 @@ def _render_auxiliary_output(
         _render_population_decision_zone_map_png(plt, payload, output_path)
     elif plot_type == "geojson_map":
         _render_geojson_map_png(plt, payload, output_path)
+    elif plot_type == "categorical_geodataframe_map":
+        _render_categorical_geodataframe_map_png(plt, payload, output_path)
     elif plot_type == "raster_overlay_map":
         _render_raster_overlay_map_png(plt, payload, output_path)
     elif plot_type == "choropleth_map":
@@ -9999,6 +10504,8 @@ def _render_integrated_vincennes_assets(
                     supergraph_payload,
                 )
             )
+        for file_name, payload in _build_economic_criticality_map_specs(artifacts, territory):
+            map_specs.append((maps_dir / file_name, payload))
         for output_path, payload in map_specs:
             if payload is None:
                 warnings.append(_warning_message(territory, output_path.name, "missing archived inputs"))
