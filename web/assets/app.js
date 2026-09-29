@@ -1,8 +1,8 @@
 const state = {
   activeResult: null,
-  activeResultMode: 'uploaded',
+  activeResultMode: 'drawn',
   selectedHazard: 'storm',
-  selectedDatasetMode: 'uploaded',
+  selectedDatasetMode: 'drawn',
   territorySearch: '',
   resultsByMode: {
     uploaded: null,
@@ -13,7 +13,20 @@ const state = {
   uiComputeTimer: null,
   activeSubmitMode: null,
   runLabelsByJob: {},
+  runAccessTokens: {},
   recentRuns: [],
+  globalAuthOpen: false,
+  auth: {
+    authenticated: false,
+    user: null,
+    csrfToken: null
+  },
+  adminConsole: {
+    usersOffset: 0,
+    runsOffset: 0,
+    pageSize: 25,
+    selectedUserId: ''
+  },
   currentJobId: null,
   pollTimer: null,
   pollingModeTarget: null,
@@ -114,6 +127,9 @@ const mapRef = {
   uploadedLayer: null,
   uploadedFeatureCount: 0,
   drawnItems: null,
+  pendingDrawLayer: null,
+  pendingDrawIndex: null,
+  onDrawChange: null,
   drawHandlers: {},
   activeDrawMode: null,
   hasFitted: false
@@ -476,6 +492,13 @@ const els = {
   navPage4: document.getElementById('nav-page-4'),
   navPage5: document.getElementById('nav-page-5'),
   navPage6: document.getElementById('nav-page-6'),
+  globalAuthPanel: document.getElementById('global-auth-panel'),
+  globalAuthStatus: document.getElementById('global-auth-status'),
+  globalAuthToggle: document.getElementById('global-auth-toggle'),
+  globalAuthLogout: document.getElementById('global-auth-logout'),
+  globalAuthForm: document.getElementById('global-auth-form'),
+  globalAuthUsername: document.getElementById('global-auth-username'),
+  globalAuthPassword: document.getElementById('global-auth-password'),
   runtimeAccessNote: document.getElementById('runtime-access-note'),
   pageBlocks: Array.from(document.querySelectorAll('.page-block')),
   caseStudyTitle: document.getElementById('case-study-title'),
@@ -493,7 +516,11 @@ const els = {
   uploadFile: document.getElementById('upload-file'),
   runLabel: document.getElementById('run-label'),
   drawRunLabel: document.getElementById('draw-run-label'),
-  drawCategory: document.getElementById('draw-category'),
+  drawTypeDialog: document.getElementById('draw-type-dialog'),
+  drawTypeForm: document.getElementById('draw-type-form'),
+  drawTypeSelect: document.getElementById('draw-type-select'),
+  drawTypeConfirm: document.getElementById('draw-type-confirm'),
+  drawTypeCancel: document.getElementById('draw-type-cancel'),
   drawModeButtons: document.getElementById('draw-mode-buttons'),
   uploadSubmitBtn: document.getElementById('upload-submit-btn'),
   submitDrawingBtn: document.getElementById('submit-drawing-btn'),
@@ -507,6 +534,18 @@ const els = {
   computeIndicator: document.getElementById('compute-indicator'),
   runMemoryBox: document.getElementById('run-memory-box'),
   runMemoryList: document.getElementById('run-memory-list'),
+  authStatusText: document.getElementById('auth-status-text'),
+  authLoginForm: document.getElementById('auth-login-form'),
+  authUsername: document.getElementById('auth-username'),
+  authPassword: document.getElementById('auth-password'),
+  authLogoutBtn: document.getElementById('auth-logout-btn'),
+  authEmailForm: document.getElementById('auth-email-form'),
+  authEmail: document.getElementById('auth-email'),
+  authPasswordForm: document.getElementById('auth-password-form'),
+  authCurrentPassword: document.getElementById('auth-current-password'),
+  authNewPassword: document.getElementById('auth-new-password'),
+  authPasswordStatus: document.getElementById('auth-password-status'),
+  completeRunNote: document.getElementById('complete-run-note'),
   kpiGrid: document.getElementById('kpi-grid'),
   selectedTerritoryChip: document.getElementById('selected-territory-chip'),
   territorySearch: document.getElementById('territory-search'),
@@ -626,7 +665,16 @@ const els = {
   userImpactRp50Chart: document.getElementById('user-impact-rp50-chart'),
   userImpactRp100Chart: document.getElementById('user-impact-rp100-chart'),
   userImpactRp1000Chart: document.getElementById('user-impact-rp1000-chart'),
+  userHazardMapImage: document.getElementById('user-hazard-map-image'),
+  userHazardMapEmpty: document.getElementById('user-hazard-map-empty'),
+  userNetworkMapRp100Image: document.getElementById('user-network-map-rp100-image'),
+  userNetworkMapRp100Empty: document.getElementById('user-network-map-rp100-empty'),
+  userNetworkMapRp1000Image: document.getElementById('user-network-map-rp1000-image'),
+  userNetworkMapRp1000Empty: document.getElementById('user-network-map-rp1000-empty'),
   userImpactEventmaxChart: document.getElementById('user-impact-eventmax-chart'),
+  quickResultMeta: document.getElementById('quick-result-meta'),
+  quickDownloads: document.getElementById('quick-downloads'),
+  quickDownloadList: document.getElementById('quick-download-list'),
   userConclusionText: document.getElementById('user-conclusion-text'),
   impactMapHazardSelect: document.getElementById('impact-map-hazard-select'),
   impactMapScenarioSelect: document.getElementById('impact-map-scenario-select'),
@@ -661,6 +709,29 @@ const els = {
   introImpactElectricityChart: document.getElementById('intro-impact-electricity-chart')
 };
 
+Object.assign(els, {
+  adminRefreshBtn: document.getElementById('admin-refresh-btn'),
+  adminConsoleGuard: document.getElementById('admin-console-guard'),
+  adminCreateUserForm: document.getElementById('admin-create-user-form'),
+  adminNewUsername: document.getElementById('admin-new-username'),
+  adminNewEmail: document.getElementById('admin-new-email'),
+  adminNewPassword: document.getElementById('admin-new-password'),
+  adminNewRole: document.getElementById('admin-new-role'),
+  adminNewActive: document.getElementById('admin-new-active'),
+  adminCreateUserStatus: document.getElementById('admin-create-user-status'),
+  adminUsersBody: document.getElementById('admin-users-body'),
+  adminRunsBody: document.getElementById('admin-runs-body'),
+  adminActivityBody: document.getElementById('admin-activity-body'),
+  adminUsersPrevBtn: document.getElementById('admin-users-prev-btn'),
+  adminUsersNextBtn: document.getElementById('admin-users-next-btn'),
+  adminRunsPrevBtn: document.getElementById('admin-runs-prev-btn'),
+  adminRunsNextBtn: document.getElementById('admin-runs-next-btn'),
+  adminUserDetail: document.getElementById('admin-user-detail'),
+  adminUserDetailTitle: document.getElementById('admin-user-detail-title'),
+  adminUserDetailCloseBtn: document.getElementById('admin-user-detail-close-btn'),
+  adminUserRunsBody: document.getElementById('admin-user-runs-body')
+});
+
 const numberFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const percentFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
 const moneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -671,7 +742,6 @@ const tableMoneyFmt = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 0,
 const peopleFmtInt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const peopleFmtOne = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
 const peopleFmtTwo = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
-const FIXED_SAMPLING_SPACING_M = 100;
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
 });
@@ -686,20 +756,28 @@ const ADMIN_VISU_ALLOWED_HOSTNAMES = new Set([
   'localhost',
   '127.0.0.1'
 ]);
+const ADMIN_ENTRY_HOSTNAMES = new Set([
+  'sib.dev.elio.bottagisio.com',
+  'app.sib.elio.dev',
+  'localhost',
+  '127.0.0.1'
+]);
 
 const runtime = {
   hostname: String(window.location.hostname || '').toLowerCase(),
   isPublicShowcase: false,
-  allowAdminVisu: true
+  allowAdminVisu: true,
+  showAdminEntry: false
 };
 runtime.isPublicShowcase = PUBLIC_SHOWCASE_HOSTNAMES.has(runtime.hostname);
-runtime.allowAdminVisu = ADMIN_VISU_ALLOWED_HOSTNAMES.has(runtime.hostname);
+runtime.allowAdminVisu = true;
+runtime.showAdminEntry = ADMIN_ENTRY_HOSTNAMES.has(runtime.hostname);
 
 const STORM_COVERAGE_ENDPOINT = '/api/v1/hazard/coverage';
 const STORM_COVERAGE_FALLBACK = [
-  { id: 'na', label: 'North Atlantic', lat_min: 5.0, lat_max: 60.0, lon_min: -105.0, lon_max: -1.0 }
+  { id: 'na', label: 'North Atlantic', lat_min: 5.0, lat_max: 60.0, lon_min: -105.0, lon_max: -1.0 },
+  { id: 'si', label: 'Sud Indien', lat_min: -59.9, lat_max: -5.05, lon_min: 10.0, lon_max: 134.95 }
 ];
-
 const EXPOSURE_TYPE_TO_CATEGORY = {
   habitation: 'habitation',
   eau_aep: 'ouvrage_eau',
@@ -714,6 +792,7 @@ const EXPOSURE_TYPE_TO_CATEGORY = {
   aep_ouvrage_stpmp: 'ouvrage_eau',
   aep_ouvrage_cap: 'ouvrage_eau',
   aep_ouvrage_cuv: 'ouvrage_eau',
+  aep_ouvrage_ouveb: 'ouvrage_eau',
   aep_ouvrage_autres: 'ouvrage_eau'
 };
 
@@ -731,6 +810,7 @@ const EXPOSURE_TYPE_TO_ASSET = {
   aep_ouvrage_stpmp: 'eau_aep_ouvrage_STPMP',
   aep_ouvrage_cap: 'eau_aep_ouvrage_CAP',
   aep_ouvrage_cuv: 'eau_aep_ouvrage_CUV',
+  aep_ouvrage_ouveb: 'eau_aep_ouvrage_OUVEB',
   aep_ouvrage_autres: 'eau_aep_ouvrage_NA'
 };
 
@@ -748,15 +828,17 @@ const EXPOSURE_TYPE_LABEL = {
   aep_ouvrage_stpmp: 'Ouvrage AEP STPMP',
   aep_ouvrage_cap: 'Ouvrage AEP CAP',
   aep_ouvrage_cuv: 'Ouvrage AEP CUV',
+  aep_ouvrage_ouveb: 'Ouvrage AEP OUVEB',
   aep_ouvrage_autres: 'Ouvrage AEP autre'
 };
+const DRAW_TYPE_STORAGE_KEY = 'sib-last-drawn-infrastructure-type';
 
 function pageFromHash() {
   const hash = String(window.location.hash || '').replace('#', '').trim().toLowerCase();
   if (hash === 'page2') return 'page2';
   if (hash === 'page3') return 'page3';
   if (hash === 'page7') return 'page7';
-  if (hash === 'page4') return runtime.isPublicShowcase ? 'page1' : 'page4';
+  if (hash === 'page4') return 'page4';
   if (hash === 'page5') return 'page5';
   if (hash === 'page6') return runtime.allowAdminVisu ? 'page6' : 'page1';
   return 'page1';
@@ -856,11 +938,11 @@ function loadSibWorkMethodology() {
 }
 
 function setActivePage(pageKey, { updateHash = true } = {}) {
-  if (runtime.isPublicShowcase && pageKey === 'page4') {
-    pageKey = 'page1';
-  }
   if (!runtime.allowAdminVisu && pageKey === 'page6') {
     pageKey = 'page1';
+  }
+  if (pageKey === 'page6' && !shouldShowAdminEntry()) {
+    pageKey = 'page4';
   }
   state.currentPage = pageKey;
   applyCaseStudyPageTheme(pageKey);
@@ -936,15 +1018,9 @@ function setActivePage(pageKey, { updateHash = true } = {}) {
     }, 80);
   }
   if (pageKey === 'page6') {
-    loadAdminPage5Panels();
-    setTimeout(() => {
-      adminVisuMapRef.cards.forEach((card) => {
-        if (card?.instance) card.instance.invalidateSize();
-      });
-      if (adminPopulationMapRef.instance) adminPopulationMapRef.instance.invalidateSize();
-      resizeAdminVulnerabilityOverviewCharts();
-      resizeAdminVulnerabilityCharts('landslide');
-    }, 80);
+    renderAdminConsole().catch((err) => {
+      setStatus(`Console admin indisponible: ${err.message}`, 'error');
+    });
   }
 }
 
@@ -962,25 +1038,12 @@ function applyRuntimeMode() {
 
   document.body.classList.add('runtime-public');
 
-  if (els.navPage4) {
-    els.navPage4.hidden = true;
-    els.navPage4.setAttribute('aria-hidden', 'true');
-  }
-
   if (els.runtimeAccessNote) {
     els.runtimeAccessNote.hidden = false;
-    els.runtimeAccessNote.textContent = "Mode vitrine publique actif: la section 'Donnees utilisateur' et l'API de calcul sont reservees aux collaborateurs autorises sur app.sib.elio.dev.";
+    els.runtimeAccessNote.textContent = "Mode public actif: le Quick Run est accessible sans compte dans les bassins NA et SI.";
   }
 
-  if (els.datasetSelect) {
-    els.datasetSelect.disabled = true;
-  }
-
-  if (els.pollJobId) els.pollJobId.disabled = true;
-  if (els.reloadJobBtn) els.reloadJobBtn.disabled = true;
-  if (els.clearDrawingsBtn) els.clearDrawingsBtn.disabled = true;
-  if (els.runMemoryBox) els.runMemoryBox.hidden = true;
-  if (els.computeIndicator) els.computeIndicator.hidden = true;
+  if (els.computeIndicator) refreshComputeIndicator();
 }
 
 function showError(message) {
@@ -1040,7 +1103,10 @@ function setSubmitButtonLoading(mode, active) {
   }
   button.removeAttribute('aria-busy');
   if (isDrawn) {
-    button.disabled = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length === 0 : true;
+    const layers = mapRef.drawnItems ? mapRef.drawnItems.getLayers() : [];
+    button.disabled = layers.length === 0
+      || Boolean(mapRef.pendingDrawLayer)
+      || layers.some((layer) => !validExposureType(layer.feature?.properties?.exposure_type));
     return;
   }
   button.disabled = false;
@@ -1280,13 +1346,10 @@ function formatGenericTableCellValue(valueRaw) {
 
 function estimatedRunDurationMessage(mode) {
   const normalized = normalizeDatasetMode(mode);
-  const isFirstRun = !Array.isArray(state.recentRuns) || state.recentRuns.length === 0;
   if (normalized === 'drawn') {
-    if (isFirstRun) return 'Temps estime du run: environ 2 a 6 min (premier lancement souvent plus long).';
-    return 'Temps estime du run: environ 1 a 3 min (selon la charge serveur et le nombre de geometries).';
+    return 'Temps estime du calcul rapide: quelques secondes a 1 min selon le nombre de geometries.';
   }
-  if (isFirstRun) return 'Temps estime du run: environ 3 a 8 min (premier lancement souvent plus long).';
-  return "Temps estime du run: environ 1 a 4 min (selon la taille du fichier et la charge serveur).";
+  return "Temps estime du calcul rapide: quelques secondes a 2 min selon la taille du fichier.";
 }
 
 function showRunDurationEstimate(mode) {
@@ -1310,6 +1373,15 @@ function formatDate(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return dateFmt.format(d);
+}
+
+function formatEtaSeconds(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  if (hours > 0) return `${hours} h ${minutes} min restantes estimees`;
+  return `${Math.max(1, minutes)} min restantes estimees`;
 }
 
 function dateValueTimestamp(value) {
@@ -1340,6 +1412,112 @@ function setElementHidden(el, hidden) {
   if (!el) return;
   if (hidden) el.setAttribute('hidden', 'hidden');
   else el.removeAttribute('hidden');
+}
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (state.auth?.csrfToken) headers['x-csrf-token'] = state.auth.csrfToken;
+  return headers;
+}
+
+async function apiJson(url, options = {}) {
+  const headers = {
+    ...(options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+    ...(options.headers || {})
+  };
+  const res = await fetch(url, {
+    credentials: 'same-origin',
+    cache: options.cache || 'no-store',
+    ...options,
+    headers
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
+  return payload;
+}
+
+function currentUserRole() {
+  return String(state.auth?.user?.role || '');
+}
+
+function currentUserIsAdmin() {
+  return ['admin', 'super_admin'].includes(currentUserRole());
+}
+
+function shouldShowAdminEntry() {
+  return runtime.showAdminEntry || currentUserIsAdmin();
+}
+
+function shouldShowGlobalAuthPanel() {
+  return runtime.showAdminEntry || Boolean(state.auth?.authenticated);
+}
+
+function currentUserIsSuperAdmin() {
+  return currentUserRole() === 'super_admin';
+}
+
+function updateAuthUi() {
+  const authenticated = Boolean(state.auth?.authenticated && state.auth?.user);
+  const user = state.auth?.user || {};
+  if (els.authStatusText) {
+    const passwordHint = user.must_change_password ? ' Mot de passe initial a modifier.' : '';
+    els.authStatusText.textContent = authenticated
+      ? `Connecte: ${user.username || 'compte'} (${user.role || 'role inconnu'}). E-mail de reception: ${user.email || 'non renseigne'}.${passwordHint}`
+      : 'Les analyses utilisateur sont disponibles sans compte.';
+  }
+  if (!authenticated && state.globalAuthOpen && !shouldShowGlobalAuthPanel()) {
+    state.globalAuthOpen = false;
+  }
+  setElementHidden(els.globalAuthPanel, !shouldShowGlobalAuthPanel());
+  if (els.globalAuthStatus) {
+    const passwordHint = user.must_change_password ? ' Mot de passe initial a modifier.' : '';
+    els.globalAuthStatus.textContent = authenticated
+      ? `Connecte: ${user.username || 'compte'} (${user.role || 'role inconnu'}). E-mail: ${user.email || 'non renseigne'}.${passwordHint}`
+      : 'Connexion reservee a la console d administration.';
+  }
+  setElementHidden(els.globalAuthToggle, authenticated);
+  setElementHidden(els.globalAuthLogout, !authenticated);
+  setElementHidden(els.globalAuthForm, authenticated || !state.globalAuthOpen);
+  if (els.globalAuthToggle) {
+    els.globalAuthToggle.setAttribute('aria-expanded', state.globalAuthOpen && !authenticated ? 'true' : 'false');
+    els.globalAuthToggle.textContent = state.globalAuthOpen && !authenticated ? 'Fermer' : 'Connexion';
+  }
+  setElementHidden(els.authLoginForm, authenticated);
+  setElementHidden(els.authLogoutBtn, !authenticated);
+  setElementHidden(els.authEmailForm, !authenticated);
+  setElementHidden(els.authPasswordForm, !authenticated);
+  setElementHidden(els.completeRunNote, !authenticated);
+  if (els.authEmail && authenticated) els.authEmail.value = user.email || '';
+  if (els.navPage6) {
+    const showAdminEntry = shouldShowAdminEntry();
+    els.navPage6.hidden = !showAdminEntry;
+    els.navPage6.setAttribute('aria-hidden', showAdminEntry ? 'false' : 'true');
+  }
+  if (els.adminNewRole) {
+    const adminOption = Array.from(els.adminNewRole.options || []).find((option) => option.value === 'admin');
+    if (adminOption) adminOption.disabled = !currentUserIsSuperAdmin();
+    if (!currentUserIsSuperAdmin() && els.adminNewRole.value === 'admin') {
+      els.adminNewRole.value = 'authorized_user';
+    }
+  }
+  if (els.runMemoryBox) els.runMemoryBox.hidden = false;
+  if (!shouldShowAdminEntry() && state.currentPage === 'page6') {
+    setActivePage('page4');
+  }
+}
+
+async function refreshAuthState() {
+  try {
+    const payload = await apiJson('/api/v1/auth/me', { method: 'GET' });
+    state.auth.authenticated = Boolean(payload.authenticated);
+    state.auth.user = payload.user || null;
+    state.auth.csrfToken = payload.csrf_token || null;
+  } catch (_) {
+    state.auth.authenticated = false;
+    state.auth.user = null;
+    state.auth.csrfToken = null;
+  }
+  updateAuthUi();
 }
 
 function maxTrackCountFromMeta(raw) {
@@ -1820,7 +1998,11 @@ function updateMetaBadges() {
   els.badgeSource.textContent = `Source: ${result.meta?.source || 'inconnue'}`;
   els.badgeUpdated.textContent = `Mis a jour: ${formatDate(result.meta?.updated_at)}`;
   els.badgeEngine.textContent = `Moteur: ${result.meta?.engine || 'n/a'}`;
-  setTraceBadge('Trace: calcul interactif', 'native');
+  if (result.meta?.approximation) {
+    setTraceBadge('Trace: mode rapide valide', 'mixed');
+  } else {
+    setTraceBadge('Trace: calcul interactif', 'native');
+  }
 }
 
 function renderKpis() {
@@ -1838,6 +2020,7 @@ function renderKpis() {
   const pctExposure = (value) => (Number(value || 0) / safeExposure) * 100;
   const assetCountForScope = Number(summary.asset_count_original || 0);
   const pointCountForScope = Number(summary.asset_count_points || 0);
+  const isQuickResult = result?.meta?.engine === 'precomputed_user_impact_v1';
   const lossRp50 = scenarioLossFromPortfolio(p, 'rp50');
   const lossRp100 = scenarioLossFromPortfolio(p, 'rp100');
   const lossRp1000 = scenarioLossFromPortfolio(p, 'rp1000');
@@ -1846,7 +2029,9 @@ function renderKpis() {
     {
       label: 'Exposition totale',
       value: formatMoneyMEUR(exposureForScope),
-      sub: `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points desagreges`
+      sub: isQuickResult
+        ? `${numberFmt.format(assetCountForScope)} entites evaluees · mode rapide`
+        : `${numberFmt.format(assetCountForScope)} actifs · ${numberFmt.format(pointCountForScope || 0)} points desagreges`
     },
     {
       label: "EAI de l'aléa sélectionné",
@@ -3195,6 +3380,46 @@ function rememberRunLabel(jobId, runLabel) {
   if (!id) return;
   const label = String(runLabel || '').trim();
   state.runLabelsByJob[id] = label || id;
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem('sib-run-history') || '[]');
+    const history = Array.isArray(stored) ? stored.filter((item) => item?.job_id !== id) : [];
+    history.unshift({ job_id: id, run_label: label || id });
+    window.sessionStorage.setItem('sib-run-history', JSON.stringify(history.slice(0, 10)));
+  } catch (_) {
+    /* sessionStorage may be unavailable in hardened browsers. */
+  }
+}
+
+function rememberRunAccessToken(jobId, accessToken) {
+  const id = String(jobId || '').trim();
+  const token = String(accessToken || '').trim();
+  if (!id || !token) return;
+  state.runAccessTokens[id] = token;
+  try {
+    window.sessionStorage.setItem(`sib-run-token:${id}`, token);
+  } catch (_) {
+    /* sessionStorage may be unavailable in hardened browsers. */
+  }
+}
+
+function accessTokenForJob(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return '';
+  if (state.runAccessTokens[id]) return String(state.runAccessTokens[id]).trim();
+  try {
+    const token = window.sessionStorage.getItem(`sib-run-token:${id}`) || '';
+    if (token) state.runAccessTokens[id] = token;
+    return token;
+  } catch (_) {
+    return '';
+  }
+}
+
+function runApiUrl(jobId, suffix = '') {
+  const encodedJob = encodeURIComponent(String(jobId || '').trim());
+  const token = accessTokenForJob(jobId);
+  const query = token ? `?access_token=${encodeURIComponent(token)}` : '';
+  return `/api/v1/runs/${encodedJob}${suffix}${query}`;
 }
 
 function datasetModeFromResult(result, fallbackMode = state.selectedDatasetMode) {
@@ -3238,10 +3463,32 @@ function renderRunMemoryList() {
 }
 
 async function refreshRunMemoryList() {
-  if (runtime.isPublicShowcase) return;
+  if (!state.auth?.authenticated) {
+    let history = [];
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem('sib-run-history') || '[]');
+      history = Array.isArray(stored) ? stored.slice(0, 10) : [];
+    } catch (_) {
+      history = [];
+    }
+    const resolved = await Promise.all(history.map(async (item) => {
+      const jobId = String(item?.job_id || '').trim();
+      if (!jobId || !accessTokenForJob(jobId)) return null;
+      try {
+        const res = await fetch(runApiUrl(jobId), { cache: 'no-store', credentials: 'same-origin' });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (_) {
+        return null;
+      }
+    }));
+    state.recentRuns = resolved.filter(Boolean);
+    renderRunMemoryList();
+    return;
+  }
   if (!els.runMemoryList) return;
   try {
-    const res = await fetch('/api/v1/runs/recent?limit=10', { cache: 'no-store' });
+    const res = await fetch('/api/v1/runs/recent?limit=10', { cache: 'no-store', credentials: 'same-origin' });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
     const runs = Array.isArray(payload.runs) ? payload.runs : [];
@@ -3275,6 +3522,107 @@ function categoryFromExposureType(typeValue) {
 function assetFromExposureType(typeValue) {
   const raw = String(typeValue || '').trim();
   return EXPOSURE_TYPE_TO_ASSET[raw] || 'habitation';
+}
+
+function validExposureType(typeValue) {
+  const value = String(typeValue || '').trim();
+  return Object.prototype.hasOwnProperty.call(EXPOSURE_TYPE_LABEL, value) ? value : '';
+}
+
+function storedDrawExposureType() {
+  try {
+    return validExposureType(window.localStorage.getItem(DRAW_TYPE_STORAGE_KEY));
+  } catch (_) {
+    return '';
+  }
+}
+
+function rememberDrawExposureType(typeValue) {
+  const value = validExposureType(typeValue);
+  if (!value) return;
+  try {
+    window.localStorage.setItem(DRAW_TYPE_STORAGE_KEY, value);
+  } catch (_) {
+    /* localStorage may be unavailable in hardened browsers. */
+  }
+}
+
+function exposureTypeOptionsHtml(selectedValue = '', { requireExplicit = false } = {}) {
+  const selected = validExposureType(selectedValue);
+  const preferred = selected || storedDrawExposureType();
+  const keys = Object.keys(EXPOSURE_TYPE_LABEL);
+  if (preferred) {
+    keys.splice(keys.indexOf(preferred), 1);
+    keys.unshift(preferred);
+  }
+  const options = keys.map((key) => (
+    `<option value="${escapeHtml(key)}"${key === selected ? ' selected' : ''}>${escapeHtml(EXPOSURE_TYPE_LABEL[key])}</option>`
+  ));
+  if (requireExplicit && !selected) {
+    options.unshift('<option value="" selected disabled>Selectionnez un type d infrastructure</option>');
+  }
+  return options.join('');
+}
+
+function closeDrawTypeDialog() {
+  if (!els.drawTypeDialog) return;
+  if (typeof els.drawTypeDialog.close === 'function' && els.drawTypeDialog.open) {
+    els.drawTypeDialog.close();
+  } else {
+    els.drawTypeDialog.removeAttribute('open');
+  }
+}
+
+function openDrawTypeDialog(layer, index) {
+  mapRef.pendingDrawLayer = layer;
+  mapRef.pendingDrawIndex = index;
+  const remembered = storedDrawExposureType();
+  if (!els.drawTypeDialog || !els.drawTypeSelect) {
+    mapRef.pendingDrawLayer = null;
+    mapRef.pendingDrawIndex = null;
+    reenableCurrentDrawMode();
+    showError("La selection du type d'infrastructure est indisponible.");
+    return;
+  }
+  els.drawTypeSelect.innerHTML = exposureTypeOptionsHtml(remembered, { requireExplicit: !remembered });
+  els.drawTypeSelect.value = remembered;
+  if (els.drawTypeConfirm) els.drawTypeConfirm.disabled = !remembered;
+  if (typeof els.drawTypeDialog.showModal === 'function') els.drawTypeDialog.showModal();
+  else els.drawTypeDialog.setAttribute('open', 'open');
+  window.setTimeout(() => els.drawTypeSelect?.focus(), 0);
+}
+
+function cancelPendingDraw() {
+  mapRef.pendingDrawLayer = null;
+  mapRef.pendingDrawIndex = null;
+  closeDrawTypeDialog();
+  reenableCurrentDrawMode();
+}
+
+function confirmPendingDrawType() {
+  const layer = mapRef.pendingDrawLayer;
+  const exposureType = validExposureType(els.drawTypeSelect?.value);
+  if (!layer || !exposureType || !mapRef.drawnItems) {
+    if (els.drawTypeConfirm) els.drawTypeConfirm.disabled = true;
+    return;
+  }
+  const nextIdx = Number(mapRef.pendingDrawIndex || mapRef.drawnItems.getLayers().length + 1);
+  layer.feature = layer.feature || { type: 'Feature', properties: {} };
+  layer.feature.properties = {
+    ...(layer.feature.properties || {}),
+    label: String(layer.feature.properties?.label || `Geometrie ${nextIdx}`),
+    value_eur: Number(layer.feature.properties?.value_eur || 1_000_000),
+    exposure_type: exposureType,
+    exposure_category: categoryFromExposureType(exposureType),
+    asset_type: assetFromExposureType(exposureType)
+  };
+  rememberDrawExposureType(exposureType);
+  mapRef.pendingDrawLayer = null;
+  mapRef.pendingDrawIndex = null;
+  closeDrawTypeDialog();
+  mapRef.drawnItems.addLayer(layer);
+  if (typeof mapRef.onDrawChange === 'function') mapRef.onDrawChange();
+  reenableCurrentDrawMode();
 }
 
 function filteredResultRows() {
@@ -3338,15 +3686,7 @@ function renderTerritoryTable() {
 function renderTerritorySelectionState() {
   const drawnCount = mapRef.drawnItems ? mapRef.drawnItems.getLayers().length : 0;
   const importedCount = Number(mapRef.uploadedFeatureCount || 0);
-  els.selectedTerritoryChip.textContent = `${drawnCount} dessin(s) · ${importedCount} entite(s) importees`;
-}
-
-function drawModeLabel(mode) {
-  if (mode === 'marker') return 'point';
-  if (mode === 'polyline') return 'ligne';
-  if (mode === 'polygon') return 'polygone';
-  if (mode === 'rectangle') return 'rectangle';
-  return mode || 'dessin';
+  els.selectedTerritoryChip.textContent = `Detection automatique · ${drawnCount} dessin(s) · ${importedCount} entite(s) importees`;
 }
 
 function updateDrawModeButtons() {
@@ -3368,6 +3708,7 @@ function disableActiveDrawMode() {
 }
 
 function startDrawMode(mode) {
+  if (mapRef.pendingDrawLayer) return;
   if (!ensureMap() || !window.L || !window.L.Draw) {
     showError("Les outils de dessin Leaflet ne sont pas disponibles.");
     return;
@@ -3406,7 +3747,6 @@ function startDrawMode(mode) {
   state.activeDrawMode = mode;
   updateDrawModeButtons();
   handler.enable();
-  setStatus(`Mode dessin actif: ${drawModeLabel(mode)}. Cliquez sur la carte pour tracer.`, 'info');
 }
 
 function reenableCurrentDrawMode() {
@@ -3593,22 +3933,11 @@ function ensureMap() {
       els.clearDrawingsBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
       els.submitDrawingBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
     };
+    mapRef.onDrawChange = onDrawChange;
 
     mapRef.instance.on(L.Draw.Event.CREATED, (evt) => {
-      const exposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
       const nextIdx = mapRef.drawnItems.getLayers().length + 1;
-      evt.layer.feature = evt.layer.feature || { type: 'Feature', properties: {} };
-      evt.layer.feature.properties = {
-        ...(evt.layer.feature.properties || {}),
-        label: String(evt.layer.feature.properties?.label || `Geometrie ${nextIdx}`),
-        value_eur: Number(evt.layer.feature.properties?.value_eur || 1_000_000),
-        exposure_type: exposureType,
-        exposure_category: categoryFromExposureType(exposureType),
-        asset_type: assetFromExposureType(exposureType)
-      };
-      mapRef.drawnItems.addLayer(evt.layer);
-      onDrawChange();
-      reenableCurrentDrawMode();
+      openDrawTypeDialog(evt.layer, nextIdx);
     });
     mapRef.instance.on(L.Draw.Event.EDITED, onDrawChange);
     mapRef.instance.on(L.Draw.Event.DELETED, onDrawChange);
@@ -8416,20 +8745,117 @@ function renderUserConclusionText(result) {
   els.userConclusionText.textContent = text.join(' ');
 }
 
+function renderQuickResultMetadata(result) {
+  if (!els.quickResultMeta) return;
+  if (!result) {
+    els.quickResultMeta.hidden = true;
+    els.quickResultMeta.innerHTML = '';
+    return;
+  }
+  const meta = result.meta || {};
+  const engine = String(meta.engine || '').trim();
+  const isQuick = engine === 'precomputed_user_impact_v1' || Boolean(meta.approximation);
+  if (!isQuick) {
+    els.quickResultMeta.hidden = true;
+    els.quickResultMeta.innerHTML = '';
+    return;
+  }
+  const limitations = Array.isArray(meta.limitations) ? meta.limitations : (Array.isArray(result.notes) ? result.notes : []);
+  const limitHtml = limitations.slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const assignments = Array.isArray(meta.quick_zone_assignments) ? meta.quick_zone_assignments : [];
+  const assignmentText = assignments.length
+    ? assignments
+      .map((item) => `${item.label || item.zone || 'Zone'}: ${numberFmt.format(Number(item.asset_count || 0))}`)
+      .join(' · ')
+    : '';
+  els.quickResultMeta.hidden = false;
+  els.quickResultMeta.innerHTML = `
+    <div class="quick-meta-grid">
+      <div><span>Mode</span><strong>Calcul rapide pre-calcule</strong></div>
+      <div><span>Reference</span><strong>${escapeHtml(meta.reference_engine || 'climada_with_interdependency_v1')}</strong></div>
+      <div><span>Zone</span><strong>${escapeHtml(meta.quick_zone_label || meta.quick_zone || 'Non precisee')}</strong></div>
+      <div><span>Surfaces</span><strong>${escapeHtml(formatDate(meta.quick_surface_generated_at))}</strong></div>
+    </div>
+    ${assignmentText ? `<p class="muted small">${escapeHtml(assignmentText)}</p>` : ''}
+    <ul>${limitHtml}</ul>
+  `;
+}
+
+function downloadLabel(name) {
+  const raw = String(name || '');
+  if (raw.endsWith('.pdf')) return 'Rapport complet PDF';
+  if (raw.endsWith('.xlsx')) return 'Donnees brutes XLSX';
+  return raw || 'Telechargement';
+}
+
+function renderQuickDownloads(result) {
+  if (!els.quickDownloads || !els.quickDownloadList) return;
+  const downloads = (Array.isArray(result?.artifacts?.downloads) ? result.artifacts.downloads : [])
+    .filter((item) => ['user-results-report.pdf', 'user-results-matrix.xlsx'].includes(String(item?.name || '')));
+  if (!downloads.length) {
+    els.quickDownloads.hidden = true;
+    els.quickDownloadList.innerHTML = '';
+    return;
+  }
+  els.quickDownloads.hidden = false;
+  els.quickDownloadList.innerHTML = downloads.map((item) => {
+    const name = String(item?.name || '').trim();
+    const url = String(item?.url || '').trim();
+    if (!name || !url) return '';
+    return `<a href="${escapeHtml(url)}" download>${escapeHtml(downloadLabel(name))}</a>`;
+  }).join('');
+}
+
+function setUserResultMap(image, empty, visual) {
+  if (!image || !empty) return;
+  const url = String(visual?.url || '').trim();
+  if (!url) {
+    image.hidden = true;
+    image.removeAttribute('src');
+    empty.hidden = false;
+    return;
+  }
+  image.src = url;
+  image.hidden = false;
+  empty.hidden = true;
+}
+
+function renderUserResultMaps(result) {
+  const visuals = Array.isArray(result?.artifacts?.visuals) ? result.artifacts.visuals : [];
+  const byType = Object.fromEntries(
+    visuals
+      .filter((item) => item && item.graph_type)
+      .map((item) => [String(item.graph_type), item])
+  );
+  setUserResultMap(els.userHazardMapImage, els.userHazardMapEmpty, byType.hazard_map_rp100);
+  setUserResultMap(els.userNetworkMapRp100Image, els.userNetworkMapRp100Empty, byType.network_state_map_rp100);
+  setUserResultMap(els.userNetworkMapRp1000Image, els.userNetworkMapRp1000Empty, byType.network_state_map_rp1000);
+}
+
 function renderUserImpactSection(result) {
   if (!els.userImpactSummaryText) return;
   if (!result) {
     els.userImpactSummaryText.textContent = 'Aucun résultat utilisateur chargé.';
     if (els.userConclusionText) els.userConclusionText.textContent = 'Conclusion indisponible.';
+    renderQuickResultMetadata(null);
+    renderQuickDownloads(null);
+    renderUserResultMaps(null);
     return;
   }
   const modeLabel = {
     uploaded: 'exposition importée',
     drawn: 'exposition dessinée'
   }[state.activeResultMode] || 'résultat actif';
-  els.userImpactSummaryText.textContent = `Cette section présente les impacts du ${modeLabel}, sans carte d’état des réseaux.`;
+  const meta = result.meta || {};
+  const engineLabel = meta.engine === 'precomputed_user_impact_v1'
+    ? 'mode rapide pre-calcule'
+    : `moteur ${meta.engine || 'inconnu'}`;
+  els.userImpactSummaryText.textContent = `Cette section presente les impacts du ${modeLabel} avec le ${engineLabel}.`;
   renderUserImpactChartsFromResult(result);
   renderUserConclusionText(result);
+  renderQuickResultMetadata(result);
+  renderQuickDownloads(result);
+  renderUserResultMaps(result);
 }
 
 function renderNotes() {
@@ -8458,7 +8884,7 @@ function renderDrawPreview() {
     const props = layer.feature?.properties || {};
     const lid = String(layer._leaflet_id || idx + 1);
     const gtype = String(layer.feature?.geometry?.type || layer?.toGeoJSON?.()?.geometry?.type || 'Unknown');
-    const type = String(props.exposure_type || els.drawCategory?.value || 'habitation');
+    const type = validExposureType(props.exposure_type);
     const label = String(props.label || `Geometrie ${idx + 1}`);
     const valueEur = Number(props.value_eur);
     const geomLabel = gtype === 'Polygon' ? 'Polygone'
@@ -8466,14 +8892,17 @@ function renderDrawPreview() {
         : gtype === 'Point' ? 'Point'
           : gtype === 'Rectangle' ? 'Rectangle'
             : gtype;
-    const typeLabel = EXPOSURE_TYPE_LABEL[type] || type;
     return `
       <li class="draw-item" data-layer-id="${escapeHtml(lid)}">
         <div class="draw-item-main">
           <input class="draw-name-input" type="text" value="${escapeHtml(label)}" aria-label="Nom de la geometrie ${escapeHtml(String(idx + 1))}" />
           <button class="draw-delete-btn" type="button" aria-label="Supprimer la geometrie ${escapeHtml(String(idx + 1))}">&times;</button>
         </div>
-        <div class="draw-item-meta">${escapeHtml(geomLabel)} · ${escapeHtml(typeLabel)}</div>
+        <div class="draw-item-meta">${escapeHtml(geomLabel)}</div>
+        <div class="draw-item-type">
+          <label>Type d'infrastructure</label>
+          <select class="draw-type-input" required>${exposureTypeOptionsHtml(type, { requireExplicit: !type })}</select>
+        </div>
         <div class="draw-item-value">
           <label>Valeur monetaire (€)</label>
           <input class="draw-value-input" type="number" min="0" step="1" value="${escapeHtml(String(Number.isFinite(valueEur) && valueEur > 0 ? valueEur : 1000000))}" />
@@ -8483,7 +8912,8 @@ function renderDrawPreview() {
   });
   els.drawSummaryList.innerHTML = rows.join('');
   const drawBusy = state.activeSubmitMode === 'drawn' && state.backendComputeActive;
-  els.submitDrawingBtn.disabled = drawBusy || layers.length === 0;
+  const hasMissingType = layers.some((layer) => !validExposureType(layer.feature?.properties?.exposure_type));
+  els.submitDrawingBtn.disabled = drawBusy || layers.length === 0 || hasMissingType;
 }
 
 function renderAll() {
@@ -8492,10 +8922,7 @@ function renderAll() {
   }
   renderWindMaps();
   if (state.currentPage === 'page6') {
-    renderAdminVisuPage();
-    renderAdminPopulationMap();
-    renderAdminVulnerabilityOverviewCurves();
-    renderAdminLandslideVulnerabilityCurves();
+    renderAdminConsole().catch(() => {});
   }
   renderWaterInfraMap();
   renderInfraSummary();
@@ -9309,10 +9736,6 @@ function stopPolling() {
 }
 
 async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false, submitMode = null } = {}) {
-  if (runtime.isPublicShowcase) {
-    showError("Le suivi de jobs est indisponible en mode vitrine publique.");
-    return;
-  }
   const normalizedModeTarget = normalizeDatasetMode(modeTarget);
   stopPolling();
   if (submitMode) {
@@ -9326,16 +9749,21 @@ async function pollJob(jobId, { modeTarget = 'uploaded', immediate = false, subm
 
   const runOnce = async () => {
     try {
-      const res = await fetch(`/api/v1/runs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+      const res = await fetch(runApiUrl(jobId), { cache: 'no-store', credentials: 'same-origin' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const job = await res.json();
-      rememberRunLabel(job.job_id, runLabelForJob(jobId) || job.job_id);
+      rememberRunLabel(job.job_id, job.run_label || runLabelForJob(jobId) || job.job_id);
       const runLabel = runLabelForJob(job.job_id);
-      const msg = `${runLabel || job.job_id} · ${job.status} · ${job.stage} · ${Math.round((job.progress || 0) * 100)}%${job.message ? ` · ${job.message}` : ''}${job?.error?.message ? ` · ${job.error.message}` : ''}`;
+      const etaText = formatEtaSeconds(job.eta_seconds);
+      const startedText = job.started_at ? ` · debut ${formatDate(job.started_at)}` : '';
+      const etaSegment = job.calculation_mode === 'complete' && job.status !== 'completed'
+        ? (etaText ? ` · ${etaText}` : ' · estimation en attente')
+        : '';
+      const msg = `${runLabel || job.job_id} · ${job.status} · ${job.stage} · ${Math.round((job.progress || 0) * 100)}%${startedText}${etaSegment}${job.message ? ` · ${job.message}` : ''}${job?.error?.message ? ` · ${job.error.message}` : ''}`;
       setStatus(msg, job.status === 'failed' ? 'error' : (job.status === 'completed' ? 'success' : 'info'));
 
       if (job.status === 'completed') {
-        const resultRes = await fetch(`/api/v1/runs/${encodeURIComponent(jobId)}/result`, { cache: 'no-store' });
+        const resultRes = await fetch(runApiUrl(jobId, '/result'), { cache: 'no-store', credentials: 'same-origin' });
         if (!resultRes.ok) throw new Error(`Result HTTP ${resultRes.status}`);
         const payload = ensureResultShape(await resultRes.json());
         const resolvedMode = datasetModeFromResult(payload, job?.dataset_mode || normalizedModeTarget);
@@ -9379,7 +9807,7 @@ async function resolveRunLookup(inputValue) {
     let modeTarget = normalizeDatasetMode(recent?.dataset_mode || state.selectedDatasetMode);
     let runLabel = runLabelForJob(query) || String(recent?.run_label || query).trim() || query;
     try {
-      const jobRes = await fetch(`/api/v1/runs/${encodeURIComponent(query)}`, { cache: 'no-store' });
+      const jobRes = await fetch(runApiUrl(query), { cache: 'no-store', credentials: 'same-origin' });
       if (jobRes.ok) {
         const jobPayload = await jobRes.json();
         modeTarget = normalizeDatasetMode(jobPayload?.dataset_mode || modeTarget);
@@ -9391,7 +9819,10 @@ async function resolveRunLookup(inputValue) {
     }
     return { jobId: query, modeTarget, runLabel };
   }
-  const res = await fetch(`/api/v1/runs/search?run_label=${encodeURIComponent(query)}`, { cache: 'no-store' });
+  if (!state.auth?.authenticated) {
+    throw new Error("Sans compte connecte, rechargez un resultat avec son identifiant job_id.");
+  }
+  const res = await fetch(`/api/v1/runs/search?run_label=${encodeURIComponent(query)}`, { cache: 'no-store', credentials: 'same-origin' });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(payload.detail || `HTTP ${res.status}`);
@@ -9408,10 +9839,6 @@ async function resolveRunLookup(inputValue) {
 
 async function submitUpload(event) {
   event.preventDefault();
-  if (runtime.isPublicShowcase) {
-    showError("L'import d'exposition est reserve aux collaborateurs autorises.");
-    return;
-  }
   clearError();
   const file = els.uploadFile.files?.[0];
   if (!file) {
@@ -9432,22 +9859,27 @@ async function submitUpload(event) {
   form.append('asset_type_field', 'asset_type');
   form.append('exposure_category_field', 'exposure_category');
   form.append('default_exposure_category', 'habitation');
-  form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
+  form.append('target_zone', 'auto');
   form.append('run_label', runLabel);
 
   showRunDurationEstimate('uploaded');
   setSubmitButtonLoading('uploaded', true);
-  setStatus("Soumission du run d'exposition importée…", 'info');
+  setStatus("Soumission du calcul rapide sur fichier…", 'info');
   try {
-    const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
+    const res = await fetch('/api/v1/runs/quick', {
+      method: 'POST',
+      body: form,
+      credentials: 'same-origin'
+    });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(payload.detail || `HTTP ${res.status}`);
     }
-    setStatus(`Job accepté: ${payload.job_id}. Run importé en file d'attente.`, 'info');
+    setStatus(`Calcul rapide termine: ${payload.job_id}.`, 'info');
     state.selectedDatasetMode = 'uploaded';
+    rememberRunAccessToken(payload.job_id, payload.access_token);
     rememberRunLabel(payload.job_id, runLabel);
-    if (els.pollJobId) els.pollJobId.value = runLabel;
+    if (els.pollJobId) els.pollJobId.value = payload.job_id;
     refreshRunMemoryList().catch(() => {});
     await pollJob(payload.job_id, { modeTarget: 'uploaded', immediate: true, submitMode: 'uploaded' });
   } catch (err) {
@@ -9464,10 +9896,13 @@ function getDrawnFeatureCollection() {
   if (!mapRef.drawnItems) return null;
   const layers = mapRef.drawnItems.getLayers();
   if (!layers.length) return null;
-  const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
   const features = layers.map((layer) => {
     const gj = layer.toGeoJSON();
-    const currentType = String(layer?.feature?.properties?.exposure_type || gj?.properties?.exposure_type || defaultExposureType);
+    const currentType = validExposureType(layer?.feature?.properties?.exposure_type || gj?.properties?.exposure_type);
+    if (!currentType) {
+      const currentLabel = String(layer?.feature?.properties?.label || `Geometrie ${layer._leaflet_id || ''}`).trim();
+      throw new Error(`Le type d'infrastructure doit etre choisi pour la geometrie "${currentLabel}".`);
+    }
     const currentCategory = categoryFromExposureType(currentType);
     const currentAssetType = assetFromExposureType(currentType);
     const currentLabel = String(layer?.feature?.properties?.label || gj?.properties?.label || `Geometrie ${layer._leaflet_id || ''}`).trim();
@@ -9498,51 +9933,51 @@ function getDrawnFeatureCollection() {
 }
 
 async function submitDrawnExposure() {
-  if (runtime.isPublicShowcase) {
-    showError("Le run d'exposition dessinee est reserve aux collaborateurs autorises.");
-    return;
-  }
   clearError();
   let fc = null;
   try {
     fc = getDrawnFeatureCollection();
   } catch (err) {
-    showError(err.message || 'Valeur de geometrie invalide.');
+    setStatus(err.message || 'Geometrie invalide.', 'error');
     return;
   }
   if (!fc) {
-    showError("Dessinez au moins une géométrie avant de lancer un run d'exposition dessinée.");
+    setStatus("Dessinez au moins une geometrie avant de lancer le calcul rapide.", 'error');
     return;
   }
   const runLabel = els.drawRunLabel?.value.trim() || '';
   if (!runLabel) {
-    showError("Le nom du run dessine est obligatoire.");
+    setStatus("Le nom du calcul dessine est obligatoire.", 'error');
     return;
   }
 
   const form = new FormData();
   form.append('input_mode', 'drawn_geojson');
   form.append('drawn_geojson', JSON.stringify(fc));
-  const defaultExposureType = (els.drawCategory?.value || 'habitation').trim() || 'habitation';
-  form.append('default_exposure_category', categoryFromExposureType(defaultExposureType));
-  form.append('sampling_spacing_m', String(FIXED_SAMPLING_SPACING_M));
+  const firstExposureType = validExposureType(fc.features[0]?.properties?.exposure_type);
+  form.append('default_exposure_category', categoryFromExposureType(firstExposureType));
+  form.append('target_zone', 'auto');
   form.append('run_label', runLabel);
 
   showRunDurationEstimate('drawn');
   setSubmitButtonLoading('drawn', true);
-  setStatus("Soumission du run d'exposition dessinée…", 'info');
+  setStatus("Soumission du calcul rapide sur dessin…", 'info');
   try {
-    const res = await fetch('/api/v1/runs', { method: 'POST', body: form });
+    const res = await fetch('/api/v1/runs/quick', {
+      method: 'POST',
+      body: form,
+      credentials: 'same-origin'
+    });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(payload.detail || `HTTP ${res.status}`);
-    setStatus(`Job accepté: ${payload.job_id}. Run dessiné en file d'attente.`, 'info');
+    setStatus(`Calcul rapide termine: ${payload.job_id}.`, 'info');
     state.selectedDatasetMode = 'drawn';
+    rememberRunAccessToken(payload.job_id, payload.access_token);
     rememberRunLabel(payload.job_id, runLabel);
-    if (els.pollJobId) els.pollJobId.value = runLabel;
+    if (els.pollJobId) els.pollJobId.value = payload.job_id;
     refreshRunMemoryList().catch(() => {});
     await pollJob(payload.job_id, { modeTarget: 'drawn', immediate: true, submitMode: 'drawn' });
   } catch (err) {
-    showError(`Échec du lancement du run dessiné: ${err.message}`);
     setStatus(`Échec du lancement du run dessiné: ${err.message}`, 'error');
   } finally {
     if (state.activeSubmitMode !== 'drawn') {
@@ -9552,7 +9987,6 @@ async function submitDrawnExposure() {
 }
 
 function switchDatasetMode(mode) {
-  if (runtime.isPublicShowcase) return;
   state.selectedDatasetMode = mode;
 
   const candidate = state.resultsByMode[mode];
@@ -9592,7 +10026,459 @@ async function switchCaseStudyPage(pageKey, territory, { updateHash = true } = {
   }
 }
 
+async function handleLogin(event) {
+  event.preventDefault();
+  clearError();
+  const form = event.currentTarget;
+  const usingGlobalForm = form === els.globalAuthForm;
+  const usernameInput = usingGlobalForm ? els.globalAuthUsername : els.authUsername;
+  const passwordInput = usingGlobalForm ? els.globalAuthPassword : els.authPassword;
+  const username = String(usernameInput?.value || '').trim();
+  const password = String(passwordInput?.value || '');
+  if (!username || !password) {
+    showError("Renseignez le nom d'utilisateur et le mot de passe.");
+    return;
+  }
+  try {
+    const payload = await apiJson('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    state.auth.authenticated = Boolean(payload.authenticated);
+    state.auth.user = payload.user || null;
+    state.auth.csrfToken = payload.csrf_token || null;
+    state.globalAuthOpen = false;
+    if (els.authPassword) els.authPassword.value = '';
+    if (els.globalAuthPassword) els.globalAuthPassword.value = '';
+    if (els.authUsername) els.authUsername.value = username;
+    if (els.globalAuthUsername) els.globalAuthUsername.value = username;
+    updateAuthUi();
+    await refreshRunMemoryList();
+    if (currentUserIsAdmin()) renderAdminConsole().catch(() => {});
+    setStatus('Connexion active.', 'success');
+  } catch (err) {
+    showError(`Connexion impossible: ${err.message}`);
+  }
+}
+
+async function handleLogout() {
+  clearError();
+  try {
+    await apiJson('/api/v1/auth/logout', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({})
+    });
+  } catch (_) {
+    /* Session may already be expired. */
+  }
+  state.auth.authenticated = false;
+  state.auth.user = null;
+  state.auth.csrfToken = null;
+  state.globalAuthOpen = false;
+  state.recentRuns = [];
+  if (els.authPassword) els.authPassword.value = '';
+  if (els.globalAuthPassword) els.globalAuthPassword.value = '';
+  updateAuthUi();
+  renderRunMemoryList();
+  setStatus('Deconnexion effectuee.', 'info');
+}
+
+async function handleAuthEmailUpdate(event) {
+  event.preventDefault();
+  clearError();
+  const email = String(els.authEmail?.value || '').trim();
+  if (!email) {
+    showError("Renseignez une adresse e-mail de reception.");
+    return;
+  }
+  try {
+    const payload = await apiJson('/api/v1/auth/me', {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ email })
+    });
+    state.auth.user = payload.user || state.auth.user;
+    updateAuthUi();
+    setStatus('Adresse e-mail de reception mise a jour.', 'success');
+  } catch (err) {
+    showError(`Mise a jour e-mail impossible: ${err.message}`);
+  }
+}
+
+async function handleAuthPasswordChange(event) {
+  event.preventDefault();
+  clearError();
+  const currentPassword = String(els.authCurrentPassword?.value || '');
+  const newPassword = String(els.authNewPassword?.value || '');
+  if (newPassword.length < 10) {
+    showError('Le nouveau mot de passe doit contenir au moins 10 caracteres.');
+    return;
+  }
+  try {
+    const payload = await apiJson('/api/v1/auth/change-password', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ current_password: currentPassword || null, new_password: newPassword })
+    });
+    state.auth.user = payload.user || state.auth.user;
+    if (els.authCurrentPassword) els.authCurrentPassword.value = '';
+    if (els.authNewPassword) els.authNewPassword.value = '';
+    if (els.authPasswordStatus) els.authPasswordStatus.textContent = 'Mot de passe mis a jour.';
+    updateAuthUi();
+    setStatus('Mot de passe mis a jour.', 'success');
+  } catch (err) {
+    if (els.authPasswordStatus) els.authPasswordStatus.textContent = `Mise a jour impossible: ${err.message}`;
+  }
+}
+
+function adminCanEditRole(targetRole) {
+  const role = String(targetRole || '');
+  if (role === 'super_admin') return false;
+  if (role === 'admin') return currentUserIsSuperAdmin();
+  return currentUserIsAdmin();
+}
+
+function renderAdminGuard() {
+  const isAllowed = currentUserIsAdmin();
+  setElementHidden(els.adminConsoleGuard, isAllowed);
+  setElementHidden(els.adminCreateUserForm, !isAllowed);
+  if (els.adminRefreshBtn) els.adminRefreshBtn.disabled = !isAllowed;
+  if (els.adminNewRole) {
+    const adminOption = Array.from(els.adminNewRole.options || []).find((option) => option.value === 'admin');
+    if (adminOption) adminOption.disabled = !currentUserIsSuperAdmin();
+    if (!currentUserIsSuperAdmin() && els.adminNewRole.value === 'admin') {
+      els.adminNewRole.value = 'authorized_user';
+    }
+  }
+  if (!isAllowed) {
+    if (els.adminUsersBody) els.adminUsersBody.innerHTML = '<tr><td colspan="10">Acces admin requis.</td></tr>';
+    if (els.adminRunsBody) els.adminRunsBody.innerHTML = '<tr><td colspan="10">Acces admin requis.</td></tr>';
+    if (els.adminActivityBody) els.adminActivityBody.innerHTML = '<tr><td colspan="4">Acces admin requis.</td></tr>';
+    if (els.adminUserDetail) els.adminUserDetail.hidden = true;
+  }
+  return isAllowed;
+}
+
+function runErrorText(run) {
+  return String(run?.error_message || run?.error_code || '').slice(0, 160);
+}
+
+function runDurationText(run) {
+  const started = run?.started_at || run?.created_at;
+  const finished = run?.finished_at;
+  if (!started || !finished) return '—';
+  const startDate = new Date(started);
+  const finishDate = new Date(finished);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(finishDate.getTime())) return '—';
+  const seconds = Math.max(0, Math.round((finishDate.getTime() - startDate.getTime()) / 1000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const remSeconds = seconds % 60;
+  if (minutes < 60) return `${minutes} min ${remSeconds} s`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return `${hours} h ${remMinutes} min`;
+}
+
+function runArtifactLinks(run) {
+  const filenames = String(run?.artifact_filenames || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!filenames.length) return '—';
+  const links = filenames
+    .filter((name) => ['user-results-report.pdf', 'user-results-matrix.xlsx', 'graphs-manifest.json'].includes(name))
+    .map((name) => {
+      const jobId = encodeURIComponent(String(run?.job_id || ''));
+      const fileName = encodeURIComponent(name);
+      return `<a href="/api/v1/runs/${jobId}/artifacts/${fileName}" download>${escapeHtml(downloadLabel(name))}</a>`;
+    })
+    .join(' ');
+  return links || '—';
+}
+
+function renderAdminUsers(payload) {
+  if (!els.adminUsersBody) return;
+  const users = Array.isArray(payload?.items) ? payload.items : [];
+  if (!users.length) {
+    els.adminUsersBody.innerHTML = '<tr><td colspan="10">Aucun compte.</td></tr>';
+    return;
+  }
+  els.adminUsersBody.innerHTML = users.map((user) => {
+    const id = String(user.id || '');
+    const role = String(user.role || '');
+    const isActive = Number(user.is_active) === 1 || user.is_active === true;
+    const activeRun = Number(user.has_active_run || 0) > 0;
+    const canModify = adminCanEditRole(role);
+    const canEditRole = currentUserIsSuperAdmin() && role !== 'super_admin';
+    const roleCell = canEditRole
+      ? `<select class="admin-role-select" data-user-id="${escapeHtml(id)}" aria-label="Role de ${escapeHtml(user.username || '')}">
+          <option value="authorized_user" ${role === 'authorized_user' ? 'selected' : ''}>Utilisateur autorise</option>
+          <option value="admin" ${role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>`
+      : escapeHtml(role);
+    return `
+      <tr>
+        <td><button type="button" class="link-btn admin-user-detail-btn" data-user-id="${escapeHtml(id)}" data-username="${escapeHtml(user.username || '')}">${escapeHtml(user.username || '')}</button></td>
+        <td>${escapeHtml(user.email || '')}</td>
+        <td>${roleCell}</td>
+        <td>${isActive ? 'Actif' : 'Desactive'}</td>
+        <td>${escapeHtml(formatDate(user.created_at))}</td>
+        <td>${escapeHtml(formatDate(user.last_login_at))}</td>
+        <td class="num">${escapeHtml(numberFmt.format(Number(user.total_runs || 0)))}</td>
+        <td>${escapeHtml(formatDate(user.last_run_at))}</td>
+        <td>${activeRun ? 'Oui' : 'Non'}</td>
+        <td>
+          <button type="button" class="admin-toggle-user-btn" data-user-id="${escapeHtml(id)}" data-active="${isActive ? '0' : '1'}" ${canModify ? '' : 'disabled'}>${isActive ? 'Desactiver' : 'Reactiver'}</button>
+          <button type="button" class="admin-reset-user-btn" data-user-id="${escapeHtml(id)}" ${canModify ? '' : 'disabled'}>Reset</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  if (els.adminUsersPrevBtn) els.adminUsersPrevBtn.disabled = state.adminConsole.usersOffset <= 0;
+  if (els.adminUsersNextBtn) els.adminUsersNextBtn.disabled = state.adminConsole.usersOffset + state.adminConsole.pageSize >= Number(payload?.total || 0);
+}
+
+function renderAdminRuns(payload, targetBody = els.adminRunsBody) {
+  if (!targetBody) return;
+  const runs = Array.isArray(payload?.items) ? payload.items : [];
+  const includeOwner = targetBody === els.adminRunsBody;
+  const colspan = includeOwner ? 9 : 8;
+  if (!runs.length) {
+    targetBody.innerHTML = `<tr><td colspan="${colspan}">Aucun run.</td></tr>`;
+    return;
+  }
+  targetBody.innerHTML = runs.map((run) => `
+    <tr>
+      <td><code>${escapeHtml(run.job_id || '')}</code><br /><span class="muted small">${escapeHtml(run.run_label || '')}</span></td>
+      ${includeOwner ? `<td>${escapeHtml(run.owner_username || 'visiteur')}</td>` : ''}
+      <td>${escapeHtml(run.run_type || '')}</td>
+      <td>${escapeHtml(formatDate(run.started_at || run.created_at))}</td>
+      <td>${escapeHtml(formatDate(run.finished_at))}</td>
+      <td>${escapeHtml(runDurationText(run))}</td>
+      <td>${escapeHtml(run.status || '')}<br /><span class="muted small">${escapeHtml([run.stage, run.output_status ? `outputs ${run.output_status}` : ''].filter(Boolean).join(' · '))}</span></td>
+      <td>${runArtifactLinks(run)}</td>
+      <td>${escapeHtml(runErrorText(run))}</td>
+    </tr>
+  `).join('');
+  if (targetBody === els.adminRunsBody) {
+    if (els.adminRunsPrevBtn) els.adminRunsPrevBtn.disabled = state.adminConsole.runsOffset <= 0;
+    if (els.adminRunsNextBtn) els.adminRunsNextBtn.disabled = state.adminConsole.runsOffset + state.adminConsole.pageSize >= Number(payload?.total || 0);
+  }
+}
+
+function renderAdminActivity(payload) {
+  if (!els.adminActivityBody) return;
+  const rows = Array.isArray(payload?.items) ? payload.items : [];
+  if (!rows.length) {
+    els.adminActivityBody.innerHTML = '<tr><td colspan="4">Aucune activite recente.</td></tr>';
+    return;
+  }
+  els.adminActivityBody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(formatDate(row.created_at))}</td>
+      <td>${escapeHtml(row.actor_username || '')}</td>
+      <td>${escapeHtml(row.action || '')}</td>
+      <td>${escapeHtml([row.target_type, row.target_id].filter(Boolean).join(':'))}</td>
+    </tr>
+  `).join('');
+}
+
+async function renderAdminConsole() {
+  if (!renderAdminGuard()) return;
+  try {
+    const limit = state.adminConsole.pageSize;
+    const [users, runs, activity] = await Promise.all([
+      apiJson(`/api/v1/admin/users?limit=${limit}&offset=${state.adminConsole.usersOffset}`, { method: 'GET' }),
+      apiJson(`/api/v1/admin/runs?limit=${limit}&offset=${state.adminConsole.runsOffset}`, { method: 'GET' }),
+      apiJson('/api/v1/admin/activity?limit=25&offset=0', { method: 'GET' })
+    ]);
+    renderAdminUsers(users);
+    renderAdminRuns(runs);
+    renderAdminActivity(activity);
+  } catch (err) {
+    setStatus(`Console admin indisponible: ${err.message}`, 'error');
+  }
+}
+
+async function handleAdminCreateUser(event) {
+  event.preventDefault();
+  clearError();
+  const payload = {
+    username: String(els.adminNewUsername?.value || '').trim(),
+    email: String(els.adminNewEmail?.value || '').trim(),
+    password: String(els.adminNewPassword?.value || ''),
+    role: String(els.adminNewRole?.value || 'authorized_user'),
+    is_active: Boolean(els.adminNewActive?.checked)
+  };
+  try {
+    await apiJson('/api/v1/admin/users', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (els.adminCreateUserStatus) els.adminCreateUserStatus.textContent = 'Compte cree. Le mot de passe initial devra etre modifie a la premiere connexion.';
+    if (els.adminNewPassword) els.adminNewPassword.value = '';
+    await renderAdminConsole();
+  } catch (err) {
+    if (els.adminCreateUserStatus) els.adminCreateUserStatus.textContent = `Creation impossible: ${err.message}`;
+  }
+}
+
+async function loadAdminUserRuns(userId, username) {
+  if (!userId || !els.adminUserDetail) return;
+  state.adminConsole.selectedUserId = userId;
+  els.adminUserDetail.hidden = false;
+  if (els.adminUserDetailTitle) els.adminUserDetailTitle.textContent = `Historique complet - ${username || userId}`;
+  try {
+    const payload = await apiJson(`/api/v1/admin/users/${encodeURIComponent(userId)}/runs?limit=100&offset=0`, { method: 'GET' });
+    renderAdminRuns(payload, els.adminUserRunsBody);
+  } catch (err) {
+    if (els.adminUserRunsBody) els.adminUserRunsBody.innerHTML = `<tr><td colspan="9">Historique indisponible: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function handleAdminTableClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  const detailBtn = target.closest('.admin-user-detail-btn');
+  if (detailBtn) {
+    await loadAdminUserRuns(String(detailBtn.getAttribute('data-user-id') || ''), String(detailBtn.getAttribute('data-username') || ''));
+    return;
+  }
+  const toggleBtn = target.closest('.admin-toggle-user-btn');
+  if (toggleBtn) {
+    const userId = String(toggleBtn.getAttribute('data-user-id') || '');
+    const active = String(toggleBtn.getAttribute('data-active') || '') === '1';
+    try {
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ is_active: active })
+      });
+      await renderAdminConsole();
+    } catch (err) {
+      setStatus(`Mise a jour compte impossible: ${err.message}`, 'error');
+    }
+    return;
+  }
+  const resetBtn = target.closest('.admin-reset-user-btn');
+  if (resetBtn) {
+    const userId = String(resetBtn.getAttribute('data-user-id') || '');
+    const password = window.prompt('Nouveau mot de passe initial (10 caracteres minimum)');
+    if (!password) return;
+    try {
+      await apiJson(`/api/v1/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ password, must_change_password: true })
+      });
+      setStatus('Mot de passe reinitialise. Il ne sera plus affiche.', 'success');
+      await renderAdminConsole();
+    } catch (err) {
+      setStatus(`Reset impossible: ${err.message}`, 'error');
+    }
+  }
+}
+
+async function handleAdminTableChange(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  const roleSelect = target.closest('.admin-role-select');
+  if (!roleSelect) return;
+  const userId = String(roleSelect.getAttribute('data-user-id') || '');
+  const role = String(roleSelect.value || '');
+  if (!userId || !currentUserIsSuperAdmin()) {
+    await renderAdminConsole();
+    return;
+  }
+  try {
+    await apiJson(`/api/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ role })
+    });
+    setStatus(role === 'admin' ? 'Compte nomme admin.' : 'Role admin retire.', 'success');
+    await renderAdminConsole();
+  } catch (err) {
+    setStatus(`Modification du role impossible: ${err.message}`, 'error');
+    await renderAdminConsole();
+  }
+}
+
 function bindEvents() {
+  if (els.globalAuthToggle) {
+    els.globalAuthToggle.addEventListener('click', () => {
+      state.globalAuthOpen = !state.globalAuthOpen;
+      updateAuthUi();
+      if (state.globalAuthOpen && els.globalAuthUsername) els.globalAuthUsername.focus();
+    });
+  }
+  if (els.globalAuthForm) {
+    els.globalAuthForm.addEventListener('submit', handleLogin);
+  }
+  if (els.globalAuthLogout) {
+    els.globalAuthLogout.addEventListener('click', handleLogout);
+  }
+  if (els.authLoginForm) {
+    els.authLoginForm.addEventListener('submit', handleLogin);
+  }
+  if (els.authLogoutBtn) {
+    els.authLogoutBtn.addEventListener('click', handleLogout);
+  }
+  if (els.authEmailForm) {
+    els.authEmailForm.addEventListener('submit', handleAuthEmailUpdate);
+  }
+  if (els.authPasswordForm) {
+    els.authPasswordForm.addEventListener('submit', handleAuthPasswordChange);
+  }
+  if (els.adminRefreshBtn) {
+    els.adminRefreshBtn.addEventListener('click', () => {
+      renderAdminConsole().catch((err) => setStatus(`Console admin indisponible: ${err.message}`, 'error'));
+    });
+  }
+  if (els.adminCreateUserForm) {
+    els.adminCreateUserForm.addEventListener('submit', handleAdminCreateUser);
+  }
+  if (els.adminUsersBody) {
+    els.adminUsersBody.addEventListener('click', (event) => {
+      handleAdminTableClick(event).catch((err) => setStatus(`Action admin impossible: ${err.message}`, 'error'));
+    });
+    els.adminUsersBody.addEventListener('change', (event) => {
+      handleAdminTableChange(event).catch((err) => setStatus(`Action admin impossible: ${err.message}`, 'error'));
+    });
+  }
+  if (els.adminUsersPrevBtn) {
+    els.adminUsersPrevBtn.addEventListener('click', () => {
+      state.adminConsole.usersOffset = Math.max(0, state.adminConsole.usersOffset - state.adminConsole.pageSize);
+      renderAdminConsole().catch(() => {});
+    });
+  }
+  if (els.adminUsersNextBtn) {
+    els.adminUsersNextBtn.addEventListener('click', () => {
+      state.adminConsole.usersOffset += state.adminConsole.pageSize;
+      renderAdminConsole().catch(() => {});
+    });
+  }
+  if (els.adminRunsPrevBtn) {
+    els.adminRunsPrevBtn.addEventListener('click', () => {
+      state.adminConsole.runsOffset = Math.max(0, state.adminConsole.runsOffset - state.adminConsole.pageSize);
+      renderAdminConsole().catch(() => {});
+    });
+  }
+  if (els.adminRunsNextBtn) {
+    els.adminRunsNextBtn.addEventListener('click', () => {
+      state.adminConsole.runsOffset += state.adminConsole.pageSize;
+      renderAdminConsole().catch(() => {});
+    });
+  }
+  if (els.adminUserDetailCloseBtn) {
+    els.adminUserDetailCloseBtn.addEventListener('click', () => {
+      if (els.adminUserDetail) els.adminUserDetail.hidden = true;
+      state.adminConsole.selectedUserId = '';
+    });
+  }
   if (els.navPage1) {
     els.navPage1.addEventListener('click', () => {
       setActivePage('page1');
@@ -9616,11 +10502,6 @@ function bindEvents() {
   }
   if (els.navPage4) {
     els.navPage4.addEventListener('click', () => {
-      if (runtime.isPublicShowcase) {
-        setActivePage('page1');
-        setStatus("L'espace collaborateur est disponible sur app.sib.elio.dev.", 'info');
-        return;
-      }
       setActivePage('page4');
       renderAll();
     });
@@ -9633,9 +10514,9 @@ function bindEvents() {
   }
   if (els.navPage6) {
     els.navPage6.addEventListener('click', () => {
-      if (!runtime.allowAdminVisu) {
-        setActivePage('page1');
-        setStatus("La page Admin visu n'est pas disponible sur ce domaine.", 'info');
+      if (!shouldShowAdminEntry()) {
+        setActivePage('page4');
+        setStatus("Connectez-vous avec un compte admin pour acceder a l'administration.", 'info');
         return;
       }
       setActivePage('page6');
@@ -9648,6 +10529,11 @@ function bindEvents() {
       return;
     }
     if (page === 'page6') {
+      if (!shouldShowAdminEntry()) {
+        setActivePage('page4', { updateHash: true });
+        setStatus("Connectez-vous avec un compte admin pour acceder a l'administration.", 'info');
+        return;
+      }
       setActivePage('page6', { updateHash: false });
       return;
     }
@@ -9916,10 +10802,6 @@ function bindEvents() {
   }
 
   els.reloadJobBtn.addEventListener('click', async () => {
-    if (runtime.isPublicShowcase) {
-      showError("Le rechargement de jobs est reserve aux collaborateurs autorises.");
-      return;
-    }
     const lookup = els.pollJobId.value.trim();
     if (!lookup) {
       showError('Renseignez un nom de run ou un identifiant de job pour recharger un résultat.');
@@ -9942,7 +10824,6 @@ function bindEvents() {
 
   if (els.runMemoryList) {
     els.runMemoryList.addEventListener('click', async (event) => {
-      if (runtime.isPublicShowcase) return;
       const target = event.target instanceof Element ? event.target : null;
       const btn = target ? target.closest('button[data-run-job-id]') : null;
       if (!btn) return;
@@ -9981,8 +10862,9 @@ function bindEvents() {
       const target = event.target instanceof Element ? event.target : null;
       const input = target ? target.closest('.draw-name-input') : null;
       const valueInput = target ? target.closest('.draw-value-input') : null;
-      if (!input && !valueInput) return;
-      const row = (input || valueInput).closest('[data-layer-id]');
+      const typeInput = target ? target.closest('.draw-type-input') : null;
+      if (!input && !valueInput && !typeInput) return;
+      const row = (input || valueInput || typeInput).closest('[data-layer-id]');
       if (!row || !mapRef.drawnItems) return;
       const layerId = Number(row.getAttribute('data-layer-id'));
       const layer = mapRef.drawnItems.getLayer(layerId);
@@ -10000,6 +10882,17 @@ function bindEvents() {
           value_eur: Number(valueInput.value)
         };
       }
+      if (typeInput) {
+        const exposureType = validExposureType(typeInput.value);
+        if (!exposureType) return;
+        layer.feature.properties = {
+          ...(layer.feature.properties || {}),
+          exposure_type: exposureType,
+          exposure_category: categoryFromExposureType(exposureType),
+          asset_type: assetFromExposureType(exposureType)
+        };
+        rememberDrawExposureType(exposureType);
+      }
       const drawFc = drawFeatureCollectionFromMapLayers();
       if (drawFc) {
         ensureStormCoverageLoaded()
@@ -10012,6 +10905,7 @@ function bindEvents() {
       } else {
         setOutsideCoverageWarning('drawn', []);
       }
+      setSubmitButtonLoading('drawn', false);
     });
     els.drawSummaryList.addEventListener('click', (event) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -10042,25 +10936,29 @@ function bindEvents() {
       els.submitDrawingBtn.disabled = mapRef.drawnItems.getLayers().length === 0;
     });
   }
-  if (els.drawCategory) {
-    els.drawCategory.addEventListener('change', () => {
-      if (!mapRef.drawnItems) return;
-      const exposureType = (els.drawCategory.value || 'habitation').trim() || 'habitation';
-      mapRef.drawnItems.getLayers().forEach((layer) => {
-        layer.feature = layer.feature || { type: 'Feature', properties: {} };
-        layer.feature.properties = {
-          ...(layer.feature.properties || {}),
-          exposure_type: exposureType,
-          exposure_category: categoryFromExposureType(exposureType),
-          asset_type: assetFromExposureType(exposureType)
-        };
-      });
-      renderDrawPreview();
+
+  if (els.drawTypeSelect) {
+    els.drawTypeSelect.addEventListener('input', () => {
+      if (els.drawTypeConfirm) els.drawTypeConfirm.disabled = !validExposureType(els.drawTypeSelect.value);
+    });
+  }
+  if (els.drawTypeForm) {
+    els.drawTypeForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      confirmPendingDrawType();
+    });
+  }
+  if (els.drawTypeCancel) els.drawTypeCancel.addEventListener('click', cancelPendingDraw);
+  if (els.drawTypeDialog) {
+    els.drawTypeDialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      cancelPendingDraw();
     });
   }
 
   els.clearDrawingsBtn.addEventListener('click', () => {
     if (!mapRef.drawnItems) return;
+    cancelPendingDraw();
     disableActiveDrawMode();
     mapRef.drawnItems.clearLayers();
     setOutsideCoverageWarning('drawn', []);
@@ -10088,12 +10986,13 @@ async function bootstrap() {
     clearError();
     applyRuntimeMode();
     bindEvents();
+    await refreshAuthState();
     ensureStormCoverageLoaded().catch(() => {});
-    if (!runtime.isPublicShowcase) {
-      await refreshRunMemoryList();
-    }
-    const initialPage = pageFromHash();
-    setActivePage(initialPage, { updateHash: false });
+    await refreshRunMemoryList();
+    let initialPage = pageFromHash();
+    const redirectBlockedAdminPage = initialPage === 'page6' && !shouldShowAdminEntry();
+    if (redirectBlockedAdminPage) initialPage = 'page4';
+    setActivePage(initialPage, { updateHash: redirectBlockedAdminPage });
     renderDrawPreview();
     const initialTerritory = caseStudyTerritoryForPage(initialPage);
     const initialCaseStudyRequestId = ++state.caseStudyLoadSequence;
@@ -10117,60 +11016,13 @@ async function bootstrap() {
       if (els.conclusionText) els.conclusionText.textContent = 'Conclusion indisponible.';
     }
 
-    if (runtime.allowAdminVisu) {
-      ensureAdminVisuMapsLoaded()
-        .then(() => {
-          if (state.currentPage === 'page6') renderAdminVisuPage();
-        })
-        .catch((err) => {
-          console.warn('Admin visu preload failed', err);
-          if (state.currentPage === 'page6') {
-            setStatus(`Admin visu indisponible: ${err.message}`, 'error');
-          }
-        });
-      ensureAdminPopulationMapsLoaded()
-        .then(() => {
-          if (state.currentPage === 'page6') renderAdminPopulationMap();
-        })
-        .catch((err) => {
-          console.warn('Admin population preload failed', err);
-          if (state.currentPage === 'page6') {
-            setStatus(`Population admin indisponible: ${err.message}`, 'error');
-          }
-        });
-      Promise.all([
-        ensureAdminVulnerabilityCurvesLoaded(),
-        ensureAdminHydroVulnerabilityCurvesLoaded('rain'),
-        ensureAdminHydroVulnerabilityCurvesLoaded('surge')
-      ])
-        .then(() => {
-          if (state.currentPage === 'page6') renderAdminVulnerabilityOverviewCurves();
-        })
-        .catch((err) => {
-          console.warn('Admin vulnerability curves preload failed', err);
-          if (state.currentPage === 'page6') {
-            setStatus(`Courbes de vulnerabilite indisponibles: ${err.message}`, 'error');
-          }
-        });
-      ensureAdminHydroVulnerabilityCurvesLoaded('landslide')
-        .then(() => {
-          if (state.currentPage === 'page6') renderAdminLandslideVulnerabilityCurves();
-        })
-        .catch((err) => {
-          console.warn('Admin landslide curves preload failed', err);
-          if (state.currentPage === 'page6') {
-            setStatus(`Courbes de mouvements de terrain indisponibles: ${err.message}`, 'error');
-          }
-        });
-    }
-
     state.activeResult = null;
     if (els.datasetSelect) els.datasetSelect.value = state.selectedDatasetMode;
     renderAll();
     if (runtime.isPublicShowcase) {
-      setStatus("References Guadeloupe/Martinique chargees. Pour collaborer sur des runs personnalises, demande un acces a app.sib.elio.dev.", 'success');
+      setStatus("Mode public pret. Dessinez une exposition ou importez un fichier avance pour lancer un calcul rapide.", 'success');
     } else {
-      setStatus("Page collaborateur prete. Importez ou dessinez une exposition pour lancer un premier run.", 'success');
+      setStatus("Page prete. Dessinez une exposition ou importez un fichier avance pour lancer un calcul rapide.", 'success');
     }
   } catch (err) {
     console.error(err);

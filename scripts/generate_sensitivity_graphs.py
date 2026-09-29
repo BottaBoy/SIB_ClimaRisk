@@ -205,6 +205,7 @@ SOCIAL_SUPER_GRAPH_STATE_LABELS = {
     "S3": "S3",
 }
 SUPER_TORNADO_LABEL_SCALE = 2.0
+SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE: int | None = None
 
 COMPLETE_ANALYSIS_JSON_RE = re.compile(
     r"(?P<path>/[^\s]+outputs/complete-analysis-runs/[^\s]+/territories/[^\s]+/web/data/[^\s]+-complete-analysis\.json)"
@@ -272,6 +273,17 @@ def set_storm_cmcc_layout(layout: str) -> None:
     if normalized not in STORM_CMCC_LAYOUT_CHOICES:
         raise ValueError(f"Unsupported storm/cmcc layout: {layout!r}")
     STORM_CMCC_LAYOUT = normalized
+
+
+def set_super_social_label_fontsize(fontsize: int | None) -> None:
+    global SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE
+    if fontsize is None:
+        SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE = None
+        return
+    value = int(fontsize)
+    if value < 8:
+        raise ValueError("--super-social-label-fontsize must be >= 8")
+    SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE = value
 
 
 def _hazard_hatch(hazard: str) -> str:
@@ -1050,6 +1062,21 @@ def short_scenario_label_from_values(
     if scenario_id == "all-default":
         return "défaut"
 
+    if parameter_key == "vulnerability_curves_profile":
+        if parameter_value:
+            return parameter_value
+        prefix = "vulnerability_curves_profile-"
+        if scenario_id.startswith(prefix):
+            return scenario_id[len(prefix) :]
+
+    if parameter_key == "hazard_dynamic_max_tracks":
+        value = parameter_value
+        prefix = "hazard_dynamic_max_tracks-"
+        if not value and scenario_id.startswith(prefix):
+            value = scenario_id[len(prefix) :]
+        if value:
+            return f"hazard_nb_tracks = {value}"
+
     parameter_label = ""
     if parameter_key and parameter_value:
         parameter_label = f"{parameter_key} = {parameter_value}"
@@ -1301,12 +1328,146 @@ def _scenario_tick_fontsize(count: int) -> int:
 
 def _super_tornado_y_tick_fontsize(count: int) -> int:
     if count >= 40:
-        return 10
+        return 13
     if count >= 25:
-        return 11
+        return 14
     if count >= 14:
-        return 12
-    return 14
+        return 15
+    return 17
+
+
+def _super_social_state_y_tick_fontsize(count: int) -> int:
+    if SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE is not None:
+        return int(SUPER_SOCIAL_LABEL_FONTSIZE_OVERRIDE)
+    if count >= 25:
+        return 21
+    if count >= 14:
+        return 24
+    if count >= 9:
+        return 30
+    if count >= 6:
+        return 32
+    return 34
+
+
+def _set_super_scenario_ticklabels(
+    ax: plt.Axes,
+    labels: pd.Series,
+    *,
+    fontsize: int,
+    rotation: float = 0.0,
+) -> None:
+    ax.set_yticklabels(
+        labels,
+        fontsize=fontsize,
+        fontweight="semibold",
+        color="#0f172a",
+        rotation=rotation,
+        ha="right",
+        va="center",
+        rotation_mode="anchor",
+    )
+    ax.tick_params(axis="y", pad=9, length=0)
+
+
+def _fit_super_scenario_ticklabels_to_frame(
+    fig: plt.Figure,
+    ax: plt.Axes,
+    labels: pd.Series,
+    *,
+    preferred_fontsize: int,
+    min_fontsize: int,
+    left: float,
+    right: float,
+    top: float,
+    bottom: float,
+    wspace: float,
+    max_left: float,
+    min_padding_px: float = 14.0,
+) -> tuple[int, float]:
+    for fontsize in range(int(preferred_fontsize), int(min_fontsize) - 1, -1):
+        _set_super_scenario_ticklabels(ax, labels, fontsize=fontsize)
+        fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom, wspace=wspace)
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        tick_labels = [
+            label
+            for label in ax.get_yticklabels()
+            if label.get_visible() and str(label.get_text()).strip()
+        ]
+        if not tick_labels:
+            return fontsize, left
+
+        min_x = min(label.get_window_extent(renderer=renderer).x0 for label in tick_labels)
+        if min_x >= min_padding_px:
+            return fontsize, left
+
+        figure_width_px = max(float(fig.get_figwidth() * fig.dpi), 1.0)
+        required_left = left + ((min_padding_px - min_x) / figure_width_px)
+        if required_left <= max_left:
+            fig.subplots_adjust(left=required_left, right=right, top=top, bottom=bottom, wspace=wspace)
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            fitted_min_x = min(label.get_window_extent(renderer=renderer).x0 for label in tick_labels)
+            if fitted_min_x >= min_padding_px - 1.0:
+                return fontsize, required_left
+
+    _set_super_scenario_ticklabels(ax, labels, fontsize=min_fontsize)
+    fig.subplots_adjust(left=max_left, right=right, top=top, bottom=bottom, wspace=wspace)
+    return min_fontsize, max_left
+
+
+def _fit_super_social_ticklabels_to_frame(
+    fig: plt.Figure,
+    axes: list[plt.Axes],
+    labels: pd.Series,
+    *,
+    preferred_fontsize: int,
+    min_fontsize: int,
+    left: float,
+    right: float,
+    top: float,
+    bottom: float,
+    hspace: float,
+    max_left: float,
+    min_padding_px: float = 16.0,
+) -> tuple[int, float]:
+    axes = list(axes)
+    if not axes:
+        return preferred_fontsize, left
+
+    for fontsize in range(int(preferred_fontsize), int(min_fontsize) - 1, -1):
+        for axis in axes:
+            _set_super_scenario_ticklabels(axis, labels, fontsize=fontsize)
+
+        current_left = left
+        for _ in range(4):
+            fig.subplots_adjust(left=current_left, right=right, top=top, bottom=bottom, hspace=hspace)
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            tick_labels = [
+                label
+                for axis in axes
+                for label in axis.get_yticklabels()
+                if label.get_visible() and str(label.get_text()).strip()
+            ]
+            if not tick_labels:
+                return fontsize, current_left
+
+            min_x = min(label.get_window_extent(renderer=renderer).x0 for label in tick_labels)
+            if min_x >= min_padding_px:
+                return fontsize, current_left
+
+            figure_width_px = max(float(fig.get_figwidth() * fig.dpi), 1.0)
+            required_left = current_left + ((min_padding_px - min_x) / figure_width_px)
+            if required_left > max_left:
+                break
+            current_left = required_left
+
+    for axis in axes:
+        _set_super_scenario_ticklabels(axis, labels, fontsize=min_fontsize)
+    fig.subplots_adjust(left=max_left, right=right, top=top, bottom=bottom, hspace=hspace)
+    return min_fontsize, max_left
 
 
 def _scaled_super_annotation_fontsize(base_fontsize: int, count: int) -> int:
@@ -2224,16 +2385,6 @@ def plot_super_impact_monetary_tornado(df: pd.DataFrame, output_dir: Path) -> li
 
             for axis, hazard in zip(axes, ("storm", "storm_cmcc")):
                 axis_items: list[dict[str, float | str]] = []
-                hazard_columns = [
-                    f"{hazard}__{return_period}"
-                    for return_period in IMPACT_PERIOD_ORDER
-                    if f"{hazard}__{return_period}" in summary.columns
-                ]
-                series_colors = {
-                    f"{hazard}__{return_period}": IMPACT_NEGATIVE_COLORS[return_period]
-                    for return_period in IMPACT_PERIOD_ORDER
-                    if f"{hazard}__{return_period}" in summary.columns
-                }
                 bar_height = 0.22
                 offsets = {
                     f"{hazard}__annual": -bar_height,
@@ -2279,10 +2430,23 @@ def plot_super_impact_monetary_tornado(df: pd.DataFrame, output_dir: Path) -> li
                 axis_label_items.append(axis_items)
 
             axes[0].set_yticks(y_positions)
-            axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
             axes[1].tick_params(axis="y", labelleft=False)
             for axis in axes:
                 _set_symmetric_xlim(axis, all_values, padding_factor=padding_factor, annotation_fontsize=annotation_fontsize)
+
+            _fit_super_scenario_ticklabels_to_frame(
+                fig,
+                axes[0],
+                summary["scenario_display_label"],
+                preferred_fontsize=tick_fontsize,
+                min_fontsize=11,
+                left=0.34,
+                right=0.985,
+                top=0.80,
+                bottom=0.08,
+                wspace=0.08,
+                max_left=0.48,
+            )
 
             layout_ok = True
             for axis, items in zip(axes, axis_label_items):
@@ -2311,7 +2475,6 @@ def plot_super_impact_monetary_tornado(df: pd.DataFrame, output_dir: Path) -> li
                 y=0.985,
                 x=0.5,
             )
-            fig.subplots_adjust(left=0.31, right=0.985, top=0.80, bottom=0.08, wspace=0.08)
             if layout_ok:
                 fig.savefig(output_path, dpi=160)
                 plt.close(fig)
@@ -2455,10 +2618,23 @@ def plot_super_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list
                 axis.tick_params(axis="x", labelsize=10)
 
             axes[0].set_yticks(y_positions)
-            axes[0].set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
             axes[1].tick_params(axis="y", labelleft=False)
             for axis in axes:
                 _set_symmetric_xlim(axis, all_values, padding_factor=padding_factor, annotation_fontsize=annotation_fontsize)
+
+            _fit_super_scenario_ticklabels_to_frame(
+                fig,
+                axes[0],
+                summary["scenario_display_label"],
+                preferred_fontsize=tick_fontsize,
+                min_fontsize=11,
+                left=0.34,
+                right=0.985,
+                top=0.785,
+                bottom=0.08,
+                wspace=0.08,
+                max_left=0.48,
+            )
 
             layout_ok = True
             for axis, items in zip(axes, axis_label_items):
@@ -2490,7 +2666,6 @@ def plot_super_network_state_tornado(df: pd.DataFrame, output_dir: Path) -> list
                 title="Séries",
             )
             fig.suptitle(f"{territory_label} - % réseaux", fontsize=15, y=0.985, x=0.5)
-            fig.subplots_adjust(left=0.31, right=0.985, top=0.785, bottom=0.08, wspace=0.08)
             if layout_ok:
                 fig.savefig(output_path, dpi=160)
                 plt.close(fig)
@@ -2552,7 +2727,6 @@ def plot_super_social_state_tornado(
         if summary_significance.empty:
             continue
 
-        value_columns: list[str] = []
         significance_columns: list[str] = []
         for frame in (summary_values, summary_significance):
             flattened_columns: list[str] = []
@@ -2569,9 +2743,7 @@ def plot_super_social_state_tornado(
                 flattened_columns.append(flat_name)
                 current_value_columns.append(flat_name)
             frame.columns = flattened_columns
-            if frame is summary_values:
-                value_columns = current_value_columns
-            else:
+            if frame is summary_significance:
                 significance_columns = current_value_columns
 
         label_map = territory_table.groupby("scenario_id", as_index=False).agg(
@@ -2615,18 +2787,18 @@ def plot_super_social_state_tornado(
             summary = summary.sort_values("scenario_rank", ascending=True).reset_index(drop=True)
 
             y_positions = np.arange(len(summary), dtype=float)
-            tick_fontsize = max(15, _scenario_tick_fontsize(len(summary)) + 5)
+            tick_fontsize = _super_social_state_y_tick_fontsize(len(summary))
             annotation_fontsize = max(17, _annotation_fontsize(len(summary)) + 3)
             base_width, base_height = horizontal_bar_figure_size(
                 item_count=len(summary),
                 series_count=len(PORTFOLIO_HAZARD_SERIES_ORDER),
                 label_fontsize=annotation_fontsize,
-                base_width=22.0,
+                base_width=24.0,
                 base_height=_super_graph_height(
                     len(summary),
-                    minimum=15.8,
-                    per_scenario=0.80,
-                    extra=6.6,
+                    minimum=16.2,
+                    per_scenario=0.92,
+                    extra=6.8,
                     annotation_fontsize=annotation_fontsize,
                     tick_fontsize=tick_fontsize,
                 ),
@@ -2681,7 +2853,11 @@ def plot_super_social_state_tornado(
                         pad=12,
                     )
                     axis.set_yticks(y_positions)
-                    axis.set_yticklabels(summary["scenario_display_label"], fontsize=tick_fontsize)
+                    _set_super_scenario_ticklabels(
+                        axis,
+                        summary["scenario_display_label"],
+                        fontsize=tick_fontsize,
+                    )
                     if not drawn_values:
                         axis.text(
                             0.5,
@@ -2701,6 +2877,25 @@ def plot_super_social_state_tornado(
                         padding_factor=padding_factor,
                         annotation_fontsize=annotation_fontsize,
                     )
+
+                social_left = 0.30
+                social_right = 0.99
+                social_top = 0.855
+                social_bottom = 0.06
+                social_hspace = 0.40
+                _fit_super_social_ticklabels_to_frame(
+                    fig,
+                    list(axes_array),
+                    summary["scenario_display_label"],
+                    preferred_fontsize=tick_fontsize,
+                    min_fontsize=20,
+                    left=social_left,
+                    right=social_right,
+                    top=social_top,
+                    bottom=social_bottom,
+                    hspace=social_hspace,
+                    max_left=0.54,
+                )
 
                 layout_ok = True
                 for axis, items in zip(axes_array, axis_label_items):
@@ -2731,7 +2926,6 @@ def plot_super_social_state_tornado(
                     y=0.992,
                     x=0.5,
                 )
-                fig.subplots_adjust(left=0.24, right=0.99, top=0.855, bottom=0.06, hspace=0.40)
                 if layout_ok:
                     fig.savefig(output_path, dpi=160)
                     plt.close(fig)
@@ -2977,6 +3171,12 @@ def parse_args() -> argparse.Namespace:
         default=3.0,
         help="Absolute percentage-point threshold for network_state_pct deltas when --significant-only is used.",
     )
+    parser.add_argument(
+        "--super-social-label-fontsize",
+        type=int,
+        default=None,
+        help="Preferred y-axis scenario label font size for split AEP/EU/Elec social-state super graphs.",
+    )
     return parser.parse_args()
 
 
@@ -2984,6 +3184,7 @@ def main() -> int:
     args = parse_args()
     set_state_label_style(args.state_label_style)
     set_storm_cmcc_layout(args.storm_cmcc_layout)
+    set_super_social_label_fontsize(args.super_social_label_fontsize)
 
     manifest_path = args.manifest
     if not manifest_path.is_absolute():

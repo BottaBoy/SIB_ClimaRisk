@@ -9,15 +9,20 @@ Group=www-data
 WorkingDirectory=/home/ubuntu/sib-work/backend
 EnvironmentFile=-/home/ubuntu/sib-work/config/systemd/sib-risk-api.env
 Environment=SIB_RISK_JOB_ROOT=/var/lib/sib-risk/jobs
-Environment=SIB_RISK_JOB_TTL_HOURS=24
+Environment=SIB_RISK_DB_PATH=/var/lib/sib-risk/sib.sqlite3
+Environment=SIB_RISK_JOB_TTL_HOURS=168
+Environment=SIB_RISK_MAX_RUNS_KEPT=500
 Environment=SIB_RISK_MAX_UPLOAD_MB=50
+Environment=SIB_RISK_QUICK_MAX_UPLOAD_MB=10
+Environment=SIB_RISK_QUICK_MAX_FEATURES=2000
+Environment=SIB_RISK_USER_IMPACT_SURFACES_PATH=/home/ubuntu/sib-work/web/data/user-impact-surfaces.json
 ExecStart=/home/ubuntu/sib-work/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/var/lib/sib-risk/jobs
+ReadWritePaths=/var/lib/sib-risk
 
 [Install]
 WantedBy=multi-user.target

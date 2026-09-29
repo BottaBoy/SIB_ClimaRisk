@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from ..config import Settings
 from ..job_store import JobStore
@@ -10,7 +10,13 @@ from .exposure_ingest import ingest_drawn_geojson, ingest_uploaded_exposure
 from .impact_runner import compute_impacts
 
 
-def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, store: JobStore) -> dict[str, Any]:
+def run_job_pipeline(
+    job_id: str,
+    params: dict[str, Any],
+    settings: Settings,
+    store: JobStore,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     input_mode = params.get("input_mode")
     sampling_spacing_m = float(params.get("sampling_spacing_m") or settings.default_sampling_spacing_m)
     value_field = params.get("value_field")
@@ -44,7 +50,7 @@ def run_job_pipeline(job_id: str, params: dict[str, Any], settings: Settings, st
         metric_crs=settings.climada_metric_crs,
         max_points_per_feature=int(settings.climada_max_points_per_feature),
     )
-    comp = compute_impacts(exposure, disagg, settings=settings)
+    comp = compute_impacts(exposure, disagg, settings=settings, progress_callback=progress_callback)
 
     result = build_result_payload(
         job_id=job_id,

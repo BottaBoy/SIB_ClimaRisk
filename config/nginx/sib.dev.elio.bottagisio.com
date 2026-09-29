@@ -43,27 +43,10 @@ server {
         auth_basic off;
     }
 
-    location = /api/v1/runs {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/.htpasswd-sib-copy;
-        limit_req zone=sib_api_runs burst=5 nodelay;
-
-        client_max_body_size 50m;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_pass http://127.0.0.1:8000;
-    }
-
     location /api/ {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/.htpasswd-sib-copy;
-        limit_req zone=sib_api_read burst=30 nodelay;
+        limit_req zone=sib_api_read burst=60 nodelay;
 
         client_max_body_size 50m;
         proxy_http_version 1.1;

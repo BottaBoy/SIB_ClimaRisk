@@ -9,10 +9,9 @@ This repository now includes:
 - upload and drawn-geometry API endpoints
 - unified result JSON schema for demo and user runs
 - CLIMADA production pipeline (STORM + STORM_CMCC) with electricity->water post-processing
-- deterministic fallback engine (disabled by default, configurable)
+- explicit quick user-impact screening endpoint backed by precomputed complete-analysis ratios
 
-By default, the backend tries CLIMADA first (`SIB_RISK_IMPACT_ENGINE_MODE=climada`).
-Fallback is only used if explicitly configured (`SIB_RISK_IMPACT_ENGINE_MODE=fallback`) or allowed (`SIB_RISK_ALLOW_CLIMADA_FALLBACK=true`).
+`POST /api/v1/runs` remains the CLIMADA reference path. `POST /api/v1/runs/quick` is a separate screening path and returns `engine=precomputed_user_impact_v1`; it is not a silent fallback.
 
 ## Ubuntu 24.04 note (CLIMADA + GDAL)
 
@@ -36,18 +35,24 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 Environment variables:
 - `SIB_RISK_JOB_ROOT` (default: `/tmp/sib-risk-jobs`)
 - `SIB_RISK_DEMO_RESULT_PATH` (default: `../web/data/sib-thesis-demo.json` relative to backend app)
-- `SIB_RISK_JOB_TTL_HOURS` (default: `24`)
+- `SIB_RISK_JOB_TTL_HOURS` (default: `168`)
+- `SIB_RISK_MAX_RUNS_KEPT` (default: `500`)
 - `SIB_RISK_MAX_UPLOAD_MB` (default: `50`)
-- `SIB_RISK_IMPACT_ENGINE_MODE` (`climada` or `fallback`, default: `climada`)
-- `SIB_RISK_ALLOW_CLIMADA_FALLBACK` (`false`/`true`, default: `false`)
+- `SIB_RISK_QUICK_MAX_UPLOAD_MB` (default: `10`)
+- `SIB_RISK_QUICK_MAX_FEATURES` (default: `2000`)
+- `SIB_RISK_USER_IMPACT_SURFACES_PATH` (default: `../web/data/user-impact-surfaces.json` relative to repo root)
+- `SIB_RISK_IMPACT_ENGINE_MODE` (default: `climada`; fallback legacy rejected by the scientific engine)
+- `SIB_RISK_ALLOW_CLIMADA_FALLBACK` (legacy flag kept false; fallback remains rejected)
 - `SIB_RISK_CLIMADA_METRIC_CRS` (default: `EPSG:3857`)
 - `SIB_RISK_CLIMADA_MAX_POINTS_PER_FEATURE` (default: `300`)
 - `SIB_RISK_CLIMADA_TOP_EVENTS_COUNT` (default: `20`)
-- `SIB_RISK_CORS_ALLOWED_ORIGINS` (comma-separated list, default: `https://app.sib.elio.dev,https://sib.dev.elio.bottagisio.com`)
+- `SIB_RISK_CORS_ALLOWED_ORIGINS` (comma-separated list, includes public and protected SIB domains by default)
 
 ## API
 
 - `GET /api/v1/health`
+- `GET /api/v1/hazard/coverage`
+- `POST /api/v1/runs/quick`
 - `POST /api/v1/runs`
 - `GET /api/v1/runs/{job_id}`
 - `GET /api/v1/runs/{job_id}/result`

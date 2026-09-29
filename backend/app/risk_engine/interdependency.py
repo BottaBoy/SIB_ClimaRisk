@@ -708,33 +708,38 @@ def aggregate_impacts_with_interdependency(
         eai_cmcc = float(row["eai_cmcc_eur"])
         risk_index_storm = max(0.0, min(100.0, (eai_storm / max(exp_eur, 1.0)) * 1000.0))
         risk_index_cmcc = max(0.0, min(100.0, (eai_cmcc / max(exp_eur, 1.0)) * 1000.0))
-        asset_results.append(
-            {
-                "asset_id": row["asset_id"],
-                "asset_label": row["asset_label"],
-                "geometry_type": row["geometry_type"],
-                "asset_type": row["asset_type"],
-                "service_feature_id": str(row.get("service_feature_id") or ""),
-                "zone_component_key": str(row.get("zone_component_key") or ""),
-                "zone_uid": str(row.get("zone_uid") or ""),
-                "network_kind": str(row.get("network_kind") or ""),
-                "feature_role": str(row.get("feature_role") or ""),
-                "criticality": str(row.get("criticality") or ""),
-                "uses_default_value": bool(row.get("uses_default_value")),
-                "valuation_source": str(row.get("valuation_source") or ""),
-                "valuation_version": str(row.get("valuation_version") or ""),
-                "default_value_eur": row.get("default_value_eur"),
-                "exposure_eur": round(exp_eur, 2),
-                "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
-                "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
-                "eai_storm_eur": round(eai_storm, 2),
-                "eai_cmcc_direct_eur": round(float(row["eai_cmcc_direct_eur"]), 2),
-                "eai_cmcc_indirect_eur": round(float(row["eai_cmcc_indirect_eur"]), 2),
-                "eai_cmcc_eur": round(eai_cmcc, 2),
-                "risk_index_storm": round(risk_index_storm, 2),
-                "risk_index_cmcc": round(risk_index_cmcc, 2),
-            }
-        )
+        asset_result = {
+            "asset_id": row["asset_id"],
+            "asset_label": row["asset_label"],
+            "geometry_type": row["geometry_type"],
+            "asset_type": row["asset_type"],
+            "uses_default_value": bool(row.get("uses_default_value")),
+            "valuation_source": str(row.get("valuation_source") or ""),
+            "valuation_version": str(row.get("valuation_version") or ""),
+            "exposure_eur": round(exp_eur, 2),
+            "eai_storm_direct_eur": round(float(row["eai_storm_direct_eur"]), 2),
+            "eai_storm_indirect_eur": round(float(row["eai_storm_indirect_eur"]), 2),
+            "eai_storm_eur": round(eai_storm, 2),
+            "eai_cmcc_direct_eur": round(float(row["eai_cmcc_direct_eur"]), 2),
+            "eai_cmcc_indirect_eur": round(float(row["eai_cmcc_indirect_eur"]), 2),
+            "eai_cmcc_eur": round(eai_cmcc, 2),
+            "risk_index_storm": round(risk_index_storm, 2),
+            "risk_index_cmcc": round(risk_index_cmcc, 2),
+        }
+        for optional_key in (
+            "service_feature_id",
+            "zone_component_key",
+            "zone_uid",
+            "network_kind",
+            "feature_role",
+            "criticality",
+        ):
+            optional_value = str(row.get(optional_key) or "")
+            if optional_value:
+                asset_result[optional_key] = optional_value
+        if row.get("default_value_eur") is not None:
+            asset_result["default_value_eur"] = row["default_value_eur"]
+        asset_results.append(asset_result)
     asset_results.sort(key=lambda row: float(row.get("exposure_eur") or 0.0), reverse=True)
 
     portfolio_by_hazard: dict[str, dict[str, float]] = {}
@@ -777,7 +782,6 @@ def aggregate_impacts_with_interdependency(
         hazard: defaultdict(dict) for hazard in hazard_keys
     }
     for hazard in hazard_keys:
-        local_elec_health = elec_health_by_territory.get(hazard, {})
         native_units = native_service_metrics_by_hazard[hazard]
         for native_unit_id, service_loss_map in native_units.items():
             elec_loss = service_loss_map["elec"]

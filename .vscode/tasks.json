@@ -1785,7 +1785,7 @@
   "command": "bash",
   "args": [
     "-c",
-    "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --state-label-style code --storm-cmcc-layout harmonized"
+    "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --state-label-style code --storm-cmcc-layout harmonized --super-social-label-fontsize 34"
   ],
   "options": {
     "cwd": "${workspaceFolder}"
@@ -1811,7 +1811,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --output-dir outputs/sensitivity-runs/${input:sensitivityRunId}/graphs-significant --state-label-style code --storm-cmcc-layout harmonized --disable-default-exclusions --significant-only --impact-significance-threshold-pct 3 --network-significance-threshold-pp 3"
+        "cd ${workspaceFolder} && ${workspaceFolder}/backend/.venv/bin/python scripts/generate_sensitivity_graphs.py --manifest outputs/sensitivity-runs/${input:sensitivityRunId}/manifest.json --output-dir outputs/sensitivity-runs/${input:sensitivityRunId}/graphs-significant --state-label-style code --storm-cmcc-layout harmonized --super-social-label-fontsize 34 --disable-default-exclusions --significant-only --impact-significance-threshold-pct 3 --network-significance-threshold-pp 3"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

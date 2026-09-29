@@ -211,7 +211,14 @@ def test_run_hazard_comparative_analysis_executes_phase3_build(monkeypatch: pyte
     catalogs_path = _write_json(tmp_path / "catalogs.json", _catalog_payload(tmp_path / "catalogs"))
     scenarios_path = _write_json(tmp_path / "scenarios.json", _scenario_payload())
 
-    def _fake_materialize(plan: dict, *, dynamic_max_tracks: int | None = None, progress_callback=None):
+    def _fake_materialize(
+        plan: dict,
+        *,
+        dynamic_max_tracks: int | None = None,
+        resume_enabled: bool = False,
+        progress_callback=None,
+    ):
+        assert resume_enabled is False
         if progress_callback is not None:
             progress_callback(
                 {

@@ -290,6 +290,8 @@ Fichier: `backend/app/risk_engine/climada_engine.py`
 Notes:
 - courbe depth de repli globale: `F17.5`,
 - mise a jour specifique: `eau_aep_cana` utilise desormais `F19.3` pour les futurs reruns pluie / submersion cotiere,
+- les cles `asset_type` sont documentees sous leur forme normalisee en minuscules; les sorties d'exposition peuvent porter des variantes comme `eau_aep_ouvrage_CAP`, mais le backend normalise en minuscules avant resolution de courbe,
+- controle de coherence effectue contre le code et les sorties `complete-analysis`: les 14 lignes du tableau correspondent aux 14 entrees actives des mappings vent et pluie/submersion; tous les `asset_type` actuellement observes sont couverts apres normalisation, et `eau_aep_ouvrage_na` reste une entree de repli non observee dans les sorties publiees courantes,
 - l'endpoint `GET /api/v1/vulnerability/curves` expose le profil actif pour audit/visualisation admin.
 
 ---

@@ -35,6 +35,15 @@ DEFAULT_BASIN_COVERAGES: tuple[BasinCoverage, ...] = (
         lon_min=-105.0,
         lon_max=-1.0,
     ),
+    BasinCoverage(
+        basin_id=3,
+        code="SI",
+        label="Sud Indien",
+        lat_min=-59.9,
+        lat_max=-5.05,
+        lon_min=10.0,
+        lon_max=134.95,
+    ),
 )
 
 

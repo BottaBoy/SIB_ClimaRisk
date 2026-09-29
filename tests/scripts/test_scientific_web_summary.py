@@ -81,6 +81,21 @@ def _strict_graph_inputs() -> dict:
             }
             for scenario, value in values.items()
         },
+        "damage_zones_by_scenario": {
+            scenario: {
+                hazard: {
+                    family: [
+                        {
+                            "zone_id": f"{family}-001",
+                            "damage_eur": value + (1.0 if hazard == "storm_cmcc" else 0.0),
+                        }
+                    ]
+                    for family in ("aep", "eu", "elec")
+                }
+                for hazard in ("storm", "storm_cmcc")
+            }
+            for scenario, value in values.items()
+        },
         "social_impact_by_scenario": {
             scenario: {
                 "storm": {"total_population_affected_any_network": value},

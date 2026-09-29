@@ -10,6 +10,9 @@ from shapely.geometry import Point
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "outputs" / "Graphs" / "presentation-vincennes" / "export_assets.py"
 
+if not MODULE_PATH.is_file():
+    pytest.skip("optional presentation-vincennes export script is not present", allow_module_level=True)
+
 spec = importlib.util.spec_from_file_location("presentation_vincennes_export_assets", MODULE_PATH)
 assert spec is not None and spec.loader is not None
 export_assets = importlib.util.module_from_spec(spec)

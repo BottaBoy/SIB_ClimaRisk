@@ -244,6 +244,189 @@ Historique migré: 11 run(s).
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Run [2026-07-31 07:23:35]
+**Run ID**: `20260730_114218`
+### Saint-Barthélemy
+**Total Duration**: 33s (0.6m)
+
+## Run [2026-07-29 05:32:39]
+**Run ID**: `20260728_192122`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 62,132,239 EUR
+- Status: ✓ Complete
+**Total Duration**: 36676s (611.3m)
+
+## Run [2026-07-28 19:21:19]
+**Run ID**: `20260728_072827`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 62,132,118 EUR
+- Status: ✓ Complete
+**Total Duration**: 42772s (712.9m)
+
+## Run [2026-07-28 07:28:20]
+**Run ID**: `20260727_011818`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 65,588,526 EUR
+- Status: ✓ Complete
+**Total Duration**: 108602s (1810.0m)
+
+## Run [2026-07-27 01:18:11]
+**Run ID**: `20260726_195807`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 61,226,980 EUR
+- Status: ✓ Complete
+**Total Duration**: 19204s (320.1m)
+
+## Run [2026-07-26 19:58:01]
+**Run ID**: `20260726_190621`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 54,910,382 EUR
+- Status: ✓ Complete
+**Total Duration**: 3099s (51.6m)
+
+## Run [2026-07-26 19:06:16]
+**Run ID**: `20260726_183406`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 51,479,589 EUR
+- Status: ✓ Complete
+**Total Duration**: 1930s (32.2m)
+
+## Run [2026-07-26 18:34:00]
+**Run ID**: `20260726_085541`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 62,132,118 EUR
+- Status: ✓ Complete
+**Total Duration**: 34698s (578.3m)
+
+## Run [2026-07-26 08:55:38]
+**Run ID**: `20260725_232137`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 62,132,118 EUR
+- Status: ✓ Complete
+**Total Duration**: 34440s (574.0m)
+
+## Run [2026-07-25 23:21:30]
+**Run ID**: `20260725_133913`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 75,316,461 EUR
+- Status: ✓ Complete
+**Total Duration**: 34937s (582.3m)
+
+## Run [2026-07-25 13:39:10]
+**Run ID**: `20260725_040224`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 54,151,105 EUR
+- Status: ✓ Complete
+**Total Duration**: 34605s (576.8m)
+
+## Run [2026-07-25 04:00:17]
+**Run ID**: `20260724_182913`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 88,685,835 EUR
+- Status: ✓ Complete
+**Total Duration**: 34263s (571.0m)
+
+## Run [2026-07-24 18:29:06]
+**Run ID**: `20260724_085340`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 194,406,401 EUR
+- Status: ✓ Complete
+**Total Duration**: 34526s (575.4m)
+
+## Run [2026-07-24 08:52:33]
+**Run ID**: `20260723_231730`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 77,412,080 EUR
+- Status: ✓ Complete
+**Total Duration**: 34503s (575.0m)
+
+## Run [2026-07-23 23:17:27]
+**Run ID**: `20260723_134236`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 62,132,118 EUR
+- Status: ✓ Complete
+**Total Duration**: 34491s (574.9m)
+
+## Run [2026-07-21 20:49:37]
+**Run ID**: `20260720_134606`
+### Guadeloupe
+**Total Duration**: 790s (13.2m)
+
+## Run [2026-07-19 17:42:28]
+**Run ID**: `20260718_111625`
+### Guadeloupe
+**Total Duration**: 800s (13.3m)
+
+## Run [2026-07-17 18:50:10]
+**Run ID**: `20260717_085725`
+### Guadeloupe
+**Total Duration**: 790s (13.2m)
+
+## Run [2026-07-17 08:41:25]
+**Run ID**: `20260717_081550`
+### Guadeloupe
+**Total Duration**: 689s (11.5m)
+
+## Run [2026-07-12 13:42:24]
+**Run ID**: `20260711_074032`
+### Guadeloupe
+**Total Duration**: 788s (13.1m)
+
+## Run [2026-07-11 06:49:22]
+**Run ID**: `20260710_204310`
+### Guadeloupe
+**Total Duration**: 47s (0.8m)
+
+## Run [2026-07-10 20:36:59]
+**Run ID**: `20260710_194300`
+### Guadeloupe
+**Total Duration**: 796s (13.3m)
+
+## Run [2026-07-10 20:20:57]
+**Run ID**: `20260710_194300`
+### Guadeloupe
+- Assets loaded: 110315
+- EAI: 54,910,382 EUR
+- Status: ✓ Complete
+**Total Duration**: 2277s (38.0m)
+
 ## Run [2026-07-10 18:52:12]
 **Run ID**: `20260710_182655`
 ### Guadeloupe

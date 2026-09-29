@@ -10,7 +10,7 @@
     />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" crossorigin="" />
-    <link rel="stylesheet" href="assets/styles.css?v=20260824-152740" />
+    <link rel="stylesheet" href="assets/styles.css?v=20260915-quick-only" />
   </head>
   <body>
     <div class="page-shell">
@@ -22,10 +22,34 @@
         <button id="nav-page-2" class="page-tab" type="button">Etude de cas Guadeloupe</button>
         <button id="nav-page-3" class="page-tab" type="button">Etude de cas Martinique</button>
         <button id="nav-page-7" class="page-tab" type="button">Etude de cas Saint-Barthélemy</button>
-        <button id="nav-page-4" class="page-tab page-tab-private" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
+        <button id="nav-page-4" class="page-tab" type="button">Donnees utilisateur (entrez vos propres données ici)</button>
         <button id="nav-page-5" class="page-tab" type="button">Methodologie detaillee de l'outil</button>
-        <button id="nav-page-6" class="page-tab page-tab-admin" type="button">Admin visu</button>
+        <button id="nav-page-6" class="page-tab page-tab-admin" type="button">Admin</button>
       </nav>
+
+      <section id="global-auth-panel" class="panel global-auth-panel" aria-label="Connexion applicative" hidden>
+        <div class="global-auth-row">
+          <div class="global-auth-copy">
+            <strong>Compte applicatif</strong>
+            <span id="global-auth-status">Connexion requise pour les comptes autorises, admin et super_admin.</span>
+          </div>
+          <div class="global-auth-actions">
+            <button type="button" id="global-auth-toggle" aria-expanded="false">Connexion</button>
+            <button type="button" id="global-auth-logout" hidden>Deconnexion</button>
+          </div>
+        </div>
+        <form id="global-auth-form" class="global-auth-form" hidden>
+          <div class="field">
+            <label for="global-auth-username">Nom d'utilisateur</label>
+            <input id="global-auth-username" type="text" autocomplete="username" required />
+          </div>
+          <div class="field">
+            <label for="global-auth-password">Mot de passe</label>
+            <input id="global-auth-password" type="password" autocomplete="current-password" required />
+          </div>
+          <button type="submit" class="primary-btn">Se connecter</button>
+        </form>
+      </section>
 
       <section id="runtime-access-note" class="panel runtime-note" hidden></section>
 
@@ -721,100 +745,25 @@
       <section class="panel user-data-intro page-block page4" aria-labelledby="user-data-intro-title">
         <h2 id="user-data-intro-title">Donnees utilisateurs</h2>
         <p class="subtitle compact">
-          Sur cette page, vous pouvez ajouter vos propres infrastructures ou habitations pour tester leur exposition aux risques.
-          Vous pouvez televerser un fichier standardise ou dessiner directement vos expositions sur la carte.
+          Dessinez une exposition dans les bassins NA ou SI, renseignez sa valeur et lancez un calcul rapide public aligne sur la chaine SIB Work.
+          L'import CSV/XLSX/GeoJSON/GPKG reste disponible comme option avancee.
         </p>
       </section>
 
       <section class="panel run-lab page-block page4" aria-labelledby="run-lab-title">
         <div class="run-lab-head">
           <div>
-            <h2 id="run-lab-title">Ajout d'expositions utilisateur</h2>
+            <h2 id="run-lab-title">Analyses sur expositions utilisateur</h2>
             <p class="subtitle compact">
-              Importez vos expositions a partir d'un fichier structure (CSV/XLSX/GeoJSON/GPKG) ou dessinez-les sur la carte.
-              Les calculs sont executes de facon asynchrone.
+              Le Quick Run utilise des impacts pre-calcules et documentes. La zone de calcul est detectee automatiquement a partir de chaque geometrie.
             </p>
-          </div>
-          <div class="run-lab-side">
-            <div class="status-box" id="job-status-box" hidden></div>
-            <div class="compute-indicator" id="compute-indicator" hidden>
-              <img src="assets/LogoOFBRond-spinner.png" alt="Logo OFB en cours de calcul" class="compute-indicator-logo" />
-              <span>Calcul backend en cours...</span>
-            </div>
           </div>
         </div>
 
         <div class="run-lab-grid">
-          <form id="upload-form" class="subpanel" enctype="multipart/form-data">
-            <h3>Import d'exposition</h3>
-            <p class="muted">
-              Le schema recommande repose sur un fichier CSV avec colonnes standard.
-              Les memes noms de colonnes peuvent etre utilises en XLSX/GeoJSON/GPKG.
-            </p>
-            <div class="csv-template-box">
-              <p class="muted">
-                Colonnes attendues:
-              </p>
-              <ul class="csv-column-help">
-                <li><code>asset_id</code>: identifiant unique de l'actif (ex: <code>A001</code>).</li>
-                <li><code>label</code>: nom lisible de l'actif (ex: <code>Maison rue des Alizes</code>).</li>
-                <li><code>lat</code>: latitude en WGS84 (degres decimaux, ex: <code>16.237</code>).</li>
-                <li><code>lon</code>: longitude en WGS84 (degres decimaux, ex: <code>-61.534</code>).</li>
-                <li><code>value_eur</code>: valeur monetaire de l'actif en euros (ex: <code>250000</code>).</li>
-                <li><code>asset_type</code>: type technique pour le moteur (ex: <code>habitation</code>, <code>eau_aep_cana</code>).</li>
-                <li><code>exposure_category</code>: categorie metier pour les regles de calcul (ex: <code>habitation</code>, <code>ouvrage_eau</code>, <code>ouvrage_electrique</code>).</li>
-                <li><code>geometry_wkt</code> (optionnel): geometrie WKT si vous n'utilisez pas <code>lat</code>/<code>lon</code>.</li>
-              </ul>
-              <p class="muted small">
-                Localisation: utilisez <code>lat</code>/<code>lon</code> (WGS84, EPSG:4326)
-                ou une colonne <code>geometry_wkt</code>.
-              </p>
-              <p class="muted small">
-                <code>exposure_category</code> sert a classer chaque actif dans la bonne famille d'impact/dependance (habitations, ouvrages eau, ouvrages electriques).
-              </p>
-              <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category,geometry_wkt
-A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)</pre>
-              <a class="primary-btn template-download-btn" href="data/exposition-template.xlsx" download>
-                Telecharger le modele XLSX
-              </a>
-            </div>
-            <div class="field">
-              <label for="upload-file">Fichier d'exposition</label>
-              <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
-            </div>
-            <div class="field">
-              <label for="run-label">Nom du run</label>
-              <input id="run-label" type="text" placeholder="Ex: Test exposition quartier centre" required />
-            </div>
-            <button type="submit" class="primary-btn" id="upload-submit-btn">
-              <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
-              <span class="btn-label">Lancer le run de l'exposition importee</span>
-            </button>
-            <p class="muted small run-estimate" id="upload-run-estimate" hidden></p>
-          </form>
-
-          <div class="subpanel">
-            <h3>Dessin d'exposition</h3>
-            <p class="muted">Dessinez des points, lignes ou polygones sur la carte puis soumettez votre run.</p>
-            <div class="field">
-              <label for="draw-category">Type d'exposition dessinee</label>
-              <select id="draw-category">
-                <option value="habitation">Habitation</option>
-                <option value="eau_aep">Reseau eau AEP</option>
-                <option value="eau_eu">Reseau eau EU</option>
-                <option value="elec_bt_souterrain">Reseau elec basse tension souterrain</option>
-                <option value="elec_bt_aerien">Reseau elec basse tension aerien</option>
-                <option value="elec_hta_souterrain">Reseau elec haute tension souterrain</option>
-                <option value="elec_hta_aerien">Reseau elec haute tension aerien</option>
-                <option value="eau_eu_pr">Poste de refoulement EU</option>
-                <option value="eau_eu_step">STEP</option>
-                <option value="aep_ouvrage_trait">Ouvrage AEP TRAIT</option>
-                <option value="aep_ouvrage_stpmp">Ouvrage AEP STPMP</option>
-                <option value="aep_ouvrage_cap">Ouvrage AEP CAP</option>
-                <option value="aep_ouvrage_cuv">Ouvrage AEP CUV</option>
-                <option value="aep_ouvrage_autres">Ouvrage AEP autre</option>
-              </select>
-            </div>
+          <div class="subpanel user-flow-panel">
+            <h3>1. Dessiner une exposition</h3>
+            <p class="muted">Dessinez une forme, puis choisissez obligatoirement son type d'infrastructure. La zone NA ou SI est detectee automatiquement.</p>
             <div class="field">
               <label>Outils de dessin</label>
               <div class="draw-mode-buttons" id="draw-mode-buttons">
@@ -839,24 +788,86 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
               <li>Aucun dessin pour le moment.</li>
             </ul>
             <div class="field">
-              <label for="draw-run-label">Nom du run dessine</label>
-              <input id="draw-run-label" type="text" placeholder="Ex: Test dessin secteur nord" />
+              <label for="draw-run-label">Nom du calcul</label>
+              <input id="draw-run-label" type="text" placeholder="Ex: Screening secteur nord" />
             </div>
             <div class="inline-row">
               <button type="button" class="primary-btn" id="submit-drawing-btn" disabled>
                 <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
-                <span class="btn-label">Lancer le run de l'exposition dessinee</span>
+                <span class="btn-label">Calcul rapide sur le dessin</span>
               </button>
               <button type="button" id="refresh-preview-btn">Rafraichir l'apercu</button>
             </div>
+            <div class="draw-run-feedback" aria-live="polite">
+              <div class="compute-indicator" id="compute-indicator" hidden>
+                <img src="assets/LogoOFBRond-spinner.png" alt="" class="compute-indicator-logo" />
+                <span>Calcul rapide en cours...</span>
+              </div>
+              <div class="status-box" id="job-status-box" hidden></div>
+            </div>
             <p class="muted small run-estimate" id="draw-run-estimate" hidden></p>
             <p class="muted small">
-              Definissez une valeur monetaire pour chaque geometrie dessinee dans la liste ci-dessus.
-              Le nom de run est obligatoire pour chaque lancement.
+              Chaque geometrie doit avoir une valeur monetaire visible et strictement positive avant le calcul.
             </p>
           </div>
+
+          <form id="upload-form" class="subpanel upload-advanced-panel" enctype="multipart/form-data">
+            <details>
+              <summary>2. Importer un fichier avance</summary>
+              <p class="muted">
+                Le schema recommande repose sur des colonnes standard.
+                Les memes noms peuvent etre utilises en CSV/XLSX/GeoJSON/GPKG.
+              </p>
+              <div class="csv-template-box">
+                <p class="muted">Colonnes attendues:</p>
+                <ul class="csv-column-help">
+                  <li><code>asset_id</code>: identifiant unique de l'actif.</li>
+                  <li><code>label</code>: nom lisible de l'actif.</li>
+                  <li><code>lat</code> et <code>lon</code>: coordonnees WGS84.</li>
+                  <li><code>value_eur</code>: valeur monetaire de l'actif en euros.</li>
+                  <li><code>asset_type</code>: type technique pour le moteur.</li>
+                  <li><code>exposure_category</code>: <code>habitation</code>, <code>ouvrage_eau</code> ou <code>ouvrage_electrique</code>.</li>
+                  <li><code>population_count</code> (optionnel): population exposee pour les indicateurs sociaux.</li>
+                  <li><code>geometry_wkt</code> (optionnel): geometrie WKT si vous n'utilisez pas <code>lat</code>/<code>lon</code>.</li>
+                </ul>
+                <pre class="csv-example">asset_id,label,lat,lon,value_eur,asset_type,exposure_category,population_count,geometry_wkt
+A001,Maison 1,16.237,-61.534,250000,habitation,habitation,4,POINT(-61.534 16.237)</pre>
+                <a class="primary-btn template-download-btn" href="data/exposition-template.xlsx" download>
+                  Telecharger le modele XLSX
+                </a>
+              </div>
+              <div class="field">
+                <label for="upload-file">Fichier d'exposition</label>
+                <input id="upload-file" name="exposure_file" type="file" accept=".csv,.xlsx,.geojson,.json,.gpkg" />
+              </div>
+              <div class="field">
+                <label for="run-label">Nom du calcul</label>
+                <input id="run-label" type="text" placeholder="Ex: Screening fichier quartier centre" />
+              </div>
+              <button type="submit" class="primary-btn" id="upload-submit-btn">
+                <img src="assets/LogoOFBRond-spinner.png" alt="" class="btn-spinner-logo" hidden />
+                <span class="btn-label">Calcul rapide sur le fichier</span>
+              </button>
+              <p class="muted small run-estimate" id="upload-run-estimate" hidden></p>
+            </details>
+          </form>
         </div>
       </section>
+
+      <dialog id="draw-type-dialog" class="draw-type-dialog" aria-labelledby="draw-type-dialog-title">
+        <form id="draw-type-form" class="draw-type-form">
+          <h2 id="draw-type-dialog-title">Type d'infrastructure</h2>
+          <p>Choisissez le type correspondant a la geometrie que vous venez de dessiner.</p>
+          <div class="field">
+            <label for="draw-type-select">Type d'infrastructure</label>
+            <select id="draw-type-select" size="8" required></select>
+          </div>
+          <div class="draw-type-actions">
+            <button type="button" id="draw-type-cancel">Annuler le dessin</button>
+            <button type="submit" class="primary-btn" id="draw-type-confirm" disabled>Confirmer le type</button>
+          </div>
+        </form>
+      </dialog>
 
       <section class="panel run-memory-panel page-block page4" aria-label="Runs en memoire utilisateur">
         <div class="run-memory-box" id="run-memory-box">
@@ -886,7 +897,7 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         <div class="field">
           <label for="poll-job-id">Recharger un resultat</label>
           <div class="inline-row">
-            <input id="poll-job-id" type="text" placeholder="Nom du run ou job_id (jr_...)" />
+            <input id="poll-job-id" type="text" placeholder="job_id (jr_...) ou nom en mode protege" />
             <button id="reload-job-btn" type="button">Charger</button>
           </div>
         </div>
@@ -937,9 +948,16 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
           <div>
             <h2 id="user-impact-title">Impact (resultat utilisateur)</h2>
             <p class="muted" id="user-impact-summary-text">
-              Cette section synthétise les impacts pour l'exposition importee ou dessinee, sans carte d'etat des reseaux.
+              Cette section synthetise les impacts, les aleas et les etats des infrastructures pour l'exposition importee ou dessinee.
             </p>
           </div>
+        </div>
+        <div class="user-result-map-grid">
+          <article class="result-map-card result-map-card-wide">
+            <h3>Carte des aleas - vent cyclonique RP100</h3>
+            <img id="user-hazard-map-image" alt="Carte des aleas sur l'emprise utilisateur" hidden />
+            <p class="muted small" id="user-hazard-map-empty">Lancez une analyse pour generer la carte des aleas.</p>
+          </article>
         </div>
         <div class="chart-grid impact-breakdown-grid">
           <div class="chart-card">
@@ -958,6 +976,24 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
             <h3>Dommages - temps de retour 1000 ans</h3>
             <div id="user-impact-rp1000-chart" class="chart"></div>
           </div>
+        </div>
+        <div class="user-result-map-grid user-network-map-grid">
+          <article class="result-map-card">
+            <h3>Defaillance des infrastructures - RP100</h3>
+            <img id="user-network-map-rp100-image" alt="Carte des etats des infrastructures au temps de retour 100 ans" hidden />
+            <p class="muted small" id="user-network-map-rp100-empty">Carte disponible apres analyse.</p>
+          </article>
+          <article class="result-map-card">
+            <h3>Defaillance des infrastructures - RP1000</h3>
+            <img id="user-network-map-rp1000-image" alt="Carte des etats des infrastructures au temps de retour 1000 ans" hidden />
+            <p class="muted small" id="user-network-map-rp1000-empty">Carte disponible apres analyse.</p>
+          </article>
+        </div>
+        <div class="quick-result-meta" id="quick-result-meta" hidden></div>
+        <div class="quick-downloads" id="quick-downloads" hidden>
+          <h3>Telecharger les resultats</h3>
+          <p class="muted small">Le rapport PDF contient toutes les cartes et tous les graphiques. Le fichier XLSX contient les donnees brutes completes.</p>
+          <div class="quick-download-list" id="quick-download-list"></div>
         </div>
         <p class="muted" id="user-conclusion-text">Conclusion utilisateur en cours de chargement...</p>
       </section>
@@ -1007,190 +1043,148 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
         </p>
       </section>
 
-      <section class="panel admin-visu-panel page-block page6" aria-labelledby="admin-visu-title">
+      <section class="panel admin-console-panel page-block page6" aria-labelledby="admin-console-title">
         <div class="section-head">
           <div>
-            <h2 id="admin-visu-title">Admin visu</h2>
+            <h2 id="admin-console-title">Administration</h2>
             <p class="muted">
-              Comparateur de 4 cartes d'alea cyclonique vent (STORM et STORM_CMCC) sur les bassins NA et SI.
-              Selectionnez le bassin, l'alea et le scenario (vents moyens, retour 50 ans, retour 100 ans, maximum catalogue) pour chaque bloc.
+              Gestion des comptes administrateurs, suivi de l'activite et supervision des Quick Runs.
             </p>
           </div>
+          <button type="button" id="admin-refresh-btn">Rafraichir</button>
         </div>
 
-        <div class="wind-opacity-box admin-visu-opacity-box">
-          <label for="admin-visu-opacity-slider">Transparence couche alea (4 cartes)</label>
-          <div class="wind-opacity-row">
-            <input id="admin-visu-opacity-slider" type="range" min="0" max="100" step="1" value="50" />
-            <span id="admin-visu-opacity-value" class="wind-opacity-value">50%</span>
+        <div class="admin-console-guard" id="admin-console-guard" hidden>
+          Connectez-vous avec le compte applicatif admin ou super_admin depuis le bouton Connexion en haut de page.
+        </div>
+
+        <form class="subpanel admin-create-user-form" id="admin-create-user-form">
+          <h3>Creer un compte applicatif</h3>
+          <div class="admin-form-grid">
+            <div class="field">
+              <label for="admin-new-username">Nom d'utilisateur</label>
+              <input id="admin-new-username" type="text" autocomplete="off" required />
+            </div>
+            <div class="field">
+              <label for="admin-new-email">Adresse e-mail du compte</label>
+              <input id="admin-new-email" type="email" autocomplete="off" required />
+            </div>
+            <div class="field">
+              <label for="admin-new-password">Mot de passe initial</label>
+              <input id="admin-new-password" type="password" autocomplete="new-password" minlength="10" required />
+            </div>
+            <div class="field">
+              <label for="admin-new-role">Role</label>
+              <select id="admin-new-role">
+                <option value="authorized_user">Utilisateur autorise</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <label class="check-row">
+              <input id="admin-new-active" type="checkbox" checked />
+              <span>Compte actif</span>
+            </label>
+            <button type="submit" class="primary-btn">Creer</button>
           </div>
-        </div>
+          <p class="muted small" id="admin-create-user-status"></p>
+        </form>
 
-        <div class="admin-visu-grid">
-          <article class="subpanel admin-visu-card">
-            <div class="admin-visu-card-head">
-              <h3>Visualisation aléa 1</h3>
-              <div class="admin-visu-selects">
-                <select id="admin-visu-basin-1">
-                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
-                  <option value="si">Bassin Sud Indien (SI)</option>
-                </select>
-                <select id="admin-visu-hazard-1">
-                  <option value="storm">STORM</option>
-                  <option value="storm_cmcc">STORM_CMCC</option>
-                </select>
-                <select id="admin-visu-scenario-1">
-                  <option value="mean">Vents moyens</option>
-                  <option value="rp50">Temps de retour 50 ans</option>
-                  <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Maximum catalogue</option>
-                </select>
-              </div>
+        <article class="subpanel admin-table-card">
+          <div class="section-head compact">
+            <h3>Comptes</h3>
+            <div class="inline-row tight">
+              <button type="button" id="admin-users-prev-btn">Precedent</button>
+              <button type="button" id="admin-users-next-btn">Suivant</button>
             </div>
-            <div id="admin-visu-map-1" class="map admin-visu-map"></div>
-            <p class="muted small" id="admin-visu-caption-1">Chargement...</p>
-          </article>
-
-          <article class="subpanel admin-visu-card">
-            <div class="admin-visu-card-head">
-              <h3>Visualisation aléa 2</h3>
-              <div class="admin-visu-selects">
-                <select id="admin-visu-basin-2">
-                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
-                  <option value="si">Bassin Sud Indien (SI)</option>
-                </select>
-                <select id="admin-visu-hazard-2">
-                  <option value="storm">STORM</option>
-                  <option value="storm_cmcc" selected>STORM_CMCC</option>
-                </select>
-                <select id="admin-visu-scenario-2">
-                  <option value="mean" selected>Vents moyens</option>
-                  <option value="rp50">Temps de retour 50 ans</option>
-                  <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Maximum catalogue</option>
-                </select>
-              </div>
-            </div>
-            <div id="admin-visu-map-2" class="map admin-visu-map"></div>
-            <p class="muted small" id="admin-visu-caption-2">Chargement...</p>
-          </article>
-
-          <article class="subpanel admin-visu-card">
-            <div class="admin-visu-card-head">
-              <h3>Visualisation aléa 3</h3>
-              <div class="admin-visu-selects">
-                <select id="admin-visu-basin-3">
-                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
-                  <option value="si">Bassin Sud Indien (SI)</option>
-                </select>
-                <select id="admin-visu-hazard-3">
-                  <option value="storm" selected>STORM</option>
-                  <option value="storm_cmcc">STORM_CMCC</option>
-                </select>
-                <select id="admin-visu-scenario-3">
-                  <option value="mean">Vents moyens</option>
-                  <option value="rp50" selected>Temps de retour 50 ans</option>
-                  <option value="rp100">Temps de retour 100 ans</option>
-                  <option value="event_max">Maximum catalogue</option>
-                </select>
-              </div>
-            </div>
-            <div id="admin-visu-map-3" class="map admin-visu-map"></div>
-            <p class="muted small" id="admin-visu-caption-3">Chargement...</p>
-          </article>
-
-          <article class="subpanel admin-visu-card">
-            <div class="admin-visu-card-head">
-              <h3>Visualisation aléa 4</h3>
-              <div class="admin-visu-selects">
-                <select id="admin-visu-basin-4">
-                  <option value="na" selected>Bassin Nord Atlantique (NA)</option>
-                  <option value="si">Bassin Sud Indien (SI)</option>
-                </select>
-                <select id="admin-visu-hazard-4">
-                  <option value="storm">STORM</option>
-                  <option value="storm_cmcc" selected>STORM_CMCC</option>
-                </select>
-                <select id="admin-visu-scenario-4">
-                  <option value="mean">Vents moyens</option>
-                  <option value="rp50">Temps de retour 50 ans</option>
-                  <option value="rp100" selected>Temps de retour 100 ans</option>
-                  <option value="event_max">Maximum catalogue</option>
-                </select>
-              </div>
-            </div>
-            <div id="admin-visu-map-4" class="map admin-visu-map"></div>
-            <p class="muted small" id="admin-visu-caption-4">Chargement...</p>
-          </article>
-        </div>
-
-        <article class="subpanel admin-visu-compare-card">
-          <h3>Comparaison aléas vent par bassin</h3>
-          <div class="admin-visu-compare-grid">
-            <div>
-              <h4 id="admin-visu-compare-na-title">Comparaison aléas - bassin Nord Atlantique (NA)</h4>
-              <div class="table-wrap compact">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Indicateur</th>
-                      <th class="num">STORM</th>
-                      <th class="num">STORM_CMCC</th>
-                      <th class="num">Delta (CMCC-STORM)</th>
-                    </tr>
-                  </thead>
-                  <tbody id="admin-visu-compare-na-body"></tbody>
-                </table>
-              </div>
-            </div>
-            <div>
-              <h4 id="admin-visu-compare-si-title">Comparaison aléas - bassin Sud Indien (SI)</h4>
-              <div class="table-wrap compact">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Indicateur</th>
-                      <th class="num">STORM</th>
-                      <th class="num">STORM_CMCC</th>
-                      <th class="num">Delta (CMCC-STORM)</th>
-                    </tr>
-                  </thead>
-                  <tbody id="admin-visu-compare-si-body"></tbody>
-                </table>
-              </div>
-            </div>
+          </div>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Utilisateur</th>
+                  <th>E-mail</th>
+                  <th>Role</th>
+                  <th>Statut</th>
+                  <th>Creation</th>
+                  <th>Derniere connexion</th>
+                  <th class="num">Runs</th>
+                  <th>Dernier run</th>
+                  <th>En cours</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-body"></tbody>
+            </table>
           </div>
         </article>
 
-        <article class="subpanel admin-population-card">
-          <div class="admin-population-head">
-            <h3>Population (WorldPop 2020)</h3>
-            <div class="admin-population-controls">
-              <label for="admin-population-territory-select">Territoire</label>
-              <select id="admin-population-territory-select"></select>
+        <article class="subpanel admin-table-card">
+          <div class="section-head compact">
+            <h3>Runs</h3>
+            <div class="inline-row tight">
+              <button type="button" id="admin-runs-prev-btn">Precedent</button>
+              <button type="button" id="admin-runs-next-btn">Suivant</button>
             </div>
           </div>
-          <div id="admin-population-map" class="map admin-population-map"></div>
-          <p class="muted small" id="admin-population-caption">Chargement de la couche population...</p>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Utilisateur</th>
+                  <th>Type</th>
+                  <th>Debut</th>
+                  <th>Fin</th>
+                  <th>Duree</th>
+                  <th>Statut</th>
+                  <th>Fichiers</th>
+                  <th>Erreur</th>
+                </tr>
+              </thead>
+              <tbody id="admin-runs-body"></tbody>
+            </table>
+          </div>
         </article>
 
-        <article class="subpanel admin-vulnerability-card">
-          <div class="admin-vulnerability-head">
-            <h3>Courbes de vulnérabilité par infrastructure (vent / submersion / pluie)</h3>
-            <p class="muted small" id="admin-vulnerability-caption">Chargement des courbes de vulnérabilité...</p>
+        <article class="subpanel admin-detail-card" id="admin-user-detail" hidden>
+          <div class="section-head compact">
+            <h3 id="admin-user-detail-title">Detail compte</h3>
+            <button type="button" id="admin-user-detail-close-btn">Fermer</button>
           </div>
-          <div id="admin-vulnerability-grid" class="admin-vulnerability-grid admin-vulnerability-grid-overview"></div>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Type</th>
+                  <th>Lancement</th>
+                  <th>Fin</th>
+                  <th>Duree</th>
+                  <th>Statut</th>
+                  <th>Fichiers</th>
+                  <th>Erreur</th>
+                </tr>
+              </thead>
+              <tbody id="admin-user-runs-body"></tbody>
+            </table>
+          </div>
         </article>
 
-        <article class="subpanel admin-vulnerability-card admin-landslide-vulnerability-card">
-          <div class="admin-vulnerability-head">
-            <h3>Courbes de mouvements de terrain</h3>
-            <p class="muted small">
-              Référentiel probabiliste SIB: ces rasters ne décrivent pas des événements observés. La référence de travail affiche l'hypothèse 5 paliers et la proxy D2.
-            </p>
-            <p class="muted small" id="admin-landslide-vulnerability-caption">Chargement des courbes de mouvements de terrain...</p>
+        <article class="subpanel admin-table-card">
+          <h3>Activite recente</h3>
+          <div class="table-wrap compact">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Acteur</th>
+                  <th>Action</th>
+                  <th>Cible</th>
+                </tr>
+              </thead>
+              <tbody id="admin-activity-body"></tbody>
+            </table>
           </div>
-          <div id="admin-landslide-vulnerability-grid" class="admin-vulnerability-grid"></div>
         </article>
       </section>
 
@@ -1200,6 +1194,6 @@ A001,Maison 1,16.237,-61.534,250000,habitation,habitation,POINT(-61.534 16.237)<
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" crossorigin=""></script>
-    <script type="module" src="assets/app.js?v=20260824-152740"></script>
+    <script type="module" src="assets/app.js?v=20260915-quick-only"></script>
   </body>
 </html>

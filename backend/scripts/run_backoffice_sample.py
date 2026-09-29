@@ -30,7 +30,7 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = load_settings()
-    store = JobStore(settings.job_root, ttl_hours=settings.job_ttl_hours)
+    store = JobStore(settings.job_root, ttl_hours=settings.job_ttl_hours, max_runs_kept=settings.max_runs_kept)
     params = {
         'input_mode': 'file',
         'value_field': args.value_field,

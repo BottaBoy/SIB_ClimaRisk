@@ -57,6 +57,37 @@ Procedure recommandee:
 
 La tache de graphes V2 ecrit dans `<run>/graphs-significant` et utilise `--significant-only --impact-significance-threshold-pct 3 --network-significance-threshold-pp 3 --disable-default-exclusions`. Les scenarios non complets sont exclus proprement des graphes et listes dans `sensitivity-graphs-summary.json`.
 
+### Controle de coherence des scenarios configurés et executes
+
+Controle effectue contre les packs de configuration et le run:
+
+- pack initial `config/sensitivity/default-scenario-pack.json`: 23 scenarios declares, dont 22 supportes/testables; le placeholder `vulnerability_curves_profile-manual-profile-required` reste non supporte;
+- pack dedie vulnerabilite `config/sensitivity/vulnerability-curve-scenario-pack.json`: 4 scenarios supportes, soit la baseline plus 3 variations de vulnerabilite;
+- pack courant `config/sensitivity/default-scenario-pack-v2.json`: 14 scenarios supportes, tous lances par le run `outputs/sensitivity-runs/sensitivity_20260723_132922`;
+- run `sensitivity_20260723_132922`: statut `success`, 14 scenarios complets, 0 echec, 0 skip.
+
+Les 3 scenarios de variation de vulnerabilite ont bien ete ajoutes au pack V2 et executes:
+
+- `vulnerability_curves_profile-elec-flood-moderate`;
+- `vulnerability_curves_profile-elec-flood-stress`;
+- `vulnerability_curves_profile-elec-wind-underground-exposed`.
+
+Comptage consolide:
+
+- **27 scenarios supportes/testables au total** dans les packs actuels, baseline incluse;
+- **26 variations testables** hors baseline `all-default`;
+- **14 scenarios dans le default pack V2** et dans le run `sensitivity_20260723_132922`, baseline incluse;
+- **13 scenarios supportes restent testables mais sont volontairement evacues du default pack V2**, car le run de reference `sensitivity_20260619_073544` avait montre une influence faible ou nulle selon le seuil retenu.
+
+Scenarios supportes mais non relances par le default pack V2:
+
+- `health_weights-0-3-1-1-0`, `health_weights-0-3-0-5-5`;
+- `dependency_state_thresholds-0-5-0-30-0-15`, `dependency_state_thresholds-0-90-0-75-0-55`;
+- `max_dist_inland_km-200`, `max_dist_inland_km-1000`;
+- `hazard_dynamic_max_tracks-500`, `hazard_dynamic_max_tracks-1000`;
+- `default_sampling_spacing_m-50`, `default_sampling_spacing_m-250`;
+- `climada_max_points_per_feature-100`, `climada_max_points_per_feature-500`, `climada_max_points_per_feature-1000`.
+
 ## 1. Exposition et desagregation
 
 Les geometries sont echantillonnees en points en CRS metrique, puis reprojetees en WGS84. Le pas de sampling est `sampling_spacing_m` et il y a un cap `max_points_per_feature`. La valeur d'un actif est ensuite repartie uniformement entre les points echantillonnes. Voir `backend/app/risk_engine/exposure_to_climada.py:229`.
@@ -234,77 +265,43 @@ Ces parametres sont importants pour la publication web, mais ils ne doivent pas 
 
 ## Tableau de sensibilite
 
-| Categorie | parametre | valeur actuelle | role | priorite | robustesse | source | action recommandee |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Physique alea | `storm_env_pressure_hpa` | `1010.0 hPa` | plancher de pression environnementale pour reconstruire les tracks CLIMADA | Haute | Moyenne | `backend/app/config.py:54`; `backend/app/risk_engine/hazard_loader.py:339` | tester `1005/1010/1015` et mesurer l'effet sur vent et surge |
-| Physique alea | marge `p_c + 5 hPa` | `+5 hPa` | evite une pression environnementale trop proche de la pression centrale | Haute | Faible | `backend/app/risk_engine/hazard_loader.py:455` | rendre la marge parametrique et expertiser sa justification |
-| Physique alea | `hazard_rain_model` | `R-CLIPER` | modele pluie cyclonique applique aux tracks | Tres haute | Moyenne | `backend/app/config.py:58`; `backend/app/risk_engine/climada_engine.py:544` | comparer `R-CLIPER` et `TCR` |
-| Physique alea | `max_dist_inland_km` | `2000 km` | extension inland du champ pluie | Moyenne | Moyenne | `backend/app/risk_engine/climada_engine.py:549` | tester `200/500/1000/2000` |
-| Physique alea | `ignore_distance_to_coast` vent/pluie | `True` | ne coupe pas artificiellement l'alea au littoral | Moyenne | Moyenne | `backend/app/risk_engine/hazard_loader.py:598`; `backend/app/risk_engine/climada_engine.py:548` | tester `True/False` sur cas controles |
-| Physique alea | source DEM/topo de surge | chemin configure courant | support spatial de la submersion | Tres haute | Faible | `backend/app/config.py:59`; `backend/app/risk_engine/climada_engine.py:503` | valider resolution, date, emprise et qualite du DEM |
-| Physique alea | modele de submersion | `TCSurgeBathtub` | calcule une surcote simplifiee sur topographie | Tres haute | Faible | `backend/app/risk_engine/climada_engine.py:508` | conserver en screening V1 mais benchmarker contre un modele plus physique |
-| Vulnerabilite | mapping `asset_type -> wind curve` | codes `W*` + `EBERENZ_2021_TC` | selection de la courbe vent par type d'actif | Tres haute | Moyenne | `backend/app/risk_engine/impact_functions.py:76` | revue expert rapide des correspondances |
-| Vulnerabilite | `Eberenz.v_thresh` | `25.7 m/s` | seuil d'amorcage des dommages vent | Haute | Moyenne | `backend/app/risk_engine/impact_functions.py:15` | tester une plage litterature |
-| Vulnerabilite | `Eberenz.v_half` | `59.6 m/s` | intensite de demi-dommage pour la courbe Eberenz | Haute | Moyenne | `backend/app/risk_engine/impact_functions.py:15` | tester une plage litterature |
-| Vulnerabilite | mapping `asset_type -> flood curve` | codes `F*` | selection de la courbe pluie/submersion par type d'actif | Tres haute | Moyenne | `backend/app/risk_engine/impact_functions_multi_hazard.py:16` | revue expert rapide des affectations |
-| Vulnerabilite | `runoff_coeff` | `0.25` unique | convertit la profondeur D2 en courbe pluie proxy en `mm_proxy` | Tres haute | Faible | `backend/app/risk_engine/impact_functions_multi_hazard.py:217` | sensibilite prioritaire et calage terrain |
-| Vulnerabilite | transferabilite locale des courbes vent | hypothese implicite | suppose les courbes vent externes applicables au contexte local | Tres haute | Faible | `backend/app/risk_engine/impact_functions.py`; `docs/note-backend-calculatoire.md:117` | classer explicitement cette hypothese comme structurante |
-| Vulnerabilite | transferabilite locale des courbes flood D2 | hypothese implicite | suppose les courbes profondeur-dommage applicables localement | Tres haute | Faible | `backend/app/risk_engine/impact_functions_multi_hazard.py:82` | revue expert + scenarios alternatifs |
-| Systeme / interdependency | agregation multi-alea directe | `wind + rain + surge` avec cap | combine les dommages directs au point | Tres haute | Moyenne | `backend/app/risk_engine/climada_engine.py:296` | tester `additif`, `max`, et variantes prudentes |
-| Systeme / interdependency | cap par point a la valeur exposee | `min(value_eur, ...)` | empeche une perte superieure a la valeur de l'actif | Haute | Bonne | `backend/app/risk_engine/climada_engine.py:322` | conserver comme garde-fou, seulement documenter |
-| Systeme / interdependency | approximation `max_loss_by_point` | `eai_point * evt_max / sum_eai` | approxime le max loss par point pour les etats reseau | Tres haute | Faible | `backend/app/risk_engine/climada_engine.py:92` | priorite audit/correction |
-| Systeme / interdependency | seuils d'etat directs | `5% / 15% / 35%` | convertit le ratio de dommage en `S0-S3` | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:10` | expertiser rapidement |
-| Systeme / interdependency | poids de sante `health` | `0.3 / 0.7 / 1.0` | convertit les masses en etat de sante systeme | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:43` | tester des ponderations alternatives |
-| Systeme / interdependency | base de ponderation `L_total` | `value_eur` | pese les etats par valeur economique et non par service ou longueur | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:168`; `backend/app/risk_engine/interdependency.py:285` | comparer `valeur`, `km`, `service` |
-| Systeme / interdependency | maille territoriale electrique | `0.2 deg` | support spatial local pour resoudre la sante elec | Haute | Faible | `backend/app/risk_engine/exposure_to_climada.py:11`; `backend/app/risk_engine/exposure_to_climada.py:50` | tester `0.05/0.1/0.2` |
-| Systeme / interdependency | dependance eau -> elec | `all_water_assets_dependent = True` | suppose que tous les actifs eau dependent de l'electricite | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:386` | requalifier en convention prudente ou affiner par type d'actif |
-| Systeme / interdependency | regle de resolution sante elec | `local -> nearest -> global` | attribue une sante elec aux actifs eau | Haute | Faible | `backend/app/risk_engine/interdependency.py:81` | expertiser et ajouter un controle de distance max |
-| Systeme / interdependency | seuils `health -> dependency_state` | `0.75 / 0.55 / 0.35` | convertit la sante elec en etat de dependance | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:61` | expertiser rapidement |
-| Systeme / interdependency | `uplift_by_state` | `0% / 10% / 25% / 45%` | calcule l'EAI indirect eau a partir de l'etat de dependance | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:15`; `backend/app/risk_engine/interdependency.py:267` | priorite revue expert |
-| Systeme / interdependency | regle d'etat final eau | `max(direct, dependency)` | fixe l'etat final eau apres dependance | Haute | Moyenne | `backend/app/risk_engine/interdependency.py:263` | tester des regles alternatives |
-| Systeme / interdependency | `dependency_scaler` applique a `PML/max_event/TVaR` | `EAI_total / EAI_direct` | propage l'effet indirect aux metriques portefeuille | Tres haute | Faible | `backend/app/risk_engine/interdependency.py:378`; `backend/app/risk_engine/impact_runner.py:503` | priorite audit/correction |
-| Systeme / interdependency | valorisation OFB eau | valeurs OFB par territoire | convertit les dommages relatifs en euros sur les reseaux eau | Tres haute | Moyenne | `scripts/valuation_ofb.py:40` | expertiser avec gestionnaires locaux |
-| Systeme / interdependency | valorisation reseaux elec | valeurs fixes par classe | convertit les dommages relatifs en euros sur les reseaux elec | Haute | Moyenne | `scripts/valuation_ofb.py:70` | valider avec donnees locales |
-| Systeme / interdependency | valeurs ouvrages AEP | `TRAIT/STPMP/CAP/CUV/default` | convertit les dommages relatifs en euros pour les ouvrages AEP | Haute | Faible | `scripts/valuation_ofb.py:77` | revoir les valeurs par defaut et tracer leur provenance |
-| Numerique / proxy / publication | `sampling_spacing_m` backend | `100 m` | discretisation geometrique des expositions | Haute | Moyenne | `backend/app/config.py:44`; `backend/app/risk_engine/exposure_to_climada.py:232` | tester `50/100/250` |
-| Numerique / proxy / publication | `climada_max_points_per_feature` | `300` | cap de sampling par actif | Haute | Moyenne | `backend/app/config.py:67`; `backend/app/risk_engine/exposure_to_climada.py:234` | tester `100/300/1000` |
-| Numerique / proxy / publication | `climada_metric_crs` | `EPSG:3857` | CRS metrique utilise pour l'echantillonnage | Moyenne | Moyenne | `backend/app/config.py:66`; `backend/app/risk_engine/exposure_to_climada.py:248` | verifier un CRS local alternatif |
-| Numerique / proxy / publication | `storm_years` | `10000` | annualisation probabiliste des frequences du catalogue synthetique | Haute | Bonne | `backend/app/config.py:43`; `backend/app/risk_engine/hazard_loader.py:103` | traiter comme convention probabiliste a garder fixe sauf changement de catalogue |
-| Numerique / proxy / publication | `hazard_dynamic_max_tracks` | `1200` | cap numerique sur le nombre de tracks dynamiques | Moyenne | Bonne | `backend/app/config.py:55`; `backend/app/risk_engine/hazard_loader.py:406` | traiter comme reglage numerique et non comme hypothese scientifique |
-| Numerique / proxy / publication | `spatial_padding_deg` | `4.0 deg` | definit la fenetre spatiale de chargement des tracks | Moyenne | Moyenne | `backend/app/risk_engine/hazard_loader.py:71`; `backend/app/risk_engine/hazard_loader.py:621` | tester `2/4/6` |
-| Numerique / proxy / publication | densification petit echantillon de centroides | `threshold=50`, `step=0.01` | densifie artificiellement les petits jeux de points | Basse | Faible | `backend/app/risk_engine/hazard_loader.py:74`; `backend/app/risk_engine/hazard_loader.py:575` | classer explicitement comme convention numerique |
-| Numerique / proxy / publication | `hazard_track_cache_max_entries` | `8` | gere cache et memoire, pas la physique | Basse | Bonne | `backend/app/config.py:56`; `backend/app/risk_engine/hazard_loader.py:73` | sortir de la sensibilite scientifique |
-| Numerique / proxy / publication | selection source hazard | `dynamic parquet preferred`, `HDF5 fallback` | choisit la source des aleas | Moyenne | Moyenne | `backend/app/config.py:50`; `backend/app/config.py:51` | geler une source unique par campagne |
-| Numerique / proxy / publication | `climada_top_events_count` | `20` | nombre d'evenements restitues en sortie | Basse | Bonne | `backend/app/config.py:68` | classer comme convention de restitution |
-| Numerique / proxy / publication | `map_cell_deg` cas d'etude | `0.02 deg` | resolution des cartes web | Basse | Bonne | `scripts/rerun_case_studies_light.py:68` | convention de publication |
-| Numerique / proxy / publication | `map_surge_native_cell_deg` cas d'etude | `0.01 deg` | resolution fine de submersion pour l'affichage | Basse | Bonne | `scripts/rerun_case_studies_light.py:70` | convention de publication |
-| Numerique / proxy / publication | `map_dynamic_max_tracks` cas d'etude | `300` | cap tracks pour cartes front | Basse | Bonne | `scripts/rerun_case_studies_light.py:69` | convention de publication |
-| Numerique / proxy / publication | `proxy_spacing_m` | `800 m` | sampling du proxy multi-alea des pages | Basse | Faible | `scripts/rerun_case_studies_light.py:63` | ne pas confondre avec la sensibilite du backend central |
-| Numerique / proxy / publication | `proxy_max_points_total` | `800` | cap global du proxy front | Basse | Bonne | `scripts/rerun_case_studies_light.py:64` | convention de publication |
-| Numerique / proxy / publication | `proxy_max_points_per_feature` | `8` | cap par actif du proxy front | Basse | Bonne | `scripts/rerun_case_studies_light.py:65` | convention de publication |
-| Numerique / proxy / publication | `proxy_dynamic_max_tracks` | `100` | cap tracks pour le proxy front | Basse | Bonne | `scripts/rerun_case_studies_light.py:66` | convention de publication |
-| Numerique / proxy / publication | `component_ratios` proxy | derives du rerun/proxy | repartition `wind/rain/surge` dans les pages web | Basse | Faible | `scripts/build_guadeloupe_page1_data.py:930` | traiter comme sortie proxy et non comme hypothese coeur |
-| Numerique / proxy / publication | `breakdown_shares` proxy | derives du rerun/proxy | repartition des classes de dommages dans les pages web | Basse | Faible | `scripts/build_guadeloupe_page1_data.py:1143` | traiter comme sortie proxy et non comme hypothese coeur |
-| Numerique / proxy / publication | `global_multipliers` proxy | derives du rerun/proxy | ajuste les pertes affichees dans les pages web | Basse | Faible | `scripts/build_guadeloupe_page1_data.py:1157` | traiter comme convention de publication |
+Le tableau ci-dessous ne conserve que les scenarios automatisables et supportes dans les packs de sensibilite actuels. Les hypotheses non encodees en scenario supporte sont retirees du tableau de campagne: elles restent des sujets d'audit ou d'expertise, mais ne font pas partie des 27 scenarios testables.
 
-## Lecture prioritaire proposee
+| Categorie | Scenario testable (`scenario_id`) | Parametre | Valeur / profil teste | Execution | Repris default pack V2 | Commentaire |
+| --- | --- | --- | --- | --- | --- | --- |
+| Reference | `all-default` | baseline | Parametres courants de la chaine `complete-analysis` | `full_rerun` | Oui | Reference du run V2 |
+| Vulnerabilite | `vulnerability_curves_profile-elec-flood-moderate` | `vulnerability_curves_profile` | Courbes flood elec -> `F14.4`; autres mappings flood inchanges | `full_rerun` | Oui | Ajoute au V2; teste une reponse flood electrique moderee |
+| Vulnerabilite | `vulnerability_curves_profile-elec-flood-stress` | `vulnerability_curves_profile` | Courbes flood elec -> `F17.5`; autres mappings flood inchanges | `full_rerun` | Oui | Ajoute au V2; stress test flood electrique |
+| Vulnerabilite | `vulnerability_curves_profile-elec-wind-underground-exposed` | `vulnerability_curves_profile` | Elec souterrain vent: BT -> `W3.10`, HTA -> `W3.14` | `full_rerun` | Oui | Ajoute au V2; stress test proxy des cables souterrains |
+| Vulnerabilite | `runoff_coeff-0-1` | `runoff_coeff` | `multi_hazard_rain_base_runoff_coeff = 0.1` | `full_rerun` | Oui | Conserve car variation significative observee |
+| Vulnerabilite | `runoff_coeff-0-5` | `runoff_coeff` | `multi_hazard_rain_base_runoff_coeff = 0.5` | `full_rerun` | Oui | Conserve car variation significative observee |
+| Systeme / interdependency | `direct_state_thresholds-10-20-40` | `direct_state_thresholds` | Seuils directs `10% / 20% / 40%` | `postprocess_rerun` | Oui | Conserve car variation d'etats reseau significative |
+| Systeme / interdependency | `direct_state_thresholds-10-15-50` | `direct_state_thresholds` | Seuils directs `10% / 15% / 50%` | `postprocess_rerun` | Oui | Conserve car variation d'etats reseau significative |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-50` | `hazard_dynamic_max_tracks` | `50` tracks + manifest `sample_0050` | `full_rerun` | Oui | Ajoute au V2 avec echantillon coherent |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-100` | `hazard_dynamic_max_tracks` | `100` tracks + manifest `sample_0100` | `full_rerun` | Oui | Conserve dans le V2 avec echantillon coherent |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-800` | `hazard_dynamic_max_tracks` | `800` tracks + manifest `sample_0800` | `full_rerun` | Oui | Conserve dans le V2 avec echantillon coherent |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-5000` | `hazard_dynamic_max_tracks` | `5000` tracks + manifest `sample_5000` | `full_rerun` | Oui | Ajoute au V2 avec echantillon coherent |
+| Systeme / interdependency | `territory_grid_deg-0-05` | `territory_grid_deg` | `0.05 deg` | `full_rerun` | Oui | Conserve par decision explicite malgre influence faible |
+| Systeme / interdependency | `territory_grid_deg-0-1` | `territory_grid_deg` | `0.1 deg` | `full_rerun` | Oui | Conserve par decision explicite malgre influence faible |
+| Systeme / interdependency | `health_weights-0-3-1-1-0` | `health_weights` | Poids sante `0.3 / 1.0 / 1.0` | `postprocess_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Systeme / interdependency | `health_weights-0-3-0-5-5` | `health_weights` | Poids sante `0.3 / 0.5 / 5.0` | `postprocess_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Systeme / interdependency | `dependency_state_thresholds-0-5-0-30-0-15` | `dependency_state_thresholds` | Seuils `health -> dependency_state`: `0.50 / 0.30 / 0.15` | `postprocess_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Systeme / interdependency | `dependency_state_thresholds-0-90-0-75-0-55` | `dependency_state_thresholds` | Seuils `health -> dependency_state`: `0.90 / 0.75 / 0.55` | `postprocess_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Physique alea | `max_dist_inland_km-200` | `max_dist_inland_km` | `hazard_rain_max_dist_inland_km = 200` | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Physique alea | `max_dist_inland_km-1000` | `max_dist_inland_km` | `hazard_rain_max_dist_inland_km = 1000` | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-500` | `hazard_dynamic_max_tracks` | `500` tracks | `full_rerun` | Non | Testable hors pack; remplace dans V2 par la grille `50 / 100 / 800 / 5000` |
+| Numerique / proxy / publication | `hazard_dynamic_max_tracks-1000` | `hazard_dynamic_max_tracks` | `1000` tracks | `full_rerun` | Non | Testable hors pack; remplace dans V2 par la grille `50 / 100 / 800 / 5000` |
+| Numerique / proxy / publication | `default_sampling_spacing_m-50` | `default_sampling_spacing_m` | `sampling_spacing_m = 50 m` | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Numerique / proxy / publication | `default_sampling_spacing_m-250` | `default_sampling_spacing_m` | `sampling_spacing_m = 250 m` | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Numerique / proxy / publication | `climada_max_points_per_feature-100` | `climada_max_points_per_feature` | `100` points max par actif | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Numerique / proxy / publication | `climada_max_points_per_feature-500` | `climada_max_points_per_feature` | `500` points max par actif | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
+| Numerique / proxy / publication | `climada_max_points_per_feature-1000` | `climada_max_points_per_feature` | `1000` points max par actif | `full_rerun` | Non | Testable hors pack; evacue du V2 pour faible influence observee |
 
-Pour une premiere campagne de sensibilite, les parametres a traiter en priorite sont:
+Lecture actuelle:
 
-1. `runoff_coeff = 0.25`
-2. les mappings `asset_type -> courbes` vent et flood
-3. le choix du modele pluie (`R-CLIPER` vs `TCR`)
-4. le DEM et le choix `TCSurgeBathtub`
-5. l'approximation `max_loss_by_point`
-6. les seuils d'etat `5/15/35`
-7. les poids de `health`
-8. les seuils `health -> dependency_state`
-9. les `uplift_by_state`
-10. l'hypothese `all_water_assets_dependent`
-11. la resolution `local -> nearest -> global`
-12. les valeurs economiques `EUR/km` et `EUR/unite`
-13. `sampling_spacing_m` et `max_points_per_feature`
-14. le scaling global `dependency_scaler` applique a `PML/max_event/TVaR`
+- le default pack V2 relance les 14 lignes marquees `Oui`;
+- les 13 lignes marquees `Non` restent techniquement supportees, mais ne sont plus dans la campagne par defaut;
+- les anciens sujets non representes ici (`storm_env_pressure_hpa`, `hazard_rain_model`, DEM de submersion, `uplift_by_state`, valeurs economiques, parametres proxy front, etc.) ne sont pas des scenarios automatises retenus dans les packs actuels et sont donc retires de la matrice de sensibilite testable.
 
 ## Point de methode
 

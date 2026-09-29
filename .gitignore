@@ -1,5 +1,8 @@
 .DS_Store
 node_modules/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
 backend/.venv/
 backend/.venv-test/
 backend/**/__pycache__/
@@ -8,3 +11,4 @@ config/systemd/sib-risk-api.env
 /data/
 /logs/
 /outputs/
+/results/

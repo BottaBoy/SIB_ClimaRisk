@@ -1,0 +1,25 @@
+Post-check generated_at_utc=20260727T125159Z
+dry_run=/home/ubuntu/sib-work/cleanup-manifests/purge-outputs-20260727T124924Z.dry-run.txt
+paths_file=/home/ubuntu/sib-work/cleanup-manifests/purge-outputs-20260727T124924Z.paths
+executed=/home/ubuntu/sib-work/cleanup-manifests/purge-outputs-20260727T125015Z.executed.txt
+
+SIZES
+8.9G	/home/ubuntu/sib-work/outputs
+7.1G	/home/ubuntu/sib-work/outputs/complete-analysis-runs
+268M	/home/ubuntu/sib-work/outputs/hazard-comparison-runs
+13M	/home/ubuntu/sib-work/outputs/sensitivity-runs
+357M	/home/ubuntu/sib-work/outputs/Graphs
+61M	/home/ubuntu/sib-work/outputs/Échantillons Tracks_NA_Guadeloupe
+183M	/home/ubuntu/sib-work/outputs/na_wind_maps_20260310
+164M	/home/ubuntu/sib-work/outputs/na_wind_maps_20260327
+140M	/home/ubuntu/sib-work/outputs/si_wind_maps_20260327
+118M	/home/ubuntu/sib-work/outputs/hydraulic_zoning
+
+FILESYSTEM
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        72G   57G   16G  79% /
+
+required_missing_count=0
+v1_missing_payload_refs=0
+v2_children_remaining=18 20260723_124520,20260723_125706,20260723_130313,20260723_132923,20260723_134236,20260723_231730,20260724_085239,20260724_085340,20260724_182913,20260725_040022,20260725_040224,20260725_133913,20260725_232137,20260726_085541,20260726_183406,20260726_190621,20260726_195807,20260727_011818
+delete_candidates_still_existing=0

@@ -58,6 +58,8 @@ ASSET_TYPE_ALIASES = {
     "eau_aep_ouvrage_cap": "eau_aep_ouvrage_cap",
     "aep_ouvrage_cuv": "eau_aep_ouvrage_cuv",
     "eau_aep_ouvrage_cuv": "eau_aep_ouvrage_cuv",
+    "aep_ouvrage_ouveb": "eau_aep_ouvrage_ouveb",
+    "eau_aep_ouvrage_ouveb": "eau_aep_ouvrage_ouveb",
     "aep_ouvrage_autres": "eau_aep_ouvrage_na",
     "eau_aep_ouvrage_na": "eau_aep_ouvrage_na",
 }
@@ -218,6 +220,9 @@ def _feature_from_geojson_feature(
     extra: dict[str, Any] = {}
     if asset_type_field and asset_type_field in props:
         extra["asset_type"] = _normalize_asset_type(props[asset_type_field], strict=True)
+    for key in ("population", "population_count", "population_exposed", "habitants"):
+        if key in props:
+            extra[key] = props[key]
     _apply_valuation_metadata(extra, uses_default_value=False, valuation_source=f"input:{value_field}")
     if exposure_category_field and exposure_category_field in props:
         category_raw = props[exposure_category_field]
@@ -261,9 +266,7 @@ def ingest_drawn_geojson(
         raise InputValidationError("drawn_geojson contains no features")
 
     features: list[NormalizedFeature] = []
-    warnings: list[str] = [
-        "Drawn exposure uses default values when value_eur is not provided in GeoJSON properties."
-    ]
+    warnings: list[str] = []
 
     for idx, feat in enumerate(features_raw):
         if not isinstance(feat, dict) or feat.get("type") != "Feature":
@@ -284,6 +287,9 @@ def ingest_drawn_geojson(
         extra_props: dict[str, Any] = {}
         if props.get("asset_type") is not None:
             extra_props["asset_type"] = props.get("asset_type")
+        for key in ("population", "population_count", "population_exposed", "habitants"):
+            if key in props:
+                extra_props[key] = props[key]
         _apply_valuation_metadata(
             extra_props,
             uses_default_value=uses_default_value,
@@ -307,7 +313,9 @@ def ingest_drawn_geojson(
             )
         )
 
-    _append_default_value_summary_warning(warnings, features)
+    if any(bool((feature.properties or {}).get("uses_default_value")) for feature in features):
+        warnings.insert(0, "Drawn exposure uses default values when value_eur is not provided in GeoJSON properties.")
+        _append_default_value_summary_warning(warnings, features)
 
     return NormalizedExposure(
         source_name="drawn_geojson",
@@ -461,6 +469,9 @@ def _ingest_csv(
         except InputValidationError as exc:
             _append_row_error(row_errors, feature_id=feature_id, column=asset_type_field, detail=str(exc))
             continue
+        for key in ("population", "population_count", "population_exposed", "habitants"):
+            if key in row:
+                props[key] = row[key]
         _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         category_raw = row.get(exposure_category_field) if exposure_category_field else None
         try:
@@ -615,6 +626,9 @@ def _ingest_gpkg(
         geom = row.geometry
         raw_asset_type = row.get(asset_type_field) if asset_type_field and asset_type_field in row else None
         props = {"asset_type": _normalize_asset_type(raw_asset_type, strict=True)} if raw_asset_type not in (None, "") else {}
+        for key in ("population", "population_count", "population_exposed", "habitants"):
+            if key in row and row.get(key) not in (None, ""):
+                props[key] = row.get(key)
         _apply_valuation_metadata(props, uses_default_value=False, valuation_source=f"input:{value_field}")
         features.append(
             NormalizedFeature(

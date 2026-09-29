@@ -46,7 +46,7 @@ class JobStore:
     def create_job(self, *, params: dict[str, Any]) -> JobEnvelope:
         with self._lock:
             now = self._now()
-            job_id = f"jr_{now.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(3)}"
+            job_id = f"jr_{now.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(12)}"
             job_dir = self._job_dir(job_id)
             job_dir.mkdir(parents=True, exist_ok=False)
             self._job_artifacts_dir(job_id).mkdir(parents=True, exist_ok=True)
@@ -123,6 +123,9 @@ class JobStore:
         self._write_json(path, result)
         return path
 
+    def result_path(self, job_id: str) -> Path:
+        return self._job_result_path(job_id)
+
     def get_result(self, job_id: str) -> dict[str, Any]:
         path = self._job_result_path(job_id)
         if not path.exists():
@@ -134,6 +137,11 @@ class JobStore:
         target = self._job_artifacts_dir(job_id) / safe_name
         target.write_bytes(content)
         return target
+
+    def artifacts_dir(self, job_id: str) -> Path:
+        path = self._job_artifacts_dir(job_id)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def artifact_path(self, job_id: str, name: str) -> Path:
         safe_name = Path(name).name

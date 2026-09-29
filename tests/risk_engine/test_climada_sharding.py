@@ -75,10 +75,10 @@ def test_plan_exposure_shards_groups_and_caps_points():
     ]
     assert [shard.territory_id for shard in shards] == ["gua-a", "gua-a", "gua-a", "mar-b"]
     assert [shard.infra_class for shard in shards] == [
-        "elec_aerien",
-        "elec_aerien",
-        "eau_reseau",
-        "elec_aerien",
+        "elec_aerien:electric",
+        "elec_aerien:electric",
+        "eau_reseau:water",
+        "elec_aerien:electric",
     ]
 
 

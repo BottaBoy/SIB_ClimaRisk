@@ -3725,7 +3725,6 @@ def build_graphs_for_territory(
     bundle: TerritoryPayload,
     selected_hazards: list[str],
 ) -> list[GraphSpec]:
-    territory_name = _display_territory_name(territory)
     payload = bundle.payload
     graphs: list[GraphSpec] = []
     graphs.append(build_hazard_metric_scorecard(territory, payload, selected_hazards))
@@ -6063,17 +6062,13 @@ def _thin_zoomed_surface_network_geometries(gdf: Any) -> Any:
 
 
 def _add_light_basemap(ax: Any) -> None:
+    ax.set_facecolor("#d7e1e5")
     try:
         import contextily as cx
     except Exception:
         return
     try:
-        cx.add_basemap(
-            ax,
-            source=cx.providers.CartoDB.Positron,
-            attribution=False,
-            zoom="auto",
-        )
+        cx.add_basemap(ax, source=cx.providers.Esri.WorldGrayCanvas, attribution=False, zoom="auto")
     except Exception:
         return
 

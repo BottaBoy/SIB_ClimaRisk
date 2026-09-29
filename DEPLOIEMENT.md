@@ -16,6 +16,7 @@ Cette procedure s'applique a toute modification de contenu web, notamment:
 - Les vhosts nginx public/prive servent depuis un **root partage**: `/var/www/sib.shared.elio.dev`.
 - Domaine public attendu: `sib.elio.dev` (mode vitrine, sans API).
 - Domaine prive attendu: `app.sib.elio.dev` (collaborateurs, avec API).
+- Alias SIB Work actuels a verifier apres ce changement: `sib.dev.elio.bottagisio.com` et `visu.sib.dev.elio.bottagisio.com`.
 
 ## Etapes standard
 
@@ -77,9 +78,17 @@ Cette procedure reste orientee **deploiement web statique** uniquement.
 
 Pour le backend, prevoir en plus:
 - creation d'un environnement Python dedie (`backend/.venv`) avec dependances geospatiales/CLIMADA
+- configuration de `SIB_RISK_DB_PATH=/var/lib/sib-risk/sib.sqlite3`
+- bootstrap idempotent du compte `super_admin` avec `backend/scripts/bootstrap_super_admin.py`
 - activation du service `sib-risk-api.service`
+- ne pas installer de worker Complete Analysis: les calculs 1 500 tracks ne sont pas exposes par le site
 - activation du timer `sib-risk-cleanup.timer`
 - verification de `GET /api/v1/health` (via le proxy nginx `/api/` ou directement en local)
+- verification des routes d'application:
+  - `GET /api/v1/auth/me`
+  - `POST /api/v1/runs/quick`
+  - `POST /api/v1/runs/complete` et l'ancienne route `POST /api/v1/runs` sont absentes
+  - `GET /api/v1/admin/users` refuse sans role admin
 
 ## Process publication des runs SIB
 

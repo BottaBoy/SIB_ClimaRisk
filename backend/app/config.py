@@ -99,10 +99,19 @@ class Settings:
     app_name: str = "SIB Cyclone Risk API"
     api_prefix: str = "/api/v1"
     job_root: Path = Path("/tmp/sib-risk-jobs")
-    job_ttl_hours: int = 24
-    max_runs_kept: int = 10
+    db_path: Path = Path("/tmp/sib-risk/sib.sqlite3")
+    job_ttl_hours: int = 168
+    max_runs_kept: int = 500
     max_upload_mb: int = 50
-    worker_concurrency: int = 1
+    quick_max_upload_mb: int = 10
+    quick_max_features: int = 2000
+    quick_rate_limit_per_hour: int = 60
+    login_rate_limit_per_15m: int = 5
+    user_impact_surfaces_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "user-impact-surfaces.json"
+    session_cookie_name: str = "sib_session"
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
+    session_ttl_hours: int = 12
     demo_result_path: Path = Path(__file__).resolve().parents[2] / "web" / "data" / "guadeloupe-complete-analysis.json"
     storm_years: int = 10000
     default_sampling_spacing_m: float = 100.0
@@ -165,6 +174,8 @@ class Settings:
     interdependency_uplift_s2: float = 0.25
     interdependency_uplift_s3: float = 0.45
     cors_allowed_origins: tuple[str, ...] = (
+        "https://sib.elio.dev",
+        "https://visu.sib.dev.elio.bottagisio.com",
         "https://app.sib.elio.dev",
         "https://sib.dev.elio.bottagisio.com",
     )
@@ -174,6 +185,7 @@ def load_settings() -> Settings:
     env = os.environ
 
     job_root = Path(env.get("SIB_RISK_JOB_ROOT", "/tmp/sib-risk-jobs"))
+    db_path = Path(env.get("SIB_RISK_DB_PATH", "/tmp/sib-risk/sib.sqlite3"))
     demo_result_path = Path(
         env.get(
             "SIB_RISK_DEMO_RESULT_PATH",
@@ -278,10 +290,24 @@ def load_settings() -> Settings:
         app_name=env.get("SIB_RISK_APP_NAME", "SIB Cyclone Risk API"),
         api_prefix=env.get("SIB_RISK_API_PREFIX", "/api/v1"),
         job_root=job_root,
-        job_ttl_hours=int(env.get("SIB_RISK_JOB_TTL_HOURS", "24")),
-        max_runs_kept=max(1, int(env.get("SIB_RISK_MAX_RUNS_KEPT", "10"))),
+        db_path=db_path,
+        job_ttl_hours=int(env.get("SIB_RISK_JOB_TTL_HOURS", "168")),
+        max_runs_kept=max(1, int(env.get("SIB_RISK_MAX_RUNS_KEPT", "500"))),
         max_upload_mb=int(env.get("SIB_RISK_MAX_UPLOAD_MB", "50")),
-        worker_concurrency=int(env.get("SIB_RISK_WORKER_CONCURRENCY", "1")),
+        quick_max_upload_mb=int(env.get("SIB_RISK_QUICK_MAX_UPLOAD_MB", "10")),
+        quick_max_features=int(env.get("SIB_RISK_QUICK_MAX_FEATURES", "2000")),
+        quick_rate_limit_per_hour=int(env.get("SIB_RISK_QUICK_RATE_LIMIT_PER_HOUR", "60")),
+        login_rate_limit_per_15m=int(env.get("SIB_RISK_LOGIN_RATE_LIMIT_PER_15M", "5")),
+        user_impact_surfaces_path=Path(
+            env.get(
+                "SIB_RISK_USER_IMPACT_SURFACES_PATH",
+                str(Path(__file__).resolve().parents[2] / "web" / "data" / "user-impact-surfaces.json"),
+            )
+        ),
+        session_cookie_name=str(env.get("SIB_RISK_SESSION_COOKIE_NAME", "sib_session")).strip() or "sib_session",
+        session_cookie_secure=_env_bool(env, "SIB_RISK_SESSION_COOKIE_SECURE", False),
+        session_cookie_samesite=str(env.get("SIB_RISK_SESSION_COOKIE_SAMESITE", "lax")).strip().lower() or "lax",
+        session_ttl_hours=int(env.get("SIB_RISK_SESSION_TTL_HOURS", "12")),
         demo_result_path=demo_result_path,
         storm_years=int(env.get("SIB_RISK_STORM_YEARS", "10000")),
         default_sampling_spacing_m=float(env.get("SIB_RISK_DEFAULT_SAMPLING_SPACING_M", "100")),
@@ -349,6 +375,8 @@ def load_settings() -> Settings:
             env,
             "SIB_RISK_CORS_ALLOWED_ORIGINS",
             (
+                "https://sib.elio.dev",
+                "https://visu.sib.dev.elio.bottagisio.com",
                 "https://app.sib.elio.dev",
                 "https://sib.dev.elio.bottagisio.com",
             ),
